@@ -60,6 +60,13 @@ def intel_cpu(cpuinfo='/proc/cpuinfo'):
 SKIP_NETWORK_CHOICE='Skip Online/Offline Choice'
 
 
+def language_patches(env=os.environ):
+    # CUSA03173 includes zhocn/zhotw text, but hides it behind its region check.
+    # Reuse the existing 1.09 community patch; never rewrite the game extraction.
+    return ['Unlock Game Region'] if env.get('BB_LANGUAGE') in ('10', '11') else []
+
+
+
 def skip_network_choice(env=os.environ):
     return env.get('BB_SKIP_NETWORK_CHOICE','1')!='0'
 
@@ -347,6 +354,7 @@ def main():
         names.append(INTEL_TONEMAP)
     if skip_network_choice() and SKIP_NETWORK_CHOICE not in names:
         names.append(SKIP_NETWORK_CHOICE)
+    names += [name for name in language_patches() if name not in names]
     names=validate_patch_requirements(names,a.game_dir)
     segments=eboot_segments((a.out/'eboot.elf').read_bytes())
     writes=compile_patches(a.xml,names,a.app_version,segments)

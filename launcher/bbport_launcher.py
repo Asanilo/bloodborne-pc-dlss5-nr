@@ -30,6 +30,8 @@ PORT_DIR = Path(__file__).resolve().parent.parent  # native_probe (or the packag
 sys.path.insert(0, str(PORT_DIR / 'scripts'))
 from mods import discover as discover_mods  # noqa: E402
 import game_check  # noqa: E402
+import save_manager  # noqa: E402
+import manager_entries  # noqa: E402
 from patches import external_patches  # noqa: E402
 # Packaged (AppImage): generated files, saves and bbport.ini live in BB_DATA_DIR.
 PACKAGED = bool(os.environ.get("BB_PREBUILT"))
@@ -106,7 +108,8 @@ PRESENT_MODES = [("Mailbox", "Mailbox"), ("FIFO (VSync)", "Fifo"),
 DRAW_PIPE = [("Авто", "", "Включён при 8 и более потоках процессора"), ("Включён", "1"),
              ("Выключен", "0", "Стабильнее, но медленнее")]
 LANGUAGES = [("Английский", "1"), ("Русский", "8"), ("Японский", "0"), ("Французский", "2"),
-             ("Испанский", "3"), ("Немецкий", "4"), ("Итальянский", "5")]
+             ("Испанский", "3"), ("Немецкий", "4"), ("Итальянский", "5"),
+             ("Simplified Chinese (game text)", "11"), ("Traditional Chinese (game text)", "10")]
 LIVE_RESOLUTION = [("Авто (по видеокарте)", "auto"), ("Выключена (быстрее)", "0"), ("Включена", "1")]
 READBACKS = [("Relaxed", "", "По умолчанию"), ("Выключены", "0"), ("Precise", "2")]
 # Background pre-upload of the game's GPU memory into VRAM (BB_PREUPLOAD): auto = on with a discrete GPU.
@@ -146,8 +149,12 @@ DEFAULTS = {
 
 # bbport.ini keys the launcher edits; the rest of the file is kept.
 INI_DEFAULTS = {
-    "upscaler": "fsr4",
-    "preset": "4",
+    "mouse_capture": "1",
+    "mouse_sensitivity": "1.0",
+    "mouse_invert_y": "0",
+    "keyboard_look_speed": "1.0",
+    "upscaler": "fsr3",
+    "preset": "1",
     "sharpen": "1",
     "sharpness": "0.50",
     "object_motion": "1",
@@ -342,17 +349,17 @@ def combo_value(row):
 # Controls (runtime_pad.c): input, label, default keyboard keys, default gamepad buttons (SDL names).
 # bbport.ini key.<input>= / pad.<input>= replace a default; no line keeps it.
 CONTROLS = [
-    ("cross", "Крест", "Space", "a"),
+    ("cross", "Крест", "Space, Keypad Enter", "a"),
     ("circle", "Круг", "Left Shift", "b"),
     ("square", "Квадрат", "E", "x"),
     ("triangle", "Треугольник", "Q", "y"),
     ("l1", "L1", "1", "leftshoulder"),
-    ("r1", "R1", "3", "rightshoulder"),
-    ("l2", "L2", "R", "lefttrigger"),
-    ("r2", "R2", "F", "righttrigger"),
+    ("r1", "Light attack (R1)", "3, MouseLeft", "rightshoulder"),
+    ("l2", "Shoot / left-hand attack (L2)", "R, MouseRight", "lefttrigger"),
+    ("r2", "Heavy attack (R2)", "F", "righttrigger"),
     ("l3", "L3", "Z", "leftstick"),
-    ("r3", "R3", "C", "rightstick"),
-    ("options", "Options", "Return", "start"),
+    ("r3", "Lock on (R3)", "C, MouseMiddle", "rightstick"),
+    ("options", "Game menu (Options)", "Escape, Return", "start"),
     ("touchpad", "Тачпад, левая половина (жесты)", "Tab", "back, touchpad"),
     ("touchpad_right", "Тачпад, правая половина (личные вещи)", "Backspace", ""),
     ("up", "Крестовина вверх", "I", "dpup"),
@@ -367,6 +374,7 @@ CONTROLS = [
     ("look_down", "Камера вниз", "Down", None),
     ("look_left", "Камера влево", "Left", None),
     ("look_right", "Камера вправо", "Right", None),
+    ("walk", "Hold to walk slowly", "Left Ctrl", None),
 ]
 
 
@@ -499,6 +507,21 @@ class LauncherWindow(Adw.ApplicationWindow):
                                       self.on_reset_user)
         self.user_row.add_suffix(self.user_reset)
         game.add(self.user_row)
+        names = [p.name for p in save_manager.snapshots(self.user_dir())]
+        self.backup_row = Adw.ComboRow(title=tr("Save backups"),
+            subtitle=tr("Restore after exit; current saves are backed up first"),
+            model=Gtk.StringList.new(names or [tr("No backups yet")]))
+        self.backup_row.values = names or [""]
+        self.backup_row.add_suffix(flat_button("view-refresh-symbolic", tr("Refresh"), self.refresh_backups))
+        self.backup_row.add_suffix(flat_button("document-revert-symbolic", tr("Restore selected backup"), self.restore_backup))
+        game.add(self.backup_row)
+        logs = Adw.ActionRow(title=tr("Logs and frame times"))
+        logs.add_suffix(flat_button("folder-open-symbolic", tr("Open logs folder"),
+                                   lambda _b: open_folder(self, DATA_DIR / "logs")))
+        game.add(logs)
+        managers = Adw.ActionRow(title=tr("Steam / Lutris"), subtitle=tr("Native Linux; uses launch.sh --play"))
+        managers.add_suffix(flat_button("document-save-symbolic", tr("Export manager entries"), self.export_managers))
+        game.add(managers)
         self.language_row = combo_row(tr("Язык системы"), None, LANGUAGES, self.settings["language"])
         game.add(self.language_row)
         page.add(game)
@@ -601,6 +624,27 @@ class LauncherWindow(Adw.ApplicationWindow):
                 self.control_rows[(kind, name)] = (row, default)
                 self.show_control(kind, name)
             controls.add(expander)
+        self.mouse_capture_row = Adw.SwitchRow(title=tr("Capture mouse during play"),
+            subtitle=tr("Released in settings or on focus loss; applied at next launch"), active=self.ini["mouse_capture"] != "0")
+        controls.add(self.mouse_capture_row)
+        self.mouse_invert_row = Adw.SwitchRow(title=tr("Invert mouse Y"), active=self.ini["mouse_invert_y"] != "0")
+        controls.add(self.mouse_invert_row)
+        self.mouse_sensitivity_row = Adw.SpinRow.new_with_range(0.05, 10.0, 0.05)
+        self.mouse_sensitivity_row.set_title(tr("Mouse sensitivity (next launch)"))
+        self.mouse_sensitivity_row.set_digits(2)
+        self.mouse_sensitivity_row.set_value(float(self.ini["mouse_sensitivity"]))
+        controls.add(self.mouse_sensitivity_row)
+        self.keyboard_speed_row = Adw.SpinRow.new_with_range(0.1, 1.0, 0.05)
+        self.keyboard_speed_row.set_title(tr("Keyboard camera speed (next launch)"))
+        self.keyboard_speed_row.set_digits(2)
+        self.keyboard_speed_row.set_value(float(self.ini["keyboard_look_speed"]))
+        controls.add(self.keyboard_speed_row)
+        presets = Adw.ActionRow(title=tr("Control presets"))
+        for title, legacy in (("Keyboard + mouse", False), ("Legacy keyboard", True)):
+            button = Gtk.Button(label=tr(title), valign=Gtk.Align.CENTER)
+            button.connect("clicked", lambda _b, old=legacy: self.reset_controls(old))
+            presets.add_suffix(button)
+        controls.add(presets)
         page.add(controls)
 
         upscaler = Adw.PreferencesGroup(
@@ -847,6 +891,42 @@ class LauncherWindow(Adw.ApplicationWindow):
             self.store()
         self.choose_folder(tr("Папка игры (с eboot.bin)"), self.game_dir(), chosen)
 
+    def export_managers(self, *_):
+        root = Path(os.environ.get("BB_INSTALL_ROOT", str(DATA_DIR.parent)))
+        try:
+            desktop, installer = manager_entries.export(root, root / "managers")
+            self.alert(tr("Steam / Lutris"), tr("Steam: add launch.sh as a non-Steam game, with --play as launch options. Leave compatibility tools disabled. Lutris: import the generated local installer.") +
+                       f"\n\n{desktop}\n{installer}")
+            open_folder(self, desktop.parent)
+        except (OSError, ValueError) as error:
+            self.alert(tr("Export manager entries"), str(error))
+
+    def refresh_backups(self, *_):
+        choices = [p.name for p in save_manager.snapshots(self.user_dir())]
+        self.backup_row.values = choices or [""]
+        self.backup_row.set_model(Gtk.StringList.new(choices or [tr("No backups yet")]))
+
+    def restore_backup(self, *_):
+        name = combo_value(self.backup_row)
+        if not name:
+            return
+        try:
+            result = save_manager.request_restore(self.user_dir(), name)
+            self.alert(tr("Save restore"), tr(result))
+            self.refresh_backups()
+        except (OSError, ValueError, KeyError) as error:
+            self.alert(tr("Save restore failed"), str(error))
+
+    def reset_controls(self, legacy):
+        for (kind, name), (_row, default) in self.control_rows.items():
+            self.ini[f"{kind}.{name}"] = (", ".join(x.strip() for x in default.split(",")
+                if not x.strip().startswith("Mouse")) if kind == "key" and legacy else None)
+            if legacy and kind == "key" and name in ("cross", "circle", "walk", "options"):
+                self.ini[f"key.{name}"] = {"cross": "Space", "circle": "Left Shift", "walk": "", "options": "Return"}[name]
+            self.show_control(kind, name)
+        self.mouse_capture_row.set_active(not legacy)
+        self.store()
+
     def show_control(self, kind, name):
         row, default = self.control_rows[(kind, name)]
         value = self.ini.get(f"{kind}.{name}")
@@ -857,6 +937,15 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def set_control(self, kind, name, value):
         """value: the binding, or None for the default."""
+        if value:
+            pressed = {x.strip().casefold() for x in value.split(",")}
+            conflicts = [tr(next(c[1] for c in CONTROLS if c[0] == other))
+                for (k, other), (_row, default) in self.control_rows.items()
+                if k == kind and other != name and pressed.intersection(
+                    x.strip().casefold() for x in (self.ini.get(f"{k}.{other}")
+                    if self.ini.get(f"{k}.{other}") is not None else default).split(","))]
+            if conflicts:
+                self.alert(tr("Binding conflict"), tr("Also assigned to: ") + ", ".join(conflicts))
         self.ini[f"{kind}.{name}"] = value
         self.show_control(kind, name)
         self.store()
@@ -945,6 +1034,10 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.save_patch_profile()
         save_settings(s)
         self.ini.update({
+            "mouse_capture": "1" if self.mouse_capture_row.get_active() else "0",
+            "mouse_invert_y": "1" if self.mouse_invert_row.get_active() else "0",
+            "mouse_sensitivity": f"{self.mouse_sensitivity_row.get_value():.2f}",
+            "keyboard_look_speed": f"{self.keyboard_speed_row.get_value():.2f}",
             "upscaler": combo_value(self.upscaler_row),
             "preset": str(combo_value(self.preset_row)),
             "sharpen": "1" if self.sharpen_row.get_active() else "0",
@@ -1203,6 +1296,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.process = None
         self.update_launch_button()
         self.update_game_status()
+        self.refresh_backups()
         self.append_log(tr("\n— игра завершилась (код {}) —\n").format(status))
 
     def on_close(self, _window):

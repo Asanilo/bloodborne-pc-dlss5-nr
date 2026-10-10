@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+<rect width="256" height="256" rx="40" fill="#15191d"/>
+<circle cx="128" cy="110" r="68" fill="none" stroke="#9b4046" stroke-width="3"/>
+<path d="M128 36v166M83 69l90 90M173 69l-90 90M96 202h64" stroke="#d8d0bf" stroke-width="9" fill="none"/>
+<text x="128" y="237" text-anchor="middle" fill="#d8d0bf" font-family="sans-serif" font-size="18" letter-spacing="6">BB PC</text>
+</svg>

@@ -47,6 +47,24 @@ int main() {
     s.menu_y = -1.0f;
     BbSettings::Load();
     assert(s.menu_x == 0.625f && s.menu_y == 0.125f && s.upscaler == BbSettings::UpscalerFsr411);
+    s.menu_language = BbSettings::MenuLanguage::Chinese;
+    BbSettings::Save();
+    BbSettings::Load();
+    assert(s.menu_language == BbSettings::MenuLanguage::Chinese);
+    assert(std::string(BbSettings::MenuText("Close", "unused")) == "关闭");
+    setenv("BB_UPSCALER", "dlss", 1);
+    BbSettings::Load();
+    assert(s.upscaler == BbSettings::UpscalerDlss);
+    BbSettings::ConfigureDlssSupport(true, nullptr);
+    assert(s.upscaler == BbSettings::UpscalerDlss && s.dlss_supported);
+    BbSettings::Save();
+    assert(Read(path).find("upscaler=dlss\n") != std::string::npos);
+    BbSettings::ConfigureDlssSupport(false, "test: bridge unavailable");
+    assert(s.upscaler == BbSettings::UpscalerFsr3 && !s.dlss_supported);
+    setenv("BB_UPSCALER", "xess", 1);
+    BbSettings::Load();
+    assert(s.upscaler == BbSettings::UpscalerFsr3);
+    unsetenv("BB_UPSCALER");
     unlink(path);
     std::puts("PASS: settings save keeps other keys, menu position");
 }

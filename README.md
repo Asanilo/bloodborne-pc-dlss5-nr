@@ -5,6 +5,8 @@ THIS PROJECT IS NOT RELATED TO SHADPS4. ALL QUESTIONS RELATED TO THIS PROJECT SH
 
 **English** · [Русский](README.ru.md)
 
+本地 Linux 键鼠、中文设置、存档维护与验证状态：[中文使用说明](docs/PC_FEATURES.zh-CN.md)。
+
 bbport is the counterpart of Wine + DXVK for a single game: *Bloodborne* for PlayStation 4
 (CUSA03173, game version 1.09) on an x86-64 Linux PC. The game's original executable runs
 directly on the PC:

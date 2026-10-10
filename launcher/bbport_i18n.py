@@ -6,6 +6,7 @@ Russian for ru_*, Brazilian Portuguese for pt_BR*, Simplified Chinese for zh_*, 
 otherwise).
 """
 import os
+from bbport_zh import ZH
 
 EN = {
     # Window, pages, buttons
@@ -732,6 +733,8 @@ def system_language():
         value = os.environ.get(key, "")
         if value:
             locale = value.lower().replace("-", "_")
+            if locale.startswith("zh"):
+                return "zh_CN"
             if locale.startswith("ru"):
                 return "ru"
             if locale.startswith("pt_br"):
@@ -756,12 +759,13 @@ def language():
 
 
 def tr(text):
+    if _language == "zh_CN":
+        english = EN.get(text, text)
+        return ZH.get(english, ZH_CN.get(text, english))
     if _language == "en":
         return EN.get(text, text)
     if _language == "pt_BR":
         # Strings added after the translation fall back to English, not to the Russian key.
         return PT_BR.get(text, EN.get(text, text))
-    if _language == "zh_CN":
-        return ZH_CN.get(text, EN.get(text, text))
     return text
 

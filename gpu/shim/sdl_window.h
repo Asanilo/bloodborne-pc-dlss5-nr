@@ -44,7 +44,7 @@ private:
     std::string text, text_prompt, base_title;
     void UpdateTextTitle();
     void UpdateCursor();
-    u64 last_mouse_motion_ms{}; ///< SDL_GetTicks of the last mouse motion (UpdateCursor)
+    bool focused{}, relative_mouse{}, capture_error{};
     bool cursor_hidden{};
     SDL_Window* window{};
     WindowSystemInfo window_info{};

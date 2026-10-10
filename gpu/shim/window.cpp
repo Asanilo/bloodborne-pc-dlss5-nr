@@ -7,6 +7,11 @@
 #include "common/logging/log.h"
 #include "sdl_window.h"
 #include "bbport_overlay.h"
+#include "bbport_settings.h"
+#include "host_input.h"
+
+static HostInput host_input;
+extern "C" void bbgpu_read_host_input(BbHostInput* input) { host_input.Read(input); }
 
 namespace Frontend {
 
@@ -92,10 +97,13 @@ WindowSDL::WindowSDL(s32 width_, s32 height_, const char* title) : width{width_}
     SDL_GetWindowSizeInPixels(window, &w, &h);
     width = w;
     height = h;
+    focused = (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    UpdateCursor();
     LOG_INFO(Frontend, "Window {}x{} on {}", w, h, driver);
 }
 
 WindowSDL::~WindowSDL() {
+    host_input.Block(true);
     SDL_DestroyWindow(window);
 }
 
@@ -133,10 +141,27 @@ bool WindowSDL::PollEvents() {
     if (!text_active) {
         BbOverlay::UpdateTextInput(window);
     }
+    UpdateCursor();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_EVENT_MOUSE_MOTION) {
-            last_mouse_motion_ms = SDL_GetTicks();
+        if (event.type == SDL_EVENT_MOUSE_MOTION && std::getenv("BB_INPUT_TRACE")) {
+            static u64 last_raw;
+            const u64 now = SDL_GetTicksNS();
+            if (now - last_raw > 250000000) {
+                std::printf("Input: raw mouse delta=%.2f,%.2f timestamp=%llu now=%llu relative=%d focused=%d overlay=%d\n",
+                            event.motion.xrel, event.motion.yrel,
+                            (unsigned long long)event.motion.timestamp,
+                            (unsigned long long)now,
+                            relative_mouse, focused, BbOverlay::CapturesInput());
+                last_raw = now;
+            }
+        }
+        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+            focused = false;
+            UpdateCursor();
+        } else if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
+            focused = true;
+            UpdateCursor();
         }
         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
             std::scoped_lock lock{text_mutex};
@@ -155,8 +180,29 @@ bool WindowSDL::PollEvents() {
             continue;
         }
         if (BbOverlay::HandleEvent(event)) {
+            UpdateCursor();
             continue;
         }
+        UpdateCursor();
+        if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat)
+            host_input.Key(event.key.scancode, true);
+        if (event.type == SDL_EVENT_KEY_UP) host_input.Key(event.key.scancode, false);
+        if (relative_mouse && event.type == SDL_EVENT_MOUSE_MOTION)
+        {
+            host_input.Motion(event.motion.xrel, event.motion.yrel);
+            if (std::getenv("BB_INPUT_TRACE")) {
+                static u64 last;
+                const u64 now = SDL_GetTicksNS();
+                if (now - last > 250000000) {
+                    std::printf("Input: mouse event delta=%.2f,%.2f captured=%d focused=%d\n",
+                                event.motion.xrel, event.motion.yrel, relative_mouse, focused);
+                    last = now;
+                }
+            }
+        }
+        if (relative_mouse && event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
+            host_input.Button(event.button.button, true);
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) host_input.Button(event.button.button, false);
         switch (event.type) {
         case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
         case SDL_EVENT_WINDOW_RESIZED: {
@@ -178,15 +224,31 @@ bool WindowSDL::PollEvents() {
     return is_open;
 }
 
-// Issue #3: the OS cursor over the game. Hidden in fullscreen, and in a window after 3 s without
-// moving the mouse; always shown while the settings menu is open.
+// Focus/menu transitions discard held keys and queued relative movement. Only a fresh
+// key down re-arms a held key, so Alt-Tab and closing settings cannot leave movement stuck.
 void WindowSDL::UpdateCursor() {
-    const bool fullscreen = (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) != 0;
-    const bool hide = !BbOverlay::MenuOpen() &&
-                      (fullscreen || SDL_GetTicks() - last_mouse_motion_ms > 3000);
-    if (hide != cursor_hidden) {
-        cursor_hidden = hide;
-        hide ? SDL_HideCursor() : SDL_ShowCursor();
+    const bool blocked = !focused || text_active || BbOverlay::CapturesInput();
+    host_input.Block(blocked);
+    const bool capture = !blocked && BbSettings::Get().mouse_capture;
+    if (capture != relative_mouse) {
+        if (SDL_SetWindowRelativeMouseMode(window, capture)) {
+            relative_mouse = capture;
+            // Some backends deliver motion timestamps in a different clock domain
+            // (observed X11 server milliseconds versus SDL nanoseconds). Discard
+            // queued motion at the transition instead of rejecting fresh events
+            // by comparing these clocks. This also drops cursor-warp motion.
+            SDL_FlushEvent(SDL_EVENT_MOUSE_MOTION);
+            if (std::getenv("BB_INPUT_TRACE"))
+                std::printf("Input: capture=%d focused=%d blocked=%d\n", capture, focused, blocked);
+            SDL_GetRelativeMouseState(nullptr, nullptr);
+        } else if (!capture_error) {
+            LOG_ERROR(Frontend, "Cannot capture mouse: {}", SDL_GetError());
+            capture_error = true;
+        }
+    }
+    if (relative_mouse != cursor_hidden) {
+        cursor_hidden = relative_mouse;
+        cursor_hidden ? SDL_HideCursor() : SDL_ShowCursor();
     }
 }
 

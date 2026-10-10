@@ -14,6 +14,7 @@
 
 #include <SDL3/SDL.h>
 #include "bbport_settings.h"
+#include <filesystem>
 #include "imgui.h"
 #include "imgui_impl_vulkan.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
@@ -194,16 +195,19 @@ void Menu() {
         }
     }
     // Always readable, even when the rest of the menu is in Russian.
-    static const char* languages[] = {"English", "Русский"};
-    int language = s.menu_language == BbSettings::MenuLanguage::Russian ? 1 : 0;
-    if (ImGui::Combo("Language", &language, languages, 2)) {
+    static const char* languages[] = {"English", "Русский", "简体中文"};
+    int language = static_cast<int>(s.menu_language.load());
+    if (ImGui::Combo("Language", &language, languages, 3)) {
         s.menu_language =
-            language == 1 ? BbSettings::MenuLanguage::Russian : BbSettings::MenuLanguage::English;
+            static_cast<BbSettings::MenuLanguage>(language);
         BbSettings::Save();
     }
     ImGui::Text(BbSettings::MenuText("%.0f FPS  (%.1f ms)", "%.0f FPS  (%.1f мс)"),
                 frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg);
 
+    ImGui::TextDisabled("%s", BbSettings::MenuText(
+        "Frame generation unavailable: displayed FPS counts real rendered frames.",
+        "Генерация кадров недоступна: FPS учитывает реальные кадры."));
     ImGui::SeparatorText(BbSettings::MenuText("Temporal upscaler", "Временной апскейлер"));
     const char* upscalers[] = {
         BbSettings::MenuText("Off", "Выкл"), "FSR 3.1", "FSR 4 (INT8)", "FSR 4.1.1",
@@ -301,7 +305,7 @@ void Menu() {
     ImGui::BeginDisabled(taa);
     int preset = taa ? BbSettings::NativeAA : s.preset.load();
     char preset_label[64];
-    std::snprintf(preset_label, sizeof(preset_label), "%s (x%.1f)", BbSettings::PresetName(preset),
+    std::snprintf(preset_label, sizeof(preset_label), "%s (x%.1f)", BbSettings::MenuText(BbSettings::PresetName(preset), BbSettings::PresetName(preset)),
                   BbSettings::PresetScale(preset));
     if (ImGui::BeginCombo(BbSettings::MenuText("Preset", "Пресет"), preset_label)) {
         for (int i = 0; i < BbSettings::PresetCount; ++i) {
@@ -311,7 +315,7 @@ void Menu() {
             std::snprintf(
                 label, sizeof(label),
                 BbSettings::MenuText("%s (x%.1f, render %dx%d)", "%s (x%.1f, рендер %dx%d)"),
-                BbSettings::PresetName(i), scale,
+                BbSettings::MenuText(BbSettings::PresetName(i), BbSettings::PresetName(i)), scale,
                 int(std::lround(BbSettings::OutputWidths[output] / scale / 2) * 2),
                 int(std::lround(BbSettings::OutputHeights[output] / scale / 2) * 2));
             if (ImGui::Selectable(label, i == preset)) {
@@ -541,6 +545,7 @@ void Menu() {
     }
 
     ImGui::SeparatorText(BbSettings::MenuText("Other", "Прочее"));
+    Checkbox(BbSettings::MenuText("Capture mouse (immediate)", "Захват мыши"), s.mouse_capture);
     Checkbox(BbSettings::MenuText("FPS counter in corner", "Счётчик FPS в углу"), s.show_fps);
 
     ImGui::Spacing();
@@ -692,6 +697,18 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
     io.Fonts->AddFontFromMemoryTTF(const_cast<unsigned char*>(bb_font_ttf),
                                    int(bb_font_ttf_end - bb_font_ttf), 18.0f, &font_config);
 
+    // Merge CJK glyphs when available. BB_CJK_FONT supports packaged or custom fonts.
+    const char* custom_font = std::getenv("BB_CJK_FONT");
+    for (const char* path : {custom_font ? custom_font : "",
+             "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
+             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"}) {
+        if (*path && std::filesystem::is_regular_file(path)) {
+            ImFontConfig cjk;
+            cjk.MergeMode = true;
+            if (io.Fonts->AddFontFromFileTTF(path, 18.0f, &cjk)) break;
+        }
+    }
+
     const vk::Instance vk_instance = instance.GetInstance();
     ImGui_ImplVulkan_LoadFunctions(
         instance.ApiVersion(),
@@ -750,6 +767,14 @@ bool HandleEvent(const SDL_Event& event) {
     ImGuiIO& io = ImGui::GetIO();
     const bool is_open = menu_open;
     switch (event.type) {
+    case SDL_EVENT_WINDOW_FOCUS_LOST:
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+        io.AddFocusEvent(event.type == SDL_EVENT_WINDOW_FOCUS_GAINED);
+        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) l3_down = r3_down = false;
+        return false;
+    case SDL_EVENT_GAMEPAD_REMOVED:
+        l3_down = r3_down = false;
+        return false;
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
         const bool down = event.type == SDL_EVENT_KEY_DOWN;

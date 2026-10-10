@@ -151,6 +151,16 @@ target_link_libraries(bbgpu PRIVATE ffx-vulkan::portable ffx-vulkan::fsr4-v07-vu
 target_link_libraries(bbgpu PUBLIC Vulkan::Headers fmt::fmt Boost::headers magic_enum::magic_enum
     tsl::robin_map GPUOpen::VulkanMemoryAllocator PkgConfig::XXHASH PkgConfig::SDL3 PkgConfig::X11 PkgConfig::FFMPEG miniz::miniz Zydis::Zydis sirit)
 
+add_executable(host-input-test EXCLUDE_FROM_ALL ../tests/test_host_input.cpp)
+target_compile_options(host-input-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
+target_include_directories(host-input-test PRIVATE ..)
+
+# Display-dependent regression; run explicitly, never as part of headless tests.
+add_executable(window-input-test EXCLUDE_FROM_ALL ../tests/test_window_input.cpp ../tests/test_gpu_runtime_stubs.cpp)
+target_compile_options(window-input-test PRIVATE -UNDEBUG)
+target_include_directories(window-input-test PRIVATE shim shadps4 third_party/gcn/include)
+target_link_libraries(window-input-test PRIVATE bbgpu)
+
 # Explicit test targets; neither launches the game nor needs a Vulkan device.
 add_executable(motion-history-test EXCLUDE_FROM_ALL ../tests/test_motion_history.cpp)
 target_compile_options(motion-history-test PRIVATE -UNDEBUG -Wall -Wextra -Werror)
@@ -184,6 +194,10 @@ add_dependencies(taa-shader-test host_shaders)
 add_executable(camera-motion-test EXCLUDE_FROM_ALL ../tests/test_camera_motion.cpp ../tests/test_gpu_runtime_stubs.cpp)
 target_include_directories(camera-motion-test PRIVATE shim shadps4 ${SHADER_INCLUDE} third_party/gcn/include)
 target_compile_options(camera-motion-test PRIVATE -UNDEBUG -fPIC)
+# Like scene-resolution-test, keep the test's Vulkan-Hpp dispatcher methods local:
+# its platform extension set differs from the renderer's vk_platform.cpp.
+set_source_files_properties(../tests/test_camera_motion.cpp PROPERTIES
+    COMPILE_OPTIONS "-fvisibility=hidden;-fvisibility-inlines-hidden")
 target_link_libraries(camera-motion-test PRIVATE bbgpu)
 add_dependencies(camera-motion-test host_shaders)
 

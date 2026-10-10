@@ -94,6 +94,10 @@ void Swapchain::Recreate(u32 width_, u32 height_) {
 }
 
 void Swapchain::SetHDR(bool hdr) {
+    if (hdr && !supports_hdr) {
+        LOG_WARNING(Render_Vulkan, "HDR requested but Rec.2020 PQ output is unavailable; keeping SDR");
+        hdr = false;
+    }
     if (needs_hdr == hdr) {
         return;
     }

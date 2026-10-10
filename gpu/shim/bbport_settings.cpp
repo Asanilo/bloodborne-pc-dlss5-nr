@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_settings.h"
+#include "bbport_zh.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -28,9 +29,15 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     const int i = std::atoi(value.c_str());
     if (key == "menu_language") {
         if (value == "en") v.menu_language = MenuLanguage::English;
+        else if (value == "zh_CN" || value == "zh") v.menu_language = MenuLanguage::Chinese;
         else if (value == "ru") v.menu_language = MenuLanguage::Russian;
-        else std::printf("Settings: unknown menu_language '%s' (expected en or ru)\n", value.c_str());
+        else std::printf("Settings: unknown menu_language '%s' (expected en, ru or zh_CN)\n", value.c_str());
     } else if (key == "upscaler") {
+        if (value == "xess") {
+            std::printf("Upscaler: %s is not integrated in this build; using FSR 3.1\n", value.c_str());
+            v.upscaler = UpscalerFsr3;
+            return;
+        }
         for (int u = 0; u < UpscalerCount; ++u) {
             if (value == UpscalerName(u)) {
                 v.upscaler = u;
@@ -56,6 +63,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.reactive_max = Clamp(f, 0.0f, 1.0f);
     } else if (key == "debug_view") {
         v.debug_view = std::clamp(i, 0, DebugViewCount - 1);
+    } else if (key == "mouse_capture") {
+        v.mouse_capture = i != 0;
     } else if (key == "show_fps") {
         v.show_fps = i != 0;
     } else if (key == "menu_pos") {
@@ -96,6 +105,7 @@ Values& Get() {
 }
 
 const char* MenuText(const char* english, const char* russian) {
+    if (Get().menu_language == MenuLanguage::Chinese) return BbChinese(english);
     return Get().menu_language == MenuLanguage::Russian ? russian : english;
 }
 
@@ -118,7 +128,8 @@ void Load() {
         }
         v.menu_language = lang && (lang[0] == 'r' || lang[0] == 'R') && (lang[1] == 'u' || lang[1] == 'U')
                               ? MenuLanguage::Russian
-                              : MenuLanguage::English;
+                              : lang && (lang[0] == 'z' || lang[0] == 'Z') && (lang[1] == 'h' || lang[1] == 'H')
+                              ? MenuLanguage::Chinese : MenuLanguage::English;
     }
     if (FILE* file = std::fopen(Path(), "r")) {
         char line[256];
@@ -136,10 +147,7 @@ void Load() {
     }
     // Environment overrides (scripts, A/B tests).
     if (const char* env = std::getenv("BB_UPSCALER")) {
-        v.upscaler = UpscalerOff;
-        for (int u = 0; u < UpscalerCount; ++u) {
-            if (std::strcmp(env, UpscalerName(u)) == 0) v.upscaler = u;
-        }
+        Set(v, "upscaler", env);
     }
     const std::pair<const char*, const char*> env_keys[] = {
         {"BB_FSR_SHARPNESS", "sharpness"},        {"BB_JITTER", "jitter"},
@@ -222,7 +230,7 @@ void Save() {
         return std::string(text);
     };
     const auto flag = [](bool value) { return std::string(value ? "1" : "0"); };
-    put("menu_language", v.menu_language == MenuLanguage::Russian ? "ru" : "en");
+    put("menu_language", v.menu_language == MenuLanguage::Chinese ? "zh_CN" : v.menu_language == MenuLanguage::Russian ? "ru" : "en");
     put("upscaler", UpscalerName(v.upscaler));
     put("preset", std::to_string(v.preset.load()));
     put("sharpen", flag(v.sharpen));
@@ -235,6 +243,7 @@ void Save() {
     put("reactive_max", fixed(v.reactive_max, 2));
     put("debug_view", std::to_string(v.debug_view.load()));
     put("show_fps", flag(v.show_fps));
+    put("mouse_capture", flag(v.mouse_capture));
     put("fsr4_auto_exposure", flag(v.fsr4_auto_exposure));
     put("fsr4_invert_jitter", flag(v.fsr4_invert_jitter));
     // Read by patches.py at start.

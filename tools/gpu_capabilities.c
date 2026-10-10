@@ -123,7 +123,7 @@ static int read_input(const char *kind) {
     SDL_Window *window = NULL;
     SDL_Renderer *renderer = NULL;
     const char *prompt = want_key && want_pad ? "Press a key or a gamepad button"
-                         : want_key           ? "Press a key"
+                         : want_key           ? "Press a key or mouse button"
                                               : "Press a gamepad button";
     if (!SDL_CreateWindowAndRenderer("bbport", 520, 90, 0, &window, &renderer)) {
         fprintf(stderr, "read-input: %s\n", SDL_GetError());
@@ -158,6 +158,13 @@ static int read_input(const char *kind) {
                     done = 1;
                 } else if (want_key) {
                     printf("key %s\n", SDL_GetScancodeName(e.key.scancode));
+                    done = 1;
+                }
+                break;
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                if (want_key && e.button.button>=1 && e.button.button<=5) {
+                    const char *names[]={"MouseLeft","MouseMiddle","MouseRight","MouseX1","MouseX2"};
+                    printf("key %s\n", names[e.button.button-1]);
                     done = 1;
                 }
                 break;
@@ -248,6 +255,16 @@ int main(int argc, char **argv) {
     }
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(selected, &props);
+    if (argc>1 && !strcmp(argv[1], "--diagnose")) {
+        printf("GPU: %s; Vulkan %u.%u.%u; device-local heap %llu MiB\n",
+            props.deviceName, VK_VERSION_MAJOR(props.apiVersion), VK_VERSION_MINOR(props.apiVersion),
+            VK_VERSION_PATCH(props.apiVersion), (unsigned long long)(largest_local_heap(selected)>>20));
+        const int ok=props.apiVersion>=VK_API_VERSION_1_3 && props.deviceType!=VK_PHYSICAL_DEVICE_TYPE_CPU;
+        if (!ok) fputs("Need a hardware Vulkan 1.3 device. Check the installed GPU driver and VK_DRIVER_FILES override.\n", stderr);
+        free(devices);
+        vkDestroyInstance(instance, NULL);
+        return ok ? 0 : 1;
+    }
     const struct { VkFormat format; const char *name; } formats[] = {
         {VK_FORMAT_R8G8B8A8_UNORM, "RGBA8"},
         {VK_FORMAT_R8G8B8A8_SRGB, "RGBA8 sRGB"},

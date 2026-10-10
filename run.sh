@@ -40,7 +40,8 @@ if [[ -z ${BB_PREBUILT:-} && -z ${BB_IN_NIX_SHELL:-} ]] && ! { command -v pkg-co
 fi
 # BB_SAVE_LOG=1 (launcher: "Save the log and statistics to a file"): this run's output and its
 # per-frame statistics also go to $data/logs/<time>.log, .frames.csv and .readbacks.csv.
-if [[ ${BB_SAVE_LOG:-} == 1 ]]; then
+if [[ ${BB_SAVE_LOG:-} == 1 && ${BB_LOG_ACTIVE:-0} != 1 ]]; then
+    export BB_LOG_ACTIVE=1
     logs=$data/logs
     mkdir -p "$logs"
     printf -v stamp '%(%Y%m%d_%H%M%S)T' -1
@@ -60,6 +61,11 @@ if [[ -z ${PYTHON:-} ]]; then
     fi
 fi
 if [[ -z ${PYTHON:-} ]]; then echo 'Install Python 3 or set PYTHON.' >&2; exit 1; fi
+# Hold the save-session lock while preparing generated images as well as while playing.
+# Restarts remain descendants of the same supervisor and reuse its lock.
+if [[ -z ${BB_SAVE_SUPERVISOR:-} ]]; then
+    exec "$PYTHON" scripts/save_manager.py --user "${BB_USER_DIR:-$data/user}" run -- bash run.sh "$@"
+fi
 # BB_GAME_DIR: the game's folder (eboot.bin, sce_module, ...); default next to this directory.
 game=${BB_GAME_DIR:-../CUSA03173}
 if [[ ! -f $game/eboot.bin ]]; then echo "No eboot.bin in $game (set BB_GAME_DIR)." >&2; exit 1; fi
@@ -200,9 +206,12 @@ else
     bash build.sh
     probe=${BB_PROBE:-out/bb-probe}  # BB_PROBE: a wrapper (gdb) around it
 fi
+if [[ ${BB_STARTUP_CHECK:-1} == 1 && -x $(dirname -- "$probe")/bb-gpu-capabilities ]]; then
+    "$PYTHON" scripts/diagnostics.py "$probe" "$(dirname -- "$probe")/bb-gpu-capabilities"
+fi
 probe_args=("$out/boot-linked.bin" --content-profile "$out/content.bin" --patches "$out/patches.bin" --app0 "$game" --user "${BB_USER_DIR:-$data/user}" --timeout "${BB_TIMEOUT:-0}" "$@")
 if [[ -n ${mod_game:-} ]]; then
-    "$probe" "${probe_args[@]}" &
+    "$PYTHON" scripts/save_manager.py --user "${BB_USER_DIR:-$data/user}" run -- "$probe" "${probe_args[@]}" &
     mod_pid=$!
     trap 'kill -TERM "$mod_pid" 2>/dev/null || true' TERM INT
     mod_status=0
@@ -211,4 +220,4 @@ if [[ -n ${mod_game:-} ]]; then
     if kill -0 "$mod_pid" 2>/dev/null; then wait "$mod_pid" || mod_status=$?; fi
     exit "$mod_status"
 fi
-exec "$probe" "${probe_args[@]}"
+exec "$PYTHON" scripts/save_manager.py --user "${BB_USER_DIR:-$data/user}" run -- "$probe" "${probe_args[@]}"

@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 #include "bbport_dlss_bridge.h" // Vulkan first: the NGX headers expect its types
@@ -38,6 +39,7 @@ struct State {
     NVSDK_NGX_Handle* feature{};
     BbDlssFeature feature_desc{};
     VkDevice device{};
+    uint64_t audit_frame{};
     bool configured{};
     bool initialized{};
 } state;
@@ -77,6 +79,9 @@ int32_t Configure(const wchar_t* dll_directory, const wchar_t* data_directory, B
                                                 EngineVersion};
     state.discovery.ApplicationDataPath = state.data_directory.c_str();
     state.discovery.FeatureInfo = &state.common;
+    if (std::getenv("BB_DLSS_AUDIT"))
+        Log(0, "AUDIT sdk_api=0x%x feature=SuperSampling bridge_abi=%u",
+            unsigned(NVSDK_NGX_Version_API), BBPORT_DLSS_BRIDGE_ABI);
     state.configured = true;
     return 1;
 }
@@ -192,6 +197,11 @@ int32_t CreateFeature(VkCommandBuffer command, const BbDlssFeature* desc) {
         return 0;
     }
     state.feature_desc = *desc;
+    state.audit_frame = 0;
+    if (std::getenv("BB_DLSS_AUDIT"))
+        Log(0, "AUDIT create input=%ux%u output=%ux%u quality=%d hdr=%d depth_inverted=%d flags=0x%x",
+            desc->input_width, desc->input_height, desc->output_width, desc->output_height,
+            desc->quality, desc->hdr, desc->depth_inverted, unsigned(settings.InFeatureCreateFlags));
     Log(0, "DLSS %ux%u -> %ux%u, quality %d, preset %u%s", desc->input_width, desc->input_height,
         desc->output_width, desc->output_height, desc->quality, desc->preset,
         desc->hdr ? ", HDR input" : "");
@@ -225,10 +235,19 @@ int32_t Evaluate(VkCommandBuffer command, const BbDlssEvaluate* evaluate) {
     parameters.InMVScaleX = parameters.InMVScaleY = 1.0f;
     parameters.InPreExposure = parameters.InExposureScale = 1.0f;
     parameters.InFrameTimeDeltaInMsec = evaluate->frame_ms;
-    return Check("DLSS evaluation", NGX_VULKAN_EVALUATE_DLSS_EXT(command, state.feature,
-                                                                state.parameters, &parameters))
-               ? 1
-               : 0;
+    const auto result = NGX_VULKAN_EVALUATE_DLSS_EXT(command, state.feature,
+                                                   state.parameters, &parameters);
+    if (std::getenv("BB_DLSS_AUDIT")) {
+        Log(0, "AUDIT frame=%llu color=%ux%u:%d depth=%ux%u:%d mv=%ux%u:%d output=%ux%u:%d jitter=%.6f,%.6f mv_scale=1,1 reset=%d frame_ms=%.3f result=0x%08x",
+            static_cast<unsigned long long>(++state.audit_frame),
+            evaluate->color.width, evaluate->color.height, int(evaluate->color.format),
+            evaluate->depth.width, evaluate->depth.height, int(evaluate->depth.format),
+            evaluate->motion.width, evaluate->motion.height, int(evaluate->motion.format),
+            evaluate->output.width, evaluate->output.height, int(evaluate->output.format),
+            evaluate->jitter_x, evaluate->jitter_y, evaluate->reset, evaluate->frame_ms,
+            unsigned(result));
+    }
+    return Check("DLSS evaluation", result) ? 1 : 0;
 }
 
 void Shutdown() {
