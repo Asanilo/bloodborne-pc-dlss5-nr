@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "video_core/renderer_vulkan/q1_nr_process.h"
 #include "video_core/renderer_vulkan/vk_scene_resolution.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_runtime.h"
@@ -410,6 +411,9 @@ SceneTargets::Entry& SceneTargets::Get(VideoCore::ImageId id, u32 level) {
         ci.mipLevels = 1;
         const char* q0 = std::getenv("BB_NR_Q0_CAPTURE");
         if (q0 && std::strcmp(q0, "1") == 0) ci.usage |= vk::ImageUsageFlagBits::eTransferSrc;
+        // Q1 copies only the actual depth proxy; do not broaden the unused 720 color source.
+        if (Q1DiagnosticEnabled() && ci.format==vk::Format::eD32SfloatS8Uint)
+            ci.usage |= vk::ImageUsageFlagBits::eTransferSrc;
         entry->image.Create(ci);
         tracked.insert(original.image_uid);
     }

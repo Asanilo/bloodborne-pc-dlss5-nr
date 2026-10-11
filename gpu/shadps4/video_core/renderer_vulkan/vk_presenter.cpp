@@ -477,7 +477,16 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     frame->ready_tick = draw_scheduler.CurrentTick();
     SubmitInfo info{};
     draw_scheduler.Flush(info);
-    if (frame->c1_source_game_frame != 0 && frame->audit_stage == "C4") {
+    if (frame->c1_source_game_frame != 0 && frame->audit_stage == "Q1") {
+        std::printf("Q1_PRESENT_PREPARED stage=Q1 execution_mode=%s mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu audit_kind=%s\n",
+            frame->audit_execution_mode.c_str(), frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_nr_frame,
+            frame->audit_selected_output, (unsigned long long)frame->c1_source_game_frame,
+            (unsigned long long)frame->c1_merge_tick, (unsigned long long)frame->c1_guest_buffer_address,
+            (unsigned long long)frame->c1_guest_prepare_gpu_frame,
+            (unsigned long long)frame->c1_guest_prepare_tick,
+            (unsigned long long)frame->ready_tick, (unsigned long long)frame->c1_present_frame_number,
+            frame->audit_full ? "full" : "off");
+    } else if (frame->c1_source_game_frame != 0 && frame->audit_stage == "C4") {
         std::printf("C4_PRESENT_PREPARED stage=C4 execution_mode=%s mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu audit_kind=%s\n",
             frame->audit_execution_mode.c_str(), frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_nr_frame,
             frame->audit_selected_output, (unsigned long long)frame->c1_source_game_frame,
@@ -813,6 +822,15 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                 frame->audit_session.c_str(), frame->audit_nr_frame, (unsigned long long)frame->c1_source_game_frame,
                 (long long)c4_now_ns, frame->audit_selected_output, presented);
         if (frame->c1_source_game_frame != 0 && is_game_frame && !is_reusing_frame &&
+            frame->audit_stage == "Q1") {
+            std::printf("Q1_PRESENT_SUBMITTED stage=Q1 execution_mode=%s mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu present_submit_tick=%llu swapchain_present=%u audit_kind=%s\n",
+                frame->audit_execution_mode.c_str(), frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_nr_frame,
+                frame->audit_selected_output, (unsigned long long)frame->c1_source_game_frame,
+                (unsigned long long)frame->c1_merge_tick, (unsigned long long)frame->c1_guest_buffer_address,
+                (unsigned long long)frame->c1_guest_prepare_tick, (unsigned long long)frame->ready_tick,
+                (unsigned long long)frame->c1_present_frame_number, (unsigned long long)present_submit_tick,
+                presented, frame->audit_full ? "full" : "off");
+        } else if (frame->c1_source_game_frame != 0 && is_game_frame && !is_reusing_frame &&
             frame->audit_stage == "C4") {
             std::printf("C4_PRESENT_SUBMITTED stage=C4 execution_mode=%s mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu present_submit_tick=%llu swapchain_present=%u audit_kind=%s\n",
                 frame->audit_execution_mode.c_str(), frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_nr_frame,

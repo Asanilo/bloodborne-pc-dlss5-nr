@@ -1,0 +1,365 @@
+{
+  "schema_version": 1,
+  "status": "PASS_INITIAL_QUALITY_INTERFACE_FEASIBILITY_SUITE; not phase, playable performance or load stability acceptance",
+  "baseline_commit": "0da4ecc3fbf15a5212b517f1a95c09aa4a2fe440",
+  "evidence_path_base": "/home/arinp/Code/nrbridge-design/game-poc-20261011",
+  "scope": "Local evidence references and hashes only; no copied logs, pixels, binaries, models or saves",
+  "frozen_dependencies": {
+    "canonical": {
+      "path": "integration/QUALITY-NR-CONTRACT.md",
+      "bytes": 20545,
+      "sha256": "482a5bccba778445efbcc2023e07a998e545fcd66c54ecb72d98c2514b9af7b0"
+    },
+    "helper_build": {
+      "path": "opti-worktree/poc/game_nr/quality-nr/out/build.json",
+      "bytes": 90737,
+      "sha256": "20dc61593a4f801262d0f618abdcfd323dd06e98570f7db0645dca0ecf793257"
+    },
+    "helper_exe": {
+      "path": "opti-worktree/poc/game_nr/quality-nr/out/wine_game_nr_quality.exe",
+      "bytes": 1199104,
+      "sha256": "4d770cf04bd04ac5ad99bd5ccbd7fd5abafcc5f27e1d4b0ec580aa787ae8db14"
+    },
+    "native_build": {
+      "path": "bbport/runs/q1-build-20261011T173246Z/build-result.json",
+      "bytes": 1124,
+      "sha256": "ea9e77c4412499bf72053151cb6b79d2c6669fb5b82f7753ea2a1d3dd6979c43"
+    },
+    "native_sources": {
+      "path": "bbport/runs/q1-build-20261011T173246Z/source-sha256.txt",
+      "bytes": 10845,
+      "sha256": "b694b21ebb95e79297f2eaac3a669001555851fc13484110b4b119f2edd65231"
+    },
+    "native_artifacts": {
+      "path": "bbport/runs/q1-build-20261011T173246Z/artifact-sha256.txt",
+      "bytes": 621,
+      "sha256": "df160210e32fbddc7212b9afd80cf6472af21da93d4ba41d6196ff3c2d03d49d"
+    },
+    "approval": {
+      "path": "integration/q1-helper-approved.json",
+      "bytes": 30828,
+      "sha256": "f82d2f93e715837bd338735c867b57d90a6de4d31fab7d15488e18914d932d0d"
+    }
+  },
+  "compiled_inputs_match": 60,
+  "runtime_artifacts_match": 4,
+  "initial_gate_status": {
+    "noop": "PASS",
+    "single": "PASS",
+    "skipEvaluate": "PASS",
+    "resident4": "PASS"
+  },
+  "attempts": [
+    {
+      "session": "q1-noop-20261012",
+      "status": "BLOCKED_BEFORE_Q1_HELPER",
+      "acceptance": {
+        "path": "bbport/runs/q1-game-q1-noop-20261012/root-acceptance.json",
+        "bytes": 2918,
+        "sha256": "e0bd801e8d1e7779c311ef2e44dc39a24f85d535fefdf55d3f4a1d34ca9813b0"
+      },
+      "helper_started": false,
+      "audit_and_lifecycle_indexes": []
+    },
+    {
+      "session": "q1-game-q1-noop-gatefix-20261012",
+      "status": "PASS_Q1_NOOP_TRANSPORT_PRESENT_LIFECYCLE",
+      "acceptance": {
+        "path": "bbport/runs/q1-game-q1-noop-gatefix-20261012/root-acceptance.json",
+        "bytes": 2136,
+        "sha256": "4960b8a21da2d15fe53e386afc007e494c40d8271ba017825c15a55bc324f58c"
+      },
+      "source_game_frame": 11769,
+      "Evaluate_calls": 0,
+      "model_init": false,
+      "audit_and_lifecycle_indexes": [
+        {
+          "path": "bbport/runs/q1-game-q1-noop-gatefix-20261012/root-wire-audit.json",
+          "bytes": 1708,
+          "sha256": "8d122703048df88b50d0202d6ed0e475485bae187e114927c797e9a8ff2c47f9"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-noop-gatefix-20261012/root-pixel-audit.json",
+          "bytes": 4955,
+          "sha256": "4df69386b39abb7006d633a26cc8c4db53fe6ea2aa4412b46cb07fb93238c7ee"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-noop-gatefix-20261012/root-present-audit.json",
+          "bytes": 1403,
+          "sha256": "2c99ba0e3b5707e5979340e568acb1f9dd502ea8a1c4b15d1f9d885d640b3443"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-noop-gatefix-20261012/root-fd-audit.json",
+          "bytes": 935,
+          "sha256": "f4b6c22106897dde9c66b06634a5da8bef3b1839a024774b076ae8750f9a126c"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-noop-gatefix-20261012/wine-result.json",
+          "bytes": 1467,
+          "sha256": "a52411f16d2c8f4ba66c8576f9fc84c23f646e93883cb97a6d696205bb2b45c2"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-noop-gatefix-20261012/native-helper-exit.json",
+          "bytes": 37,
+          "sha256": "13177d9996d1e6161fc33da3906bd4c1eb9238bc33cb70fb8b267751b063884e"
+        }
+      ],
+      "outer_result": {
+        "path": "runs/quality-nr-20261011T173450.340959Z/result.json",
+        "bytes": 1809,
+        "sha256": "b2292af1efa304619ccb4d8051d94c9e81ed329e0d33cf2c9f4e3573be25ca34"
+      }
+    },
+    {
+      "session": "q1-game-q1-single-20261012",
+      "status": "PASS_Q1_SINGLE_MODEL_TRANSPORT_PRESENT_LIFECYCLE",
+      "acceptance": {
+        "path": "bbport/runs/q1-game-q1-single-20261012/root-acceptance.json",
+        "bytes": 2387,
+        "sha256": "9a59e3922f5fd5f73bfd9d8ebaa2038232b14cdc6017df4e84edce5541bf0084"
+      },
+      "source_game_frame": 8684,
+      "Evaluate_calls": 1,
+      "model_init": true,
+      "audit_and_lifecycle_indexes": [
+        {
+          "path": "bbport/runs/q1-game-q1-single-20261012/root-wire-audit.json",
+          "bytes": 1667,
+          "sha256": "9ffb978f29ba34793828e4376ee28699964566b610e1ff832ce7f75715a9c730"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-single-20261012/root-pixel-audit.json",
+          "bytes": 4907,
+          "sha256": "eed681ccc1676d408c4619d747c6bb1074c9d4c47a65524d1aa94d556e0e55c7"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-single-20261012/root-present-audit.json",
+          "bytes": 1390,
+          "sha256": "c6e07d262755e803ee87b6efce46dd993077b0993ed633c84658698c7a28e62f"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-single-20261012/root-fd-audit.json",
+          "bytes": 939,
+          "sha256": "2b3cdb4ebc920127313b0bdd63638fa697c726c0db2bda06fd45a78a014afc0b"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-single-20261012/wine-result.json",
+          "bytes": 1452,
+          "sha256": "7e651a28f669b893c27467ca0e9e28d7d8c375da148175b24796cfcaa0c48534"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-single-20261012/native-helper-exit.json",
+          "bytes": 37,
+          "sha256": "13177d9996d1e6161fc33da3906bd4c1eb9238bc33cb70fb8b267751b063884e"
+        }
+      ],
+      "outer_result": {
+        "path": "runs/quality-nr-20261011T174022.744666Z/result.json",
+        "bytes": 1807,
+        "sha256": "8fe13489370b3e25970786122b453e25a0b09d8dd372bc5bf2f9682275f3e285"
+      }
+    },
+    {
+      "session": "q1-game-q1-skip-20261012",
+      "status": "BLOCKED_PM4_ASSERT_BEFORE_Q1_HELPER",
+      "acceptance": {
+        "path": "bbport/runs/q1-game-q1-skip-20261012/root-acceptance.json",
+        "bytes": 1342,
+        "sha256": "6297ae0e18928f45f381dc890539b37fa2bb24b7a32b8b04436877bcad9152a6"
+      },
+      "model": "NOT_RUN",
+      "transport": "NOT_RUN",
+      "helper_started": false,
+      "cause": "UNPROVEN; prior Q0 PM4 failure retained; no assertion bypass",
+      "audit_and_lifecycle_indexes": [],
+      "original_failure_evidence": [
+        {
+          "path": "runs/quality-nr-20261011T174815.106547Z/game.log",
+          "bytes": 51576,
+          "sha256": "046809b3cf5a42f0090632f6fb6abf26eff6f48e36cb28de2536a48bf57f9615"
+        },
+        {
+          "path": "runs/quality-nr-20261011T174815.106547Z/result.json",
+          "bytes": 882,
+          "sha256": "fbda556af9fd3b8080676ff7a7de0a5134a47f2b154980e29e615dc5a0b6326c"
+        }
+      ]
+    },
+    {
+      "session": "q1-game-q1-skip2-20261012",
+      "status": "PASS_Q1_SKIP_REJECTION_SR_PRESENT_LIFECYCLE",
+      "acceptance": {
+        "path": "bbport/runs/q1-game-q1-skip2-20261012/root-acceptance.json",
+        "bytes": 2430,
+        "sha256": "c968af22fb5403ae93ab92587bbdab83e5894d749f66bcf8de1896565c04fe91"
+      },
+      "source_game_frame": 7113,
+      "Evaluate_calls": 0,
+      "resolve_calls": 0,
+      "model_init": true,
+      "audit_and_lifecycle_indexes": [
+        {
+          "path": "bbport/runs/q1-game-q1-skip2-20261012/root-wire-audit.json",
+          "bytes": 1666,
+          "sha256": "00d9038fab092861f66cad1934379edec787a1b109f78d09ca70893ae3d1abb5"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-skip2-20261012/root-pixel-audit.json",
+          "bytes": 4626,
+          "sha256": "3a2a252c710ee5d92e67f91628b890a6076d1e287ea9f58deee994cf86422180"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-skip2-20261012/root-present-audit.json",
+          "bytes": 1395,
+          "sha256": "b982c617b06c06fd33a58eb4af32dd24e329abcacb0a44931e0246b89d015d1f"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-skip2-20261012/root-fd-audit.json",
+          "bytes": 942,
+          "sha256": "7b898a267aa05008cb3bd1c2b78b10b2c57969f710be803846461dee3e041d5e"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-skip2-20261012/wine-result.json",
+          "bytes": 1456,
+          "sha256": "7fefb51c688634118fab030f82790c85cf241b8d8c1056eaf8c001032bfabd0b"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-skip2-20261012/native-helper-exit.json",
+          "bytes": 37,
+          "sha256": "13177d9996d1e6161fc33da3906bd4c1eb9238bc33cb70fb8b267751b063884e"
+        }
+      ],
+      "outer_result": {
+        "path": "runs/quality-nr-20261011T175219.450696Z/result.json",
+        "bytes": 1818,
+        "sha256": "7d067d23bc09c4b2a4bd13eef2178b65b318ab29fea4b895d2d6af1440a80ff5"
+      }
+    },
+    {
+      "session": "q1-game-q1-resident4-20261012",
+      "status": "PASS_Q1_RESIDENT4_MODEL_TRANSPORT_PRESENT_LIFECYCLE",
+      "acceptance": {
+        "path": "bbport/runs/q1-game-q1-resident4-20261012/root-acceptance.json",
+        "bytes": 3770,
+        "sha256": "77c0b2d25837f1bf808b6aef9f8f46ce55f8d6769c12ad1a9240af6d3c78ec0b"
+      },
+      "source_game_frames": [
+        9541,
+        9542,
+        9543,
+        9544
+      ],
+      "NR_resets": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "Evaluate_calls": 4,
+      "resolve_calls": 4,
+      "audit_and_lifecycle_indexes": [
+        {
+          "path": "bbport/runs/q1-game-q1-resident4-20261012/root-wire-audit.json",
+          "bytes": 4654,
+          "sha256": "7eaff1fce32f05cffc5f9f8e794dd27fe503f748661d29bc39e2f5dc72302252"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-resident4-20261012/root-pixel-audit.json",
+          "bytes": 17991,
+          "sha256": "f080b446fd7b38e8244aa2c2f5b120e75488240ffe1a69961635499568608ce4"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-resident4-20261012/root-present-audit.json",
+          "bytes": 3573,
+          "sha256": "ce6f1186c388ab2a5b08ea02a88e3f98584b0a1e085e9bfe95b2c47473d4b429"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-resident4-20261012/root-fd-audit.json",
+          "bytes": 954,
+          "sha256": "577406b77ff80aa30232c953bcad65b89056a5b28dcb8576c3b8d28881122aa2"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-resident4-20261012/wine-result.json",
+          "bytes": 1461,
+          "sha256": "cf2d0efa70922d15789ae3f56fc80702b3c5b7920eb0a8624cf3c15f06c0eff8"
+        },
+        {
+          "path": "bbport/runs/q1-game-q1-resident4-20261012/native-helper-exit.json",
+          "bytes": 37,
+          "sha256": "13177d9996d1e6161fc33da3906bd4c1eb9238bc33cb70fb8b267751b063884e"
+        }
+      ],
+      "outer_result": {
+        "path": "runs/quality-nr-20261011T175614.007075Z/result.json",
+        "bytes": 1811,
+        "sha256": "1fd6152efb4599fdfebcae5a46ce2821acb53c1a8712980f892ac202c1061c73"
+      },
+      "original_failure_evidence": [
+        {
+          "path": "runs/quality-nr-20261011T175614.007075Z/game.log",
+          "bytes": 707575,
+          "sha256": "d418ca014878ba78687c4e232701c25899ddb8713bbea026e2900df9acc12352"
+        }
+      ]
+    }
+  ],
+  "prior_Q0_PM4_failure": {
+    "status": "BLOCKED_PM4_ASSERT_BEFORE_SCENE",
+    "acceptance": {
+      "path": "bbport/runs/q0-game-q0-quality-visible-20261011/root-acceptance.json",
+      "bytes": 1384,
+      "sha256": "d9b41171bd01e2826d8a14c2c9a02fcb9ab83872e6a6f779c2652b777f9f9da2"
+    },
+    "game_log": {
+      "path": "runs/quality-capture-20261011T162436.494348Z/game.log",
+      "bytes": 76801,
+      "sha256": "4cc826d60a48937f6ca16343fef334e941db01404023a8f9f59b42850fb4fd02"
+    },
+    "cause": "UNRESOLVED; startup load failure before scene/SR; successful retries do not prove a fix"
+  },
+  "integration_milestone": {
+    "path": "integration/q1-milestone.json",
+    "bytes": 4679,
+    "sha256": "61ff3b4fe9aa09c2ab91aab2caf1552a4fce5792608bc687503e855a83237377"
+  },
+  "integration_gates": {
+    "path": "integration/q1-gates.json",
+    "bytes": 3336,
+    "sha256": "ab709ce5f706dc2a30da0c8304384f7e463daabc77399d1f34e0e3553c7f6ff6"
+  },
+  "build_history": [
+    {
+      "path": "bbport/runs/q1-build-20261011T171225Z/build-result.json",
+      "bytes": 1124,
+      "sha256": "0acba61a9cd3c5d4c9cbaa5b7a62cc7aa03ad8e09d1f7807c3342a36d5554b35"
+    },
+    {
+      "path": "bbport/runs/q1-build-20261011T171820Z/build-result.json",
+      "bytes": 1124,
+      "sha256": "61abfe1f069f0443cde96c07a22808a058d0133d8b637864561090cb9c191678"
+    },
+    {
+      "path": "bbport/runs/q1-build-20261011T173246Z/build-result.json",
+      "bytes": 1124,
+      "sha256": "ea9e77c4412499bf72053151cb6b79d2c6669fb5b82f7753ea2a1d3dd6979c43"
+    }
+  ],
+  "scoped_bootstrap_fix": {
+    "path": "bbport/runs/q1-build-20261011T173246Z/baseline-171820.patch",
+    "bytes": 744,
+    "sha256": "3d1e7202cb22741bf1ac7acc80979300225fa068e52b1d6231868172616d8453"
+  },
+  "boundaries": {
+    "phase_correction": "none",
+    "NR_phase": "UNVERIFIED",
+    "NR_MVecScale": "production_candidate_UNVERIFIED",
+    "k_output": "NOT_IDENTIFIED",
+    "exposure": "manualWhitePoint1; actual game exposure unknown",
+    "load_stability": "UNRESOLVED: both Q0 and Q1 skip PM4 assertions retained",
+    "quality": "NOT_ASSESSED",
+    "Quality_matched_SR_NR_120_1800": "NOT_RUN",
+    "performance": "NOT_ASSESSED; full diagnostic CPU/readback timings are not pure NR benchmark",
+    "long_term_leak_free": "NOT_CLAIMED; complete same-state inventories passed each short accepted case",
+    "future_PM4_diagnostic": "NOT_IMPLEMENTED; separately scoped opt-in and fresh build only after this archive"
+  }
+}

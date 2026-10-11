@@ -29,6 +29,8 @@
 #include "video_core/renderer_vulkan/c3_nr_process.h"
 #include "video_core/renderer_vulkan/c4_game_bridge.h"
 #include "video_core/renderer_vulkan/c4_nr_process.h"
+#include "video_core/renderer_vulkan/q1_nr_process.h"
+#include "video_core/renderer_vulkan/q1_game_bridge.h"
 #include "video_core/renderer_vulkan/vk_dlss.h"
 #include "video_core/renderer_vulkan/vk_fsr4.h"
 #include "video_core/texture_cache/image.h"
@@ -271,6 +273,11 @@ private:
     C3GameBridge c3_game_bridge;
     bool c3_trigger_consumed = false;
     std::optional<C1PresentAudit> c3_pending_audit;
+    Q1NrProcess q1_nr_process;
+    Q1GameBridge q1_game_bridge;
+    bool q1_trigger_consumed = false;
+    bool q1_sr_jitter_enabled_from_start = true;
+    std::optional<C1PresentAudit> q1_pending_audit;
     C4NrProcess c4_nr_process;
     C4GameBridge c4_game_bridge;
     bool c4_trigger_consumed = false;

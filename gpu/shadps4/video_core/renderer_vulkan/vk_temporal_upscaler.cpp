@@ -603,7 +603,7 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     output_view.reset();
     motion_image = VideoCore::UniqueImage(device, allocator);
     auto motion_usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
-    if (C0CaptureEnabled() || Q0CaptureEnabled()) {
+    if (C0CaptureEnabled() || Q0CaptureEnabled() || Q1DiagnosticEnabled()) {
         motion_usage |= vk::ImageUsageFlagBits::eTransferSrc;
     }
     motion_image.Create(vk::ImageCreateInfo{
@@ -1673,6 +1673,93 @@ void TemporalUpscaler::Run() {
                 }
             }
         }
+        const auto q1_proxy_depth=scene_targets.CaptureCreateInfo(input_depth);
+        const bool q1_profile=!Scaled()&&reduced&&w==1280&&h==720&&ow==1920&&oh==1080&&
+            last_dlss_called&&last_dlss_hdr&&UseDlss()&&BbSettings::Get().jitter&&q1_proxy_depth;
+        bool q1_selected = false;
+        bool q1_frame_processed = false;
+        if (q1_nr_process.Enabled() && q1_profile) {
+            vk::PhysicalDeviceIDProperties identity{};
+            vk::PhysicalDeviceProperties2 properties{.pNext = &identity};
+            instance.GetPhysicalDevice().getProperties2(&properties);
+            const auto device_uuid = HexBytes(identity.deviceUUID);
+            const auto driver_uuid = HexBytes(identity.driverUUID);
+            if (q1_nr_process.Start(device_uuid, driver_uuid, ow, oh) &&
+                q1_game_bridge.Prepare(instance, scheduler, q1_nr_process,
+                    q1_nr_process.Session(), q1_nr_process.RunDir(),
+                    device_uuid, driver_uuid, ow, oh)) {
+                if (!q1_trigger_consumed) {
+                    const char* trigger = std::getenv("BB_NR_Q1_TRIGGER");
+                    std::error_code error;
+                    if (trigger && *trigger && std::filesystem::is_regular_file(trigger, error)) {
+                        if (std::remove(trigger) == 0) {
+                            q1_trigger_consumed = true;
+                            std::printf("Q1_TRIGGER_CONSUMED session=%s mode=%s frames=%u source_game_frame=%llu path=%s\n",
+                                q1_nr_process.Session().c_str(), q1_nr_process.Mode().c_str(),
+                                q1_nr_process.FrameCount(), (unsigned long long)source_game_frame, trigger);
+                        } else std::fprintf(stderr, "Q1_TRIGGER consume_failed errno=%d SR_fallback=1\n", errno);
+                    }
+                }
+                bool pending_present = false;
+                { std::scoped_lock lock{c1_audit_mutex}; pending_present = q1_pending_audit.has_value(); }
+                if (q1_trigger_consumed && !pending_present && !q1_game_bridge.Finished() &&
+                    !q1_game_bridge.Quarantined() && q1_game_bridge.HasRemainingFrames()) {
+                    const u32 next_nr_frame = q1_game_bridge.NextFrameIndex();
+                    const u32 count = q1_nr_process.FrameCount();
+                    const bool audit_full = q1_nr_process.ExecutionMode() == "diagnostic";
+                    if (next_nr_frame < count && audit_full) {
+                        std::printf("Q1_CAMERA_STATE session=%s frame=%u source_game_frame=%llu audit_kind=full\n",
+                            q1_nr_process.Session().c_str(), next_nr_frame,
+                            (unsigned long long)source_game_frame);
+                        camera_motion.PrintQualityCaptureState(static_cast<int>(next_nr_frame),source_game_frame);
+                        const auto log_source = [&](const char* role, vk::Image image, vk::ImageView view,
+                                                    const vk::ImageCreateInfo& ci, vk::Format view_format, u32 aspect) {
+                            std::printf("Q1_SOURCE_IMAGE session=%s frame=%u source_game_frame=%llu role=%s image=%p view=%p create_format=%u view_format=%u width=%u height=%u depth=%u usage=0x%x flags=0x%x mips=%u layers=%u samples=%u tiling=%u aspect=%u layout=GENERAL valid_rect=0,0,%u,%u\n",
+                                q1_nr_process.Session().c_str(), next_nr_frame, (unsigned long long)source_game_frame,
+                                role, (void*)VkImage(image), (void*)VkImageView(view), unsigned(ci.format),
+                                unsigned(view_format), ci.extent.width, ci.extent.height, ci.extent.depth,
+                                unsigned(VkImageUsageFlags(ci.usage)), unsigned(VkImageCreateFlags(ci.flags)),
+                                ci.mipLevels, ci.arrayLayers, unsigned(ci.samples), unsigned(ci.tiling), aspect,
+                                ci.extent.width, ci.extent.height);
+                        };
+                        if (const auto proxy_color = scene_targets.CaptureCreateInfo(input_color))
+                            log_source("actual_SR_input_proxy",input_color,input_color_view,*proxy_color,color.info.pixel_format,1);
+                        log_source("actual_SR_depth_proxy",input_depth,input_depth_view,*q1_proxy_depth,depth.info.pixel_format,2);
+                        log_source("actual_MV",vk::Image(motion_image),*motion_view,motion_image.image_ci,vk::Format::eR16G16Sfloat,1);
+                        log_source("actual_post_SR_Color",vk::Image(output_image),*output_view,output_image.image_ci,vk::Format::eR16G16B16A16Sfloat,1);
+                    }
+                    crumb.reset();
+                    const auto view = q1_game_bridge.ProcessFrame(
+                        instance, scheduler, q1_nr_process, vk::Image(output_image), *output_view,
+                        input_depth, input_depth_view, vk::Image(motion_image), *motion_view,
+                        vk::ImageLayout::eGeneral, source_game_frame, last_dlss_reset, last_dlss_frame_ms,
+                        c2_current_viewport_jitter, c2_previous_viewport_jitter,
+                        c2_current_sr_jitter, c2_previous_sr_jitter,
+                        c2_sr_initial_reset_observed, c2_sr_initial_source_game_frame,
+                        q1_sr_jitter_enabled_from_start,
+                        {output_image.image_ci,*q1_proxy_depth,motion_image.image_ci});
+                    cmdbuf = scheduler.CommandBuffer();
+                    crumb.emplace(cmdbuf, scheduler.CrumbStream(), "TAA Q1 resident NR merge");
+                    q1_frame_processed = q1_game_bridge.FrameProcessed();
+                    if (view) {
+                        q1_game_bridge.PrepareReturnForMerge(scheduler);
+                        merge_view = view;
+                        q1_selected = true;
+                        std::printf("Q1_MERGE_SELECT stage=Q1 mode=%s session=%s frame=%u source_game_frame=%llu merge_tick=%llu original_SR_immutable=1\n",
+                            q1_nr_process.Mode().c_str(), q1_nr_process.Session().c_str(),
+                            q1_game_bridge.FrameIndex(), (unsigned long long)source_game_frame,
+                            (unsigned long long)scheduler.CurrentTick());
+                    } else if (q1_frame_processed) {
+                        std::printf("Q1_SKIP_SR_FALLBACK stage=Q1 mode=skipEvaluate session=%s frame=%u source_game_frame=%llu\n",
+                            q1_nr_process.Session().c_str(), q1_game_bridge.FrameIndex(),
+                            (unsigned long long)source_game_frame);
+                    }
+                } else if (pending_present && q1_trigger_consumed) {
+                    std::printf("Q1_BYPASS_PENDING_PRESENT source_game_frame=%llu SR_fallback=1 counted_valid=0\n",
+                                (unsigned long long)source_game_frame);
+                }
+            }
+        }
         bool c4_selected = false;
         bool c4_frame_processed = false;
         if (c4_nr_process.Enabled() && c2_profile) {
@@ -1858,6 +1945,7 @@ void TemporalUpscaler::Run() {
                          : debug_view == BbSettings::DebugMotion ? 2
                                                                  : 0;
         if (c4_frame_processed) c4_game_bridge.BeginMergeTiming(scheduler);
+        if (q1_frame_processed) q1_game_bridge.BeginMergeTiming(scheduler);
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, *merge_pipeline);
         cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *merge_pipeline_layout, 0,
                                     writes);
@@ -1865,6 +1953,7 @@ void TemporalUpscaler::Run() {
                              sizeof(mode), &mode);
         cmdbuf.dispatch((ow + 7) / 8, (oh + 7) / 8, 1);
         if (c4_frame_processed) c4_game_bridge.EndMergeTiming(scheduler);
+        if (q1_frame_processed) q1_game_bridge.EndMergeTiming(scheduler);
         if (c3_frame_processed) {
             std::scoped_lock lock{c1_audit_mutex};
             if (c3_pending_audit) throw std::runtime_error("C3 must not overwrite an unbound presentation audit");
@@ -1879,6 +1968,22 @@ void TemporalUpscaler::Run() {
                 (unsigned long long)scheduler.CurrentTick(), c3_selected,
                 c3_pending_audit->audit_full ? "full" : "gpu_full_scan");
             c3_game_bridge.DeferRetirement(instance, scheduler);
+        }
+        if (q1_frame_processed) {
+            std::scoped_lock lock{c1_audit_mutex};
+            if (q1_pending_audit) throw std::runtime_error("Q1 must not overwrite an unbound presentation audit");
+            q1_pending_audit = C1PresentAudit{
+                .stage = "Q1", .mode = q1_nr_process.Mode(), .session = q1_nr_process.Session(),
+                .execution_mode = q1_nr_process.ExecutionMode(),
+                .selected_output = q1_selected, .audit_full = q1_game_bridge.AuditFull(),
+                .nr_frame = q1_game_bridge.FrameIndex(), .source_game_frame = source_game_frame,
+                .merge_tick = scheduler.CurrentTick()};
+            std::printf("Q1_MERGE_RECORDED stage=Q1 mode=%s session=%s frame=%u source_game_frame=%llu tick=%llu selected_output=%u audit_kind=%s fallback_immutable=1\n",
+                q1_pending_audit->mode.c_str(), q1_pending_audit->session.c_str(),
+                q1_pending_audit->nr_frame, (unsigned long long)source_game_frame,
+                (unsigned long long)scheduler.CurrentTick(), q1_selected,
+                q1_pending_audit->audit_full ? "full" : "off");
+            q1_game_bridge.DeferRetirement(instance, scheduler);
         }
         if (c4_frame_processed) {
             std::scoped_lock lock{c1_audit_mutex};
@@ -2789,6 +2894,38 @@ bool TemporalUpscaler::TakeC1PresentAudit(VAddr address, u64 present_frame_count
                                           u64 gpu_frame_at_prepare, u64 prepare_tick,
                                           C1PresentAudit& audit) {
     std::scoped_lock lock{c1_audit_mutex};
+    if (q1_pending_audit) {
+        // HDR Run records the completed scene before the display-pass NoteFrameStart
+        // increments gpu_frames (vk_rasterizer.cpp). Require that immediate epoch;
+        // a later VideoOut buffer must never inherit this older NR ledger.
+        const auto& pending = *q1_pending_audit;
+        if (gpu_frame_at_prepare != pending.source_game_frame + 1 ||
+            prepare_tick < pending.merge_tick) {
+            std::fprintf(stderr, "Q1_PRESENT_ASSOCIATION_REJECTED stage=Q1 mode=%s session=%s frame=%u source_game_frame=%llu expected_gpu_frame=%llu actual_gpu_frame=%llu merge_tick=%llu prepare_tick=%llu counted_valid=0\n",
+                pending.mode.c_str(), pending.session.c_str(), pending.nr_frame,
+                (unsigned long long)pending.source_game_frame,
+                (unsigned long long)(pending.source_game_frame + 1),
+                (unsigned long long)gpu_frame_at_prepare,
+                (unsigned long long)pending.merge_tick, (unsigned long long)prepare_tick);
+            q1_game_bridge.RejectPresentationAssociation();
+            q1_pending_audit.reset();
+            audit = {};
+            return false;
+        }
+        audit = pending;
+        audit.buffer_address = address;
+        audit.buffer_prepare_gpu_frame = gpu_frame_at_prepare;
+        audit.buffer_prepare_tick = prepare_tick;
+        audit.present_frame_counter_before = present_frame_counter_before;
+        std::printf("Q1_GUEST_BUFFER_BIND stage=Q1 mode=%s session=%s frame=%u route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu frame_counter_before=%llu prepare_tick=%llu selected_output=%u audit_kind=%s association=next_nonupscaled_videoout_prepare_after_merge\n",
+            audit.mode.c_str(), audit.session.c_str(), audit.nr_frame,
+            (unsigned long long)audit.source_game_frame, (unsigned long long)audit.merge_tick,
+            (unsigned long long)address, (unsigned long long)gpu_frame_at_prepare,
+            (unsigned long long)present_frame_counter_before, (unsigned long long)prepare_tick,
+            audit.selected_output, audit.audit_full ? "full" : "off");
+        q1_pending_audit.reset();
+        return true;
+    }
     if (c4_pending_audit) {
         // HDR Run records the completed scene before the display-pass NoteFrameStart
         // increments gpu_frames (vk_rasterizer.cpp). Require that immediate epoch;
@@ -3038,10 +3175,13 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
     if (ok) {
         const u64 source_frame = BbStats::gpu_frames.load(std::memory_order_relaxed);
         const auto viewport_now = camera_motion.CurrentJitter();
+        if (!BbSettings::Get().jitter) q1_sr_jitter_enabled_from_start=false;
         const auto viewport_prev = camera_motion.PreviousJitter();
         if (!c2_sr_initial_reset_observed && last_dlss_reset) {
             c2_sr_initial_reset_observed = true;
             c2_sr_initial_source_game_frame = source_frame;
+            if (q1_nr_process.Enabled())
+                std::printf("Q1_SR_HISTORY initial_reset_observed=1 source_game_frame=%llu jitter_enabled=%u\n",(unsigned long long)source_frame,unsigned(BbSettings::Get().jitter.load()));
             if (c4_nr_process.Enabled())
                 std::printf("C4_SR_HISTORY initial_reset_observed=1 source_game_frame=%llu\n", (unsigned long long)source_frame);
             if (c3_nr_process.Enabled())
