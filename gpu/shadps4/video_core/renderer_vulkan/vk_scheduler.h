@@ -930,9 +930,12 @@ public:
     /// WaitHostCopies() covers it.
     template <typename Func>
     void RecordHostCopy(Func&& copy) {
-        RecordOrdered([copy = std::forward<Func>(copy), this, seq = ++host_copies_issued] {
+        RecordOrdered([copy = std::forward<Func>(copy), this, seq = ++host_copies_issued,
+                       diagnostic = q0_actor_phase] {
+            PublishQ0Phase(diagnostic.get(), 1, 1, true); // HOST_COPY_CALL (includes its flush)
             copy();
             host_copies_done.store(seq, std::memory_order_release);
+            PublishQ0Phase(diagnostic.get(), 1, 11, false, true);
         });
     }
 
@@ -1005,6 +1008,18 @@ public:
         priority_pending_ops_cv.notify_one();
     }
 
+    // Construct only after acquiring submit_mutex. Destructor clears the diagnostic owner
+    // before the original lock releases; this scope never takes or releases that mutex.
+    class Q0SubmitOwnerScope {
+    public:
+        Q0SubmitOwnerScope(const Scheduler* identity, u64 kind);
+        ~Q0SubmitOwnerScope();
+        void Stage(u64 stage);
+    private:
+        bool enabled = false;
+        u64 kind = 0;
+    };
+
     static std::mutex submit_mutex;
 
 private:
@@ -1017,6 +1032,8 @@ private:
         std::unique_ptr<CommandPool> own_pool;
         std::deque<std::unique_ptr<RecordChunk>> queue; ///< guarded by recorder_mutex
         std::atomic<size_t> queued{0};                  ///< queue.size() for lock-free polling
+        u64 q0_wait_returns = 0, q0_command_begin = 0, q0_command_end = 0,
+            q0_ordered_begin = 0, q0_ordered_end = 0; // diagnostics; guarded by recorder_mutex
         bool busy = false;     ///< running a chunk (guarded by recorder_mutex)
         bool sleeping = false; ///< waiting on cv (guarded by recorder_mutex)
         std::condition_variable_any cv;
@@ -1111,6 +1128,33 @@ private:
     /// Whether the oldest ordered chunk may run: the commands handed over before it are
     /// recorded (with recorder_mutex held).
     [[nodiscard]] bool OrderedReady() const;
+
+    // Opt-in observer only. Published under the existing recorder_mutex; readers never
+    // dereference the real ordered queue/batch. No observer thread or additional wakeup.
+    struct Q0PhaseRecord {
+        std::atomic<u64> seq{0}, kind{0}, stage{0}, tid{0}, identity{0},
+            entry_ns{0}, updated_ns{0}, exit_ns{0}, entries{0}, exits{0}, claim_epoch{0};
+        std::atomic<u64> selected_epoch{0}; // set before the claimed ordered batch executes
+    };
+    static void PublishQ0Phase(Q0PhaseRecord* record, u64 kind, u64 stage,
+                               bool entry = false, bool exit = false, u64 identity = 0);
+    static Q0PhaseRecord q0_submit_owner; // writer holds the actual global submit_mutex
+    std::shared_ptr<Q0PhaseRecord> q0_actor_phase; // no raw Scheduler in delayed signal task
+    class Q0WaitStateScope;
+    void PublishQ0WaitState(); // recorder_mutex must already be held
+    struct Q0WaitState {
+        std::atomic<u64> seq{0}, updated_ns{0};
+        std::atomic<u64> queue{0}, running{0}, reason{0}, segment{0}, after{0}, blocked_segment{0},
+            recorded{0}, handed{0}, worker_count{0}, sleep_mask{0}, busy_mask{0};
+        std::array<std::atomic<u64>, 8> worker_queue{}, wait_returns{}, command_begin{},
+            command_end{}, ordered_begin{}, ordered_end{};
+        std::atomic<u64> enqueued{0}, popped{0}, claim_epoch{0}; // chunks, not signals
+        // Actual notify_one calls occur outside recorder_mutex, as before. These counters
+        // are independent of the coherent locked snapshot and explicitly labeled that way.
+        std::array<std::atomic<u64>, 8> notify_calls{};
+    } q0_wait_state;
+    bool q0_wait_state_enabled = false;
+    u64 q0_enqueued_chunks = 0, q0_popped_chunks = 0, q0_ordered_claim_epoch = 0; // guarded by recorder_mutex
 
     void RecorderThread(std::stop_token stoken, u32 index);
 

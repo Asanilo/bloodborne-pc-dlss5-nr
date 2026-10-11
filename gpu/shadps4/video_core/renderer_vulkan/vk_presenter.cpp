@@ -799,7 +799,10 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     // Present to swapchain.
     {
         std::scoped_lock submit_lock{Scheduler::submit_mutex};
+        Scheduler::Q0SubmitOwnerScope q0_owner{&scheduler, 6};
+        q0_owner.Stage(15);
         const bool presented = swapchain.Present();
+        q0_owner.Stage(16);
         const auto c4_now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
         if (is_game_frame && !is_reusing_frame && std::getenv("BB_NR_C4_BASELINE"))
@@ -859,6 +862,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                         presented);
         }
         if (!presented) {
+            q0_owner.Stage(17);
             swapchain.Recreate(window.GetWidth(), window.GetHeight());
         }
     }

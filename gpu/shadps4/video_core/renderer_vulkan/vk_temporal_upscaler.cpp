@@ -60,6 +60,8 @@ FfxVkPortableImage Describe(vk::Image image, vk::Format format, u32 width, u32 h
 /// the upscaler's images of the next BB_DUMP_FRAMES (8) frames as raw files
 /// <dir>/fNNN_<name>_<w>x<h>_<format>.raw, for checking temporal stability offline.
 /// Returns the frame number to dump, or -1.
+bool Q0CaptureEnabled();
+
 int DumpFrame() {
     static const char* trigger = std::getenv("BB_DUMP_TRIGGER");
     static int remaining = 0, index = 0, polls = 0;
@@ -72,7 +74,7 @@ int DumpFrame() {
         }
         const char* frames = std::getenv("BB_DUMP_FRAMES");
         remaining = frames ? std::max(1, std::atoi(frames)) : 8;
-        index = 0;
+        if (!Q0CaptureEnabled()) index = 0; // Q0 retains unique indices across trigger sequences.
     }
     --remaining;
     return index++;
@@ -92,7 +94,8 @@ struct DumpImage {
 /// files once the GPU is done.
 void DumpImages(const Instance& instance, Scheduler& scheduler, vk::CommandBuffer cmdbuf,
                 int frame, std::initializer_list<DumpImage> images,
-                std::optional<C1PresentAudit> c1_present_audit = std::nullopt) {
+                std::optional<C1PresentAudit> c1_present_audit = std::nullopt,
+                u64 q0_source_game_frame = 0) {
     static const std::string dir = [] {
         const char* env = std::getenv("BB_DUMP_DIR");
         return std::string{env && env[0] ? env : "out/dump"};
@@ -133,12 +136,15 @@ void DumpImages(const Instance& instance, Scheduler& scheduler, vk::CommandBuffe
         std::snprintf(path, sizeof(path), "%s/f%03d_%s_%ux%u_%s.raw", dir.c_str(), frame,
                       image.name, image.width, image.height, image.format);
         const bool c0_capture = C0CaptureEnabled();
+        const bool q0_capture = Q0CaptureEnabled();
+        const auto* completion = scheduler.GetWorkSemaphore();
         const bool c1_present = c1_present_audit.has_value() && image.name == std::string_view{"present"};
         const u64 recorded_tick = scheduler.CurrentTick();
         scheduler.DeferPriorityOperation(
             [allocator = instance.GetAllocator(), buffer, allocation, info, size, frame,
              file = std::string{path}, image_name = std::string{image.name}, c0_capture,
-             recorded_tick, c1_present, c1_audit = c1_present_audit.value_or(C1PresentAudit{})] {
+             recorded_tick, c1_present, c1_audit = c1_present_audit.value_or(C1PresentAudit{}),
+             q0_capture, q0_source_game_frame, completion] {
                 vmaInvalidateAllocation(allocator, allocation, 0, VK_WHOLE_SIZE);
                 size_t written = 0;
                 bool file_ok = false;
@@ -153,6 +159,15 @@ void DumpImages(const Instance& instance, Scheduler& scheduler, vk::CommandBuffe
                         frame, image_name.c_str(), static_cast<unsigned long long>(recorded_tick),
                         static_cast<unsigned long long>(size),
                         static_cast<unsigned long long>(written), file_ok, file.c_str());
+                }
+                if (q0_capture) {
+                    std::printf("Q0_DUMP_COMPLETE dump_frame=%d source_game_frame=%llu name=%s "
+                                "recorded_tick=%llu completed_tick=%llu GPU_complete=%u "
+                                "bytes=%llu written=%llu file_ok=%u path=%s\n",
+                        frame, (unsigned long long)q0_source_game_frame, image_name.c_str(),
+                        (unsigned long long)recorded_tick,
+                        (unsigned long long)completion->KnownGpuTick(), completion->IsFree(recorded_tick),
+                        (unsigned long long)size, (unsigned long long)written, file_ok, file.c_str());
                 }
                 if (c1_present) {
                     std::printf(
@@ -192,6 +207,30 @@ bool C0CaptureEnabled() {
         return value && std::strcmp(value, "1") == 0;
     }();
     return enabled;
+}
+
+bool Q0CaptureEnabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("BB_NR_Q0_CAPTURE");
+        return value && std::strcmp(value, "1") == 0;
+    }();
+    return enabled;
+}
+
+void PrintQ0Image(int dump, u64 source_frame, const char* role, vk::Image image,
+                  vk::ImageView view, const vk::ImageCreateInfo& ci, vk::Format view_format,
+                  const char* aspect, u32 valid_width, u32 valid_height) {
+    std::printf("Q0_IMAGE dump_frame=%d source_game_frame=%llu role=%s image=%p view=%p "
+                "create_format=%s view_format=%s extent=%ux%u depth=%u usage=0x%x flags=0x%x "
+                "mips=%u layers=%u samples=%u tiling=%s aspect=%s layout=GENERAL "
+                "valid_rect=0,0,%u,%u transfer_src=%u\n",
+                dump, (unsigned long long)source_frame, role, (void*)VkImage(image),
+                (void*)VkImageView(view), vk::to_string(ci.format).c_str(),
+                vk::to_string(view_format).c_str(), ci.extent.width, ci.extent.height,
+                ci.extent.depth, unsigned(VkImageUsageFlags(ci.usage)),
+                unsigned(VkImageCreateFlags(ci.flags)), ci.mipLevels, ci.arrayLayers,
+                unsigned(ci.samples), vk::to_string(ci.tiling).c_str(), aspect,
+                valid_width, valid_height, bool(ci.usage & vk::ImageUsageFlagBits::eTransferSrc));
 }
 
 void PrintC0Image(const char* name, const vk::ImageCreateInfo& ci, vk::Format view_format,
@@ -564,7 +603,7 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     output_view.reset();
     motion_image = VideoCore::UniqueImage(device, allocator);
     auto motion_usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
-    if (C0CaptureEnabled()) {
+    if (C0CaptureEnabled() || Q0CaptureEnabled()) {
         motion_usage |= vk::ImageUsageFlagBits::eTransferSrc;
     }
     motion_image.Create(vk::ImageCreateInfo{
@@ -1375,6 +1414,64 @@ void TemporalUpscaler::Run() {
         // bbport: BB_DUMP_TRIGGER on this (HDR scene color) path too: the upscaler's inputs and
         // its result, for ghosting and history checks (tools/dump_view.py).
         if (const int dump = DumpFrame(); dump >= 0) {
+            if (Q0CaptureEnabled()) {
+                const auto proxy_color = scene_targets.CaptureCreateInfo(input_color);
+                const auto proxy_depth = scene_targets.CaptureCreateInfo(input_depth);
+                const auto vc = camera_motion.CurrentJitter(), vp = camera_motion.PreviousJitter();
+                const auto& settings = BbSettings::Get();
+                const bool profile_match = !Scaled() && reduced && w == 1280 && h == 720 &&
+                    ow == 1920 && oh == 1080 && proxy_color && proxy_depth &&
+                    settings.upscaler == BbSettings::UpscalerDlss && settings.jitter &&
+                    last_dlss_called && last_dlss_hdr &&
+                    proxy_color->extent.width == w && proxy_color->extent.height == h &&
+                    proxy_depth->extent.width == w && proxy_depth->extent.height == h;
+                const bool transfer_ok = proxy_color && proxy_depth &&
+                    bool(proxy_color->usage & vk::ImageUsageFlagBits::eTransferSrc) &&
+                    bool(proxy_depth->usage & vk::ImageUsageFlagBits::eTransferSrc) &&
+                    bool(motion_image.image_ci.usage & vk::ImageUsageFlagBits::eTransferSrc) &&
+                    bool(output_image.image_ci.usage & vk::ImageUsageFlagBits::eTransferSrc);
+                const bool depth_ok = depth_format == vk::Format::eD32Sfloat ||
+                                      depth_format == vk::Format::eD32SfloatS8Uint;
+                std::printf("Q0_SR_CAPTURE dump_frame=%d source_game_frame=%llu route=Run "
+                    "scaled=%u reduced=%u profile_match=%u status=%s render=%ux%u output=%ux%u "
+                    "record_dlss=%u SR_success=%u hdr=%u source_reset=%u "
+                    "viewport_jitter=%.9g,%.9g previous_viewport_jitter=%.9g,%.9g "
+                    "sr_jitter=%.9g,%.9g previous_sr_jitter=%.9g,%.9g "
+                    "frame_ms=%.9g recorded_tick=%llu transfer_sources_legal=%u "
+                    "guidephase=UNVERIFIED_FOR_NR exposure_valid=0 exposure_source=unknown\n",
+                    dump, (unsigned long long)source_game_frame, Scaled(), reduced, profile_match,
+                    profile_match && transfer_ok && depth_ok ? "RECORDED_NOT_YET_COMPLETED" : "BLOCKED",
+                    w, h, ow, oh, last_dlss_called, last_dlss_called && last_dlss_hdr,
+                    last_dlss_hdr, last_dlss_reset,
+                    vc[0], vc[1], vp[0], vp[1], last_dlss_jitter_x, last_dlss_jitter_y,
+                    previous_dlss_jitter_x, previous_dlss_jitter_y, last_dlss_frame_ms,
+                    (unsigned long long)scheduler.CurrentTick(), transfer_ok);
+                PrintQ0Image(dump, source_game_frame, "guest_color_allocation", color.GetImage(),
+                    color_view, color.backing->image.image_ci, color.info.pixel_format, "COLOR", ow, oh);
+                PrintQ0Image(dump, source_game_frame, "guest_depth_allocation", depth.GetImage(),
+                    depth_view, depth.backing->image.image_ci, depth_format, "DEPTH", ow, oh);
+                if (proxy_color) PrintQ0Image(dump, source_game_frame, "actual_SR_input_proxy", input_color,
+                    input_color_view, *proxy_color, color.info.pixel_format, "COLOR", w, h);
+                if (proxy_depth) PrintQ0Image(dump, source_game_frame, "actual_SR_depth_proxy", input_depth,
+                    input_depth_view, *proxy_depth, proxy_depth->format, "DEPTH", w, h);
+                PrintQ0Image(dump, source_game_frame, "actual_MV", vk::Image(motion_image), *motion_view,
+                    motion_image.image_ci, vk::Format::eR16G16Sfloat, "COLOR", w, h);
+                PrintQ0Image(dump, source_game_frame, "actual_SR_output", vk::Image(output_image), *output_view,
+                    output_image.image_ci, vk::Format::eR16G16B16A16Sfloat, "COLOR", ow, oh);
+                camera_motion.PrintQualityCaptureState(dump, source_game_frame);
+                if (transfer_ok && depth_ok) {
+                    DumpImages(instance, scheduler, cmdbuf, dump,
+                        {{input_color, w, h, 8, "input", "rgba16f"},
+                         {input_depth, w, h, 4, "depth", "f32", vk::ImageAspectFlagBits::eDepth},
+                         {vk::Image(motion_image), w, h, 4, "motion", "rg16f"},
+                         {vk::Image(output_image), ow, oh, 8, "output", "rgba16f"}},
+                        std::nullopt, source_game_frame);
+                }
+                // Object attachment is optional; do not copy an uninspected extra source.
+                std::printf("Q0_OBJECT_DUMP dump_frame=%d source_game_frame=%llu status=NOT_DUMPED "
+                            "reason=nonessential_attachment_usage_not_inspected\n", dump,
+                            (unsigned long long)source_game_frame);
+            } else {
             if (C0CaptureEnabled()) {
                 const auto viewport_jitter = camera_motion.CurrentJitter();
                 const auto previous_viewport_jitter = camera_motion.PreviousJitter();
@@ -1431,6 +1528,7 @@ void TemporalUpscaler::Run() {
             if (const auto object = camera_motion.ObjectMotionImage(w, h); object) {
                 DumpImages(instance, scheduler, cmdbuf, dump,
                            {{object, w, h, 16, "objects", "rgba32f"}});
+            }
             }
         }
         vk::ImageView merge_view = *output_view; // immutable SR fallback remains intact
@@ -2146,6 +2244,11 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
 }
 
 void TemporalUpscaler::RunScaled() {
+    if (Q0CaptureEnabled()) {
+        std::fprintf(stderr, "Q0_ROUTE_BLOCKED route=RunScaled expected=normal_live_HDR_Run "
+                            "source_game_frame=%llu profile_match=0\n",
+                            (unsigned long long)BbStats::gpu_frames.load(std::memory_order_relaxed));
+    }
     if (auto* profiler = GpuProfiler::Get()) {
         const char* label = BbSettings::Get().upscaler == BbSettings::UpscalerTaa
             ? "upscaler RunScaled (TAA)" : "upscaler RunScaled (FSR)";

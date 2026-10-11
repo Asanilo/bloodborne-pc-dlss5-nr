@@ -12,6 +12,7 @@
 #include "bbport_toggles.h"
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace Vulkan {
 SceneTargets::SceneTargets(const Instance& i, Scheduler& s, Runtime& r,
@@ -407,6 +408,8 @@ SceneTargets::Entry& SceneTargets::Get(VideoCore::ImageId id, u32 level) {
         const auto proxy = ProxySize(original, level);
         ci.extent = vk::Extent3D{proxy.width, proxy.height, 1};
         ci.mipLevels = 1;
+        const char* q0 = std::getenv("BB_NR_Q0_CAPTURE");
+        if (q0 && std::strcmp(q0, "1") == 0) ci.usage |= vk::ImageUsageFlagBits::eTransferSrc;
         entry->image.Create(ci);
         tracked.insert(original.image_uid);
     }
@@ -477,6 +480,12 @@ std::optional<SceneTargets::Target> SceneTargets::SampleProxy(
     auto& e = *entries.find(Key(image.image_uid, level))->second;
     const auto layout = PrepareSample(image, level);
     return Target{e.image, View(e, image, info), layout, e.image.image_ci.usage};
+}
+std::optional<vk::ImageCreateInfo> SceneTargets::CaptureCreateInfo(vk::Image image) const {
+    for (const auto& [key, entry] : entries) {
+        if (entry && vk::Image(entry->image) == image) return entry->image.image_ci;
+    }
+    return std::nullopt;
 }
 SceneTargets::Target SceneTargets::Read(VideoCore::ImageId id,
                                        const VideoCore::ImageViewInfo& info,

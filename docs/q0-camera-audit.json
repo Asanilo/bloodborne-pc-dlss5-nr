@@ -1,0 +1,459 @@
+{
+  "status": "OFFLINE_CAMERA_COMPARISON_ONLY",
+  "GPU": "NOT_RUN_BY_AUDITOR",
+  "inputs": {
+    "log": "runs/quality-capture-20261011T163641.147928Z/game.log",
+    "log_sha256": "b4698a01a4563f82baa27b60b49679dd4fbb2cfb5e021736c4c8c2ac75574295",
+    "resource_audit": "bbport/runs/q0-game-q0-quality-motion-20261011/root-resource-audit.json",
+    "resource_audit_sha256": "820497dfe82590a31d4014595a6659025562e94adbd9e5d48efeb3b51b54e811"
+  },
+  "budget_declared_before_comparison": {
+    "compute_allowance_render_pixels": 0.01,
+    "quantization": "0.5*max_adjacent_RG16F_ULP_of_predicted_component",
+    "local_depth_relative_z_span_max": 0.02,
+    "previous_depth_relative_z_error_max": 0.02,
+    "excluded": "sky/nonfinite/behind_camera/border/geometric_discontinuity; object regions UNKNOWN",
+    "limitation": "Fixed conservative numeric allowance, not a proven GPU FMA bound or independent object mask"
+  },
+  "frames": [
+    {
+      "dump_frame": 0,
+      "source_game_frame": 12241,
+      "camera_view_changed": false,
+      "object_valid": 1,
+      "object_pixel_classification": "UNKNOWN_NO_OBJECT_SELECTOR_DUMP",
+      "mask_scope": "geometry_only_not_camera_only_no_residual_selection",
+      "previous_depth_checked": false,
+      "geometric_samples": 793794,
+      "total_pixels": 921600,
+      "prediction_magnitude_p50_p95_p99": [
+        0.000762939453125,
+        0.00316619873046875,
+        0.0032806396484375
+      ],
+      "comparisons": {
+        "camera_previous_minus_current": {
+          "samples": 793794,
+          "within_budget_pixels": 792767,
+          "within_budget_fraction": 0.998706213450845,
+          "max_component_error_quantiles_pixels": {
+            "p50": 4.291534423828125e-05,
+            "p95": 0.0010704398155212402,
+            "p99": 0.001892106533050525,
+            "max": 1.6333160400390625
+          }
+        },
+        "wrong_sign": {
+          "samples": 793794,
+          "within_budget_pixels": 792764,
+          "within_budget_fraction": 0.998702434132785,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.0009918212890625,
+            "p95": 0.006339073181152344,
+            "p99": 0.006561279296875,
+            "max": 1.6362152099609375
+          }
+        },
+        "extra_previous_minus_current_jitter": {
+          "samples": 793794,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.25925925374031067,
+            "p95": 0.2592807114124298,
+            "p99": 0.25930216908454895,
+            "max": 1.8520660400390625
+          }
+        },
+        "extra_current_minus_previous_jitter": {
+          "samples": 793794,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.25925925374031067,
+            "p95": 0.25928542017936707,
+            "p99": 0.25930216908454895,
+            "max": 1.4145660400390625
+          }
+        }
+      },
+      "all_pixel_camera_status": "NOT_CLASSIFIED",
+      "NR_guide_phase": "UNVERIFIED",
+      "NR_MVecScale": "UNVERIFIED"
+    },
+    {
+      "dump_frame": 1,
+      "source_game_frame": 12242,
+      "camera_view_changed": false,
+      "object_valid": 1,
+      "object_pixel_classification": "UNKNOWN_NO_OBJECT_SELECTOR_DUMP",
+      "mask_scope": "geometry_only_not_camera_only_no_residual_selection",
+      "previous_depth_checked": true,
+      "geometric_samples": 782261,
+      "total_pixels": 921600,
+      "prediction_magnitude_p50_p95_p99": [
+        0.0007438707980327308,
+        0.00316619873046875,
+        0.0032806396484375
+      ],
+      "comparisons": {
+        "camera_previous_minus_current": {
+          "samples": 782261,
+          "within_budget_pixels": 781383,
+          "within_budget_fraction": 0.9988776124592688,
+          "max_component_error_quantiles_pixels": {
+            "p50": 4.291534423828125e-05,
+            "p95": 0.0010696053504943848,
+            "p99": 0.0016055941581726088,
+            "max": 1.021087646484375
+          }
+        },
+        "wrong_sign": {
+          "samples": 782261,
+          "within_budget_pixels": 781381,
+          "within_budget_fraction": 0.998875055767832,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.0009946227073669434,
+            "p95": 0.0063323974609375,
+            "p99": 0.006561279296875,
+            "max": 1.023834228515625
+          }
+        },
+        "extra_previous_minus_current_jitter": {
+          "samples": 782261,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.3333333432674408,
+            "p95": 0.33335480093955994,
+            "p99": 0.3333762586116791,
+            "max": 0.771087646484375
+          }
+        },
+        "extra_current_minus_previous_jitter": {
+          "samples": 782261,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.3333333432674408,
+            "p95": 0.3333762586116791,
+            "p99": 0.3333762586116791,
+            "max": 1.271087646484375
+          }
+        }
+      },
+      "all_pixel_camera_status": "NOT_CLASSIFIED",
+      "NR_guide_phase": "UNVERIFIED",
+      "NR_MVecScale": "UNVERIFIED"
+    },
+    {
+      "dump_frame": 2,
+      "source_game_frame": 12332,
+      "camera_view_changed": true,
+      "object_valid": 1,
+      "object_pixel_classification": "UNKNOWN_NO_OBJECT_SELECTOR_DUMP",
+      "mask_scope": "geometry_only_not_camera_only_no_residual_selection",
+      "previous_depth_checked": false,
+      "geometric_samples": 818302,
+      "total_pixels": 921600,
+      "prediction_magnitude_p50_p95_p99": [
+        7.500071048736572,
+        19.119912910461426,
+        24.751698474884034
+      ],
+      "comparisons": {
+        "camera_previous_minus_current": {
+          "samples": 818302,
+          "within_budget_pixels": 773810,
+          "within_budget_fraction": 0.9456288754029686,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.0024971961975097656,
+            "p95": 0.13997611999511683,
+            "p99": 1.7118222808837888,
+            "max": 3.2365875244140625
+          }
+        },
+        "wrong_sign": {
+          "samples": 818302,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "max_component_error_quantiles_pixels": {
+            "p50": 14.808349609375,
+            "p95": 36.037616729736314,
+            "p99": 47.726104736328125,
+            "max": 57.85223388671875
+          }
+        },
+        "extra_previous_minus_current_jitter": {
+          "samples": 818302,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.33334383368492126,
+            "p95": 0.337191104888916,
+            "p99": 1.4975718688964825,
+            "max": 2.9865875244140625
+          }
+        },
+        "extra_current_minus_previous_jitter": {
+          "samples": 818302,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.3333476483821869,
+            "p95": 0.346342772245406,
+            "p99": 1.9618222808837888,
+            "max": 3.4865875244140625
+          }
+        }
+      },
+      "all_pixel_camera_status": "NOT_CLASSIFIED",
+      "NR_guide_phase": "UNVERIFIED",
+      "NR_MVecScale": "UNVERIFIED"
+    },
+    {
+      "dump_frame": 3,
+      "source_game_frame": 12333,
+      "camera_view_changed": true,
+      "object_valid": 1,
+      "object_pixel_classification": "UNKNOWN_NO_OBJECT_SELECTOR_DUMP",
+      "mask_scope": "geometry_only_not_camera_only_no_residual_selection",
+      "previous_depth_checked": true,
+      "geometric_samples": 802552,
+      "total_pixels": 921600,
+      "prediction_magnitude_p50_p95_p99": [
+        7.730783462524414,
+        19.338374233245847,
+        25.54274951934814
+      ],
+      "comparisons": {
+        "camera_previous_minus_current": {
+          "samples": 802552,
+          "within_budget_pixels": 758486,
+          "within_budget_fraction": 0.9450926544323608,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.0022716522216796875,
+            "p95": 0.16680057048797547,
+            "p99": 1.7714794158935536,
+            "max": 3.19012451171875
+          }
+        },
+        "wrong_sign": {
+          "samples": 802552,
+          "within_budget_pixels": 1,
+          "within_budget_fraction": 1.246025179676831e-06,
+          "max_component_error_quantiles_pixels": {
+            "p50": 15.26861572265625,
+            "p95": 36.539314270019524,
+            "p99": 49.27311416625962,
+            "max": 55.94146728515625
+          }
+        },
+        "extra_previous_minus_current_jitter": {
+          "samples": 802552,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.5556035041809082,
+            "p95": 0.5576852440834046,
+            "p99": 2.2714794158935536,
+            "max": 3.69012451171875
+          }
+        },
+        "extra_current_minus_previous_jitter": {
+          "samples": 802552,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "max_component_error_quantiles_pixels": {
+            "p50": 0.5555355548858643,
+            "p95": 0.5593156814575195,
+            "p99": 1.479300689697265,
+            "max": 2.69012451171875
+          }
+        }
+      },
+      "all_pixel_camera_status": "NOT_CLASSIFIED",
+      "NR_guide_phase": "UNVERIFIED",
+      "NR_MVecScale": "UNVERIFIED"
+    }
+  ],
+  "resources": [
+    {
+      "frame": 0,
+      "role": "input",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f000_input_1280x720_rgba16f.raw",
+      "sha256": "0bcf3762ac09ce70cd193f527451732f5db7454fce59779eabb56df5eda2b614",
+      "bytes": 7372800,
+      "samples": 3686400,
+      "finite": 3686400,
+      "recorded_tick": "24486",
+      "completed_tick": "24487"
+    },
+    {
+      "frame": 0,
+      "role": "depth",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f000_depth_1280x720_f32.raw",
+      "sha256": "2faf4bd33cd86acc04460d691cb8ca4389e27741aac10e367a981813d795b180",
+      "bytes": 3686400,
+      "samples": 921600,
+      "finite": 921600,
+      "recorded_tick": "24486",
+      "completed_tick": "24487"
+    },
+    {
+      "frame": 0,
+      "role": "motion",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f000_motion_1280x720_rg16f.raw",
+      "sha256": "b1eccaddf50359193192880ded77cd67ebfb792fee1b72e5ec86a1d2664e459e",
+      "bytes": 3686400,
+      "samples": 1843200,
+      "finite": 1843200,
+      "recorded_tick": "24486",
+      "completed_tick": "24487"
+    },
+    {
+      "frame": 0,
+      "role": "output",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f000_output_1920x1080_rgba16f.raw",
+      "sha256": "897e30e2a3996f5227cd8d78d52fada516ee4f3bf4044bf2a5798411cdf0b9cf",
+      "bytes": 16588800,
+      "samples": 8294400,
+      "finite": 8294400,
+      "recorded_tick": "24486",
+      "completed_tick": "24487"
+    },
+    {
+      "frame": 1,
+      "role": "input",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f001_input_1280x720_rgba16f.raw",
+      "sha256": "853d931b5fc91482bf5d9e439159fb159de7366fed8fab7430bfd5f39f61244c",
+      "bytes": 7372800,
+      "samples": 3686400,
+      "finite": 3686400,
+      "recorded_tick": "24488",
+      "completed_tick": "24489"
+    },
+    {
+      "frame": 1,
+      "role": "depth",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f001_depth_1280x720_f32.raw",
+      "sha256": "0f4eb82bdd2f361e6fbe9091188e5a5370f876eabaa1008e238efb43558895ef",
+      "bytes": 3686400,
+      "samples": 921600,
+      "finite": 921600,
+      "recorded_tick": "24488",
+      "completed_tick": "24489"
+    },
+    {
+      "frame": 1,
+      "role": "motion",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f001_motion_1280x720_rg16f.raw",
+      "sha256": "48e488aef152ee704e33d10a6e52337d2ecfae481db3ff2bbef15429ab5f0665",
+      "bytes": 3686400,
+      "samples": 1843200,
+      "finite": 1843200,
+      "recorded_tick": "24488",
+      "completed_tick": "24489"
+    },
+    {
+      "frame": 1,
+      "role": "output",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f001_output_1920x1080_rgba16f.raw",
+      "sha256": "12e8aa2dd57285b1a80d5503dfc58cb5ab891e2a0bb79bba8dd79b9a93856ca2",
+      "bytes": 16588800,
+      "samples": 8294400,
+      "finite": 8294400,
+      "recorded_tick": "24488",
+      "completed_tick": "24489"
+    },
+    {
+      "frame": 2,
+      "role": "input",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f002_input_1280x720_rgba16f.raw",
+      "sha256": "8bbc1734d7e1651222f371a0d93b650ac204d9c8355db7a896a6dfb717bf1273",
+      "bytes": 7372800,
+      "samples": 3686400,
+      "finite": 3686400,
+      "recorded_tick": "24668",
+      "completed_tick": "24669"
+    },
+    {
+      "frame": 2,
+      "role": "depth",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f002_depth_1280x720_f32.raw",
+      "sha256": "4cb228d1b34c2532591e6bb0a915f0b5752584f1e36895cec8b88d5bbd659ce6",
+      "bytes": 3686400,
+      "samples": 921600,
+      "finite": 921600,
+      "recorded_tick": "24668",
+      "completed_tick": "24669"
+    },
+    {
+      "frame": 2,
+      "role": "motion",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f002_motion_1280x720_rg16f.raw",
+      "sha256": "56a5c8acc552604ccc1653ec3e5f23c13898925770e30fe11794b1e1c2f9337f",
+      "bytes": 3686400,
+      "samples": 1843200,
+      "finite": 1843200,
+      "recorded_tick": "24668",
+      "completed_tick": "24669"
+    },
+    {
+      "frame": 2,
+      "role": "output",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f002_output_1920x1080_rgba16f.raw",
+      "sha256": "b9fdcb71efae17af81fcb76575f656d95feaa4e61fcf51db09136f039a0d1297",
+      "bytes": 16588800,
+      "samples": 8294400,
+      "finite": 8294400,
+      "recorded_tick": "24668",
+      "completed_tick": "24669"
+    },
+    {
+      "frame": 3,
+      "role": "input",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f003_input_1280x720_rgba16f.raw",
+      "sha256": "d0447e187fe328740f22bfe6afdb405a33ec54b16e86e1652731d9fe9ff7af6d",
+      "bytes": 7372800,
+      "samples": 3686400,
+      "finite": 3686400,
+      "recorded_tick": "24670",
+      "completed_tick": "24671"
+    },
+    {
+      "frame": 3,
+      "role": "depth",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f003_depth_1280x720_f32.raw",
+      "sha256": "b396ec136ab0ba413a17f87689545322c45ade30d2123ef6c2cd2391389e972c",
+      "bytes": 3686400,
+      "samples": 921600,
+      "finite": 921600,
+      "recorded_tick": "24670",
+      "completed_tick": "24671"
+    },
+    {
+      "frame": 3,
+      "role": "motion",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f003_motion_1280x720_rg16f.raw",
+      "sha256": "316dabff6593db32e5abad8a1f7252deac8490a4b2fbc4f59f9f2350e1d6f4e4",
+      "bytes": 3686400,
+      "samples": 1843200,
+      "finite": 1843200,
+      "recorded_tick": "24670",
+      "completed_tick": "24671"
+    },
+    {
+      "frame": 3,
+      "role": "output",
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f003_output_1920x1080_rgba16f.raw",
+      "sha256": "334419f6be5ff28b80d8fa614b2a66b3bd75b0b2a162f3e6c395576b696482e8",
+      "bytes": 16588800,
+      "samples": 8294400,
+      "finite": 8294400,
+      "recorded_tick": "24670",
+      "completed_tick": "24671"
+    }
+  ],
+  "interpretation": "Camera-sign/jitter diagnostics on a geometric screen only; NOT all-pixel MV, NR phase, quality, or performance acceptance"
+}

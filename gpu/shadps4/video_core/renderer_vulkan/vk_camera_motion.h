@@ -72,6 +72,7 @@ public:
     /// bbport: the matrices and jitter of the motion of this frame, printed with an upscaler dump
     /// (BB_DUMP_TRIGGER) for offline checks of the vectors.
     void PrintState(int frame) const;
+    void PrintQualityCaptureState(int frame, u64 source_game_frame) const;
 
     /// Records the motion vector pass (Scheduler::Record): `depth_view` (depth aspect, General
     /// layout) into `motion_view` (RG16F storage, General), pixels, previous minus current.
@@ -91,6 +92,9 @@ public:
     void OnDisplayPass(VideoCore::ImageId frame);
 
 private:
+    bool last_motion_object_valid = false;
+    vk::ImageView last_motion_object_view{}, last_motion_depth_view{}, last_motion_output_view{};
+    std::array<u32, 2> last_motion_size{};
     struct Camera {
         std::array<float, 12> view{};     ///< world to view, 3x4 rows
         std::array<float, 12> inv_view{}; ///< view to world, 3x4 rows

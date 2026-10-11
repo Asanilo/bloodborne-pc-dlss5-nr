@@ -28,6 +28,7 @@
 namespace Vulkan {
 
 std::mutex Scheduler::submit_mutex;
+Scheduler::Q0PhaseRecord Scheduler::q0_submit_owner;
 
 namespace {
 // bbport: ProducerScope state of this thread: the producer function it is in (any scheduler).
@@ -51,6 +52,150 @@ std::string ThreadName(u32 tid) {
     }
     return name;
 }
+
+// Q0-only observation. The monitor never reads scheduler queues or producer-owned mutable
+// fields: only atomics and the immutable target copied by the waiting thread. A scope stays
+// registered under this separate mutex until its wait has ended, keeping every pointer alive.
+struct Q0SlowWaitRecord {
+    const char* function{};
+    unsigned kind{};
+    const void* scheduler{}; // identity only; never dereferenced
+    void* caller{};
+    u32 tid{};
+    u64 target{};
+    u64 entry_done{};
+    const std::atomic<u64>* done{};
+    const std::atomic<u64>* signal_issued{};
+    const std::atomic<u64>* signal_done{};
+    const std::atomic<u64>* host_done{};
+    const std::atomic<size_t>* ordered_queued{};
+    const std::atomic<u32>* active_worker{};
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    std::atomic<const char*> phase{"entry"};
+    bool reported = false; // protected by Q0SlowWaitMonitor::mutex, not the scheduler mutex
+};
+
+class Q0SlowWaitMonitor {
+public:
+    Q0SlowWaitMonitor() : thread([this](std::stop_token stop) {
+        std::unique_lock lock{mutex};
+        while (!stop.stop_requested()) {
+            cv.wait_for(lock, std::chrono::milliseconds(10));
+            for (const auto& record : records) {
+                if (!record->reported && !claimed[record->kind] &&
+                    std::chrono::steady_clock::now() - record->start > std::chrono::milliseconds(100)) {
+                    Report(*record, true);
+                }
+            }
+        }
+    }) {}
+    ~Q0SlowWaitMonitor() {
+        thread.request_stop();
+        cv.notify_all();
+        thread.join();
+    }
+    void Add(const std::shared_ptr<Q0SlowWaitRecord>& record) {
+        std::scoped_lock lock{mutex};
+        records.push_back(record);
+    }
+    void Remove(const std::shared_ptr<Q0SlowWaitRecord>& owned) {
+        auto& record = *owned;
+        std::scoped_lock lock{mutex};
+        // Preserve the distinction if the monitor itself was not scheduled before return.
+        if (!record.reported && !claimed[record.kind] &&
+            std::chrono::steady_clock::now() - record.start > std::chrono::milliseconds(100)) {
+            Report(record, false);
+        }
+        if (record.reported) Print(record, "END", false);
+        std::erase(records, owned);
+    }
+private:
+    static void Print(const Q0SlowWaitRecord& r, const char* event, bool active) {
+        const auto now = std::chrono::steady_clock::now();
+        const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+        const double wall_ms = std::chrono::duration<double, std::milli>(now - r.start).count();
+        Dl_info symbol{};
+        dladdr(r.caller, &symbol);
+        std::fprintf(stderr,
+            "Q0_SLOW_WAIT event=%s function=%s clock=steady_clock monotonic_ns=%lld "
+            "wall_ms=%.6f threshold_ms=100 observed_wait_active=%u tid=%u thread=%s "
+            "scheduler=%p direct_caller=%p caller_object=%s caller_offset=0x%llx phase=%s "
+            "target_issued_entry=%llu target_done_entry=%llu target_done_now=%llu "
+            "deferred_issued_now=%llu deferred_done_now=%llu host_done_now=%llu "
+            "ordered_queued_now=%zu active_worker_now=%u copy_pool_queue=NOT_AVAILABLE "
+            "snapshot_atomic_fields_independent=1 root_cause=UNPROVEN\n",
+            event, r.function, (long long)ns, wall_ms, unsigned(active), r.tid,
+            ThreadName(r.tid).c_str(), r.scheduler, r.caller,
+            symbol.dli_fname ? symbol.dli_fname : "?",
+            (unsigned long long)(reinterpret_cast<uintptr_t>(r.caller) -
+                                 reinterpret_cast<uintptr_t>(symbol.dli_fbase)),
+            r.phase.load(std::memory_order_relaxed), (unsigned long long)r.target,
+            (unsigned long long)r.entry_done,
+            (unsigned long long)r.done->load(std::memory_order_acquire),
+            (unsigned long long)r.signal_issued->load(std::memory_order_relaxed),
+            (unsigned long long)r.signal_done->load(std::memory_order_acquire),
+            (unsigned long long)r.host_done->load(std::memory_order_acquire),
+            r.ordered_queued->load(std::memory_order_acquire),
+            r.active_worker->load(std::memory_order_relaxed));
+        std::fflush(stderr); // visible while the waiting thread may still be inside WaitAsync
+    }
+    void Report(Q0SlowWaitRecord& record, bool active) {
+        claimed[record.kind] = true;
+        record.reported = true;
+        Print(record, "START", active);
+    }
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::vector<std::shared_ptr<Q0SlowWaitRecord>> records;
+    bool claimed[2]{}; // first slow wait per function, across all schedulers in this process
+    std::jthread thread;
+};
+
+class Q0SlowWaitScope {
+public:
+    Q0SlowWaitScope(const char* function, unsigned kind, const void* scheduler, void* caller,
+                    u64 target, const std::atomic<u64>& done,
+                    const std::atomic<u64>& signal_issued, const std::atomic<u64>& signal_done,
+                    const std::atomic<u64>& host_done, const std::atomic<size_t>& ordered_queued,
+                    const std::atomic<u32>& active_worker) noexcept
+    {
+        static const bool enabled = [] {
+            const char* value = std::getenv("BB_Q0_SLOW_WAIT_DIAG");
+            return value && std::strcmp(value, "1") == 0;
+        }();
+        if (!enabled) return;
+        try {
+            record = std::make_shared<Q0SlowWaitRecord>();
+            record->function = function;
+            record->kind = kind;
+            record->scheduler = scheduler;
+            record->caller = caller; // waiting-thread entry address, not the watcher's stack
+            record->tid = u32(gettid());
+            record->target = target;
+            record->entry_done = done.load(std::memory_order_acquire);
+            record->done = &done;
+            record->signal_issued = &signal_issued;
+            record->signal_done = &signal_done;
+            record->host_done = &host_done;
+            record->ordered_queued = &ordered_queued;
+            record->active_worker = &active_worker;
+            static Q0SlowWaitMonitor monitor;
+            owner = &monitor;
+            owner->Add(record);
+        } catch (...) {
+            owner = nullptr;
+            static std::atomic_flag registration_failure_reported = ATOMIC_FLAG_INIT;
+            if (!registration_failure_reported.test_and_set(std::memory_order_relaxed)) {
+                std::fprintf(stderr, "Q0_SLOW_WAIT diagnostic_registration_failed=1 wait_unchanged=1\n");
+            }
+        }
+    }
+    ~Q0SlowWaitScope() { if (owner) owner->Remove(record); }
+    void Phase(const char* phase) { if (owner) record->phase.store(phase, std::memory_order_relaxed); }
+private:
+    std::shared_ptr<Q0SlowWaitRecord> record;
+    Q0SlowWaitMonitor* owner = nullptr;
+};
 
 void ReportProducer(const char* what, u32 other, const char* other_where, const char* where) {
     if (producer_reports.fetch_add(1, std::memory_order_relaxed) >= 8) {
@@ -114,6 +259,18 @@ vk::CommandBuffer BeginCommandBuffer(CommandPool& pool) {
 
 Scheduler::Scheduler(const Instance& instance, bool threaded_recording)
     : instance{instance}, work_semaphore{instance}, command_pool{instance, &work_semaphore} {
+    const char* q0_env = std::getenv("BB_Q0_WAIT_STATE_DIAG");
+    q0_wait_state_enabled = q0_env && std::strcmp(q0_env, "1") == 0;
+    if (q0_wait_state_enabled) {
+        try {
+            q0_actor_phase = std::make_shared<Q0PhaseRecord>();
+            q0_actor_phase->identity.store(reinterpret_cast<uintptr_t>(this));
+        } catch (...) {
+            static std::atomic_flag failed = ATOMIC_FLAG_INIT;
+            if (!failed.test_and_set())
+                std::fprintf(stderr, "Q0_WAIT_STATE actor_registration_failed=1 phase=UNAVAILABLE wait_unchanged=1\n");
+        }
+    }
     crumb_stream = Breadcrumbs::NewStream(
         instance, threaded_recording ? "draws: game and presenter" : "presentation");
     // bbport: BB_VK_RECORD_THREAD=0 records on the calling thread.
@@ -317,14 +474,255 @@ void Scheduler::SignalAfterHostCopies(std::function<void()> signal) {
     }
     BbCopy::FlushBatch();
     deferred_signals_issued.fetch_add(1, std::memory_order_relaxed);
-    RecordOrdered([signal = std::move(signal), done = deferred_signals_done]() mutable {
+    RecordOrdered([signal = std::move(signal), done = deferred_signals_done,
+                   diagnostic = q0_actor_phase]() mutable {
+        // Observe only this synchronous invocation. The asynchronous signal callback below
+        // retains its original capture list: no Scheduler or diagnostic lifetime dependency.
+        PublishQ0Phase(diagnostic.get(), 2, 2, true);
         BbCopy::AfterCopies([signal = std::move(signal), done = std::move(done)] {
             signal();
             done->fetch_add(1, std::memory_order_release);
         });
+        PublishQ0Phase(diagnostic.get(), 2, 11, false, true);
     });
     KickRecording(true);
 }
+
+// Ordered task phase and global submit-owner are independent of the locked queue shadow.
+// Each record has one writer (serialized ordered tasks, or the actual global mutex owner).
+void Scheduler::PublishQ0Phase(Q0PhaseRecord* record, u64 kind, u64 stage,
+                               bool entry, bool exit, u64 identity) {
+    if (!record) return;
+    record->seq.fetch_add(1);
+    const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    record->kind.store(kind); record->stage.store(stage);
+    record->tid.store(kind ? u32(gettid()) : 0);
+    if (identity || !kind) record->identity.store(identity);
+    if (entry) {
+        record->entries.fetch_add(1); record->entry_ns.store(now); record->exit_ns.store(0);
+        record->claim_epoch.store(record->selected_epoch.load());
+    }
+    if (exit) { record->exits.fetch_add(1); record->exit_ns.store(now); }
+    record->updated_ns.store(now);
+    record->seq.fetch_add(1);
+}
+
+Scheduler::Q0SubmitOwnerScope::Q0SubmitOwnerScope(const Scheduler* identity, u64 actor_kind)
+    : kind(actor_kind) {
+    static const bool requested = [] {
+        const char* value = std::getenv("BB_Q0_WAIT_STATE_DIAG");
+        return value && std::strcmp(value, "1") == 0;
+    }();
+    enabled = requested;
+    if (enabled) PublishQ0Phase(&q0_submit_owner, kind, 0, true, false,
+                                reinterpret_cast<uintptr_t>(identity));
+}
+Scheduler::Q0SubmitOwnerScope::~Q0SubmitOwnerScope() {
+    if (enabled) PublishQ0Phase(&q0_submit_owner, 0, 0, false, true);
+}
+void Scheduler::Q0SubmitOwnerScope::Stage(u64 stage) {
+    if (enabled) PublishQ0Phase(&q0_submit_owner, kind, stage);
+}
+
+// Reason is an observation of the original OrderedReady predicate, never its replacement.
+// One sequentially-consistent sequence covers the locked groups. Atomic payload avoids data
+// races even when the bounded reader retries a concurrent publication.
+void Scheduler::PublishQ0WaitState() {
+    if (!q0_wait_state_enabled) return;
+    auto& q = q0_wait_state;
+    q.seq.fetch_add(1);
+    q.queue.store(ordered_queue.size());
+    q.running.store(ordered_running);
+    u64 reason = 0, segment = 0, after = 0, blocked = 0, recorded = 0, handed = 0;
+    if (!ordered_queue.empty()) {
+        const auto& head = *ordered_queue.front();
+        segment = head.segment;
+        after = head.after;
+        reason = ordered_running ? 1 : 4;
+        if (!ordered_running) {
+            for (u32 i = 0; i < head.segment; ++i) {
+                if (head.batch->recorded[i] != head.batch->handed[i]) {
+                    reason = 2; blocked = i;
+                    recorded = head.batch->recorded[i]; handed = head.batch->handed[i];
+                    break;
+                }
+            }
+            if (reason == 4) {
+                blocked = head.segment;
+                recorded = head.batch->recorded[head.segment];
+                handed = head.batch->handed[head.segment];
+                if (recorded < head.after) reason = 3;
+            }
+        }
+    }
+    q.reason.store(reason); q.segment.store(segment); q.after.store(after);
+    q.blocked_segment.store(blocked); q.recorded.store(recorded); q.handed.store(handed);
+    q.worker_count.store(workers.size());
+    u64 asleep = 0, busy = 0;
+    for (size_t i = 0; i < workers.size(); ++i) {
+        const auto& w = *workers[i];
+        q.worker_queue[i].store(w.queue.size());
+        q.wait_returns[i].store(w.q0_wait_returns);
+        q.command_begin[i].store(w.q0_command_begin); q.command_end[i].store(w.q0_command_end);
+        q.ordered_begin[i].store(w.q0_ordered_begin); q.ordered_end[i].store(w.q0_ordered_end);
+        if (workers[i]->sleeping) asleep |= 1ull << i;
+        if (workers[i]->busy) busy |= 1ull << i;
+    }
+    q.sleep_mask.store(asleep); q.busy_mask.store(busy);
+    q.enqueued.store(q0_enqueued_chunks); q.popped.store(q0_popped_chunks);
+    q.claim_epoch.store(q0_ordered_claim_epoch);
+    q.updated_ns.store(std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count());
+    q.seq.fetch_add(1);
+}
+
+class Scheduler::Q0WaitStateScope {
+public:
+    Q0WaitStateScope(Scheduler& scheduler, const char* function, u64 target, void* caller)
+        : s(scheduler), function(function), target(target), caller(caller),
+          enabled(scheduler.q0_wait_state_enabled && reports.load() < 3) {
+        if (enabled) start = std::chrono::steady_clock::now();
+    }
+    ~Q0WaitStateScope() {
+        if (!enabled) return;
+        Check("wait_return", true);
+        if (reported) Print("END", "wait_return", false);
+    }
+    void Check(const char* phase, bool force = false) {
+        if (!enabled || reported) return;
+        // Read the clock once per 256 outer polls. WaitAsync may itself block: no in-flight
+        // claim can be made during that interval; the final forced check covers its return.
+        if (!force && (++polls & 255)) return;
+        if (std::chrono::steady_clock::now() - start <= std::chrono::milliseconds(100)) return;
+        const auto slot = reports.fetch_add(1);
+        if (slot >= 3) { enabled = false; return; }
+        reported = true;
+        Print("START", phase, std::strcmp(phase, "wait_return") != 0);
+    }
+private:
+    static void ReadPhase(const Q0PhaseRecord* record, char* out, size_t capacity) {
+        if (!record) { std::snprintf(out, capacity, "UNAVAILABLE"); return; }
+        u64 seq = 0, kind = 0, stage = 0, tid = 0, identity = 0, entered = 0, updated = 0,
+            exited = 0, entries = 0, exits = 0, epoch = 0;
+        bool coherent = false;
+        unsigned attempts = 0;
+        for (; attempts < 3; ++attempts) {
+            const u64 before = record->seq.load();
+            if (before & 1) continue;
+            seq = before; kind = record->kind.load(); stage = record->stage.load();
+            tid = record->tid.load(); identity = record->identity.load();
+            entered = record->entry_ns.load(); updated = record->updated_ns.load();
+            exited = record->exit_ns.load(); entries = record->entries.load(); exits = record->exits.load(); epoch = record->claim_epoch.load();
+            coherent = before == record->seq.load();
+            if (coherent) { ++attempts; break; }
+        }
+        const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        const char* kinds[] = {"NONE", "HOST_COPY", "AFTER_COPIES_SYNC_CALL", "ASYNC_SUBMIT",
+                               "UNUSED", "SYNC_SUBMIT", "PRESENTER"};
+        const char* stages[] = {"NONE", "HOST_COPY_CALL", "AFTER_COPIES_CALL", "WAIT_ASYNC",
+            "BUILD_SUBMIT_INFO", "WAIT_SUBMIT_MUTEX", "BEFORE_SUBMIT", "QUEUE_SUBMIT",
+            "POST_SUBMIT", "WAIT_FINAL_RECORDER_MUTEX", "RETIRE_BATCH", "EXIT",
+            "SYNC_RECORDING", "SYNC_COPIES", "SYNC_BEFORE_SUBMIT", "PRESENT_CALL",
+            "PRESENT_POST_CALL", "PRESENT_RECREATE"};
+        std::snprintf(out, capacity,
+            "%s:seq%llu:tries%u:kind%s:stage%s:tid%llu:scheduler0x%llx:entry%llu:exit%llu:updated%llu:sample%llu:age_ms%.6f:entries%llu:exits%llu:claim_epoch%llu",
+            coherent && seq ? "COHERENT" : coherent ? "UNPUBLISHED" : "MIXED",
+            (unsigned long long)seq, attempts,
+            coherent && kind < std::size(kinds) ? kinds[kind] : "UNKNOWN",
+            coherent && stage < std::size(stages) ? stages[stage] : "UNKNOWN",
+            (unsigned long long)tid, (unsigned long long)identity,
+            (unsigned long long)entered, (unsigned long long)exited, (unsigned long long)updated, (unsigned long long)now,
+            updated && now >= updated ? double(now - updated) / 1e6 : -1.0,
+            (unsigned long long)entries, (unsigned long long)exits, (unsigned long long)epoch);
+    }
+    void Print(const char* event, const char* phase, bool active) {
+        struct Snapshot {
+            u64 seq{}, updated{}, queue{}, running{}, reason{}, segment{}, after{}, blocked{}, recorded{},
+                handed{}, workers{}, asleep{}, busy{}, enqueued{}, popped{}, claim_epoch{};
+            std::array<u64, 8> queued{}, waits{}, cb{}, ce{}, ob{}, oe{};
+        } v;
+        auto& q = s.q0_wait_state;
+        bool coherent = false;
+        unsigned attempts = 0;
+        for (; attempts < 3; ++attempts) {
+            const u64 before = q.seq.load();
+            if (before & 1) continue;
+            v.seq = before; v.updated = q.updated_ns.load(); v.queue = q.queue.load();
+            v.running = q.running.load();
+            v.reason = q.reason.load(); v.segment = q.segment.load(); v.after = q.after.load();
+            v.blocked = q.blocked_segment.load(); v.recorded = q.recorded.load();
+            v.handed = q.handed.load(); v.workers = q.worker_count.load();
+            v.asleep = q.sleep_mask.load(); v.busy = q.busy_mask.load();
+            v.enqueued = q.enqueued.load(); v.popped = q.popped.load(); v.claim_epoch = q.claim_epoch.load();
+            for (size_t i = 0; i < 8; ++i) {
+                v.queued[i] = q.worker_queue[i].load(); v.waits[i] = q.wait_returns[i].load();
+                v.cb[i] = q.command_begin[i].load(); v.ce[i] = q.command_end[i].load();
+                v.ob[i] = q.ordered_begin[i].load(); v.oe[i] = q.ordered_end[i].load();
+            }
+            coherent = before == q.seq.load();
+            if (coherent) { ++attempts; break; }
+        }
+        const auto now = std::chrono::steady_clock::now();
+        const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()).count();
+        const char* reasons[] = {"EMPTY", "RUNNING", "PRIOR_SEGMENT", "CURRENT_AFTER", "READY"};
+        char workers[2048]{};
+        size_t offset = 0;
+        for (size_t i = 0; i < std::min<u64>(v.workers, 8); ++i) {
+            const int n = std::snprintf(workers + offset, sizeof(workers) - offset,
+                "%s%zu:q%llu/wr%llu/n%llu/cb%llu/ce%llu/ob%llu/oe%llu",
+                i ? "," : "", i, (unsigned long long)v.queued[i], (unsigned long long)v.waits[i],
+                (unsigned long long)q.notify_calls[i].load(), (unsigned long long)v.cb[i],
+                (unsigned long long)v.ce[i], (unsigned long long)v.ob[i], (unsigned long long)v.oe[i]);
+            if (n < 0 || size_t(n) >= sizeof(workers) - offset) break;
+            offset += size_t(n);
+        }
+        // Each independent phase read has its own sample clock and coherence sequence.
+        // Only a matching scheduler and claim_epoch associates an actor with the batch.
+        char actor_phase[640]{}, owner_phase[640]{};
+        ReadPhase(s.q0_actor_phase.get(), actor_phase, sizeof(actor_phase));
+        ReadPhase(&q0_submit_owner, owner_phase, sizeof(owner_phase));
+        std::fprintf(stderr,
+            "Q0_WAIT_STATE event=%s function=%s tid=%u observer=waiting_thread clock=steady_clock "
+            "monotonic_ns=%lld wall_ms=%.6f threshold_ms=100 observed_wait_active=%u phase=%s "
+            "wait_async_inflight_observation=UNKNOWN direct_caller=%p scheduler=%p target_entry=%llu "
+            "deferred_issued_now=%llu deferred_done_now=%llu host_done_now=%llu "
+            "shadow_coherence=%s shadow_seq=%llu snapshot_attempts=%u shadow_updated_ns=%llu "
+            "shadow_age_ms=%.6f head_reason=%s ordered_queue=%llu ordered_running=%llu "
+            "blocked_dependency_valid=%u front_segment=%llu "
+            "front_after=%llu blocked_segment=%llu blocked_recorded=%llu blocked_handed=%llu "
+            "sleep_mask=0x%llx busy_mask=0x%llx enqueued_chunks=%llu popped_chunks=%llu ordered_claim_epoch=%llu "
+            "worker_columns=index:queue/wait_returns/notify_calls/command_begin/end/ordered_batch_selected/completed "
+            "worker_execution_unit=chunks ordered_counts_scope=selected_before_loop/completed_after_loop "
+            "per_ordered_chunk_execute_entry=NOT_OBSERVED notify_counts_independent=1 signal_counts_independent=1 "
+            "workers=%s actor_phase=%s submit_owner=%s phase_groups_independent=1 "
+            "async_signal_callback_phase=NOT_OBSERVED root_cause=UNPROVEN\n",
+            event, function, u32(gettid()), (long long)ns,
+            std::chrono::duration<double, std::milli>(now - start).count(), unsigned(active), phase,
+            caller, static_cast<void*>(&s), (unsigned long long)target,
+            (unsigned long long)s.deferred_signals_issued.load(),
+            (unsigned long long)s.deferred_signals_done->load(), (unsigned long long)s.host_copies_done.load(),
+            coherent && v.seq ? "COHERENT" : coherent ? "UNPUBLISHED" : "MIXED", (unsigned long long)v.seq,
+            attempts, (unsigned long long)v.updated, v.updated ? double(ns - v.updated) / 1e6 : -1.0,
+            coherent && v.seq && v.reason < 5 ? reasons[v.reason] : "UNKNOWN",
+            (unsigned long long)v.queue, (unsigned long long)v.running,
+            unsigned(coherent && (v.reason == 2 || v.reason == 3)),
+            (unsigned long long)v.segment, (unsigned long long)v.after,
+            (unsigned long long)v.blocked, (unsigned long long)v.recorded, (unsigned long long)v.handed,
+            (unsigned long long)v.asleep, (unsigned long long)v.busy, (unsigned long long)v.enqueued,
+            (unsigned long long)v.popped, (unsigned long long)v.claim_epoch, workers, actor_phase, owner_phase);
+        std::fflush(stderr);
+    }
+    inline static std::atomic<u32> reports{0}; // first three slow waits, process-wide
+    Scheduler& s;
+    const char* function;
+    u64 target;
+    void* caller;
+    bool enabled{}, reported{};
+    u32 polls{};
+    std::chrono::steady_clock::time_point start{};
+};
 
 void Scheduler::WaitDeferredSignals() {
     const u64 issued = deferred_signals_issued.load(std::memory_order_relaxed);
@@ -332,11 +730,20 @@ void Scheduler::WaitDeferredSignals() {
         BbToggle::Disabled(BbToggle::OrderedGuestWrites)) {
         return;
     }
+    Q0SlowWaitScope trace{"WaitDeferredSignals", 0, this, __builtin_return_address(0), issued,
+                          *deferred_signals_done, deferred_signals_issued, *deferred_signals_done,
+                          host_copies_done, ordered_queued, active_worker};
+    Q0WaitStateScope state{*this, "WaitDeferredSignals", issued, __builtin_return_address(0)};
     BbStats::WaitTimer timer{BbStats::host_copies_wait_ns};
+    trace.Phase("kick_recording");
     KickRecording(true);
     while (deferred_signals_done->load(std::memory_order_acquire) < issued) {
         // Helps the copy threads the signals wait for.
+        state.Check("before_wait_async");
+        trace.Phase("copy_pool_wait");
         BbCopy::WaitAsync();
+        trace.Phase("signal_poll");
+        state.Check("after_wait_async");
         std::this_thread::yield();
     }
 }
@@ -395,6 +802,13 @@ void Scheduler::WaitHostCopiesFor(u64 address, u64 size) {
 }
 
 void Scheduler::WaitHostCopies() {
+    // This immutable entry target is taken on the same producer that already reads the
+    // non-atomic issued value below. The monitor never reads host_copies_issued directly.
+    Q0SlowWaitScope trace{"WaitHostCopies", 1, this, __builtin_return_address(0), host_copies_issued,
+                          host_copies_done, deferred_signals_issued, *deferred_signals_done,
+                          host_copies_done, ordered_queued, active_worker};
+    Q0WaitStateScope state{*this, "WaitHostCopies", host_copies_issued, __builtin_return_address(0)};
+    trace.Phase("source_snapshot");
     u64 sources_seen;
     {
         std::scoped_lock lk{host_copy_sources_mutex};
@@ -412,12 +826,17 @@ void Scheduler::WaitHostCopies() {
     if (host_copies_done.load(std::memory_order_acquire) < host_copies_issued) {
         BbStats::WaitTimer timer{BbStats::host_copies_wait_ns};
         BbStats::host_copy_waits.fetch_add(1, std::memory_order_relaxed);
+        trace.Phase("kick_recording");
         KickRecording(true);
+        trace.Phase("recorded_copy_poll");
         while (host_copies_done.load(std::memory_order_acquire) < host_copies_issued) {
+            state.Check("recorded_copy_poll");
             std::this_thread::yield();
         }
     }
     BbStats::WaitTimer timer{BbStats::copy_threads_wait_ns};
+    trace.Phase("copy_pool_wait");
+    state.Check("before_wait_async", true);
     BbCopy::WaitAsync();
 }
 
@@ -505,7 +924,8 @@ void Scheduler::HandOver() {
     // even for a fault handler recording on this thread meanwhile (issue #100).
     std::unique_ptr<RecordChunk> next_record = record_chunk->Empty() ? nullptr : AcquireChunk();
     std::unique_ptr<RecordChunk> next_ordered = ordered_chunk->Empty() ? nullptr : AcquireChunk();
-    Worker& worker = *workers[current_segment % workers.size()];
+    const size_t q0_worker_index = current_segment % workers.size();
+    Worker& worker = *workers[q0_worker_index];
     bool wake = false;
     {
         std::scoped_lock lk{recorder_mutex};
@@ -534,6 +954,7 @@ void Scheduler::HandOver() {
                 chunk->batch = batch;
                 chunk->after = batch->handed[current_segment];
                 ordered_queue.push_back(std::move(chunk));
+                if (q0_wait_state_enabled) ++q0_enqueued_chunks;
             };
             for (auto& chunk : ordered_full) {
                 queue(std::move(chunk));
@@ -551,12 +972,14 @@ void Scheduler::HandOver() {
                 wake |= worker.sleeping;
             }
         }
+        PublishQ0WaitState();
     }
     full_chunks.clear();
     ordered_full.clear();
     // A busy thread picks the new chunks up by itself: waking it is a syscall per draw.
     if (wake) {
         worker.cv.notify_one();
+        if (q0_wait_state_enabled) q0_wait_state.notify_calls[q0_worker_index].fetch_add(1);
     }
 }
 
@@ -704,8 +1127,11 @@ void Scheduler::RecorderThread(std::stop_token stoken, u32 index) {
             std::unique_lock lk{recorder_mutex};
             if (!has_work()) {
                 worker.sleeping = true;
+                PublishQ0WaitState();
                 worker.cv.wait(lk, stoken, has_work);
                 worker.sleeping = false;
+                if (q0_wait_state_enabled) ++worker.q0_wait_returns;
+                PublishQ0WaitState();
                 if (!has_work()) {
                     return; // stop requested
                 }
@@ -715,15 +1141,23 @@ void Scheduler::RecorderThread(std::stop_token stoken, u32 index) {
                 do {
                     ordered.push_back(std::move(ordered_queue.front()));
                     ordered_queue.pop_front();
+                    if (q0_wait_state_enabled) ++q0_popped_chunks;
                 } while (OrderedReady());
                 ordered_running = true;
+                if (q0_wait_state_enabled) {
+                    worker.q0_ordered_begin += ordered.size();
+                    ++q0_ordered_claim_epoch;
+                    if (q0_actor_phase) q0_actor_phase->selected_epoch.store(q0_ordered_claim_epoch);
+                }
                 ordered_queued.store(ordered_queue.size(), std::memory_order_release);
             } else {
                 chunk = std::move(worker.queue.front());
                 worker.queue.pop_front();
                 worker.queued.store(worker.queue.size(), std::memory_order_release);
                 worker.busy = true;
+                if (q0_wait_state_enabled) ++worker.q0_command_begin;
             }
+            PublishQ0WaitState();
         }
         if (!ordered.empty()) {
             for (auto& task : ordered) {
@@ -733,8 +1167,10 @@ void Scheduler::RecorderThread(std::stop_token stoken, u32 index) {
             for (auto& task : ordered) {
                 free_chunks.push_back(std::move(task));
             }
+            if (q0_wait_state_enabled) worker.q0_ordered_end += ordered.size();
             ordered.clear();
             ordered_running = false;
+            PublishQ0WaitState();
             recorder_idle_cv.notify_all();
             continue;
         }
@@ -750,6 +1186,8 @@ void Scheduler::RecorderThread(std::stop_token stoken, u32 index) {
             ++chunk->batch->recorded[chunk->segment];
             free_chunks.push_back(std::move(chunk));
             worker.busy = false;
+            if (q0_wait_state_enabled) ++worker.q0_command_end;
+            PublishQ0WaitState();
             if (worker.queue.empty()) {
                 recorder_idle_cv.notify_all();
             }
@@ -868,6 +1306,7 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
         return;
     }
     std::scoped_lock lk{submit_mutex};
+    Q0SubmitOwnerScope q0_owner{this, 5};
     const u64 signal_value = work_semaphore.NextTick();
 
 #if TRACY_GPU_ENABLED
@@ -888,9 +1327,12 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
         // Until the next submission's first timestamp: mostly the GPU waiting for it.
         profiler->Mark(0x5B317ull, [] { return std::string{"(between submissions: GPU idle)"}; });
     }
+    q0_owner.Stage(12); // SYNC_RECORDING: only the actual call below
     SyncRecording();
     // Guest memory copies into staging read by this submission (copy threads).
+    q0_owner.Stage(13); // SYNC_COPIES: only the actual wait below
     WaitHostCopies();
+    q0_owner.Stage(4); // BUILD_SUBMIT_INFO
     resume_rendering = false;
     // bbport: the segments' command buffers in stream order (the recording threads are idle).
     std::array<vk::CommandBuffer, MaxSegments> cmdbufs;
@@ -936,15 +1378,18 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
         .pSignalSemaphores = info.signal_semas.data(),
     };
 
+    q0_owner.Stage(14);
     for (auto& operation : info.before_submit) {
         operation();
     }
     ImGui::Core::TextureManager::Submit();
+    q0_owner.Stage(7);
     auto submit_result = instance.GetGraphicsQueue().submit(submit_info, info.fence);
     if (submit_result == vk::Result::eErrorDeviceLost) {
         Breadcrumbs::ReportDeviceLost("submit");
     }
     ASSERT_MSG(submit_result != vk::Result::eErrorDeviceLost, "Device lost during submit");
+    q0_owner.Stage(8);
     submitted_tick.store(signal_value, std::memory_order_release);
     submitted_tick.notify_all();
 
@@ -983,8 +1428,11 @@ void Scheduler::SubmitAsync(SubmitInfo& info) {
     info.AddSignal(work_semaphore.Handle(), signal_value);
     // Goes out once the commands handed over before it are recorded (an ordered task: in order
     // with the other submissions and after the copies and signals queued before it).
-    RecordOrdered([this, submitted = batch, info = std::move(info), signal_value]() mutable {
+    RecordOrdered([this, submitted = batch, info = std::move(info), signal_value,
+                   diagnostic = q0_actor_phase]() mutable {
+        PublishQ0Phase(diagnostic.get(), 3, 3, true);
         BbCopy::WaitAsync();
+        PublishQ0Phase(diagnostic.get(), 3, 4);
         std::array<vk::CommandBuffer, MaxSegments> cmdbufs;
         u32 num_cmdbufs = 0;
         for (u32 i = 0; i < MaxSegments; ++i) {
@@ -1016,21 +1464,31 @@ void Scheduler::SubmitAsync(SubmitInfo& info) {
             .signalSemaphoreCount = info.num_signal_semas,
             .pSignalSemaphores = info.signal_semas.data(),
         };
+        PublishQ0Phase(diagnostic.get(), 3, 5); // waiter must not overwrite mutex owner
         {
             std::scoped_lock lk{submit_mutex};
+            Q0SubmitOwnerScope q0_owner{this, 3};
+            q0_owner.Stage(6);
+            PublishQ0Phase(diagnostic.get(), 3, 6);
             for (auto& operation : info.before_submit) {
                 operation();
             }
+            q0_owner.Stage(7);
+            PublishQ0Phase(diagnostic.get(), 3, 7);
             const auto result = instance.GetGraphicsQueue().submit(submit_info, info.fence);
             if (result == vk::Result::eErrorDeviceLost) {
                 Breadcrumbs::ReportDeviceLost("submit");
             }
             ASSERT_MSG(result != vk::Result::eErrorDeviceLost, "Device lost during submit");
         }
+        PublishQ0Phase(diagnostic.get(), 3, 8);
         submitted_tick.store(signal_value, std::memory_order_release);
         submitted_tick.notify_all();
+        PublishQ0Phase(diagnostic.get(), 3, 9);
         std::scoped_lock lk{recorder_mutex};
+        PublishQ0Phase(diagnostic.get(), 3, 10);
         free_batches.push_back(submitted);
+        PublishQ0Phase(diagnostic.get(), 3, 11, false, true);
     });
     KickRecording(true);
     AllocateWorkerCommandBuffers();

@@ -216,12 +216,30 @@ vk::Image CameraMotion::ObjectMotionImage(u32 width, u32 height) const noexcept 
                                                       : vk::Image{};
 }
 
+void CameraMotion::PrintQualityCaptureState(int frame, u64 source_game_frame) const {
+    std::printf("Q0_CAMERA source_game_frame=%llu dump_frame=%d guest_camera_size=%ux%u "
+                "motion_size=%ux%u object_valid=%u depth_view=%p motion_view=%p object_view=%p "
+                "reproject=",
+                (unsigned long long)source_game_frame, frame, render_size[0], render_size[1],
+                last_motion_size[0], last_motion_size[1], last_motion_object_valid,
+                (void*)VkImageView(last_motion_depth_view), (void*)VkImageView(last_motion_output_view),
+                (void*)VkImageView(last_motion_object_view));
+    for (const float value : Multiply(previous.view, current.inv_view)) std::printf("%.9g,", value);
+    std::printf(" matrices_follow_same_dump_frame=1\n");
+    PrintState(frame);
+}
+
 void CameraMotion::RecordMotion(vk::ImageView depth_view, vk::ImageView motion_view, u32 width,
                                 u32 height) {
     CommitFrameCamera();
     bool object_valid = false;
     const vk::ImageView object_view = object_motion && object_motion->Enabled()
         ? object_motion->PrepareRead(width, height, object_valid) : depth_view;
+    last_motion_object_valid = object_valid;
+    last_motion_object_view = object_view;
+    last_motion_depth_view = depth_view;
+    last_motion_output_view = motion_view;
+    last_motion_size = {width, height};
     const PushConstants push{
         .reproject = Multiply(previous.view, current.inv_view),
         .proj = current.proj,

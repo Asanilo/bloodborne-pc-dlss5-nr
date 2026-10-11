@@ -63,6 +63,8 @@ public:
     [[nodiscard]] bool Tracks(u64 image_uid) const {
         return !copying && tracked.contains(image_uid);
     }
+    /// Capture-only lookup of the actual owned proxy; never creates or resolves an image.
+    std::optional<vk::ImageCreateInfo> CaptureCreateInfo(vk::Image image) const;
     void ResolveAll();
     bool debug = false; ///< BB_SCENE_DEBUG frame: print resolves and fills
 private:
