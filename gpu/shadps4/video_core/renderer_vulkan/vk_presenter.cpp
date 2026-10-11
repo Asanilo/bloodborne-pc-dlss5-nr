@@ -391,7 +391,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
             cpu_address, frame_counter_before, gpu_frame_at_prepare, prepare_tick, c1_audit);
         // The 1:1 HDR Run route consumes the actual guest VideoOut buffer, not the scaled
         // display override. Bind this one-shot ledger to that real address and buffer.
-        if (c1_selected) {
+        if (c1_selected && (c1_audit.stage != "C3" || c1_audit.audit_full)) {
             runtime.Transit(&image, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eTransfer,
                             vk::AccessFlagBits2::eTransferRead);
             runtime.FlushBarriers();
@@ -420,6 +420,8 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     frame->audit_mode = frame_audit.mode;
     frame->audit_session = frame_audit.session;
     frame->audit_selected_output = frame_audit.selected_output;
+    frame->audit_nr_frame = frame_audit.nr_frame;
+    frame->audit_full = frame_audit.audit_full;
     expected_ratio = static_cast<float>(image_size.width) / static_cast<float>(image_size.height);
 
     // Vulkan has no sRGB variant of the 10-bit format, so an A2R10G10B10Srgb buffer reaches
@@ -474,7 +476,16 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     frame->ready_tick = draw_scheduler.CurrentTick();
     SubmitInfo info{};
     draw_scheduler.Flush(info);
-    if (frame->c1_source_game_frame != 0 && frame->audit_stage == "C2") {
+    if (frame->c1_source_game_frame != 0 && frame->audit_stage == "C3") {
+        std::printf("C3_PRESENT_PREPARED stage=C3 mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu audit_kind=%s\n",
+            frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_nr_frame,
+            frame->audit_selected_output, (unsigned long long)frame->c1_source_game_frame,
+            (unsigned long long)frame->c1_merge_tick, (unsigned long long)frame->c1_guest_buffer_address,
+            (unsigned long long)frame->c1_guest_prepare_gpu_frame,
+            (unsigned long long)frame->c1_guest_prepare_tick,
+            (unsigned long long)frame->ready_tick, (unsigned long long)frame->c1_present_frame_number,
+            frame->audit_full ? "full" : "gpu_full_scan");
+    } else if (frame->c1_source_game_frame != 0 && frame->audit_stage == "C2") {
         std::printf("C2_PRESENT_PREPARED stage=C2 mode=%s session=%s selected_output=%u "
                     "route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu "
                     "guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu "
@@ -779,7 +790,16 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     {
         std::scoped_lock submit_lock{Scheduler::submit_mutex};
         const bool presented = swapchain.Present();
-        if (frame->c1_source_game_frame != 0 && is_game_frame && frame->audit_stage == "C2") {
+        if (frame->c1_source_game_frame != 0 && is_game_frame && !is_reusing_frame &&
+            frame->audit_stage == "C3") {
+            std::printf("C3_PRESENT_SUBMITTED stage=C3 mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu present_submit_tick=%llu swapchain_present=%u audit_kind=%s\n",
+                frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_nr_frame,
+                frame->audit_selected_output, (unsigned long long)frame->c1_source_game_frame,
+                (unsigned long long)frame->c1_merge_tick, (unsigned long long)frame->c1_guest_buffer_address,
+                (unsigned long long)frame->c1_guest_prepare_tick, (unsigned long long)frame->ready_tick,
+                (unsigned long long)frame->c1_present_frame_number, (unsigned long long)present_submit_tick,
+                presented, frame->audit_full ? "full" : "gpu_full_scan");
+        } else if (frame->c1_source_game_frame != 0 && is_game_frame && frame->audit_stage == "C2") {
             std::printf("C2_PRESENT_SUBMITTED stage=C2 mode=%s session=%s selected_output=%u "
                         "route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu "
                         "guest_buffer_address=0x%llx guest_prepare_gpu_frame=%llu guest_prepare_tick=%llu "

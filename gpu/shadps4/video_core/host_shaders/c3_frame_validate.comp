@@ -1,0 +1,204 @@
+#version 460
+#extension GL_EXT_shader_image_load_formatted : require
+
+// C3 per-frame GPU validator. This shader has no IPC/control-file dependency.
+// The caller must own sourceColor and resolvedOutput for shader reads. Clear
+// the 64B stats SSBO before each dispatch and fence before reading it on the CPU.
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(binding = 0, rgba32f) readonly uniform image2D sourceColor;
+layout(binding = 1, rgba32f) readonly uniform image2D resolvedOutput;
+#ifdef C3_VALIDATE_RAW
+layout(binding = 2, rgba16f) readonly uniform image2D rawOutput;
+#define C3_STATS_BINDING 3
+#else
+#define C3_STATS_BINDING 2
+#endif
+
+// Native-only supplementary counter: A's 16-word wire/stat layout stays unchanged.
+#ifdef C3_VALIDATE_RETURN
+layout(binding = 3, rgba16f) readonly uniform image2D localReturn;
+layout(binding = 4, std430) buffer C3ReturnStats {
+    uint half_finite;
+    uint half_visited;
+    uint reserved0;
+    uint reserved1;
+} return_stats;
+shared uint s_half_finite[64];
+shared uint s_half_visited[64];
+#endif
+
+// Exactly 16 uints / 64 bytes; the field order matches the C3 integration
+// contract's proposed low-cost readback layout.
+layout(binding = C3_STATS_BINDING, std430) buffer C3FrameStats {
+    uint raw_rgb_finite;
+    uint raw_rgb_written;
+    uint out_rgba_finite;
+    uint out_rgba_written;
+    uint source_rgba_finite;
+    uint source_alpha_finite;
+    uint alpha_bits_equal;
+    uint source_xor;
+    uint source_sum;
+    uint out_xor;
+    uint out_sum;
+    uint visited_pixels;
+    uint reserved0;
+    uint raw_rgb_nan;
+    uint out_sentinel_count;
+    uint reserved1;
+} stats;
+
+layout(push_constant) uniform C3FrameValidateParams {
+    uint width;
+    uint height;
+} params;
+
+const uint LocalCount = 64u;
+const uint CounterCount = 10u;
+const uint PoisonBits = 0xc49a4000u; // exact IEEE-754 bits for -1234.0f
+
+shared uint s_counts[CounterCount][64];
+shared uint s_source_xor[64];
+shared uint s_source_sum[64];
+shared uint s_output_xor[64];
+shared uint s_output_sum[64];
+
+bool finite_float(float value) {
+    return !isnan(value) && !isinf(value);
+}
+
+uint mix32(uint bits, uint word_index) {
+    uint h = bits ^ (word_index * 0x9e3779b9u);
+    h ^= h >> 16u;
+    h *= 0x7feb352du;
+    h ^= h >> 15u;
+    h *= 0x846ca68bu;
+    h ^= h >> 16u;
+    return h;
+}
+
+void main() {
+    const uint lane = gl_LocalInvocationIndex;
+    const uvec2 pixel = gl_GlobalInvocationID.xy;
+    const bool in_bounds = pixel.x < params.width && pixel.y < params.height;
+
+    uint local_counts[CounterCount];
+    for (uint i = 0u; i < CounterCount; ++i) local_counts[i] = 0u;
+    uint local_source_xor = 0u;
+    uint local_source_sum = 0u;
+    uint local_output_xor = 0u;
+    uint local_output_sum = 0u;
+#ifdef C3_VALIDATE_RETURN
+    uint local_half_finite = 0u;
+    uint local_half_visited = 0u;
+#endif
+
+    if (in_bounds) {
+        const ivec2 q = ivec2(pixel);
+        const vec4 source = imageLoad(sourceColor, q);
+        const vec4 output_value = imageLoad(resolvedOutput, q);
+        const float source_values[4] = float[4](source.r, source.g, source.b, source.a);
+        const float output_values[4] = float[4](output_value.r, output_value.g,
+                                                output_value.b, output_value.a);
+        const uint pixel_index = pixel.y * params.width + pixel.x;
+
+        local_counts[6] = 1u; // visited_pixels
+        local_counts[5] = finite_float(source.a) ? 1u : 0u;
+        local_counts[4] = 0u; // source_rgba_finite channels
+        local_counts[2] = 0u; // out_rgba_finite channels
+        local_counts[3] = 0u; // out_rgba_written channels
+        local_counts[9] = 0u; // out_sentinel_count channels
+
+        for (uint channel = 0u; channel < 4u; ++channel) {
+            const float source_value = source_values[channel];
+            const float output_channel = output_values[channel];
+            const uint word_index = 4u * pixel_index + channel;
+            const uint source_hash = mix32(floatBitsToUint(source_value), word_index);
+            const uint output_hash = mix32(floatBitsToUint(output_channel), word_index);
+            local_source_xor ^= source_hash;
+            local_source_sum += source_hash;
+            local_output_xor ^= output_hash;
+            local_output_sum += output_hash;
+
+            local_counts[4] += finite_float(source_value) ? 1u : 0u;
+            local_counts[2] += finite_float(output_channel) ? 1u : 0u;
+            local_counts[3] += finite_float(output_channel) &&
+                               floatBitsToUint(output_channel) != PoisonBits ? 1u : 0u;
+            local_counts[9] += floatBitsToUint(output_channel) == PoisonBits ? 1u : 0u;
+        }
+#ifdef C3_VALIDATE_RETURN
+        const vec4 half_value = imageLoad(localReturn, q);
+        local_half_finite = (finite_float(half_value.r) ? 1u : 0u) +
+                           (finite_float(half_value.g) ? 1u : 0u) +
+                           (finite_float(half_value.b) ? 1u : 0u) +
+                           (finite_float(half_value.a) ? 1u : 0u);
+        local_half_visited = 1u;
+#endif
+        local_counts[8] = floatBitsToUint(source.a) == floatBitsToUint(output_value.a)
+                              ? 1u : 0u; // alpha_bits_equal
+
+#ifdef C3_VALIDATE_RAW
+        const vec4 raw_value = imageLoad(rawOutput, q);
+        const float raw_rgb[3] = float[3](raw_value.r, raw_value.g, raw_value.b);
+        local_counts[0] = 0u; // raw_rgb_finite channels
+        local_counts[1] = 0u; // raw_rgb_written channels
+        local_counts[7] = 0u; // raw_rgb_nan channels
+        for (uint channel = 0u; channel < 3u; ++channel) {
+            const float raw_channel = raw_rgb[channel];
+            const bool raw_finite = finite_float(raw_channel);
+            local_counts[0] += raw_finite ? 1u : 0u;
+            // C3 raw output is pre-poisoned with NaN; finite is the written test.
+            local_counts[1] += raw_finite ? 1u : 0u;
+            local_counts[7] += isnan(raw_channel) ? 1u : 0u;
+        }
+#endif
+    }
+
+    for (uint i = 0u; i < CounterCount; ++i) s_counts[i][lane] = local_counts[i];
+#ifdef C3_VALIDATE_RETURN
+    s_half_finite[lane] = local_half_finite;
+    s_half_visited[lane] = local_half_visited;
+#endif
+    s_source_xor[lane] = local_source_xor;
+    s_source_sum[lane] = local_source_sum;
+    s_output_xor[lane] = local_output_xor;
+    s_output_sum[lane] = local_output_sum;
+    barrier();
+
+    for (uint stride = LocalCount >> 1u; stride > 0u; stride >>= 1u) {
+        if (lane < stride) {
+            for (uint i = 0u; i < CounterCount; ++i)
+                s_counts[i][lane] += s_counts[i][lane + stride];
+#ifdef C3_VALIDATE_RETURN
+            s_half_finite[lane] += s_half_finite[lane + stride];
+            s_half_visited[lane] += s_half_visited[lane + stride];
+#endif
+            s_source_xor[lane] ^= s_source_xor[lane + stride];
+            s_source_sum[lane] += s_source_sum[lane + stride];
+            s_output_xor[lane] ^= s_output_xor[lane + stride];
+            s_output_sum[lane] += s_output_sum[lane + stride];
+        }
+        barrier();
+    }
+
+    if (lane == 0u) {
+#ifdef C3_VALIDATE_RETURN
+        atomicAdd(return_stats.half_finite, s_half_finite[0]);
+        atomicAdd(return_stats.half_visited, s_half_visited[0]);
+#endif
+        atomicAdd(stats.raw_rgb_finite, s_counts[0][0]);
+        atomicAdd(stats.raw_rgb_written, s_counts[1][0]);
+        atomicAdd(stats.out_rgba_finite, s_counts[2][0]);
+        atomicAdd(stats.out_rgba_written, s_counts[3][0]);
+        atomicAdd(stats.source_rgba_finite, s_counts[4][0]);
+        atomicAdd(stats.source_alpha_finite, s_counts[5][0]);
+        atomicAdd(stats.alpha_bits_equal, s_counts[8][0]);
+        atomicXor(stats.source_xor, s_source_xor[0]);
+        atomicAdd(stats.source_sum, s_source_sum[0]);
+        atomicXor(stats.out_xor, s_output_xor[0]);
+        atomicAdd(stats.out_sum, s_output_sum[0]);
+        atomicAdd(stats.visited_pixels, s_counts[6][0]);
+        atomicAdd(stats.raw_rgb_nan, s_counts[7][0]);
+        atomicAdd(stats.out_sentinel_count, s_counts[9][0]);
+    }
+}

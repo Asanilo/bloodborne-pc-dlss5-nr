@@ -47,6 +47,8 @@ struct Frame {
     std::string audit_mode;
     std::string audit_session;
     bool audit_selected_output = false;
+    u32 audit_nr_frame = 0;
+    bool audit_full = true;
     bool is_hdr{false};
     u8 id{};
 

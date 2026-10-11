@@ -1,0 +1,87 @@
+{
+  "schema": "bbport_c3_accepted_evidence_v1",
+  "status": "PASS_C3_NARROW_PROFILE",
+  "parent_commit": "2b0cb9206ee96668f146ea8b9cfd5aec8b572467",
+  "evidence_root": "/home/arinp/Code/nrbridge-design/game-poc-20261011",
+  "gpu_executor": "Integration",
+  "B_activity": "read-only evidence review; no GPU rerun",
+  "files": [
+    {
+      "path": "integration/c3-final-audit.json",
+      "sha256": "60c829d5b9d4ad58834988d309e76ce405d83774bf61f1548af38df9b23e2027",
+      "bytes": 3054
+    },
+    {
+      "path": "integration/c3-gates.json",
+      "sha256": "9ee573888c057e3ee4e9a836a807b04c971e341e466a91ecf8489bcb39093a59",
+      "bytes": 1898
+    },
+    {
+      "path": "baselines/c3-accepted-20261011/manifest.json",
+      "sha256": "8be1ce9f826f88672a2cc6ecfa5089c4ee5eace91004a4ff59fd2f4f99213912",
+      "bytes": 3441
+    },
+    {
+      "path": "bbport/runs/c3-build-20261011T131247Z/build-result.json",
+      "sha256": "da47f0d6a23702bf17e64b5bf21da87a34a054b168c63966f6fc589c74bcd7d2",
+      "bytes": 1056
+    },
+    {
+      "path": "integration/C3-CONTRACT.md",
+      "sha256": "b21bc85e8a4542eb9479f16c5ecc600a3b24f1902cd26a0079fcbf941172d7b5",
+      "bytes": 10847
+    },
+    {
+      "path": "bbport/runs/c3-game-c3-smoke-20261011/acceptance.json",
+      "sha256": "75d9f94bdc6cf49f037832a2db5aba50fc7273c1820ef1755eaa915b61eece58",
+      "bytes": 3106
+    },
+    {
+      "path": "bbport/runs/c3-game-c3-static-20261011/acceptance.json",
+      "sha256": "59000eb86634e6b04676c01e0527de1530ee4cd3df248fe2b8d28e5d065e7b0d",
+      "bytes": 2938
+    },
+    {
+      "path": "bbport/runs/c3-game-c3-motion-20261011/acceptance.json",
+      "sha256": "90c62eec1540c52530e9e7817ab7da39cb0260a8a7e25477fc81c06cd6cbe74c",
+      "bytes": 340
+    },
+    {
+      "path": "bbport/runs/c3-game-c3-motion2-20261011/acceptance.json",
+      "sha256": "d9ab9491c8543c2e112a7b2627c0fc7cdf4315270057f40b3000e5ceecba59b0",
+      "bytes": 432
+    },
+    {
+      "path": "bbport/runs/c3-game-c3-motion3-20261011/acceptance.json",
+      "sha256": "c16e131a38afb45f58ba8a9678fb9ed1ac7c2d1511e392764ea4e5952dc8ded6",
+      "bytes": 3685
+    },
+    {
+      "path": "bbport/runs/c3-game-c3-skip-20261011/acceptance.json",
+      "sha256": "bd363cfa792739507659cae0d1a874ff91792da5fa546743f3f266968d418cd6",
+      "bytes": 2455
+    },
+    {
+      "path": "bbport/runs/c3-game-c3-timeout-20261011/acceptance.json",
+      "sha256": "90cafa8cc42ae1058c914a617947af30c5e1529333c47f1b6d87102f3a5f0060",
+      "bytes": 2815
+    },
+    {
+      "path": "bbport/runs/c3-game-c3-exit-20261011/acceptance.json",
+      "sha256": "1054b6ea19d8a20ebb11a44f0102742798180a0505baa5ab2490b6c2cfd713a2",
+      "bytes": 2447
+    },
+    {
+      "path": "bbport/runs/c3-game-c3-late-20261011/acceptance.json",
+      "sha256": "d9b44e685e8197c1d0db7ceb7ab1adb07b147cdce9ad30da2ba81089795a406e",
+      "bytes": 2971
+    }
+  ],
+  "limitations": [
+    "static native complete inventory changes17/17; count equality is not identity equality",
+    "motion1 INPUT timeout; motion2 camera motion not proven; failures retained",
+    "motion3 Wine cold one unreadable entry; successful83 identities match final",
+    "late is expired-session nonconsumption, not explicit late parser rejection",
+    "performance, quality, C4-C6 not accepted"
+  ]
+}
