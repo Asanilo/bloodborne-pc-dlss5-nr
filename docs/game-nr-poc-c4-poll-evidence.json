@@ -1,0 +1,256 @@
+{
+  "parent_source_commit": "3997b73a12a5f108e5d07158438b8cac94130458",
+  "status": "PASS_C4_1800_FRAME_FUNCTIONAL_RUN_WITH_FD_OBSERVATION",
+  "performance_target": "FAIL",
+  "whole_C4": "INCOMPLETE",
+  "build_evidence": "bbport/runs/c4-build-20261011T143927Z/build-result.json",
+  "native_source_sha256": "71806d8b5e159388c3b1e69156ba408b79c48ea938c1d137a14a15c70d0aa4ef",
+  "libbbgpu_sha256": "63ac6e8f8e73061979189800f46010569e932ca469620594965650f884b5aae5",
+  "helper_sha256": "6d0039a3548d6378444db107a22f18d2a4d3a60803f4e3cdc7570497c6a13df5",
+  "helper_source_commit": "da6a50a4237cf5147d441844185793b797bf9b9d",
+  "evidence": [
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/root-acceptance.json",
+      "bytes": 1943,
+      "sha256": "c7d12ba830423df113109754e07ab385be7440df92df49f28eb1af9f9d0a4af4"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/root-play-plan.json",
+      "bytes": 242,
+      "sha256": "685d0cb5be8e6f5c4a24d9f0d32aa3cd4cc132bb4f88a75ec2b76cc36c0a07d3"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/root-wire-audit.json",
+      "bytes": 2807022,
+      "sha256": "fc0cc8877b85cffd6a644234dd3164ccd0168232c29b0d7161e9ccc743b6c7eb"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/root-present-audit.json",
+      "bytes": 758221,
+      "sha256": "049ed2095c7a6cc2a5d2b502eb3d681e69024240cb6d8bab2cb0d0f938296372"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/root-performance-static.json",
+      "bytes": 428698,
+      "sha256": "400f519ae99292dd4288187930ecbad209aedeacd00db5cbce0e2a9f0f50cbad"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/root-performance-all.json",
+      "bytes": 982818,
+      "sha256": "281d9a872d9a7c46670ce3b64bbf9109531cb636854fc4c7ba36c5fc5086f5c8"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/wine-result.json",
+      "bytes": 729,
+      "sha256": "60f92b403657846e9878e36c6abcd2fff43e130a252e3229de0e6401abe9041c"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/native-helper-exit.json",
+      "bytes": 37,
+      "sha256": "13177d9996d1e6161fc33da3906bd4c1eb9238bc33cb70fb8b267751b063884e"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/native-audited-c4-play1800-20261011-g0.json",
+      "bytes": 736,
+      "sha256": "0f496f74f060e56cf8a25e5542b997389424d9520916d8c232622229e011947f"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/wine-fd-baseline.json",
+      "bytes": 6988,
+      "sha256": "547e039fea27be622294548626b83115c55143fc9cd6e440689ca95dec603fc9"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/wine-fd-final.json",
+      "bytes": 7144,
+      "sha256": "740fb72a922255b0c96db82b89493b11a0deeb6326b33535127e38a632d580a0"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/wine-fd-before-import.json",
+      "bytes": 7268,
+      "sha256": "6ddd430fb92a2fb9bc54e870f2d5f5f87973f661d48c59f39c9dad0f92504f39"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/wine-fd-active-retired.json",
+      "bytes": 6988,
+      "sha256": "547e039fea27be622294548626b83115c55143fc9cd6e440689ca95dec603fc9"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/native-fd-baseline.json",
+      "bytes": 12461,
+      "sha256": "b7cc91d7807764c0ac3214f92badd20ff24d3cc3e5935173185d812d386e9537"
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-play1800-20261011/native-fd-final.json",
+      "bytes": 12461,
+      "sha256": "b7cc91d7807764c0ac3214f92badd20ff24d3cc3e5935173185d812d386e9537"
+    },
+    {
+      "path": "runs/hot-nr-20261011T144743.345911Z/game.log",
+      "bytes": 7683599,
+      "sha256": "a8274b69d0172af36f574bf36553a4d4e85f59455d5707eb21479bc50ca395f0"
+    },
+    {
+      "path": "runs/hot-nr-20261011T144743.345911Z/result.json",
+      "bytes": 1802,
+      "sha256": "637ea2af4099fc9023b9818f3c3f252e60909431791becf07acdfdbfc3bf662d"
+    }
+  ],
+  "independent_readonly_checks": {
+    "frames": 1800,
+    "first_source": 2186,
+    "last_source": 3985,
+    "source_gaps": 0,
+    "evaluate_calls": 1800,
+    "resolve_calls": 1800,
+    "unique_NR_Presents": 1800,
+    "helper_wait_status": 0,
+    "outer_cleanup_empty": true,
+    "native_full_FD_equal": true,
+    "wine_full_FD_equal": false,
+    "wine_addition": {
+      "fd": 80,
+      "device": 55,
+      "inode": 1511805,
+      "kind": "readable run-directory descriptor"
+    },
+    "original_dmabuf_inodes": [
+      9624,
+      9625,
+      9626,
+      9627
+    ],
+    "original_payload_remaining": 0,
+    "long_term_leak_freedom": "NOT_PROVED",
+    "hot_full_pixel_validation": "NOT_RUN"
+  },
+  "trend_windows": [
+    {
+      "first_frame": 0,
+      "last_frame": 119,
+      "outputs": 120,
+      "intervals": 119,
+      "fps": 23.150539902262018,
+      "interval_mean_ms": 43.19553687394958,
+      "interval_p95_ms": 46.095489099999995,
+      "native_input_wait_ms": 12.193385533333334,
+      "native_peer_wait_ms": 18.226767425,
+      "helper_gpu_total_ms": 14.328232266666667,
+      "helper_complete_publish_ms": 0.6605458333333333,
+      "helper_consumed_wait_ms": 3.8685408333333333
+    },
+    {
+      "first_frame": 120,
+      "last_frame": 299,
+      "outputs": 180,
+      "intervals": 179,
+      "fps": 22.447861386339053,
+      "interval_mean_ms": 44.54767350837989,
+      "interval_p95_ms": 47.2689925,
+      "native_input_wait_ms": 12.176286522222222,
+      "native_peer_wait_ms": 19.866048233333334,
+      "helper_gpu_total_ms": 14.346758755555555,
+      "helper_complete_publish_ms": 1.0754194444444445,
+      "helper_consumed_wait_ms": 4.244146111111111
+    },
+    {
+      "first_frame": 300,
+      "last_frame": 599,
+      "outputs": 300,
+      "intervals": 299,
+      "fps": 21.1789343928809,
+      "interval_mean_ms": 47.21672872909699,
+      "interval_p95_ms": 49.994191900000004,
+      "native_input_wait_ms": 12.379329943333333,
+      "native_peer_wait_ms": 22.302957766666665,
+      "helper_gpu_total_ms": 14.355078613333333,
+      "helper_complete_publish_ms": 1.7775093333333334,
+      "helper_consumed_wait_ms": 4.3415143333333335
+    },
+    {
+      "first_frame": 600,
+      "last_frame": 899,
+      "outputs": 300,
+      "intervals": 299,
+      "fps": 19.802485088931057,
+      "interval_mean_ms": 50.49871243478261,
+      "interval_p95_ms": 53.6257929,
+      "native_input_wait_ms": 12.552662936666668,
+      "native_peer_wait_ms": 25.442815766666666,
+      "helper_gpu_total_ms": 14.353173546666667,
+      "helper_complete_publish_ms": 2.6856133333333334,
+      "helper_consumed_wait_ms": 5.127061333333334
+    },
+    {
+      "first_frame": 900,
+      "last_frame": 1199,
+      "outputs": 300,
+      "intervals": 299,
+      "fps": 20.27216992266802,
+      "interval_mean_ms": 49.32871043478261,
+      "interval_p95_ms": 55.8002226,
+      "native_input_wait_ms": 9.8702663,
+      "native_peer_wait_ms": 28.508384406666668,
+      "helper_gpu_total_ms": 14.324227946666667,
+      "helper_complete_publish_ms": 3.4984546666666665,
+      "helper_consumed_wait_ms": 6.624700333333333
+    },
+    {
+      "first_frame": 1200,
+      "last_frame": 1499,
+      "outputs": 300,
+      "intervals": 299,
+      "fps": 19.170980453098228,
+      "interval_mean_ms": 52.16217305351171,
+      "interval_p95_ms": 56.2585693,
+      "native_input_wait_ms": 9.690875153333334,
+      "native_peer_wait_ms": 31.67772044,
+      "helper_gpu_total_ms": 14.35999904,
+      "helper_complete_publish_ms": 4.424865333333333,
+      "helper_consumed_wait_ms": 8.263124
+    },
+    {
+      "first_frame": 1500,
+      "last_frame": 1799,
+      "outputs": 300,
+      "intervals": 299,
+      "fps": 18.088107206013735,
+      "interval_mean_ms": 55.28494433444816,
+      "interval_p95_ms": 59.0340298,
+      "native_input_wait_ms": 9.641122946666666,
+      "native_peer_wait_ms": 35.752389173333334,
+      "helper_gpu_total_ms": 14.33822272,
+      "helper_complete_publish_ms": 5.355821333333333,
+      "helper_consumed_wait_ms": 9.400965
+    },
+    {
+      "first_frame": 120,
+      "last_frame": 899,
+      "outputs": 780,
+      "intervals": 779,
+      "fps": 20.893906723537775,
+      "interval_mean_ms": 47.86084350962773,
+      "interval_p95_ms": 52.5531901,
+      "native_input_wait_ms": 12.399140305128205,
+      "native_peer_wait_ms": 22.94823172051282,
+      "helper_gpu_total_ms": 14.352425928205129,
+      "helper_complete_publish_ms": 1.964759358974359,
+      "helper_consumed_wait_ms": 4.6211782051282055
+    },
+    {
+      "first_frame": 0,
+      "last_frame": 1799,
+      "outputs": 1800,
+      "intervals": 1799,
+      "fps": 20.09792871006233,
+      "interval_mean_ms": 49.756371137854366,
+      "interval_p95_ms": 56.8249919,
+      "native_input_wait_ms": 11.052897234444444,
+      "native_peer_wait_ms": 27.14910057722222,
+      "helper_gpu_total_ms": 14.345008337777777,
+      "helper_complete_publish_ms": 3.1086223333333334,
+      "helper_consumed_wait_ms": 6.308544833333333
+    }
+  ],
+  "trend_scope": "Readonly independent computation; all per-window intervals preserved; GPU/CPU scopes distinct; correlation not directory-scan causation",
+  "new_build_or_GPU_run_by_B": false
+}

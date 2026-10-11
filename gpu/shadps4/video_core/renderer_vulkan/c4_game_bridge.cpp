@@ -1109,14 +1109,22 @@ vk::ImageView C4GameBridge::ProcessFrame(const Instance& instance, Scheduler& sc
             audit_kind.c_str(), (unsigned long long)input_tick, diagnostic ? "FULL" : "NOT_RUN", diagnostic ? "FULL_GPU_AND_FNV" : "NOT_RUN");
         const auto complete_path = run_dir + "/complete-" + suffix;
         std::string complete_text;
+        u32 completion_poll_attempts = 0, completion_poll_sleeps = 0;
+        const auto completion_poll_started = std::chrono::steady_clock::now();
         while (std::chrono::steady_clock::now() < complete_deadline) {
             if (process.Completed() || process.SetupFailed()) throw std::runtime_error("C4 helper exited before completion");
+            ++completion_poll_attempts;
             complete_text = Read(complete_path);
             if (!complete_text.empty() && std::chrono::steady_clock::now() < complete_deadline) break;
             complete_text.clear();
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            ++completion_poll_sleeps;
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
+        const auto completion_poll_elapsed_ms = ms_since(completion_poll_started);
         if (complete_text.empty() || std::chrono::steady_clock::now() >= complete_deadline) {
+            std::fprintf(stderr, "C4_COMPLETION_POLL_EXPIRED frame=%u source_game_frame=%llu attempts=%u sleeps=%u interval_ms=1 elapsed_ms=%.6f deadline_ms=30000\n",
+                frame, (unsigned long long)source_game_frame, completion_poll_attempts,
+                completion_poll_sleeps, completion_poll_elapsed_ms);
             AtomicWrite(run_dir + "/native-expired-" + suffix, wire_input.dump());
             throw std::runtime_error("C4 current tuple expired at 30000ms; late output forbidden");
         }
@@ -1372,6 +1380,10 @@ vk::ImageView C4GameBridge::ProcessFrame(const Instance& instance, Scheduler& sc
         frame_record["input_published_cpu_monotonic_ns"] = input_published_ns;
         frame_record["complete_observed_cpu_monotonic_ns"] = complete_observed_ns;
         frame_record["selection_ready_cpu_monotonic_ns"] = monotonic_ns();
+        frame_record["completion_poll"] = {{"interval_ms", 1u},
+            {"attempts", completion_poll_attempts}, {"sleeps", completion_poll_sleeps},
+            {"elapsed_ms", completion_poll_elapsed_ms}, {"clock", "steady_clock monotonic"},
+            {"scope", "active complete-file reads, peer status checks and sleeps; subset of peer_completion_wait"}};
         frame_record["cpu_phase_ms"] = {{"prior_merge_wait", prior_merge_wait_ms}, {"input_flush", input_flush_ms},
             {"input_wait", input_wait_ms}, {"peer_completion_wait", peer_wait_ms}, {"output_flush", output_flush_ms},
             {"output_wait", output_wait_ms}, {"source_to_selection_ready", ms_since(frame_started)}};
