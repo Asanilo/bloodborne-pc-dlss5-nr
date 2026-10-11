@@ -1575,6 +1575,74 @@ void TemporalUpscaler::Run() {
                 }
             }
         }
+        bool c4_selected = false;
+        bool c4_frame_processed = false;
+        if (c4_nr_process.Enabled() && c2_profile) {
+            vk::PhysicalDeviceIDProperties identity{};
+            vk::PhysicalDeviceProperties2 properties{.pNext = &identity};
+            instance.GetPhysicalDevice().getProperties2(&properties);
+            const auto device_uuid = HexBytes(identity.deviceUUID);
+            const auto driver_uuid = HexBytes(identity.driverUUID);
+            if (c4_nr_process.Start(device_uuid, driver_uuid, ow, oh) &&
+                c4_game_bridge.Prepare(instance, scheduler, c4_nr_process,
+                    c4_nr_process.Session(), c4_nr_process.RunDir(),
+                    device_uuid, driver_uuid, ow, oh)) {
+                if (!c4_trigger_consumed) {
+                    const char* trigger = std::getenv("BB_NR_C4_TRIGGER");
+                    std::error_code error;
+                    if (trigger && *trigger && std::filesystem::is_regular_file(trigger, error)) {
+                        if (std::remove(trigger) == 0) {
+                            c4_trigger_consumed = true;
+                            std::printf("C4_TRIGGER_CONSUMED session=%s mode=%s frames=%u source_game_frame=%llu path=%s\n",
+                                c4_nr_process.Session().c_str(), c4_nr_process.Mode().c_str(),
+                                c4_nr_process.FrameCount(), (unsigned long long)source_game_frame, trigger);
+                        } else std::fprintf(stderr, "C4_TRIGGER consume_failed errno=%d SR_fallback=1\n", errno);
+                    }
+                }
+                bool pending_present = false;
+                { std::scoped_lock lock{c1_audit_mutex}; pending_present = c4_pending_audit.has_value(); }
+                if (c4_trigger_consumed && !pending_present && !c4_game_bridge.Finished() &&
+                    !c4_game_bridge.Quarantined() && c4_game_bridge.HasRemainingFrames()) {
+                    const u32 next_nr_frame = c4_game_bridge.NextFrameIndex();
+                    const u32 count = c4_nr_process.FrameCount();
+                    const bool audit_full = c4_nr_process.ExecutionMode() == "diagnostic";
+                    if (next_nr_frame < count && audit_full) {
+                        std::printf("C4_CAMERA_STATE session=%s frame=%u source_game_frame=%llu audit_kind=full\n",
+                            c4_nr_process.Session().c_str(), next_nr_frame,
+                            (unsigned long long)source_game_frame);
+                        camera_motion.PrintState(static_cast<int>(next_nr_frame));
+                    }
+                    crumb.reset();
+                    const auto view = c4_game_bridge.ProcessFrame(
+                        instance, scheduler, c4_nr_process, vk::Image(output_image), *output_view,
+                        input_depth, input_depth_view, vk::Image(motion_image), *motion_view,
+                        vk::ImageLayout::eGeneral, source_game_frame, last_dlss_reset, last_dlss_frame_ms,
+                        c2_current_viewport_jitter, c2_previous_viewport_jitter,
+                        c2_current_sr_jitter, c2_previous_sr_jitter,
+                        c2_sr_initial_reset_observed, c2_sr_initial_source_game_frame,
+                        c2_sr_jitter_zero_from_start);
+                    cmdbuf = scheduler.CommandBuffer();
+                    crumb.emplace(cmdbuf, scheduler.CrumbStream(), "TAA C4 resident NR merge");
+                    c4_frame_processed = c4_game_bridge.FrameProcessed();
+                    if (view) {
+                        c4_game_bridge.PrepareReturnForMerge(scheduler);
+                        merge_view = view;
+                        c4_selected = true;
+                        std::printf("C4_MERGE_SELECT stage=C4 mode=%s session=%s frame=%u source_game_frame=%llu merge_tick=%llu original_SR_immutable=1\n",
+                            c4_nr_process.Mode().c_str(), c4_nr_process.Session().c_str(),
+                            c4_game_bridge.FrameIndex(), (unsigned long long)source_game_frame,
+                            (unsigned long long)scheduler.CurrentTick());
+                    } else if (c4_frame_processed) {
+                        std::printf("C4_SKIP_SR_FALLBACK stage=C4 mode=skipEvaluate session=%s frame=%u source_game_frame=%llu\n",
+                            c4_nr_process.Session().c_str(), c4_game_bridge.FrameIndex(),
+                            (unsigned long long)source_game_frame);
+                    }
+                } else if (pending_present && c4_trigger_consumed) {
+                    std::printf("C4_BYPASS_PENDING_PRESENT source_game_frame=%llu SR_fallback=1 counted_valid=0\n",
+                                (unsigned long long)source_game_frame);
+                }
+            }
+        }
         bool c1_selected = false;
         const bool c1_profile = !Scaled() && !reduced && w == 1920 && h == 1080 &&
             ow == 1920 && oh == 1080 && last_dlss_called && last_dlss_hdr;
@@ -1691,12 +1759,14 @@ void TemporalUpscaler::Run() {
                              ? 1
                          : debug_view == BbSettings::DebugMotion ? 2
                                                                  : 0;
+        if (c4_frame_processed) c4_game_bridge.BeginMergeTiming(scheduler);
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, *merge_pipeline);
         cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *merge_pipeline_layout, 0,
                                     writes);
         cmdbuf.pushConstants(*merge_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0,
                              sizeof(mode), &mode);
         cmdbuf.dispatch((ow + 7) / 8, (oh + 7) / 8, 1);
+        if (c4_frame_processed) c4_game_bridge.EndMergeTiming(scheduler);
         if (c3_frame_processed) {
             std::scoped_lock lock{c1_audit_mutex};
             if (c3_pending_audit) throw std::runtime_error("C3 must not overwrite an unbound presentation audit");
@@ -1711,6 +1781,22 @@ void TemporalUpscaler::Run() {
                 (unsigned long long)scheduler.CurrentTick(), c3_selected,
                 c3_pending_audit->audit_full ? "full" : "gpu_full_scan");
             c3_game_bridge.DeferRetirement(instance, scheduler);
+        }
+        if (c4_frame_processed) {
+            std::scoped_lock lock{c1_audit_mutex};
+            if (c4_pending_audit) throw std::runtime_error("C4 must not overwrite an unbound presentation audit");
+            c4_pending_audit = C1PresentAudit{
+                .stage = "C4", .mode = c4_nr_process.Mode(), .session = c4_nr_process.Session(),
+                .execution_mode = c4_nr_process.ExecutionMode(),
+                .selected_output = c4_selected, .audit_full = c4_game_bridge.AuditFull(),
+                .nr_frame = c4_game_bridge.FrameIndex(), .source_game_frame = source_game_frame,
+                .merge_tick = scheduler.CurrentTick()};
+            std::printf("C4_MERGE_RECORDED stage=C4 mode=%s session=%s frame=%u source_game_frame=%llu tick=%llu selected_output=%u audit_kind=%s fallback_immutable=1\n",
+                c4_pending_audit->mode.c_str(), c4_pending_audit->session.c_str(),
+                c4_pending_audit->nr_frame, (unsigned long long)source_game_frame,
+                (unsigned long long)scheduler.CurrentTick(), c4_selected,
+                c4_pending_audit->audit_full ? "full" : "off");
+            c4_game_bridge.DeferRetirement(instance, scheduler);
         }
         if (c2_frame_processed) {
             std::scoped_lock lock{c1_audit_mutex};
@@ -2600,6 +2686,38 @@ bool TemporalUpscaler::TakeC1PresentAudit(VAddr address, u64 present_frame_count
                                           u64 gpu_frame_at_prepare, u64 prepare_tick,
                                           C1PresentAudit& audit) {
     std::scoped_lock lock{c1_audit_mutex};
+    if (c4_pending_audit) {
+        // HDR Run records the completed scene before the display-pass NoteFrameStart
+        // increments gpu_frames (vk_rasterizer.cpp). Require that immediate epoch;
+        // a later VideoOut buffer must never inherit this older NR ledger.
+        const auto& pending = *c4_pending_audit;
+        if (gpu_frame_at_prepare != pending.source_game_frame + 1 ||
+            prepare_tick < pending.merge_tick) {
+            std::fprintf(stderr, "C4_PRESENT_ASSOCIATION_REJECTED stage=C4 mode=%s session=%s frame=%u source_game_frame=%llu expected_gpu_frame=%llu actual_gpu_frame=%llu merge_tick=%llu prepare_tick=%llu counted_valid=0\n",
+                pending.mode.c_str(), pending.session.c_str(), pending.nr_frame,
+                (unsigned long long)pending.source_game_frame,
+                (unsigned long long)(pending.source_game_frame + 1),
+                (unsigned long long)gpu_frame_at_prepare,
+                (unsigned long long)pending.merge_tick, (unsigned long long)prepare_tick);
+            c4_game_bridge.RejectPresentationAssociation();
+            c4_pending_audit.reset();
+            audit = {};
+            return false;
+        }
+        audit = pending;
+        audit.buffer_address = address;
+        audit.buffer_prepare_gpu_frame = gpu_frame_at_prepare;
+        audit.buffer_prepare_tick = prepare_tick;
+        audit.present_frame_counter_before = present_frame_counter_before;
+        std::printf("C4_GUEST_BUFFER_BIND stage=C4 mode=%s session=%s frame=%u route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu frame_counter_before=%llu prepare_tick=%llu selected_output=%u audit_kind=%s association=next_nonupscaled_videoout_prepare_after_merge\n",
+            audit.mode.c_str(), audit.session.c_str(), audit.nr_frame,
+            (unsigned long long)audit.source_game_frame, (unsigned long long)audit.merge_tick,
+            (unsigned long long)address, (unsigned long long)gpu_frame_at_prepare,
+            (unsigned long long)present_frame_counter_before, (unsigned long long)prepare_tick,
+            audit.selected_output, audit.audit_full ? "full" : "off");
+        c4_pending_audit.reset();
+        return true;
+    }
     if (c3_pending_audit) {
         // HDR Run records the completed scene before the display-pass NoteFrameStart
         // increments gpu_frames (vk_rasterizer.cpp). Require that immediate epoch;
@@ -2821,6 +2939,8 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         if (!c2_sr_initial_reset_observed && last_dlss_reset) {
             c2_sr_initial_reset_observed = true;
             c2_sr_initial_source_game_frame = source_frame;
+            if (c4_nr_process.Enabled())
+                std::printf("C4_SR_HISTORY initial_reset_observed=1 source_game_frame=%llu\n", (unsigned long long)source_frame);
             if (c3_nr_process.Enabled())
                 std::printf("C3_SR_HISTORY initial_reset_observed=1 source_game_frame=%llu\n", (unsigned long long)source_frame);
             std::printf("C2_SR_HISTORY initial_reset_observed=1 source_game_frame=%llu\n",

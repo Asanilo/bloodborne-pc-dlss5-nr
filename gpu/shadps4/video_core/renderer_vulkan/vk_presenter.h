@@ -43,6 +43,7 @@ struct Frame {
     u64 c1_guest_prepare_gpu_frame = 0;
     u64 c1_guest_prepare_tick = 0;
     u64 c1_present_frame_number = 0;
+    std::string audit_execution_mode;
     std::string audit_stage;
     std::string audit_mode;
     std::string audit_session;

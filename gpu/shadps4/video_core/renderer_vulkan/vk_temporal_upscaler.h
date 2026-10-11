@@ -27,6 +27,8 @@
 #include "video_core/renderer_vulkan/c2_nr_process.h"
 #include "video_core/renderer_vulkan/c3_game_bridge.h"
 #include "video_core/renderer_vulkan/c3_nr_process.h"
+#include "video_core/renderer_vulkan/c4_game_bridge.h"
+#include "video_core/renderer_vulkan/c4_nr_process.h"
 #include "video_core/renderer_vulkan/vk_dlss.h"
 #include "video_core/renderer_vulkan/vk_fsr4.h"
 #include "video_core/texture_cache/image.h"
@@ -49,6 +51,7 @@ struct C1PresentAudit {
     std::string stage = "C1";
     std::string mode;
     std::string session;
+    std::string execution_mode;
     bool selected_output = false;
     bool audit_full = true;
     u32 nr_frame = 0;
@@ -268,6 +271,10 @@ private:
     C3GameBridge c3_game_bridge;
     bool c3_trigger_consumed = false;
     std::optional<C1PresentAudit> c3_pending_audit;
+    C4NrProcess c4_nr_process;
+    C4GameBridge c4_game_bridge;
+    bool c4_trigger_consumed = false;
+    std::optional<C1PresentAudit> c4_pending_audit;
     float last_dlss_frame_ms = 0.0f;
     u64 frame_id = 0;
     std::chrono::steady_clock::time_point last_frame{};

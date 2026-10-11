@@ -1,0 +1,137 @@
+{
+  "schema": "bbport_c4_initial_milestone_v1",
+  "parent_C3_commit": "f9132dff6027d080bd15aafaccad3bcabb026a1b",
+  "correctness": "PASS_DIAGNOSTIC_SKIP_HOT4_HOT120",
+  "near60FPS_target": "FAIL",
+  "hot_NR_FPS": 22.006110354555318,
+  "matched_SR_only_FPS": 65.36621941884157,
+  "sustained_play": "NOT_RUN",
+  "GPU_executor": "Integration only",
+  "initial_build": "c4-build-20261011T140430Z",
+  "coarse_helper_frame_clock": "81/120 zero values; not a valid performance duration",
+  "source_pins": [
+    {
+      "path": "gpu/CMakeLists.txt",
+      "sha256": "810762a09faf2e2104a7a55c68b0d76b55dda1285ad699edeec2e8fd8ed746f8",
+      "bytes": 14003
+    },
+    {
+      "path": "gpu/shadps4/video_core/renderer_vulkan/vk_presenter.cpp",
+      "sha256": "1c11f249e728e6e653d1cc777310b1957a5ef7d330fcd79b471ed76a37d904aa",
+      "bytes": 45357
+    },
+    {
+      "path": "gpu/shadps4/video_core/renderer_vulkan/vk_presenter.h",
+      "sha256": "921b4a70a81c893a99ad0c4834e9d2e4c0b3146ec9afa6b347db1db19e1b5447",
+      "bytes": 4339
+    },
+    {
+      "path": "gpu/shadps4/video_core/renderer_vulkan/vk_temporal_upscaler.cpp",
+      "sha256": "80f4c672e57a48f391fea95b85dcec4e5bf0affbb11bd6401867118cb9cc00ba",
+      "bytes": 161347
+    },
+    {
+      "path": "gpu/shadps4/video_core/renderer_vulkan/vk_temporal_upscaler.h",
+      "sha256": "4d6cc5d60c8062d46cd08ad1f7707cfba65505d5244c451539d420e42835cd26",
+      "bytes": 17261
+    },
+    {
+      "path": "gpu/shadps4/video_core/host_shaders/c4_game_bridge.comp",
+      "sha256": "4eae3f09e279b31f1b72d3e81957e76b22da16017818257086b99d3bc76956df",
+      "bytes": 1572
+    },
+    {
+      "path": "gpu/shadps4/video_core/renderer_vulkan/c4_frame_validate.h",
+      "sha256": "4c6fa41cc6a87cca3147ef6454ff1d5c2c128c8444377c12d7940627e5e55afa",
+      "bytes": 2492
+    },
+    {
+      "path": "gpu/shadps4/video_core/renderer_vulkan/c4_game_bridge.cpp",
+      "sha256": "12b641df269bb76ce0141c3385e6625c4a7e5371df73c725d1867f40230b4b09",
+      "bytes": 100218
+    },
+    {
+      "path": "gpu/shadps4/video_core/renderer_vulkan/c4_game_bridge.h",
+      "sha256": "8e3f12c00bfb691682b033630eeea6f7e204f695105c2a70239592af3af85fc2",
+      "bytes": 6532
+    },
+    {
+      "path": "gpu/shadps4/video_core/renderer_vulkan/c4_nr_process.cpp",
+      "sha256": "553be086cda9c67032775e4e7849b9bb479342f67758049dfc402c08894ccefe",
+      "bytes": 27560
+    },
+    {
+      "path": "gpu/shadps4/video_core/renderer_vulkan/c4_nr_process.h",
+      "sha256": "62381625a6a4991eb3197c9d2b20753934b9af36c13c9f475a133036a1382f79",
+      "bytes": 2923
+    },
+    {
+      "path": "tools/nr_probe/build_c4.sh",
+      "sha256": "f95aee9d0d9456570033082af90ddde72d5ee26ff663af7c6ebc2f36572f7fbd",
+      "bytes": 6430
+    },
+    {
+      "path": "tools/nr_probe/run_game_c4.sh",
+      "sha256": "216bf611155daa0fd3f5bba0da1a7b187b2b21b05353e20411fd1316d0f0bdf8",
+      "bytes": 6563
+    }
+  ],
+  "external_evidence": [
+    {
+      "path": "integration/C4-CONTRACT.md",
+      "sha256": "18af8d771d22577e5b7806ed36213762a61bdb3db1b38d49324955e57fb8e0f6",
+      "bytes": 10425
+    },
+    {
+      "path": "integration/C4-POLL-REVISION.md",
+      "sha256": "5b71aeb2d8007c8c284a202d3e026d28719e852c5f4789592d6c565d6f7d311f",
+      "bytes": 2100
+    },
+    {
+      "path": "baselines/c4-first-hot-20261011/manifest.json",
+      "sha256": "c80d76957b7075b72bfb8d0421ded25aa29188b96f0276d973f062282dcf39c1",
+      "bytes": 3116
+    },
+    {
+      "path": "bbport/runs/c4-build-20261011T140430Z/build-result.json",
+      "sha256": "f8918cabf9000cda879cb3f5f665bd19cddf1c7ae67236a9f5540b2512d796ed",
+      "bytes": 1124
+    },
+    {
+      "path": "bbport/runs/c4-build-20261011T140430Z/source-sha256.txt",
+      "sha256": "c42dc2b1faa4be88654920e4d569c4ba045de03d4b1bdca2cc79b3e0f4c93a03",
+      "bytes": 7423
+    },
+    {
+      "path": "bbport/runs/c4-build-20261011T140430Z/artifact-sha256.txt",
+      "sha256": "3a51807394457e18f2116bb3122037bea9de16d0042747c75404af298aa17d1b",
+      "bytes": 621
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-diag3-20261011/root-wire-audit.json",
+      "sha256": "26a0fa76687b5e3e34c13e37decf519f8664eb82d4b2a238d241ee52c3c03035",
+      "bytes": 13831
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-diag3-20261011/root-present-audit.json",
+      "sha256": "fbbb069344caca693564cec25a5347e4a7cc7124ce744dba37d2e5bc1a1fcb28",
+      "bytes": 3408
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-hot120-20261011/root-performance.json",
+      "sha256": "28790134e21001155b0c71fabca68ba2bb610a24d45f208e67475777ab73dc48",
+      "bytes": 69584
+    },
+    {
+      "path": "bbport/runs/c4-game-c4-sr90-20261011/root-performance.json",
+      "sha256": "c7f3a75a431b26ba09812676e615fa1dfb5e8f569dcf6a4ab9bb5cd05fb3401f",
+      "bytes": 949
+    }
+  ],
+  "excluded_from_commit": [
+    "binary artifacts",
+    "raw logs and readbacks",
+    "private profiles/saves",
+    "models/runtime dependencies"
+  ]
+}
