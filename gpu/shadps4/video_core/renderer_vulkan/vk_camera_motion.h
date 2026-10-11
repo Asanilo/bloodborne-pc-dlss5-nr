@@ -58,6 +58,12 @@ public:
     [[nodiscard]] std::array<u32, 2> RenderSize() const noexcept {
         return render_size;
     }
+    [[nodiscard]] std::array<float, 2> CurrentJitter() const noexcept {
+        return jitter;
+    }
+    [[nodiscard]] std::array<float, 2> PreviousJitter() const noexcept {
+        return previous_jitter;
+    }
     /// Vertical field of view and near/far planes of the current camera.
     [[nodiscard]] float VerticalFov() const noexcept;
     [[nodiscard]] float Near() const noexcept;

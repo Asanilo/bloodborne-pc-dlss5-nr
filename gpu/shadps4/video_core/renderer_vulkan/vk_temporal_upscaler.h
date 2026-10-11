@@ -15,11 +15,16 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
 #include "common/types.h"
 #include "video_core/renderer_vulkan/vk_common.h"
+#include "video_core/renderer_vulkan/c1_game_bridge.h"
+#include "video_core/renderer_vulkan/c1_noop_process.h"
+#include "video_core/renderer_vulkan/c2_game_bridge.h"
+#include "video_core/renderer_vulkan/c2_nr_process.h"
 #include "video_core/renderer_vulkan/vk_dlss.h"
 #include "video_core/renderer_vulkan/vk_fsr4.h"
 #include "video_core/texture_cache/image.h"
@@ -37,6 +42,19 @@ class Scheduler;
 class Runtime;
 class CameraMotion;
 class SceneTargets;
+
+struct C1PresentAudit {
+    std::string stage = "C1";
+    std::string mode;
+    std::string session;
+    bool selected_output = false;
+    u64 source_game_frame = 0;
+    u64 merge_tick = 0;
+    u64 buffer_address = 0;
+    u64 buffer_prepare_gpu_frame = 0;
+    u64 buffer_prepare_tick = 0;
+    u64 present_frame_counter_before = 0;
+};
 
 /// bbport BB_FINAL_DUMP_TRIGGER: the frame as presented (after FSR and post processing) is saved
 /// as final_<w>x<h> in BB_DUMP_DIR when the trigger file exists (consumed). `image` in General.
@@ -124,12 +142,17 @@ public:
         vk::Image image;
         vk::Format format;
         u32 width, height;
+        C1PresentAudit c1_audit{};
     };
     bool DisplayOverride(VAddr address, Display& display);
     /// BB_PRESENT_DUMP_TRIGGER: whether this presented frame is to be saved (consumes the trigger).
     bool PresentDumpDue();
+    bool TakeC1PresentAudit(VAddr address, u64 present_frame_counter_before,
+                            u64 gpu_frame_at_prepare, u64 prepare_tick,
+                            C1PresentAudit& audit);
     /// Saves `image` (General layout, 4 bytes a pixel) as present_<w>x<h> in BB_DUMP_DIR.
-    void DumpPresented(vk::Image image, u32 width, u32 height, vk::Format format);
+    void DumpPresented(vk::Image image, u32 width, u32 height, vk::Format format,
+                       std::optional<C1PresentAudit> c1_audit = std::nullopt);
 
 private:
     /// bbport: views of guest images the upscaler reads, kept across frames: FSR 4 registers
@@ -215,6 +238,29 @@ private:
     std::array<float, 2> jitter{};
     u32 jitter_index = 0;
     bool reset = true;
+    bool last_dlss_called = false;
+    C1NoopProcess c1_noop_process;
+    C1GameBridge c1_game_bridge;
+    bool c1_trigger_consumed = false;
+    u64 c1_pending_source_game_frame = 0;
+    u64 c1_pending_merge_tick = 0;
+    u64 c2_pending_source_game_frame = 0;
+    u64 c2_pending_merge_tick = 0;
+    std::string c2_pending_mode;
+    std::string c2_pending_session;
+    bool c2_pending_selected_output = false;
+    std::mutex c1_audit_mutex;
+    bool last_dlss_hdr = false;
+    bool last_dlss_reset = false;
+    float last_dlss_jitter_x = 0.0f, last_dlss_jitter_y = 0.0f;
+    float previous_dlss_jitter_x = 0.0f, previous_dlss_jitter_y = 0.0f;
+    bool c2_sr_initial_reset_observed = false;
+    bool c2_sr_jitter_zero_from_start = true;
+    u64 c2_sr_initial_source_game_frame = 0;
+    C2NrProcess c2_nr_process;
+    C2GameBridge c2_game_bridge;
+    bool c2_trigger_consumed = false;
+    float last_dlss_frame_ms = 0.0f;
     u64 frame_id = 0;
     std::chrono::steady_clock::time_point last_frame{};
 
@@ -253,6 +299,7 @@ private:
         vk::Format format{};
         u32 width = 0, height = 0;
         bool valid = false;
+        C1PresentAudit c1_audit{};
     };
     std::mutex display_mutex;
     int present_dump_remaining = 0, present_dump_index = 0;

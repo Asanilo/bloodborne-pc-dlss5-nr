@@ -324,6 +324,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     // bbport: scaled upscaler presets: the output-size display buffer drawn by the port.
     TemporalUpscaler::Display display{};
     const bool upscaled = rasterizer->GetUpscaler().DisplayOverride(cpu_address, display);
+    C1PresentAudit c1_audit{};
     VideoCore::ImageId image_id{};
     if (!upscaled) {
         auto desc = VideoCore::TextureCache::ImageDesc{attribute, cpu_address};
@@ -382,8 +383,21 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
         auto& image = texture_cache.GetImage(image_id);
         image_view = *image.FindView(view_info).image_view;
         image_size = vk::Extent2D{image.info.size.width, image.info.size.height};
-        // bbport: BB_PRESENT_DUMP_TRIGGER for the game's own display buffer too.
-        if (auto& upscaler = rasterizer->GetUpscaler(); upscaler.PresentDumpDue()) {
+        auto& upscaler = rasterizer->GetUpscaler();
+        const u64 frame_counter_before = BbStats::frame_number.load(std::memory_order_relaxed);
+        const u64 gpu_frame_at_prepare = BbStats::gpu_frames.load(std::memory_order_relaxed);
+        const u64 prepare_tick = draw_scheduler.CurrentTick();
+        const bool c1_selected = upscaler.TakeC1PresentAudit(
+            cpu_address, frame_counter_before, gpu_frame_at_prepare, prepare_tick, c1_audit);
+        // The 1:1 HDR Run route consumes the actual guest VideoOut buffer, not the scaled
+        // display override. Bind this one-shot ledger to that real address and buffer.
+        if (c1_selected) {
+            runtime.Transit(&image, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eTransfer,
+                            vk::AccessFlagBits2::eTransferRead);
+            runtime.FlushBarriers();
+            upscaler.DumpPresented(image.GetImage(), image_size.width, image_size.height,
+                                   view_info.format, c1_audit);
+        } else if (upscaler.PresentDumpDue()) {
             runtime.Transit(&image, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eTransfer,
                             vk::AccessFlagBits2::eTransferRead);
             runtime.FlushBarriers();
@@ -395,6 +409,17 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
                         vk::AccessFlagBits2::eShaderRead);
         runtime.FlushBarriers();
     }
+    const C1PresentAudit& frame_audit = upscaled ? display.c1_audit : c1_audit;
+    frame->c1_source_game_frame = frame_audit.source_game_frame;
+    frame->c1_merge_tick = frame_audit.merge_tick;
+    frame->c1_guest_buffer_address = frame_audit.buffer_address;
+    frame->c1_guest_prepare_gpu_frame = frame_audit.buffer_prepare_gpu_frame;
+    frame->c1_guest_prepare_tick = frame_audit.buffer_prepare_tick;
+    frame->c1_present_frame_number = 0;
+    frame->audit_stage = frame_audit.stage;
+    frame->audit_mode = frame_audit.mode;
+    frame->audit_session = frame_audit.session;
+    frame->audit_selected_output = frame_audit.selected_output;
     expected_ratio = static_cast<float>(image_size.width) / static_cast<float>(image_size.height);
 
     // Vulkan has no sRGB variant of the 10-bit format, so an A2R10G10B10Srgb buffer reaches
@@ -443,11 +468,40 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     });
 
     // Flush frame creation commands.
-    BbStats::frame_number.fetch_add(1, std::memory_order_relaxed); // bbport: game frames shown
+    frame->c1_present_frame_number =
+        BbStats::frame_number.fetch_add(1, std::memory_order_relaxed) + 1; // game frames shown
     frame->ready_semaphore = draw_scheduler.GetWorkSemaphore()->Handle();
     frame->ready_tick = draw_scheduler.CurrentTick();
     SubmitInfo info{};
     draw_scheduler.Flush(info);
+    if (frame->c1_source_game_frame != 0 && frame->audit_stage == "C2") {
+        std::printf("C2_PRESENT_PREPARED stage=C2 mode=%s session=%s selected_output=%u "
+                    "route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu "
+                    "guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu "
+                    "frame_counter_before=%llu present_frame_number=%llu guest_prepare_tick=%llu ready_tick=%llu\n",
+                    frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_selected_output,
+                    static_cast<unsigned long long>(frame->c1_source_game_frame),
+                    static_cast<unsigned long long>(frame->c1_merge_tick),
+                    static_cast<unsigned long long>(frame->c1_guest_buffer_address),
+                    static_cast<unsigned long long>(frame->c1_guest_prepare_gpu_frame),
+                    static_cast<unsigned long long>(c1_audit.present_frame_counter_before),
+                    static_cast<unsigned long long>(frame->c1_present_frame_number),
+                    static_cast<unsigned long long>(frame->c1_guest_prepare_tick),
+                    static_cast<unsigned long long>(frame->ready_tick));
+    } else if (frame->c1_source_game_frame != 0) {
+        std::printf("C1_PRESENT_PREPARED route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu "
+                    "guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu "
+                    "frame_counter_before=%llu present_frame_number=%llu "
+                    "guest_prepare_tick=%llu ready_tick=%llu\n",
+                    static_cast<unsigned long long>(frame->c1_source_game_frame),
+                    static_cast<unsigned long long>(frame->c1_merge_tick),
+                    static_cast<unsigned long long>(frame->c1_guest_buffer_address),
+                    static_cast<unsigned long long>(c1_audit.buffer_prepare_gpu_frame),
+                    static_cast<unsigned long long>(c1_audit.present_frame_counter_before),
+                    static_cast<unsigned long long>(frame->c1_present_frame_number),
+                    static_cast<unsigned long long>(frame->c1_guest_prepare_tick),
+                    static_cast<unsigned long long>(frame->ready_tick));
+    }
     BbTimeline::Note(BbTimeline::PipeTask, 5, frame->ready_tick);
 
     // bbport: the GPU command thread runs at most BB_FRAMES_AHEAD (default 1) guest frames
@@ -476,6 +530,11 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
 Frame* Presenter::PrepareBlankFrame(bool present_thread) {
     // Request a free presentation frame.
     Frame* frame = GetRenderFrame();
+    frame->c1_source_game_frame = 0;
+    frame->c1_merge_tick = 0;
+    frame->c1_guest_buffer_address = 0;
+    frame->c1_guest_prepare_gpu_frame = 0;
+    frame->c1_guest_prepare_tick = 0;
 
     auto& scheduler = present_thread ? present_scheduler : draw_scheduler;
     scheduler.EndRendering();
@@ -713,12 +772,45 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     info.AddWait(frame->ready_semaphore, frame->ready_tick);
     info.AddSignal(swapchain.GetPresentReadySemaphore());
     info.AddSignal(frame->present_done);
+    const u64 present_submit_tick = scheduler.CurrentTick();
     scheduler.Flush(info);
 
     // Present to swapchain.
     {
         std::scoped_lock submit_lock{Scheduler::submit_mutex};
-        if (!swapchain.Present()) {
+        const bool presented = swapchain.Present();
+        if (frame->c1_source_game_frame != 0 && is_game_frame && frame->audit_stage == "C2") {
+            std::printf("C2_PRESENT_SUBMITTED stage=C2 mode=%s session=%s selected_output=%u "
+                        "route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu "
+                        "guest_buffer_address=0x%llx guest_prepare_gpu_frame=%llu guest_prepare_tick=%llu "
+                        "present_frame_number=%llu frame_ready_tick=%llu present_submit_tick=%llu "
+                        "game_frame=%u swapchain_present=%u\n",
+                        frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_selected_output,
+                        static_cast<unsigned long long>(frame->c1_source_game_frame),
+                        static_cast<unsigned long long>(frame->c1_merge_tick),
+                        static_cast<unsigned long long>(frame->c1_guest_buffer_address),
+                        static_cast<unsigned long long>(frame->c1_guest_prepare_gpu_frame),
+                        static_cast<unsigned long long>(frame->c1_guest_prepare_tick),
+                        static_cast<unsigned long long>(frame->c1_present_frame_number),
+                        static_cast<unsigned long long>(frame->ready_tick),
+                        static_cast<unsigned long long>(present_submit_tick), is_game_frame, presented);
+        } else if (frame->c1_source_game_frame != 0 && is_game_frame) {
+            std::printf("C1_PRESENT_SUBMITTED route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu "
+                        "guest_buffer_address=0x%llx guest_prepare_gpu_frame=%llu "
+                        "guest_prepare_tick=%llu present_frame_number=%llu "
+                        "frame_ready_tick=%llu present_submit_tick=%llu "
+                        "game_frame=%u swapchain_present=%u\n",
+                        static_cast<unsigned long long>(frame->c1_source_game_frame),
+                        static_cast<unsigned long long>(frame->c1_merge_tick),
+                        static_cast<unsigned long long>(frame->c1_guest_buffer_address),
+                        static_cast<unsigned long long>(frame->c1_guest_prepare_gpu_frame),
+                        static_cast<unsigned long long>(frame->c1_guest_prepare_tick),
+                        static_cast<unsigned long long>(frame->c1_present_frame_number),
+                        static_cast<unsigned long long>(frame->ready_tick),
+                        static_cast<unsigned long long>(present_submit_tick), is_game_frame,
+                        presented);
+        }
+        if (!presented) {
             swapchain.Recreate(window.GetWidth(), window.GetHeight());
         }
     }

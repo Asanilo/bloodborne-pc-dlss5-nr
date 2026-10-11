@@ -6,10 +6,13 @@
 #include "video_core/renderer_vulkan/ui_composition.h"
 
 #include <algorithm>
+#include <cerrno>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <optional>
 #include <string>
 
 #include <vk_mem_alloc.h>
@@ -75,6 +78,8 @@ int DumpFrame() {
     return index++;
 }
 
+bool C0CaptureEnabled();
+
 struct DumpImage {
     vk::Image image; ///< in layout General
     u32 width, height, bytes_per_pixel;
@@ -86,7 +91,8 @@ struct DumpImage {
 /// Copies `images` into host buffers after the commands recorded so far and writes them to
 /// files once the GPU is done.
 void DumpImages(const Instance& instance, Scheduler& scheduler, vk::CommandBuffer cmdbuf,
-                int frame, std::initializer_list<DumpImage> images) {
+                int frame, std::initializer_list<DumpImage> images,
+                std::optional<C1PresentAudit> c1_present_audit = std::nullopt) {
     static const std::string dir = [] {
         const char* env = std::getenv("BB_DUMP_DIR");
         return std::string{env && env[0] ? env : "out/dump"};
@@ -126,13 +132,46 @@ void DumpImages(const Instance& instance, Scheduler& scheduler, vk::CommandBuffe
         char path[512];
         std::snprintf(path, sizeof(path), "%s/f%03d_%s_%ux%u_%s.raw", dir.c_str(), frame,
                       image.name, image.width, image.height, image.format);
+        const bool c0_capture = C0CaptureEnabled();
+        const bool c1_present = c1_present_audit.has_value() && image.name == std::string_view{"present"};
+        const u64 recorded_tick = scheduler.CurrentTick();
         scheduler.DeferPriorityOperation(
-            [allocator = instance.GetAllocator(), buffer, allocation, info, size,
-             file = std::string{path}] {
+            [allocator = instance.GetAllocator(), buffer, allocation, info, size, frame,
+             file = std::string{path}, image_name = std::string{image.name}, c0_capture,
+             recorded_tick, c1_present, c1_audit = c1_present_audit.value_or(C1PresentAudit{})] {
                 vmaInvalidateAllocation(allocator, allocation, 0, VK_WHOLE_SIZE);
+                size_t written = 0;
+                bool file_ok = false;
                 if (FILE* f = std::fopen(file.c_str(), "wb")) {
-                    std::fwrite(info.pMappedData, 1, size, f);
-                    std::fclose(f);
+                    written = std::fwrite(info.pMappedData, 1, size, f);
+                    file_ok = std::fclose(f) == 0 && written == size;
+                }
+                if (c0_capture) {
+                    std::printf(
+                        "C0_DUMP_COMPLETE dump_frame=%d name=%s recorded_tick=%llu bytes=%llu "
+                        "written=%llu file_ok=%u path=%s\n",
+                        frame, image_name.c_str(), static_cast<unsigned long long>(recorded_tick),
+                        static_cast<unsigned long long>(size),
+                        static_cast<unsigned long long>(written), file_ok, file.c_str());
+                }
+                if (c1_present) {
+                    std::printf(
+                        "%s_PRESENT_DUMP_COMPLETE stage=%s mode=%s session=%s selected_output=%u "
+                        "source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx buffer_prepare_gpu_frame=%llu "
+                        "buffer_prepare_tick=%llu present_counter_before=%llu dump_frame=%d "
+                        "recorded_tick=%llu bytes=%llu written=%llu file_ok=%u path=%s\n",
+                        c1_audit.stage.c_str(), c1_audit.stage.c_str(), c1_audit.mode.c_str(),
+                        c1_audit.session.c_str(), c1_audit.selected_output,
+                        static_cast<unsigned long long>(c1_audit.source_game_frame),
+                        static_cast<unsigned long long>(c1_audit.merge_tick),
+                        static_cast<unsigned long long>(c1_audit.buffer_address),
+                        static_cast<unsigned long long>(c1_audit.buffer_prepare_gpu_frame),
+                        static_cast<unsigned long long>(c1_audit.buffer_prepare_tick),
+                        static_cast<unsigned long long>(c1_audit.present_frame_counter_before),
+                        frame,
+                        static_cast<unsigned long long>(recorded_tick),
+                        static_cast<unsigned long long>(size),
+                        static_cast<unsigned long long>(written), file_ok, file.c_str());
                 }
                 vmaDestroyBuffer(allocator, buffer, allocation);
             });
@@ -145,6 +184,39 @@ void DumpImages(const Instance& instance, Scheduler& scheduler, vk::CommandBuffe
     };
     cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &after});
     std::printf("Dump: frame %d -> %s\n", frame, dir.c_str());
+}
+
+bool C0CaptureEnabled() {
+    static const bool enabled = [] {
+        const char* value = std::getenv("BB_NR_C0_CAPTURE");
+        return value && std::strcmp(value, "1") == 0;
+    }();
+    return enabled;
+}
+
+void PrintC0Image(const char* name, const vk::ImageCreateInfo& ci, vk::Format view_format,
+                  const char* aspect) {
+    std::printf(
+        "C0_IMAGE name=%s create_format=%s view_format=%s extent=%ux%u depth=%u tiling=%s "
+        "usage=0x%x flags=0x%x mip_levels=%u array_layers=%u samples=%u aspect=%s "
+        "layout=GENERAL\n",
+        name, vk::to_string(ci.format).c_str(), vk::to_string(view_format).c_str(),
+        ci.extent.width, ci.extent.height, ci.extent.depth, vk::to_string(ci.tiling).c_str(),
+        static_cast<unsigned>(static_cast<VkImageUsageFlags>(ci.usage)),
+        static_cast<unsigned>(static_cast<VkImageCreateFlags>(ci.flags)), ci.mipLevels,
+        ci.arrayLayers, static_cast<unsigned>(ci.samples), aspect);
+}
+
+template <size_t N>
+std::string HexBytes(const std::array<uint8_t, N>& bytes) {
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(N * 2);
+    for (const auto byte : bytes) {
+        result.push_back(digits[byte >> 4]);
+        result.push_back(digits[byte & 0xf]);
+    }
+    return result;
 }
 
 void PrintIssues(const char* what, u64 issues) {
@@ -491,6 +563,10 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     motion_view.reset();
     output_view.reset();
     motion_image = VideoCore::UniqueImage(device, allocator);
+    auto motion_usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
+    if (C0CaptureEnabled()) {
+        motion_usage |= vk::ImageUsageFlagBits::eTransferSrc;
+    }
     motion_image.Create(vk::ImageCreateInfo{
         .imageType = vk::ImageType::e2D,
         .format = vk::Format::eR16G16Sfloat,
@@ -499,7 +575,7 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
         .arrayLayers = 1,
         .samples = vk::SampleCountFlagBits::e1,
         .tiling = vk::ImageTiling::eOptimal,
-        .usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
+        .usage = motion_usage,
         .initialLayout = vk::ImageLayout::eUndefined,
     });
     output_image = VideoCore::UniqueImage(device, allocator);
@@ -1108,6 +1184,12 @@ bool TemporalUpscaler::RecordReactive(vk::ImageView color_view) {
 }
 
 void TemporalUpscaler::Run() {
+    previous_dlss_jitter_x = last_dlss_jitter_x;
+    previous_dlss_jitter_y = last_dlss_jitter_y;
+    last_dlss_called = false;
+    last_dlss_hdr = false;
+    last_dlss_reset = false;
+    last_dlss_jitter_x = last_dlss_jitter_y = last_dlss_frame_ms = 0.0f;
     if (auto* profiler = GpuProfiler::Get()) {
         const char* label = BbSettings::Get().upscaler == BbSettings::UpscalerTaa
             ? "upscaler Run (TAA)" : "upscaler Run (FSR)";
@@ -1154,8 +1236,9 @@ void TemporalUpscaler::Run() {
         input_color_view = c.view;
         input_depth_view = d.view;
     }
-    const auto cmdbuf = scheduler.CommandBuffer();
-    const Breadcrumbs::Scope crumb{cmdbuf, scheduler.CrumbStream(), "TAA"};
+    auto cmdbuf = scheduler.CommandBuffer();
+    std::optional<Breadcrumbs::Scope> crumb;
+    crumb.emplace(cmdbuf, scheduler.CrumbStream(), "TAA");
 
     const auto own_barrier = [&](vk::Image image, vk::ImageLayout old_layout,
                                  vk::PipelineStageFlags2 src_stage, vk::AccessFlags2 src_access,
@@ -1282,6 +1365,8 @@ void TemporalUpscaler::Run() {
         }
     }
     if (dispatched) {
+        const u64 source_game_frame =
+            BbStats::gpu_frames.load(std::memory_order_relaxed);
         reset = false;
         dispatched_last_frame = true;
         if (BbSettings::Get().upscaler != BbSettings::UpscalerTaa) {
@@ -1290,6 +1375,45 @@ void TemporalUpscaler::Run() {
         // bbport: BB_DUMP_TRIGGER on this (HDR scene color) path too: the upscaler's inputs and
         // its result, for ghosting and history checks (tools/dump_view.py).
         if (const int dump = DumpFrame(); dump >= 0) {
+            if (C0CaptureEnabled()) {
+                const auto viewport_jitter = camera_motion.CurrentJitter();
+                const auto previous_viewport_jitter = camera_motion.PreviousJitter();
+                const auto viewport_size = camera_motion.RenderSize();
+                const bool profile_match =
+                    !Scaled() && !reduced && w == ow && h == oh && ow == 1920 && oh == 1080 &&
+                    viewport_size[0] == w && viewport_size[1] == h && last_dlss_called &&
+                    last_dlss_hdr;
+                const u64 recorded_tick = scheduler.CurrentTick();
+                std::printf(
+                    "C0_SR_CAPTURE dump_frame=%d source_game_frame=%llu "
+                    "source_frame_counter=BbStats::gpu_frames route=Run scaled=%u reduced=%u "
+                    "record_dlss=%u hdr=%u profile_match=%u render=%ux%u output=%ux%u "
+                    "viewport=%ux%u source_reset_valid=%u source_reset=%u "
+                    "sr_jitter=%.9g,%.9g viewport_jitter=%.9g,%.9g "
+                    "previous_viewport_jitter=%.9g,%.9g "
+                    "guidephase=depth_jittered_motion_unjittered_phase_relation_unverified "
+                    "exposure_valid=0 exposure_source=unknown frame_ms=%.9g "
+                    "recorded_tick=%llu\n",
+                    dump, static_cast<unsigned long long>(source_game_frame), Scaled(), reduced,
+                    last_dlss_called, last_dlss_hdr, profile_match, w, h, ow, oh,
+                    viewport_size[0], viewport_size[1], last_dlss_called, last_dlss_reset,
+                    last_dlss_jitter_x, last_dlss_jitter_y, viewport_jitter[0],
+                    viewport_jitter[1], previous_viewport_jitter[0],
+                    previous_viewport_jitter[1], last_dlss_frame_ms,
+                    static_cast<unsigned long long>(recorded_tick));
+                PrintC0Image("color", color.backing->image.image_ci, color.info.pixel_format,
+                             "COLOR");
+                PrintC0Image("depth", depth.backing->image.image_ci, depth.info.pixel_format,
+                             "DEPTH");
+                PrintC0Image("motion", motion_image.image_ci, vk::Format::eR16G16Sfloat, "COLOR");
+                PrintC0Image("sr_output", output_image.image_ci,
+                             vk::Format::eR16G16B16A16Sfloat, "COLOR");
+                std::printf(
+                    "C0_DUMP dump_frame=%d source_game_frame=%llu route=Run "
+                    "record_dlss=%u hdr=%u recorded_tick=%llu\n",
+                    dump, static_cast<unsigned long long>(source_game_frame), last_dlss_called,
+                    last_dlss_hdr, static_cast<unsigned long long>(scheduler.CurrentTick()));
+            }
             camera_motion.PrintState(dump);
             const vk::Format format = color.info.pixel_format;
             const bool rgba16f = format == vk::Format::eR16G16B16A16Sfloat;
@@ -1309,6 +1433,145 @@ void TemporalUpscaler::Run() {
                            {{object, w, h, 16, "objects", "rgba32f"}});
             }
         }
+        vk::ImageView merge_view = *output_view; // immutable SR fallback remains intact
+        bool c2_selected = false;
+        bool c2_frame_processed = false;
+        const auto c2_current_viewport_jitter = camera_motion.CurrentJitter();
+        const auto c2_previous_viewport_jitter = camera_motion.PreviousJitter();
+        const std::array<float, 2> c2_current_sr_jitter{last_dlss_jitter_x, last_dlss_jitter_y};
+        const std::array<float, 2> c2_previous_sr_jitter{previous_dlss_jitter_x, previous_dlss_jitter_y};
+        const auto c2_viewport_size = camera_motion.RenderSize();
+        const bool c2_profile = !Scaled() && !reduced && w == 1920 && h == 1080 &&
+            ow == 1920 && oh == 1080 && c2_viewport_size[0] == w &&
+            c2_viewport_size[1] == h && last_dlss_called && last_dlss_hdr &&
+            c2_sr_jitter_zero_from_start && c2_sr_initial_reset_observed;
+        if (c2_nr_process.Enabled() && c2_profile) {
+            vk::PhysicalDeviceIDProperties identity{};
+            vk::PhysicalDeviceProperties2 properties{.pNext = &identity};
+            instance.GetPhysicalDevice().getProperties2(&properties);
+            const auto device_uuid = HexBytes(identity.deviceUUID);
+            const auto driver_uuid = HexBytes(identity.driverUUID);
+            if (c2_nr_process.Start(device_uuid, driver_uuid, ow, oh) &&
+                c2_game_bridge.Prepare(instance, scheduler, c2_nr_process,
+                    c2_nr_process.Session(), c2_nr_process.RunDir(),
+                    device_uuid, driver_uuid, ow, oh)) {
+                const char* trigger = std::getenv("BB_NR_C2_TRIGGER");
+                std::error_code trigger_error;
+                const bool trigger_present = trigger && trigger[0] &&
+                    std::filesystem::is_regular_file(trigger, trigger_error);
+                if (!c2_trigger_consumed && trigger_present) {
+                    if (std::remove(trigger) == 0) {
+                        c2_trigger_consumed = true;
+                        std::printf("C2_TRIGGER_CONSUMED mode=%s source_game_frame=%llu path=%s\n",
+                            c2_nr_process.Mode().c_str(),
+                            static_cast<unsigned long long>(source_game_frame), trigger);
+                        crumb.reset();
+                        const auto c2_view = c2_game_bridge.ProcessFrame(
+                            instance, scheduler, c2_nr_process, vk::Image(output_image),
+                            *output_view, input_depth, input_depth_view,
+                            vk::Image(motion_image), *motion_view, vk::ImageLayout::eGeneral,
+                            source_game_frame, last_dlss_reset, last_dlss_frame_ms,
+                            c2_current_viewport_jitter, c2_previous_viewport_jitter,
+                            c2_current_sr_jitter, c2_previous_sr_jitter,
+                            c2_sr_initial_reset_observed, c2_sr_initial_source_game_frame,
+                            c2_sr_jitter_zero_from_start);
+                        cmdbuf = scheduler.CommandBuffer();
+                        crumb.emplace(cmdbuf, scheduler.CrumbStream(), "TAA C2 NR merge");
+                        c2_frame_processed = c2_game_bridge.FrameProcessed();
+                        if (c2_view) {
+                            c2_game_bridge.PrepareReturnForMerge(scheduler);
+                            merge_view = c2_view;
+                            c2_selected = true;
+                            std::printf("C2_MERGE_SELECT mode=%s source_game_frame=%llu source_reset=%u "
+                                "source_frame_ms=%.9g viewport=%.9g,%.9g previous_viewport=%.9g,%.9g "
+                                "sr_jitter=%.9g,%.9g previous_sr=%.9g,%.9g merge_tick=%llu\n",
+                                c2_nr_process.Mode().c_str(),
+                                static_cast<unsigned long long>(source_game_frame), last_dlss_reset,
+                                last_dlss_frame_ms, c2_current_viewport_jitter[0],
+                                c2_current_viewport_jitter[1], c2_previous_viewport_jitter[0],
+                                c2_previous_viewport_jitter[1], c2_current_sr_jitter[0],
+                                c2_current_sr_jitter[1], c2_previous_sr_jitter[0],
+                                c2_previous_sr_jitter[1],
+                                static_cast<unsigned long long>(scheduler.CurrentTick()));
+                        } else if (c2_frame_processed) {
+                            std::printf("C2_SKIP_SR_FALLBACK source_game_frame=%llu mode=skipEvaluate\n",
+                                static_cast<unsigned long long>(source_game_frame));
+                        }
+                    } else {
+                        std::fprintf(stderr, "C2_TRIGGER consume_failed errno=%d SR_fallback=1\n", errno);
+                    }
+                }
+            } else if (c2_nr_process.SetupFailed()) {
+                std::fprintf(stderr, "C2_SETUP_FAILED phase=bootstrap reason=%s SR_fallback=1\n",
+                             c2_nr_process.Failure().c_str());
+            }
+        }
+        bool c1_selected = false;
+        const bool c1_profile = !Scaled() && !reduced && w == 1920 && h == 1080 &&
+            ow == 1920 && oh == 1080 && last_dlss_called && last_dlss_hdr;
+        if (c1_noop_process.Enabled() && c1_profile) {
+            vk::PhysicalDeviceIDProperties identity{};
+            vk::PhysicalDeviceProperties2 properties{.pNext = &identity};
+            instance.GetPhysicalDevice().getProperties2(&properties);
+            const auto device_uuid = HexBytes(identity.deviceUUID);
+            const auto driver_uuid = HexBytes(identity.driverUUID);
+            if (c1_noop_process.Start(device_uuid, driver_uuid, ow, oh) &&
+                c1_game_bridge.Prepare(instance, scheduler, c1_noop_process,
+                    c1_noop_process.Session(), c1_noop_process.RunDir(),
+                    device_uuid, driver_uuid, ow, oh)) {
+                const char* trigger = std::getenv("BB_NR_C1_TRIGGER");
+                std::error_code trigger_error;
+                const bool trigger_present = trigger && trigger[0] &&
+                    std::filesystem::is_regular_file(trigger, trigger_error);
+                if (!c1_trigger_consumed && trigger_present) {
+                    // One explicit root-controlled Clinic trigger selects exactly one real
+                    // SR frame. Setup/import may progress before this file exists, but title
+                    // and early-scene frames always keep the original SR merge input.
+                    const int consume_rc = std::remove(trigger);
+                    if (consume_rc == 0) {
+                        c1_trigger_consumed = true;
+                        std::printf("C1_TRIGGER_CONSUMED path=%s source_game_frame=%llu\n",
+                                    trigger,
+                                    static_cast<unsigned long long>(source_game_frame));
+                        const auto viewport_jitter = camera_motion.CurrentJitter();
+                        crumb.reset();
+                        const auto c1_view = c1_game_bridge.ProcessFrame(
+                            instance, scheduler, c1_noop_process, vk::Image(output_image),
+                            *output_view, input_depth, input_depth_view,
+                            vk::Image(motion_image), *motion_view,
+                            vk::ImageLayout::eGeneral, source_game_frame, last_dlss_reset,
+                            viewport_jitter, {last_dlss_jitter_x, last_dlss_jitter_y});
+                        cmdbuf = scheduler.CommandBuffer();
+                        crumb.emplace(cmdbuf, scheduler.CrumbStream(), "TAA C1 merge");
+                        if (c1_view) {
+                            merge_view = c1_view;
+                            c1_selected = true;
+                            std::printf("C1_MERGE_SELECT source_game_frame=%llu "
+                                        "source_reset=%u viewport_jitter=%.9g,%.9g "
+                                        "sr_jitter=%.9g,%.9g merge_tick=%llu\n",
+                                static_cast<unsigned long long>(source_game_frame),
+                                last_dlss_reset, viewport_jitter[0], viewport_jitter[1],
+                                last_dlss_jitter_x, last_dlss_jitter_y,
+                                static_cast<unsigned long long>(scheduler.CurrentTick()));
+                        }
+                    } else {
+                        std::fprintf(stderr, "C1_TRIGGER consume_failed errno=%d SR_fallback=1\n",
+                                     errno);
+                    }
+                } else if (!c1_trigger_consumed) {
+                    static u64 waiting_notice = 0;
+                    if (++waiting_notice == 1 || waiting_notice % 300 == 0) {
+                        std::printf("C1_WAIT_TRIGGER source_game_frame=%llu helper_pid_ready=1 "
+                                    "bridge_ready=1 trigger=%s\n",
+                                    static_cast<unsigned long long>(source_game_frame),
+                                    trigger ? trigger : "unset");
+                    }
+                }
+            } else if (c1_noop_process.SetupFailed()) {
+                std::fprintf(stderr, "C1_SETUP_FAILED reason=%s SR_fallback=1\n",
+                             c1_noop_process.Failure().c_str());
+            }
+        }
         // The result replaces the scene color's RGB (its alpha carries data for the post).
         own_barrier(vk::Image(output_image), vk::ImageLayout::eGeneral, all, rw,
                     vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eComputeShader,
@@ -1316,7 +1579,7 @@ void TemporalUpscaler::Run() {
         runtime.Transit(&color, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eComputeShader,
                         vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite);
         runtime.FlushBarriers();
-        const vk::DescriptorImageInfo out_info{.imageView = *output_view,
+        const vk::DescriptorImageInfo out_info{.imageView = merge_view,
                                                .imageLayout = vk::ImageLayout::eGeneral};
         const vk::DescriptorImageInfo scene_info{.imageView = color_view,
                                                  .imageLayout = vk::ImageLayout::eGeneral};
@@ -1365,6 +1628,29 @@ void TemporalUpscaler::Run() {
         cmdbuf.pushConstants(*merge_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0,
                              sizeof(mode), &mode);
         cmdbuf.dispatch((ow + 7) / 8, (oh + 7) / 8, 1);
+        if (c2_frame_processed) {
+            std::scoped_lock lock{c1_audit_mutex};
+            c2_pending_source_game_frame = source_game_frame;
+            c2_pending_merge_tick = scheduler.CurrentTick();
+            c2_pending_mode = std::string(c2_game_bridge.Mode());
+            c2_pending_session = c2_nr_process.Session();
+            c2_pending_selected_output = c2_selected;
+            std::printf("C2_MERGE_RECORDED stage=C2 mode=%s session=%s source_game_frame=%llu "
+                        "tick=%llu selected_output=%u fallback_immutable=1\n",
+                c2_pending_mode.c_str(), c2_pending_session.c_str(),
+                static_cast<unsigned long long>(source_game_frame),
+                static_cast<unsigned long long>(scheduler.CurrentTick()), c2_selected);
+            c2_game_bridge.DeferRetirement(instance, scheduler);
+        }
+        if (c1_selected) {
+            std::scoped_lock lock{c1_audit_mutex};
+            c1_pending_source_game_frame = source_game_frame;
+            c1_pending_merge_tick = scheduler.CurrentTick();
+            std::printf("C1_MERGE_RECORDED source_game_frame=%llu tick=%llu image=independent-return\n",
+                static_cast<unsigned long long>(source_game_frame),
+                static_cast<unsigned long long>(scheduler.CurrentTick()));
+            c1_game_bridge.DeferRetirement(instance, scheduler);
+        }
     }
 }
 
@@ -2080,6 +2366,7 @@ bool TemporalUpscaler::RedirectColor(VideoCore::ImageId color,
     auto& display = displays[address];
     if (!display_redirect) {
         display.valid = false; // not upscaled: the presenter shows the guest buffer
+        display.c1_audit = {};
         return false;
     }
     if (!display.image || display.format != image.info.pixel_format ||
@@ -2122,6 +2409,24 @@ bool TemporalUpscaler::RedirectColor(VideoCore::ImageId color,
         cmd.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &b});
     });
     display.valid = true;
+    if (c1_pending_source_game_frame != 0) {
+        display.c1_audit = {
+            .source_game_frame = c1_pending_source_game_frame,
+            .merge_tick = c1_pending_merge_tick,
+            .buffer_address = address,
+            .buffer_prepare_gpu_frame = BbStats::gpu_frames.load(std::memory_order_relaxed),
+            .buffer_prepare_tick = scheduler.CurrentTick(),
+        };
+        std::printf("C1_DISPLAY_IMAGE_BIND source_game_frame=%llu merge_tick=%llu "
+                    "buffer_address=0x%llx prepare_gpu_frame=%llu prepare_tick=%llu\n",
+                    static_cast<unsigned long long>(display.c1_audit.source_game_frame),
+                    static_cast<unsigned long long>(display.c1_audit.merge_tick),
+                    static_cast<unsigned long long>(address),
+                    static_cast<unsigned long long>(display.c1_audit.buffer_prepare_gpu_frame),
+                    static_cast<unsigned long long>(display.c1_audit.buffer_prepare_tick));
+        c1_pending_source_game_frame = 0;
+        c1_pending_merge_tick = 0;
+    }
     target = {Mirror(vk::Image(display.image), display.views, view_info.format, {}),
               vk::ImageLayout::eGeneral, ui_width, ui_height};
     return true;
@@ -2169,8 +2474,21 @@ bool TemporalUpscaler::DisplayOverride(VAddr address, Display& display) {
     if (it == displays.end() || !it->second.valid) {
         return false;
     }
-    display = {vk::Image(it->second.image), it->second.format, it->second.width, it->second.height};
-    if (PresentDumpDue()) {
+    display = {vk::Image(it->second.image), it->second.format, it->second.width,
+               it->second.height, it->second.c1_audit};
+    if (display.c1_audit.source_game_frame != 0) {
+        display.c1_audit.buffer_address = address;
+        DumpPresented(display.image, display.width, display.height, display.format,
+                      display.c1_audit);
+        std::printf("C1_PRESENT_DUMP_SCHEDULED source_game_frame=%llu merge_tick=%llu "
+                    "buffer_address=0x%llx prepare_gpu_frame=%llu prepare_tick=%llu\n",
+                    static_cast<unsigned long long>(display.c1_audit.source_game_frame),
+                    static_cast<unsigned long long>(display.c1_audit.merge_tick),
+                    static_cast<unsigned long long>(address),
+                    static_cast<unsigned long long>(display.c1_audit.buffer_prepare_gpu_frame),
+                    static_cast<unsigned long long>(display.c1_audit.buffer_prepare_tick));
+        it->second.c1_audit = {};
+    } else if (PresentDumpDue()) {
         DumpPresented(display.image, display.width, display.height, display.format);
     }
     return true;
@@ -2194,11 +2512,87 @@ bool TemporalUpscaler::PresentDumpDue() {
     return true;
 }
 
-void TemporalUpscaler::DumpPresented(vk::Image image, u32 width, u32 height, vk::Format format) {
+bool TemporalUpscaler::TakeC1PresentAudit(VAddr address, u64 present_frame_counter_before,
+                                          u64 gpu_frame_at_prepare, u64 prepare_tick,
+                                          C1PresentAudit& audit) {
+    std::scoped_lock lock{c1_audit_mutex};
+    if (c2_pending_source_game_frame != 0) {
+        audit = {
+            .stage = "C2", .mode = c2_pending_mode, .session = c2_pending_session,
+            .selected_output = c2_pending_selected_output,
+            .source_game_frame = c2_pending_source_game_frame,
+            .merge_tick = c2_pending_merge_tick,
+            .buffer_address = address,
+            .buffer_prepare_gpu_frame = gpu_frame_at_prepare,
+            .buffer_prepare_tick = prepare_tick,
+            .present_frame_counter_before = present_frame_counter_before,
+        };
+        std::printf("C2_GUEST_BUFFER_BIND stage=C2 mode=%s session=%s route=nonupscaled_videoout "
+                    "source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx "
+                    "gpu_frame_at_prepare=%llu frame_counter_before=%llu prepare_tick=%llu "
+                    "selected_output=%u association=next_nonupscaled_videoout_prepare_after_merge\n",
+            audit.mode.c_str(), audit.session.c_str(),
+            static_cast<unsigned long long>(audit.source_game_frame),
+            static_cast<unsigned long long>(audit.merge_tick),
+            static_cast<unsigned long long>(address),
+            static_cast<unsigned long long>(gpu_frame_at_prepare),
+            static_cast<unsigned long long>(present_frame_counter_before),
+            static_cast<unsigned long long>(prepare_tick), audit.selected_output);
+        c2_pending_source_game_frame = 0;
+        c2_pending_merge_tick = 0;
+        c2_pending_mode.clear();
+        c2_pending_session.clear();
+        c2_pending_selected_output = false;
+        return true;
+    }
+    if (c1_pending_source_game_frame == 0) return false;
+    audit = {
+        .stage = "C1", .mode = "noop", .session = c1_noop_process.Session(),
+        .selected_output = true,
+        .source_game_frame = c1_pending_source_game_frame,
+        .merge_tick = c1_pending_merge_tick,
+        .buffer_address = address,
+        .buffer_prepare_gpu_frame = gpu_frame_at_prepare,
+        .buffer_prepare_tick = prepare_tick,
+        .present_frame_counter_before = present_frame_counter_before,
+    };
+    std::printf("C1_GUEST_BUFFER_BIND route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu "
+                "guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu "
+                "frame_counter_before=%llu prepare_tick=%llu "
+                "association=next_nonupscaled_videoout_prepare_after_merge\n",
+                static_cast<unsigned long long>(audit.source_game_frame),
+                static_cast<unsigned long long>(audit.merge_tick),
+                static_cast<unsigned long long>(address),
+                static_cast<unsigned long long>(gpu_frame_at_prepare),
+                static_cast<unsigned long long>(present_frame_counter_before),
+                static_cast<unsigned long long>(prepare_tick));
+    c1_pending_source_game_frame = 0;
+    c1_pending_merge_tick = 0;
+    return true;
+}
+
+void TemporalUpscaler::DumpPresented(vk::Image image, u32 width, u32 height, vk::Format format,
+                                    std::optional<C1PresentAudit> c1_audit) {
     scheduler.EndRendering();
     const bool bgra = format == vk::Format::eB8G8R8A8Unorm || format == vk::Format::eB8G8R8A8Srgb;
-    DumpImages(instance, scheduler, scheduler.CommandBuffer(), present_dump_index++,
-               {{image, width, height, 4, "present", bgra ? "bgra" : "rgba"}});
+    const int dump_frame = present_dump_index++;
+    const u64 recorded_tick = scheduler.CurrentTick();
+    if (c1_audit && c1_audit->source_game_frame != 0) {
+        std::printf("%s_PRESENT_DUMP_SCHEDULED stage=%s mode=%s session=%s selected_output=%u dump_frame=%d source_game_frame=%llu "
+                    "merge_tick=%llu guest_buffer_address=0x%llx "
+                    "gpu_frame_at_prepare=%llu guest_prepare_tick=%llu "
+                    "dump_recorded_tick=%llu route=nonupscaled_videoout\n",
+                    c1_audit->stage.c_str(), c1_audit->stage.c_str(), c1_audit->mode.c_str(),
+                    c1_audit->session.c_str(), c1_audit->selected_output,
+                    dump_frame, static_cast<unsigned long long>(c1_audit->source_game_frame),
+                    static_cast<unsigned long long>(c1_audit->merge_tick),
+                    static_cast<unsigned long long>(c1_audit->buffer_address),
+                    static_cast<unsigned long long>(c1_audit->buffer_prepare_gpu_frame),
+                    static_cast<unsigned long long>(c1_audit->buffer_prepare_tick),
+                    static_cast<unsigned long long>(recorded_tick));
+    }
+    DumpImages(instance, scheduler, scheduler.CommandBuffer(), dump_frame,
+               {{image, width, height, 4, "present", bgra ? "bgra" : "rgba"}}, c1_audit);
 }
 
 } // namespace Vulkan
@@ -2281,9 +2675,15 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         reset = true;
     }
     if (ok) {
-        // The jitter and motion vectors FSR 3 gets: render pixels, current to previous.
+        // Capture the exact values passed to Evaluate; feature recreation above may set reset.
         const float sign = BbToggle::Disabled(1u << 26) ? -1.0f : 1.0f;
         const auto& settings = BbSettings::Get();
+        last_dlss_called = true;
+        last_dlss_hdr = hdr;
+        last_dlss_reset = reset;
+        last_dlss_jitter_x = sign * jitter[0];
+        last_dlss_jitter_y = sign * jitter[1];
+        last_dlss_frame_ms = frame_ms;
         ok = dlss->Evaluate(cmdbuf, {
             .color = color,
             .depth = depth,
@@ -2297,6 +2697,23 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             .frame_ms = frame_ms,
             .sharpness = settings.sharpen ? std::min(settings.sharpness.load(), 1.0f) : 0.0f,
         });
+    }
+    if (ok) {
+        const u64 source_frame = BbStats::gpu_frames.load(std::memory_order_relaxed);
+        const auto viewport_now = camera_motion.CurrentJitter();
+        const auto viewport_prev = camera_motion.PreviousJitter();
+        if (!c2_sr_initial_reset_observed && last_dlss_reset) {
+            c2_sr_initial_reset_observed = true;
+            c2_sr_initial_source_game_frame = source_frame;
+            std::printf("C2_SR_HISTORY initial_reset_observed=1 source_game_frame=%llu\n",
+                        static_cast<unsigned long long>(source_frame));
+        }
+        const auto zero = [](const std::array<float, 2>& v) {
+            return std::isfinite(v[0]) && std::isfinite(v[1]) && v[0] == 0.0f && v[1] == 0.0f;
+        };
+        if (!zero(viewport_now) || !zero(viewport_prev) || last_dlss_jitter_x != 0.0f ||
+            last_dlss_jitter_y != 0.0f)
+            c2_sr_jitter_zero_from_start = false;
     }
     if (!ok) {
         std::printf("Upscaler: DLSS failed; falling back to FSR 3.1\n");
