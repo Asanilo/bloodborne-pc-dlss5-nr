@@ -17,6 +17,7 @@
 #include "bbport_timeline.h"
 #include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
+#include "video_core/renderer_vulkan/p0_timing_math.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/texture_cache/image.h"
 
@@ -421,6 +422,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     frame->audit_mode = frame_audit.mode;
     frame->audit_session = frame_audit.session;
     frame->audit_selected_output = frame_audit.selected_output;
+    frame->p0_selection_known = true;
     frame->audit_nr_frame = frame_audit.nr_frame;
     frame->audit_full = frame_audit.audit_full;
     expected_ratio = static_cast<float>(image_size.width) / static_cast<float>(image_size.height);
@@ -570,6 +572,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
 Frame* Presenter::PrepareBlankFrame(bool present_thread) {
     // Request a free presentation frame.
     Frame* frame = GetRenderFrame();
+    frame->p0_selection_known = false; // stale audit values on pooled blank frames are not evidence
     frame->c1_source_game_frame = 0;
     frame->c1_merge_tick = 0;
     frame->c1_guest_buffer_address = 0;
@@ -828,6 +831,18 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         if(is_game_frame && !is_reusing_frame && p0_mode && std::strcmp(p0_mode,"srOnly")==0)
             std::printf("P0_SR_PRESENT mode=srOnly actual_game_frame=1 reused=0 cpu_monotonic_ns=%lld present_frame_number=%llu swapchain_present=%u helper_started=0 IPC=0 scope=CPU_present_call_completed_not_input_to_photon\n",
                 (long long)c4_now_ns,(unsigned long long)BbStats::frame_number.load(),presented);
+        // Distinct base-game ledger for resident off/startup/fallback. This checks
+        // actual Frame selection, not requested_enable or assumed Helper state.
+        const bool selected_p0 = frame->audit_stage == "P0" && frame->audit_selected_output;
+        if (P0Timing::BaseSrPresent(is_game_frame,is_reusing_frame,
+                p0_mode && std::strcmp(p0_mode,"resident")==0,
+                frame->p0_selection_known && frame->c1_present_frame_number!=0,selected_p0)) {
+            const char* base_session=std::getenv("BB_NR_P0_SESSION");
+            std::printf("P0_BASE_SR_PRESENT mode=resident base_session=%s actual_game_frame=1 reused=0 selected_P0_NR=0 selection_known=1 cpu_monotonic_ns=%lld present_frame_number=%llu ready_tick=%llu present_submit_tick=%llu swapchain_present=%u scope=CPU_present_call_completed_not_photon actual_selection_scope=prepared_Frame_no_P0_NR_selection_not_proof_of_SR_dispatch Helper_state=NOT_INFERRED IPC=NOT_INFERRED\n",
+                base_session?base_session:"NOT_AVAILABLE",(long long)c4_now_ns,
+                (unsigned long long)frame->c1_present_frame_number,(unsigned long long)frame->ready_tick,
+                (unsigned long long)present_submit_tick,presented);
+        }
         if (is_game_frame && !is_reusing_frame && std::getenv("BB_NR_C4_BASELINE"))
             std::printf("C4_SR_PRESENT mode=srOnly actual_game_frame=1 reused=0 cpu_monotonic_ns=%lld present_frame_number=%llu swapchain_present=%u helper_started=0 IPC=0\n",
                 (long long)c4_now_ns, (unsigned long long)BbStats::frame_number.load(), presented);

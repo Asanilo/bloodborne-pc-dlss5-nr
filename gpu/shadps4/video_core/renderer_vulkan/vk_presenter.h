@@ -48,6 +48,7 @@ struct Frame {
     std::string audit_mode;
     std::string audit_session;
     bool audit_selected_output = false;
+    bool p0_selection_known = false; // true only for this actual PrepareFrame, never a blank/replay guess
     u32 audit_nr_frame = 0;
     bool audit_full = true;
     bool is_hdr{false};

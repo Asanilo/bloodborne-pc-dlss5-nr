@@ -39,4 +39,9 @@ inline std::optional<double> DurationMs(int result, const std::array<uint64_t,4>
 inline bool PublishOrder(int64_t before,int64_t after,int64_t complete,int64_t selection) noexcept {
     return before<=after && after<=complete && complete<=selection;
 }
+// Telemetry predicate only. "known" is set by actual PrepareFrame after copying
+// the submitted frame's selection; UI requested_enable is never an input.
+inline bool BaseSrPresent(bool game,bool reused,bool resident,bool known,bool selected_p0) noexcept {
+    return game && !reused && resident && known && !selected_p0;
+}
 } // namespace Vulkan::P0Timing

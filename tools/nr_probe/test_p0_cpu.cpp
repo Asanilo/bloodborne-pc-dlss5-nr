@@ -65,6 +65,12 @@ int main(int argc,char**argv) {
  BbP0::PublishSrTiming({true,9,18,.25,"available"});
  BbP0::PublishSrTiming({true,8,16,.5,"older"});require(BbP0::ReadSrTiming().source_game_frame==9);
  BbP0::PublishSrTiming({true,10,0,{},"pending_slots"});require(!BbP0::ReadSrTiming().commands_gpu_ms);
+ // The exact production Present telemetry predicate, every Boolean combination.
+ for(unsigned bits=0;bits<32;++bits) {
+  const bool game=bits&1,reuse=bits&2,resident=bits&4,known=bits&8,selected=bits&16;
+  require(P0Timing::BaseSrPresent(game,reuse,resident,known,selected)==
+      (game&&!reuse&&resident&&known&&!selected));
+ }
  auto profile=P0Wire::Parse(P0Wire::Profile().dump(),"own wire");P0Wire::ValidateProfile(profile);++checks;
  require(profile["passthrough"].is_boolean()&&!profile["passthrough"].get<bool>());
  require(profile["nr_mvec_scale_status"]=="EXPERIMENTAL_UNVERIFIED");
