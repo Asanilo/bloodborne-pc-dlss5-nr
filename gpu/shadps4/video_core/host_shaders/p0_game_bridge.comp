@@ -1,0 +1,27 @@
+#version 460
+#extension GL_EXT_shader_image_load_formatted : require
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0,rgba16f) readonly uniform image2D srColor;
+layout(binding=1) uniform sampler2D sceneDepth;
+layout(binding=2,rg16f) readonly uniform image2D motionVectors;
+layout(binding=3,rgba32f) writeonly uniform image2D sharedColor;
+layout(binding=4,r32f) writeonly uniform image2D sharedDepth;
+layout(binding=5,rg32f) writeonly uniform image2D sharedMotion;
+layout(binding=6,rgba16f) writeonly uniform image2D localReturn;
+layout(binding=7,rgba32f) readonly uniform image2D sharedReturn;
+layout(binding=8,std430) buffer ConversionGuard {uint flag;} guard;
+layout(push_constant) uniform Parameters {uint mode;} p;
+void main() {
+ ivec2 q=ivec2(gl_GlobalInvocationID.xy);
+ ivec2 size=p.mode==0?imageSize(sharedColor):p.mode==2?imageSize(sharedDepth):imageSize(localReturn);
+ if(any(greaterThanEqual(q,size))) return;
+ if(p.mode==0) imageStore(sharedColor,q,imageLoad(srColor,q));
+ else if(p.mode==2) {
+  imageStore(sharedDepth,q,vec4(texelFetch(sceneDepth,q,0).r,0,0,0));
+  imageStore(sharedMotion,q,vec4(imageLoad(motionVectors,q).rg,0,0));
+ } else {
+  vec4 v=imageLoad(sharedReturn,q);
+  if(any(isnan(v))||any(isinf(v))||any(greaterThan(abs(v),vec4(65504.0)))) {atomicOr(guard.flag,1u);return;}
+  imageStore(localReturn,q,v);
+ }
+}

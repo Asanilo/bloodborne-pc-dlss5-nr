@@ -391,7 +391,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
             cpu_address, frame_counter_before, gpu_frame_at_prepare, prepare_tick, c1_audit);
         // The 1:1 HDR Run route consumes the actual guest VideoOut buffer, not the scaled
         // display override. Bind this one-shot ledger to that real address and buffer.
-        if (c1_selected && ((c1_audit.stage != "C3" && c1_audit.stage != "C4") || c1_audit.audit_full)) {
+        if (c1_selected && ((c1_audit.stage != "C3" && c1_audit.stage != "C4" && c1_audit.stage != "P0") || c1_audit.audit_full)) {
             runtime.Transit(&image, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eTransfer,
                             vk::AccessFlagBits2::eTransferRead);
             runtime.FlushBarriers();
@@ -477,6 +477,16 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     frame->ready_tick = draw_scheduler.CurrentTick();
     SubmitInfo info{};
     draw_scheduler.Flush(info);
+    if (frame->c1_source_game_frame != 0 && frame->audit_stage == "P0") {
+        std::printf("P0_PRESENT_PREPARED stage=P0 execution_mode=%s mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu audit_kind=%s\n",
+            frame->audit_execution_mode.c_str(), frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_nr_frame,
+            frame->audit_selected_output, (unsigned long long)frame->c1_source_game_frame,
+            (unsigned long long)frame->c1_merge_tick, (unsigned long long)frame->c1_guest_buffer_address,
+            (unsigned long long)frame->c1_guest_prepare_gpu_frame,
+            (unsigned long long)frame->c1_guest_prepare_tick,
+            (unsigned long long)frame->ready_tick, (unsigned long long)frame->c1_present_frame_number,
+            frame->audit_full ? "full" : "off");
+    }
     if (frame->c1_source_game_frame != 0 && frame->audit_stage == "Q1") {
         std::printf("Q1_PRESENT_PREPARED stage=Q1 execution_mode=%s mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu audit_kind=%s\n",
             frame->audit_execution_mode.c_str(), frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_nr_frame,
@@ -814,6 +824,10 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         q0_owner.Stage(16);
         const auto c4_now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
+        const char* p0_mode=std::getenv("BB_NR_P0_MODE");
+        if(is_game_frame && !is_reusing_frame && p0_mode && std::strcmp(p0_mode,"srOnly")==0)
+            std::printf("P0_SR_PRESENT mode=srOnly actual_game_frame=1 reused=0 cpu_monotonic_ns=%lld present_frame_number=%llu swapchain_present=%u helper_started=0 IPC=0 scope=CPU_present_call_completed_not_input_to_photon\n",
+                (long long)c4_now_ns,(unsigned long long)BbStats::frame_number.load(),presented);
         if (is_game_frame && !is_reusing_frame && std::getenv("BB_NR_C4_BASELINE"))
             std::printf("C4_SR_PRESENT mode=srOnly actual_game_frame=1 reused=0 cpu_monotonic_ns=%lld present_frame_number=%llu swapchain_present=%u helper_started=0 IPC=0\n",
                 (long long)c4_now_ns, (unsigned long long)BbStats::frame_number.load(), presented);
@@ -821,6 +835,16 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
             std::printf("C4_PRESENT_CPU_TIME session=%s frame=%u source_game_frame=%llu cpu_monotonic_ns=%lld selected_output=%u swapchain_present=%u scope=CPU_present_call_completed_not_input_to_photon\n",
                 frame->audit_session.c_str(), frame->audit_nr_frame, (unsigned long long)frame->c1_source_game_frame,
                 (long long)c4_now_ns, frame->audit_selected_output, presented);
+        if (frame->c1_source_game_frame != 0 && is_game_frame && !is_reusing_frame &&
+            frame->audit_stage == "P0") {
+            std::printf("P0_PRESENT_SUBMITTED stage=P0 execution_mode=%s mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu present_submit_tick=%llu swapchain_present=%u audit_kind=%s cpu_monotonic_ns=%lld scope=CPU_present_call_completed_not_input_to_photon\n",
+                frame->audit_execution_mode.c_str(), frame->audit_mode.c_str(), frame->audit_session.c_str(), frame->audit_nr_frame,
+                frame->audit_selected_output, (unsigned long long)frame->c1_source_game_frame,
+                (unsigned long long)frame->c1_merge_tick, (unsigned long long)frame->c1_guest_buffer_address,
+                (unsigned long long)frame->c1_guest_prepare_tick, (unsigned long long)frame->ready_tick,
+                (unsigned long long)frame->c1_present_frame_number, (unsigned long long)present_submit_tick,
+                presented, frame->audit_full ? "full" : "off", (long long)c4_now_ns);
+        }
         if (frame->c1_source_game_frame != 0 && is_game_frame && !is_reusing_frame &&
             frame->audit_stage == "Q1") {
             std::printf("Q1_PRESENT_SUBMITTED stage=Q1 execution_mode=%s mode=%s session=%s frame=%u selected_output=%u source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx guest_prepare_tick=%llu ready_tick=%llu present_frame_number=%llu present_submit_tick=%llu swapchain_present=%u audit_kind=%s\n",

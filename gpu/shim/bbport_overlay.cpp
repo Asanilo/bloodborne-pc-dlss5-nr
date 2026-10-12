@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "video_core/renderer_vulkan/p0_status.h"
 #include "bbport_overlay.h"
 
 #include <algorithm>
@@ -193,6 +194,16 @@ void Menu() {
             s.menu_y = fy;
             dirty = true;
         }
+    }
+    if(const auto p0=BbP0::ReadSnapshot();p0.opt_in) {
+        bool enabled=BbP0::ReadRequest().enabled;
+        if(ImGui::Checkbox("Experimental NR",&enabled)) BbP0::RequestEnable(enabled);
+        ImGui::Text("NR: %s  accepted %llu  fallback %llu",BbP0::StateName(p0.state),
+            (unsigned long long)p0.accepted,(unsigned long long)p0.fallbacks);
+        if(p0.evaluate_gpu_ms) ImGui::Text("Helper Evaluate commands %.2f ms (includes dependencies)",*p0.evaluate_gpu_ms);
+        if(p0.hook_cpu_ms) ImGui::Text("NR hook %.2f ms (includes waits)",*p0.hook_cpu_ms);
+        ImGui::TextWrapped("%s",p0.reason.c_str());
+        ImGui::TextWrapped("Quality direct720; motion scale/phase experimental. Style 0, strength 1.");
     }
     // Always readable, even when the rest of the menu is in Russian.
     static const char* languages[] = {"English", "Русский", "简体中文"};

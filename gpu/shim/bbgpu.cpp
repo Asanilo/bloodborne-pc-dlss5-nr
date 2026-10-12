@@ -3,6 +3,7 @@
 #include "bbport_gnm_hooks.h"
 // bbport: glue between the C loader and the vendored shadPS4 video core.
 #include "bbport_overlay.h"
+#include "video_core/renderer_vulkan/p0_status.h"
 #include "bbport_settings.h"
 #include "bbport_copy.h"
 #include <sys/resource.h>
@@ -284,6 +285,27 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             SDL_Delay(2);
         }
         LOG_INFO(Frontend, "Window closed by user");
+        const char* p0_mode=std::getenv("BB_NR_P0_MODE");
+        if(p0_mode && (std::strcmp(p0_mode,"resident")==0 || std::strcmp(p0_mode,"skipEvaluate")==0 || std::strcmp(p0_mode,"srOnly")==0)) {
+            // This host/window thread performs no Vulkan, Helper IPC, resource teardown
+            // or peer signaling. The renderer acknowledges only actual managed proof.
+            BbP0::RequestExit();
+            const auto start=std::chrono::steady_clock::now();
+            const auto deadline=start+std::chrono::milliseconds(BbP0::WindowExitWaitMs);
+            std::printf("P0_WINDOW_EXIT_REQUEST budget_ms=%u UI_Vulkan=0 UI_Helper_IPC=0\n",BbP0::WindowExitWaitMs);
+            while(std::chrono::steady_clock::now()<deadline) {
+                if(BbP0::ReadExitState()==BbP0::ExitState::NormalComplete) {
+                    std::printf("P0_WINDOW_EXIT_NORMAL actual_renderer_proof=1 elapsed_ms=%.3f\n",
+                        std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
+                    std::fflush(stdout);std::_Exit(0);
+                }
+                SDL_Delay(2);
+            }
+            std::fprintf(stderr,"P0_WINDOW_EXIT_ABNORMAL normal_release=0 held_or_unretired=1 renderer_state=%u budget_ms=%u elapsed_ms=%.3f UI_Vulkan=0 UI_Helper_IPC=0 forced_free=0\n",
+                unsigned(BbP0::ReadExitState()),BbP0::WindowExitWaitMs,
+                std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
+            std::fflush(stdout);std::fflush(stderr);std::_Exit(3);
+        }
         std::fflush(stdout);
         std::_Exit(0);
     });

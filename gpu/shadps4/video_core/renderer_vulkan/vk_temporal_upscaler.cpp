@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "bbport_overlay.h"
 #include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
 #include "video_core/renderer_vulkan/vk_gpu_profiler.h"
 #include "video_core/renderer_vulkan/motion_history.h"
@@ -345,6 +346,7 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
 }
 
 TemporalUpscaler::~TemporalUpscaler() {
+    p0_controller.Shutdown(instance, scheduler);
     if (resources_ready) scheduler.Finish();
     if (context) {
         scheduler.Finish();
@@ -431,6 +433,8 @@ bool TemporalUpscaler::RasterScaling() const {
 }
 
 bool TemporalUpscaler::OnFrameStart() {
+    const auto& p0_settings=BbSettings::Get();
+    p0_controller.Tick(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter,BbOverlay::MenuOpen());
     // bbport: BB_PRESET_FILE=<file> holding a preset number, read about once a second: switches
     // the preset like the menu does (scripted tests of live preset changes).
     static const char* preset_file = std::getenv("BB_PRESET_FILE");
@@ -603,7 +607,7 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     output_view.reset();
     motion_image = VideoCore::UniqueImage(device, allocator);
     auto motion_usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
-    if (C0CaptureEnabled() || Q0CaptureEnabled() || Q1DiagnosticEnabled()) {
+    if (C0CaptureEnabled() || Q0CaptureEnabled() || Q1DiagnosticEnabled() || P0Enabled()) {
         motion_usage |= vk::ImageUsageFlagBits::eTransferSrc;
     }
     motion_image.Create(vk::ImageCreateInfo{
@@ -1676,6 +1680,25 @@ void TemporalUpscaler::Run() {
         const auto q1_proxy_depth=scene_targets.CaptureCreateInfo(input_depth);
         const bool q1_profile=!Scaled()&&reduced&&w==1280&&h==720&&ow==1920&&oh==1080&&
             last_dlss_called&&last_dlss_hdr&&UseDlss()&&BbSettings::Get().jitter&&q1_proxy_depth;
+        bool p0_selected=false, p0_frame_processed=false;
+        if(P0Enabled() && q1_profile) {
+            bool pending=false;
+            {std::scoped_lock lock{c1_audit_mutex};pending=p0_pending_audit.has_value();}
+            if(!pending) {
+                if(p0_controller.AuditFull()) camera_motion.PrintQualityCaptureState(static_cast<int>(p0_controller.FrameIndex()),source_game_frame);
+                crumb.reset();
+                const auto view=p0_controller.ProcessScene(instance,scheduler,vk::Image(output_image),*output_view,
+                    input_depth,input_depth_view,vk::Image(motion_image),*motion_view,vk::ImageLayout::eGeneral,
+                    source_game_frame,last_dlss_reset,last_dlss_frame_ms,
+                    c2_current_viewport_jitter,c2_previous_viewport_jitter,c2_current_sr_jitter,c2_previous_sr_jitter,
+                    c2_sr_initial_reset_observed,c2_sr_initial_source_game_frame,q1_sr_jitter_enabled_from_start,
+                    {output_image.image_ci,*q1_proxy_depth,motion_image.image_ci});
+                cmdbuf=scheduler.CommandBuffer();
+                crumb.emplace(cmdbuf,scheduler.CrumbStream(),"TAA P0 managed NR merge");
+                p0_frame_processed=p0_controller.FrameProcessed();
+                if(view) {p0_controller.PrepareReturnForMerge(scheduler);merge_view=view;p0_selected=true;}
+            }
+        }
         bool q1_selected = false;
         bool q1_frame_processed = false;
         if (q1_nr_process.Enabled() && q1_profile) {
@@ -1946,6 +1969,7 @@ void TemporalUpscaler::Run() {
                                                                  : 0;
         if (c4_frame_processed) c4_game_bridge.BeginMergeTiming(scheduler);
         if (q1_frame_processed) q1_game_bridge.BeginMergeTiming(scheduler);
+        if (p0_frame_processed) p0_controller.BeginMergeTiming(scheduler);
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, *merge_pipeline);
         cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *merge_pipeline_layout, 0,
                                     writes);
@@ -1954,6 +1978,7 @@ void TemporalUpscaler::Run() {
         cmdbuf.dispatch((ow + 7) / 8, (oh + 7) / 8, 1);
         if (c4_frame_processed) c4_game_bridge.EndMergeTiming(scheduler);
         if (q1_frame_processed) q1_game_bridge.EndMergeTiming(scheduler);
+        if (p0_frame_processed) p0_controller.EndMergeTiming(scheduler);
         if (c3_frame_processed) {
             std::scoped_lock lock{c1_audit_mutex};
             if (c3_pending_audit) throw std::runtime_error("C3 must not overwrite an unbound presentation audit");
@@ -1968,6 +1993,17 @@ void TemporalUpscaler::Run() {
                 (unsigned long long)scheduler.CurrentTick(), c3_selected,
                 c3_pending_audit->audit_full ? "full" : "gpu_full_scan");
             c3_game_bridge.DeferRetirement(instance, scheduler);
+        }
+        if(p0_frame_processed) {
+            std::scoped_lock lock{c1_audit_mutex};
+            if(p0_pending_audit) throw std::runtime_error("P0 cannot overwrite unbound Present ledger");
+            p0_pending_audit=C1PresentAudit{.stage="P0",.mode=p0_controller.Mode(),.session=p0_controller.Session(),
+                .execution_mode=p0_controller.ExecutionMode(),.selected_output=p0_selected,.audit_full=p0_controller.AuditFull(),
+                .nr_frame=p0_controller.FrameIndex(),.source_game_frame=source_game_frame,.merge_tick=scheduler.CurrentTick()};
+            std::printf("P0_MERGE_RECORDED stage=P0 mode=%s session=%s execution_mode=%s frame=%u source_game_frame=%llu tick=%llu selected_output=%u audit_kind=%s fallback_immutable=1\n",
+                p0_pending_audit->mode.c_str(),p0_pending_audit->session.c_str(),p0_pending_audit->execution_mode.c_str(),p0_pending_audit->nr_frame,
+                (unsigned long long)source_game_frame,(unsigned long long)scheduler.CurrentTick(),p0_selected,p0_pending_audit->audit_full?"full":"off");
+            p0_controller.DeferRetirement(instance,scheduler);
         }
         if (q1_frame_processed) {
             std::scoped_lock lock{c1_audit_mutex};
@@ -2894,6 +2930,38 @@ bool TemporalUpscaler::TakeC1PresentAudit(VAddr address, u64 present_frame_count
                                           u64 gpu_frame_at_prepare, u64 prepare_tick,
                                           C1PresentAudit& audit) {
     std::scoped_lock lock{c1_audit_mutex};
+    if (p0_pending_audit) {
+        // HDR Run records the completed scene before the display-pass NoteFrameStart
+        // increments gpu_frames (vk_rasterizer.cpp). Require that immediate epoch;
+        // a later VideoOut buffer must never inherit this older NR ledger.
+        const auto& pending = *p0_pending_audit;
+        if (gpu_frame_at_prepare != pending.source_game_frame + 1 ||
+            prepare_tick < pending.merge_tick) {
+            std::fprintf(stderr, "P0_PRESENT_ASSOCIATION_REJECTED stage=P0 mode=%s session=%s frame=%u source_game_frame=%llu expected_gpu_frame=%llu actual_gpu_frame=%llu merge_tick=%llu prepare_tick=%llu counted_valid=0\n",
+                pending.mode.c_str(), pending.session.c_str(), pending.nr_frame,
+                (unsigned long long)pending.source_game_frame,
+                (unsigned long long)(pending.source_game_frame + 1),
+                (unsigned long long)gpu_frame_at_prepare,
+                (unsigned long long)pending.merge_tick, (unsigned long long)prepare_tick);
+            p0_controller.RejectPresentationAssociation();
+            p0_pending_audit.reset();
+            audit = {};
+            return false;
+        }
+        audit = pending;
+        audit.buffer_address = address;
+        audit.buffer_prepare_gpu_frame = gpu_frame_at_prepare;
+        audit.buffer_prepare_tick = prepare_tick;
+        audit.present_frame_counter_before = present_frame_counter_before;
+        std::printf("P0_GUEST_BUFFER_BIND stage=P0 mode=%s session=%s frame=%u route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu frame_counter_before=%llu prepare_tick=%llu selected_output=%u audit_kind=%s association=next_nonupscaled_videoout_prepare_after_merge\n",
+            audit.mode.c_str(), audit.session.c_str(), audit.nr_frame,
+            (unsigned long long)audit.source_game_frame, (unsigned long long)audit.merge_tick,
+            (unsigned long long)address, (unsigned long long)gpu_frame_at_prepare,
+            (unsigned long long)present_frame_counter_before, (unsigned long long)prepare_tick,
+            audit.selected_output, audit.audit_full ? "full" : "off");
+        p0_pending_audit.reset();
+        return true;
+    }
     if (q1_pending_audit) {
         // HDR Run records the completed scene before the display-pass NoteFrameStart
         // increments gpu_frames (vk_rasterizer.cpp). Require that immediate epoch;
