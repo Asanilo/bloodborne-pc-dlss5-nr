@@ -1,0 +1,36 @@
+{
+  "scope": "OFFLINE_SOURCE_COORDINATE_DIAGNOSTIC_ONLY",
+  "baseline": "c8b9c5be41cd83688ca3522794de7836f74a162f",
+  "GPU": "NOT_RUN",
+  "dataset": "Q0 existing four same-frame captures; adjacent pairs f0->f1 and f2->f3 only",
+  "geometry_mask": "Original Q0 camera audit: finite valid depth/projection, behind-camera/border exclusion, local linear-z relative span<=0.02; adjacent previous-depth relative consistency<=0.02. Never select by MV/color residual. Object selector unavailable.",
+  "MV_budget": "0.01 render pixel + 0.5 maximum adjacent half ULP, fixed from original Q0 audit; not proven GPU-FMA bound",
+  "MV_variants": [
+    "camera_render_pixels",
+    "wrong_sign",
+    "camera_output_pixels_1.5",
+    "camera_render_pixels_div_1.5",
+    "extra_previous_minus_current_jitter",
+    "extra_current_minus_previous_jitter"
+  ],
+  "SR_temporal_sample": "Fixed integer guide texel grid stride8, 40px border; all geometric survivors; no edge/residual ranking. Tile parity ((x//160)+(y//90))%2 is fixed split; quadrant summaries. Common in-bounds domain shared by every candidate.",
+  "SR_phase_hypotheses": {
+    "k0": "k_current=k_previous=(0,0) output pixels",
+    "jitter_retained": "k=1.5*J per frame",
+    "reverse_jitter": "k=3*J per frame",
+    "half_plus": "k=(0.5,0.5) fixed output pixels",
+    "half_minus": "k=(-0.5,-0.5) fixed output pixels"
+  },
+  "SR_motion_hypotheses": {
+    "output_pixel_units_1.5": "previous_output_p=current_output_p+1.5*M+(k_previous-k_current)",
+    "raw_pixel_units_1": "previous_output_p=current_output_p+M+(k_previous-k_current)",
+    "wrong_sign": "previous_output_p=current_output_p-1.5*M+(k_previous-k_current)",
+    "double_prev_current_jitter": "previous_output_p=current_output_p+1.5*(M+J_previous-J_current)+(k_previous-k_current)",
+    "double_current_prev_jitter": "previous_output_p=current_output_p+1.5*(M-J_previous+J_current)+(k_previous-k_current)"
+  },
+  "color_metrics": "log1p(nonnegative Rec709 luma), bilinear sampling, luma absolute-error quantiles and joint gradient normalized dot. No exposure fit or thresholds adjusted to results. Metrics descriptive; SR history/color changes and unknown object regions confound phase.",
+  "max_candidates": 25,
+  "identification_policy": "Do not declare NR phase/model MVecScale from these tests. At most rank source-coordinate candidates on two real adjacent pairs; no adaptive grid or parameter tuning. Stop after this preregistered pass if ambiguous; do not rerun same root cause without new evidence.",
+  "Q1_check": "Recorded extents/current/prev viewport+SR jitters and unchanged same-texel conversion; no Q1 camera matrices means no camera-specific mask inferred from Q0.",
+  "writes": "New Q2 tool/plan/result/report only; existing source/data/archives untouched"
+}

@@ -1,0 +1,112 @@
+{
+  "schema": "q2-controlled-narrow-cross-review-v1",
+  "status": "PASS_STATIC_CODE_WITH_SCHEMA_PIN_RECONCILIATION_REQUIRED",
+  "runtime": "NOT_RUN",
+  "GPU": "NOT_RUN_BY_B",
+  "Wine": "NOT_RUN_BY_B",
+  "A_build": {
+    "path": "/home/arinp/Code/nrbridge-design/game-poc-20261011/opti-worktree/poc/game_nr/q2-controlled/out/build.json",
+    "sha256": "2ca650ac510c37983568e8b0b8cfcd03d44fec0be8148be79290aeb55568e244",
+    "status": "PASS",
+    "steps_exit_codes": [
+      0,
+      0,
+      0
+    ]
+  },
+  "A_artifact": {
+    "path": "/home/arinp/Code/nrbridge-design/game-poc-20261011/opti-worktree/poc/game_nr/q2-controlled/out/wine_q2_motion_fixture.exe",
+    "sha256": "4b1275370d76fc4d7d11ac3c19192dfbc2e8da3bcccbd9a2742751f6079f5775",
+    "bytes": 1112064
+  },
+  "A_primary_source": {
+    "path": "/home/arinp/Code/nrbridge-design/game-poc-20261011/opti-worktree/poc/game_nr/q2-controlled/wine_q2_motion_fixture.cpp",
+    "sha256": "9003d9acd695eee01733a948e0e1af5d4c3acca86705703fd909513361826ed9"
+  },
+  "narrow_checks": [
+    {
+      "check": "canonical request echo separated from actual parameter application",
+      "status": "PASS_STATIC",
+      "source": "wine_q2_motion_fixture.cpp:145-149,119-122",
+      "detail": "Exact four-key declaration/UNVERIFIED object at top and each frame; no fake frame_ms/exposure/pre_exposure in Evaluate arguments."
+    },
+    {
+      "check": "MV scale candidate applied once",
+      "status": "PASS_STATIC",
+      "source": "wine_q2_motion_fixture.cpp:118,144; fixed forwarder:773-774",
+      "detail": "Case sx/sy directly passed once to Evaluate and then setFloat once; canonical MV upload unchanged, no local extra multiplier. Blackbox internal normalization UNVERIFIED."
+    },
+    {
+      "check": "guide wrapper and subrect actual extent",
+      "status": "PASS_STATIC",
+      "source": "q2_production_adapter.h:76-125; wine_q2_motion_fixture.cpp:68,118,121-122",
+      "detail": "Owned Depth/MV and NGX ImageViewInfo use percase gw/gh720or1080. Model/proxy/raw/output remain1080."
+    },
+    {
+      "check": "independent GPU upload readback before Evaluate",
+      "status": "PASS_STATIC",
+      "source": "wine_q2_motion_fixture.cpp:100-110; q2_production_adapter.h:285-319,397-414",
+      "detail": "HOST_COHERENT upload, transfer copies/readbacks, transfer-to-host barrier, bounded real fence, then full byte memcmp; failure precedes model evaluation."
+    },
+    {
+      "check": "five fresh features and real last-use release order",
+      "status": "PASS_STATIC",
+      "source": "wine_q2_motion_fixture.cpp:78-90,125,133,152-156; q2_vulkan_context.h:15-16",
+      "detail": "Five real create+GPUfence, two actual evaluations each with reset1/0 except reset_second1/1; last model/resolve/readback fence before public release and next create. Same model/device persists; global internal history not proven absent."
+    }
+  ],
+  "pin_reconciliation": {
+    "status": "BLOCKED_CURRENT_MANIFEST_LIVE_SCHEMA_PIN",
+    "mismatches": [
+      {
+        "path": "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree/tools/nr_probe/q2_controlled/CASE-SCHEMA.md",
+        "recorded_sha256": "06d65ee1dc8c93cd7067cdde4377725ac24d18f60868d90a52dbd4a27fb35589",
+        "live_sha256": "57a816efcdfe4e70306c018f4990719d83a70353876338a285724561a3f584ee"
+      }
+    ],
+    "note": "Authorized v3 schema amendment happened after A build. Integration notified. Reconcile final A manifest or explicit archived-schema provenance before approval; no B edit to A."
+  },
+  "B_CPU_build_v3": {
+    "path": "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/q2-controlled-cpu-build-v3/build-result.json",
+    "sha256": "82b82cf80e48a29f2a29b304579ee11896029c87185fef008ae85c05a4246236",
+    "status": "PASS",
+    "exit_code": 0,
+    "scope": "PYTHON_AST_AND_CPU_ORACLE_REGRESSION_ONLY"
+  },
+  "B_sources": {
+    "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree/tools/nr_probe/q2_controlled/fixture-spec.json": "12fcd962a4fdb09543994cbc0a0b21bb8ea3e1b85f8b4f7c6daeb44e3f5abb66",
+    "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree/tools/nr_probe/q2_controlled/CASE-SCHEMA.md": "57a816efcdfe4e70306c018f4990719d83a70353876338a285724561a3f584ee",
+    "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree/tools/nr_probe/q2_controlled/common.py": "b69207d16f368040864fcf5bd230144346c5bc1f71428c6195247227d1f3415e",
+    "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree/tools/nr_probe/q2_controlled/generate.py": "0fbca08d77ff4544ba7cff161b17786bd2100891596b15a83c17be60cb78a3ef",
+    "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree/tools/nr_probe/q2_controlled/audit.py": "06206d7303a6d9fec264efcf06782e4ff1efc4ee4e0ed27b10f290d39d9dfeeb",
+    "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree/tools/nr_probe/q2_controlled/checks.py": "9a6289310cba5629c72d1f83e1abbdc8c99b0f0dc1145f8fb58b632b686ddeff",
+    "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree/tools/nr_probe/q2_controlled/build_only.py": "3df01a8f5a94b7320216537fcf8f3872a1bad7f580d4f10db8f6509e6e0b45bc",
+    "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree/tools/nr_probe/q2_controlled/README.md": "25c587af25452ef28ecc3c35c249f742e814d3528d09df0b8d677392840fe319"
+  },
+  "v2_to_v3_changed_files": [
+    "tools/nr_probe/q2_controlled/CASE-SCHEMA.md",
+    "tools/nr_probe/q2_controlled/audit.py",
+    "tools/nr_probe/q2_controlled/checks.py"
+  ],
+  "immutable_plan_sha256": "12fcd962a4fdb09543994cbc0a0b21bb8ea3e1b85f8b4f7c6daeb44e3f5abb66",
+  "immutable_asset_index_sha256": "45d78520d9b7c8fb88e152064e5b3a5e4b016306694bf0a4e34873f4d4a88192",
+  "asset_and_case_live_SHA": "MATCH_34_ASSETS_AND_6_CASES",
+  "Q1_frozen_live": {
+    "source-sha256.txt": {
+      "items": 60,
+      "status": "MATCH"
+    },
+    "artifact-sha256.txt": {
+      "items": 4,
+      "status": "MATCH"
+    }
+  },
+  "stable_git_status": "CLEAN",
+  "B_tracked_and_staged_diff": "EMPTY",
+  "B_new_Q2_files": "UNTRACKED_UNCOMMITTED",
+  "limits": [
+    "CPU oracle tests are not actual model/GPU evidence.",
+    "NR scale semantics and game sampling phase UNVERIFIED; game k_output NOT_IDENTIFIED.",
+    "No spec/assets/candidates/masks/threshold changes."
+  ]
+}

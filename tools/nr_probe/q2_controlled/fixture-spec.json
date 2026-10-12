@@ -1,0 +1,35 @@
+{
+  "schema": "q2-known-translation-v1",
+  "scope": "synthetic_two_frame_model_behavior_not_game_alignment",
+  "model_extent": [1920, 1080],
+  "render_reference_extent": [1280, 720],
+  "translation_output_pixels": [12, -6],
+  "jitter_render_reference_pixels": [[0.25, -0.3333333333333333], [-0.25, 0.2222222222222222]],
+  "known_color_output_phase": [0, 0],
+  "scene": "stationary textured background; translated slatted foreground x[576,1344),y[288,792),32-pixel slats in a48-pixel period; distinct nonconstant forward device-Z and previous-current MV boundaries",
+  "noise": {"amplitude": 0.1, "kind": "fixed_uint32_mix_per_pixel_channel_and_frame_uniform_signed"},
+  "guide_coordinates": "output_position=(g+0.5)*O/G-0.5; raw subtracts J720*O/720; corrected evaluates the same physical scene at output_position. MV=(-translation)*G/O on foreground, zero background.",
+  "cases": [
+    {"case_id":"ref1080-s1","guide_extent":[1920,1080],"phase":"corrected","nr_mvec_scale":[1.0,1.0]},
+    {"case_id":"ref1080-s15","guide_extent":[1920,1080],"phase":"corrected","nr_mvec_scale":[1.5,1.5]},
+    {"case_id":"g720-raw-s1","guide_extent":[1280,720],"phase":"raw","nr_mvec_scale":[1.0,1.0]},
+    {"case_id":"g720-raw-s15","guide_extent":[1280,720],"phase":"raw","nr_mvec_scale":[1.5,1.5]},
+    {"case_id":"g720-corrected-s1","guide_extent":[1280,720],"phase":"corrected","nr_mvec_scale":[1.0,1.0]},
+    {"case_id":"g720-corrected-s15","guide_extent":[1280,720],"phase":"corrected","nr_mvec_scale":[1.5,1.5]}
+  ],
+  "branches": ["primary", "repeat_primary", "zero_mv", "reverse_mv", "reset_second"],
+  "history": "new feature for each branch, creation submit+10s fence, first reset1 then reset0 except reset_second reset1/1, branch final fence then public release; model/device can be reused, never feature history",
+  "model_parameters": {"working_scale":1,"manual_white_point":1.0,"passthrough":false,"scene_linear":true,"transfer_strength":1.0,"colour_strength":1.0,"transfer":1,"max_ratio":2.0,"frame_ms":16.666666666666668,"exposure":1.0,"pre_exposure":1.0,"sr":false,"fg":false},
+  "budgets_ms": {"gpu_fence":10000,"cold":120000,"outer":300000},
+  "oracle": {
+    "mask": "fixed geometry and visibility only; 64px outer border; foreground/background interior >=4px from all physical boundaries; foreground boundary band <=2px; background current AND previous visibility; no residual-selection",
+    "functional": "every frame real eval1/result1/resolve1/fence, readback equals exact uploaded source/depth/mv, rawRGB finite and NaN poison replaced, outputRGBA finite/non-sentinel/alpha bit exact; five feature create/release and normal shutdown",
+    "rms_floor":0.0001,
+    "repeat_noise_multiplier":5.0,
+    "minimum_relative_mse_advantage":0.02,
+    "sensitivity": "primary vs zero_mv/reverse_mv/reset_second each RGB RMS difference > max(rms_floor,5*primary-repeat RGB RMS); otherwise behavior NOT_IDENTIFIED, not technical FAIL",
+    "utility": "primary MSE vs clean truth <=0.98 * EACH zero/reverse/reset MSE on all, foreground interior and foreground boundary masks; also improvement beyond repeat noise RMS bound",
+    "pair_selection": "same masks; lower MSE by >=2% and RMSE gap > repeat bound in all/foreground/boundary and both fixed tile parity splits, both candidates functionally valid; winning candidate additionally sensitive and useful; otherwise NOT_IDENTIFIED",
+    "non_claims": "synthetic known phase only; not game k_output, NR absolute normalization, image quality, performance,120frame gate or shared transport validation"
+  }
+}

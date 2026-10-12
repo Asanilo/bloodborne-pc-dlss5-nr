@@ -1,0 +1,3845 @@
+{
+  "status": "OFFLINE_SOURCE_COORDINATE_COMPARISON_ONLY",
+  "GPU": "NOT_RUN",
+  "numpy_version": "2.5.3",
+  "script_sha256": "c35b5962f8167299a2fc685eecf70aa88428501193e825e6ef8f2dcbff4e4804",
+  "plan": {
+    "path": "bbport-worktree/docs/q2-source-phase-plan.json",
+    "bytes": 2781,
+    "sha256": "d044a87628a35bf08dbf1984c727645997877c18918f50f3168011b3783a188a"
+  },
+  "original_Q0_camera_audit": {
+    "path": "bbport-worktree/docs/q0-camera-audit.json",
+    "bytes": 16033,
+    "sha256": "357217826a84d5c7d14a3dfd9149d75341c7c79ec19c761c1aba28a9f9ae1460"
+  },
+  "Q0_log": {
+    "path": "runs/quality-capture-20261011T163641.147928Z/game.log",
+    "bytes": 917436,
+    "sha256": "b4698a01a4563f82baa27b60b49679dd4fbb2cfb5e021736c4c8c2ac75574295"
+  },
+  "Q0_resource_audit": {
+    "path": "bbport/runs/q0-game-q0-quality-motion-20261011/root-resource-audit.json",
+    "bytes": 30734,
+    "sha256": "820497dfe82590a31d4014595a6659025562e94adbd9e5d48efeb3b51b54e811"
+  },
+  "source_pins": [
+    {
+      "path": "bbport-worktree/gpu/shadps4/video_core/host_shaders/camera_motion.comp",
+      "bytes": 5610,
+      "sha256": "08a1a3eb476d457a657f863c5a85b9ab5fd96b28c5fdb6fef7860b13749e047f"
+    },
+    {
+      "path": "bbport-worktree/gpu/shadps4/video_core/renderer_vulkan/vk_camera_motion.cpp",
+      "bytes": 25050,
+      "sha256": "d6d128dceee40151ce413ed8df68606702a66845691ac30b11baed80f41ccb2e"
+    },
+    {
+      "path": "bbport-worktree/gpu/shadps4/video_core/renderer_vulkan/vk_temporal_upscaler.cpp",
+      "bytes": 179838,
+      "sha256": "a10a5f52c523580e03b04803e8f8c8cdc1eeb4a5d41dd4f1a0e3bb032d95d059"
+    },
+    {
+      "path": "bbport-worktree/gpu/dlss_bridge/bbport_dlss_bridge.cpp",
+      "bytes": 12133,
+      "sha256": "33e04641910b9f85c09cc1a4448c8a1a58ac393d7e5e2266763eb4e94b405378"
+    },
+    {
+      "path": "bbport-worktree/tools/nr_probe/audit_q0_camera.py",
+      "bytes": 9940,
+      "sha256": "f37d5be61b8351fdafca47f9d7f4ed063647175ac44243f49c51b6e61b40cb33"
+    },
+    {
+      "path": "bbport-worktree/gpu/shadps4/video_core/host_shaders/q1_game_bridge.comp",
+      "bytes": 1346,
+      "sha256": "51e1f974210194aff965bc3ca102385968890db56f6a5fede95dc1bd2035ff35"
+    }
+  ],
+  "raw_evidence": [
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f000_input_1280x720_rgba16f.raw",
+      "bytes": 7372800,
+      "sha256": "0bcf3762ac09ce70cd193f527451732f5db7454fce59779eabb56df5eda2b614"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f000_depth_1280x720_f32.raw",
+      "bytes": 3686400,
+      "sha256": "2faf4bd33cd86acc04460d691cb8ca4389e27741aac10e367a981813d795b180"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f000_motion_1280x720_rg16f.raw",
+      "bytes": 3686400,
+      "sha256": "b1eccaddf50359193192880ded77cd67ebfb792fee1b72e5ec86a1d2664e459e"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f000_output_1920x1080_rgba16f.raw",
+      "bytes": 16588800,
+      "sha256": "897e30e2a3996f5227cd8d78d52fada516ee4f3bf4044bf2a5798411cdf0b9cf"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f001_input_1280x720_rgba16f.raw",
+      "bytes": 7372800,
+      "sha256": "853d931b5fc91482bf5d9e439159fb159de7366fed8fab7430bfd5f39f61244c"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f001_depth_1280x720_f32.raw",
+      "bytes": 3686400,
+      "sha256": "0f4eb82bdd2f361e6fbe9091188e5a5370f876eabaa1008e238efb43558895ef"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f001_motion_1280x720_rg16f.raw",
+      "bytes": 3686400,
+      "sha256": "48e488aef152ee704e33d10a6e52337d2ecfae481db3ff2bbef15429ab5f0665"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f001_output_1920x1080_rgba16f.raw",
+      "bytes": 16588800,
+      "sha256": "12e8aa2dd57285b1a80d5503dfc58cb5ab891e2a0bb79bba8dd79b9a93856ca2"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f002_input_1280x720_rgba16f.raw",
+      "bytes": 7372800,
+      "sha256": "8bbc1734d7e1651222f371a0d93b650ac204d9c8355db7a896a6dfb717bf1273"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f002_depth_1280x720_f32.raw",
+      "bytes": 3686400,
+      "sha256": "4cb228d1b34c2532591e6bb0a915f0b5752584f1e36895cec8b88d5bbd659ce6"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f002_motion_1280x720_rg16f.raw",
+      "bytes": 3686400,
+      "sha256": "56a5c8acc552604ccc1653ec3e5f23c13898925770e30fe11794b1e1c2f9337f"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f002_output_1920x1080_rgba16f.raw",
+      "bytes": 16588800,
+      "sha256": "b9fdcb71efae17af81fcb76575f656d95feaa4e61fcf51db09136f039a0d1297"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f003_input_1280x720_rgba16f.raw",
+      "bytes": 7372800,
+      "sha256": "d0447e187fe328740f22bfe6afdb405a33ec54b16e86e1652731d9fe9ff7af6d"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f003_depth_1280x720_f32.raw",
+      "bytes": 3686400,
+      "sha256": "b396ec136ab0ba413a17f87689545322c45ade30d2123ef6c2cd2391389e972c"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f003_motion_1280x720_rg16f.raw",
+      "bytes": 3686400,
+      "sha256": "316dabff6593db32e5abad8a1f7252deac8490a4b2fbc4f59f9f2350e1d6f4e4"
+    },
+    {
+      "path": "bbport/runs/q0-game-q0-quality-motion-20261011/dump/f003_output_1920x1080_rgba16f.raw",
+      "bytes": 16588800,
+      "sha256": "334419f6be5ff28b80d8fa614b2a66b3bd75b0b2a162f3e6c395576b696482e8"
+    }
+  ],
+  "frames": [
+    {
+      "dump_frame": 0,
+      "source": 12241,
+      "jitter_render_pixels": [
+        0.0,
+        -0.1666666567325592
+      ],
+      "MV_unit_variants": {
+        "camera_render_pixels": {
+          "samples": 793794,
+          "within_budget_pixels": 792767,
+          "within_budget_fraction": 0.998706213450845,
+          "component_error_p50_p95_p99": [
+            4.291534423828125e-05,
+            0.0010704398155212402,
+            0.001892106533050525
+          ]
+        },
+        "wrong_sign": {
+          "samples": 793794,
+          "within_budget_pixels": 792764,
+          "within_budget_fraction": 0.998702434132785,
+          "component_error_p50_p95_p99": [
+            0.0009918212890625,
+            0.006339073181152344,
+            0.006561279296875
+          ]
+        },
+        "camera_output_pixels_1.5": {
+          "samples": 793794,
+          "within_budget_pixels": 792769,
+          "within_budget_fraction": 0.9987087329962182,
+          "component_error_p50_p95_p99": [
+            0.0009099245071411133,
+            0.001659393310546875,
+            0.0026578903198242188
+          ]
+        },
+        "camera_render_pixels_div_1.5": {
+          "samples": 793794,
+          "within_budget_pixels": 792767,
+          "within_budget_fraction": 0.998706213450845,
+          "component_error_p50_p95_p99": [
+            0.0004532933235168457,
+            0.001068115234375,
+            0.0012653511762618988
+          ]
+        },
+        "extra_previous_minus_current_jitter": {
+          "samples": 793794,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            0.25925925374031067,
+            0.2592807114124298,
+            0.25930216908454895
+          ]
+        },
+        "extra_current_minus_previous_jitter": {
+          "samples": 793794,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            0.25925925374031067,
+            0.25928542017936707,
+            0.25930216908454895
+          ]
+        }
+      },
+      "original_Q0_camera_integer_counts_reproduced": true
+    },
+    {
+      "dump_frame": 1,
+      "source": 12242,
+      "jitter_render_pixels": [
+        -0.25,
+        0.1666666865348816
+      ],
+      "MV_unit_variants": {
+        "camera_render_pixels": {
+          "samples": 782261,
+          "within_budget_pixels": 781383,
+          "within_budget_fraction": 0.9988776124592688,
+          "component_error_p50_p95_p99": [
+            4.291534423828125e-05,
+            0.0010696053504943848,
+            0.0016055941581726088
+          ]
+        },
+        "wrong_sign": {
+          "samples": 782261,
+          "within_budget_pixels": 781381,
+          "within_budget_fraction": 0.998875055767832,
+          "component_error_p50_p95_p99": [
+            0.0009946227073669434,
+            0.0063323974609375,
+            0.006561279296875
+          ]
+        },
+        "camera_output_pixels_1.5": {
+          "samples": 782261,
+          "within_budget_pixels": 781382,
+          "within_budget_fraction": 0.9988763341135504,
+          "component_error_p50_p95_p99": [
+            0.0009097456932067871,
+            0.001659393310546875,
+            0.0023932456970214844
+          ]
+        },
+        "camera_render_pixels_div_1.5": {
+          "samples": 782261,
+          "within_budget_pixels": 781383,
+          "within_budget_fraction": 0.9988776124592688,
+          "component_error_p50_p95_p99": [
+            0.00045371055603027344,
+            0.001068115234375,
+            0.001152014685794712
+          ]
+        },
+        "extra_previous_minus_current_jitter": {
+          "samples": 782261,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            0.3333333432674408,
+            0.33335480093955994,
+            0.3333762586116791
+          ]
+        },
+        "extra_current_minus_previous_jitter": {
+          "samples": 782261,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            0.3333333432674408,
+            0.3333762586116791,
+            0.3333762586116791
+          ]
+        }
+      },
+      "original_Q0_camera_integer_counts_reproduced": true,
+      "SR_temporal_pair": {
+        "samples_common_all_variants": 10245,
+        "candidates": {
+          "k0/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                6.452588308906992e-05,
+                0.0005573830197935917
+              ],
+              "luma_mean_abs_error": 0.0001601706695977477,
+              "gradient_joint_dot": 0.9937674259240665
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                6.253522402994594e-05,
+                0.0005521299717334647
+              ],
+              "luma_mean_abs_error": 0.00015864976828468773,
+              "gradient_joint_dot": 0.9961867518824078
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                6.611389489466317e-05,
+                0.0005709193481843882
+              ],
+              "luma_mean_abs_error": 0.00016170558980896688,
+              "gradient_joint_dot": 0.9902245532803257
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                5.467746605635024e-05,
+                0.0005463958582964376
+              ],
+              "luma_mean_abs_error": 0.00016416836105804413,
+              "gradient_joint_dot": 0.9943945176160769
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                9.621378937231745e-05,
+                0.0006732237393083307
+              ],
+              "luma_mean_abs_error": 0.0001917256735788258,
+              "gradient_joint_dot": 0.9848920349514557
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                5.242368739405076e-05,
+                0.00040632387245445985
+              ],
+              "luma_mean_abs_error": 0.00011764487121588863,
+              "gradient_joint_dot": 0.9943567817719035
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                6.646552509083099e-05,
+                0.0007575778063997694
+              ],
+              "luma_mean_abs_error": 0.00017188544121694586,
+              "gradient_joint_dot": 0.9948608946333225
+            }
+          },
+          "k0/raw_pixel_units_1": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                6.445273050746572e-05,
+                0.0005570541763079675
+              ],
+              "luma_mean_abs_error": 0.0001601038322967303,
+              "gradient_joint_dot": 0.99385776815424
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                6.263836925089142e-05,
+                0.0005523279294870299
+              ],
+              "luma_mean_abs_error": 0.00015853817908535023,
+              "gradient_joint_dot": 0.9963393806402504
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                6.593938785131605e-05,
+                0.0005705864932322755
+              ],
+              "luma_mean_abs_error": 0.00016168391690660712,
+              "gradient_joint_dot": 0.9902234400609116
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                5.461550406767827e-05,
+                0.0005461905489458178
+              ],
+              "luma_mean_abs_error": 0.00016408531345053204,
+              "gradient_joint_dot": 0.994400009983223
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                9.633209017027313e-05,
+                0.0006728057341097534
+              ],
+              "luma_mean_abs_error": 0.00019171412132207926,
+              "gradient_joint_dot": 0.9848955965410102
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                5.2266118926110744e-05,
+                0.0004069060329404085
+              ],
+              "luma_mean_abs_error": 0.00011761705036614575,
+              "gradient_joint_dot": 0.9943546154948832
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                6.637748066779642e-05,
+                0.0007525135506962374
+              ],
+              "luma_mean_abs_error": 0.00017173238045445444,
+              "gradient_joint_dot": 0.9955721909640162
+            }
+          },
+          "k0/wrong_sign": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                6.461876053950487e-05,
+                0.0005572130387533064
+              ],
+              "luma_mean_abs_error": 0.00016032344637431788,
+              "gradient_joint_dot": 0.993457178958789
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                6.261957585175157e-05,
+                0.0005511757191189662
+              ],
+              "luma_mean_abs_error": 0.0001590411408093392,
+              "gradient_joint_dot": 0.9956664307125856
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                6.63057292021943e-05,
+                0.0005683467419918917
+              ],
+              "luma_mean_abs_error": 0.00016161757158266864,
+              "gradient_joint_dot": 0.9902164612621783
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                5.4916484543622904e-05,
+                0.000543610475576961
+              ],
+              "luma_mean_abs_error": 0.00016390202008382398,
+              "gradient_joint_dot": 0.9944143064708099
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                9.632772874919749e-05,
+                0.0006702697325538615
+              ],
+              "luma_mean_abs_error": 0.00019165917997558403,
+              "gradient_joint_dot": 0.984909524975686
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                5.220864201257568e-05,
+                0.0004071067286626617
+              ],
+              "luma_mean_abs_error": 0.00011748522358986592,
+              "gradient_joint_dot": 0.9943434116749277
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                6.634823367599265e-05,
+                0.0007526213607708871
+              ],
+              "luma_mean_abs_error": 0.00017311664988795697,
+              "gradient_joint_dot": 0.9921456509064775
+            }
+          },
+          "k0/double_prev_current_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.00019042088141334504,
+                0.001826711912704101
+              ],
+              "luma_mean_abs_error": 0.00048591828660713506,
+              "gradient_joint_dot": 0.8877802334170688
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.00018751060737080198,
+                0.0017931651366609692
+              ],
+              "luma_mean_abs_error": 0.0004841929603295205,
+              "gradient_joint_dot": 0.8863063582865114
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00019206917812827733,
+                0.0018912433103612735
+              ],
+              "luma_mean_abs_error": 0.00048765951606871667,
+              "gradient_joint_dot": 0.8922204783887729
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00017779470355577408,
+                0.0012151085257901709
+              ],
+              "luma_mean_abs_error": 0.00042387121651907956,
+              "gradient_joint_dot": 0.8847696129711252
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.00015297767655119907,
+                0.0011896626186199237
+              ],
+              "luma_mean_abs_error": 0.00033408277700907116,
+              "gradient_joint_dot": 0.8802409838888697
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.0003070863338951323,
+                0.0026430332180913145
+              ],
+              "luma_mean_abs_error": 0.0007095244553877524,
+              "gradient_joint_dot": 0.8987294626623136
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00016066094674072528,
+                0.0018456763969348945
+              ],
+              "luma_mean_abs_error": 0.00045610579200265063,
+              "gradient_joint_dot": 0.8869567623207923
+            }
+          },
+          "k0/double_current_prev_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.00017277332638167611,
+                0.0017737302307418716
+              ],
+              "luma_mean_abs_error": 0.00045506878037930885,
+              "gradient_joint_dot": 0.892150770286459
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.00017317337229879421,
+                0.0016785405087663449
+              ],
+              "luma_mean_abs_error": 0.0004515199697079024,
+              "gradient_joint_dot": 0.9317220271774627
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00017192789305257188,
+                0.0018428259018775548
+              ],
+              "luma_mean_abs_error": 0.0004586503021904597,
+              "gradient_joint_dot": 0.8303403477241654
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00015559390755631475,
+                0.001138174758823515
+              ],
+              "luma_mean_abs_error": 0.0004004796963666886,
+              "gradient_joint_dot": 0.9463770345368478
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.0001279384538055619,
+                0.0009614528458462823
+              ],
+              "luma_mean_abs_error": 0.0002722036899170722,
+              "gradient_joint_dot": 0.9136046197975998
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.0003054476384722663,
+                0.0026616309148204437
+              ],
+              "luma_mean_abs_error": 0.0007220724137530626,
+              "gradient_joint_dot": 0.8330149248845299
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00014531290333287192,
+                0.0017897140086377886
+              ],
+              "luma_mean_abs_error": 0.0003988915136230342,
+              "gradient_joint_dot": 0.8670235167967957
+            }
+          },
+          "jitter_retained/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.00017046083902199749,
+                0.001583862801992933
+              ],
+              "luma_mean_abs_error": 0.00042814372946084825,
+              "gradient_joint_dot": 0.9138532538778997
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.00016748940118430848,
+                0.001564865506808282
+              ],
+              "luma_mean_abs_error": 0.0004250795573391215,
+              "gradient_joint_dot": 0.9325341172229824
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00017404152987572424,
+                0.0016253261393405745
+              ],
+              "luma_mean_abs_error": 0.00043123614556957667,
+              "gradient_joint_dot": 0.8861871721274331
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00016417241160416988,
+                0.0010658835441683513
+              ],
+              "luma_mean_abs_error": 0.0003948086189947703,
+              "gradient_joint_dot": 0.9402535346952191
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.0001425908961224299,
+                0.0010934998603780507
+              ],
+              "luma_mean_abs_error": 0.00029682090872917074,
+              "gradient_joint_dot": 0.9311734137693328
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.00026155385456992815,
+                0.002257425638576278
+              ],
+              "luma_mean_abs_error": 0.0006096407290004495,
+              "gradient_joint_dot": 0.8902058394573082
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00015226405721127634,
+                0.0016051331557185489
+              ],
+              "luma_mean_abs_error": 0.00039313586416429554,
+              "gradient_joint_dot": 0.8970792544614213
+            }
+          },
+          "jitter_retained/raw_pixel_units_1": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.0001703996496911842,
+                0.0015814707541723524
+              ],
+              "luma_mean_abs_error": 0.00042801466442156036,
+              "gradient_joint_dot": 0.9142178209823727
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.0001675302284559815,
+                0.0015588945735096312
+              ],
+              "luma_mean_abs_error": 0.00042491341029393106,
+              "gradient_joint_dot": 0.9330902877457429
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00017402925459987506,
+                0.0016245260975663496
+              ],
+              "luma_mean_abs_error": 0.0004311445043393442,
+              "gradient_joint_dot": 0.8862399263256465
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.0001640716223949508,
+                0.0010659238350724952
+              ],
+              "luma_mean_abs_error": 0.00039470253090270025,
+              "gradient_joint_dot": 0.9403806055106335
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.00014260162049673083,
+                0.0010933892252699695
+              ],
+              "luma_mean_abs_error": 0.00029678047167167087,
+              "gradient_joint_dot": 0.9311946210720704
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.00026147977374893494,
+                0.002257244752849876
+              ],
+              "luma_mean_abs_error": 0.0006095151439933542,
+              "gradient_joint_dot": 0.8902584682541702
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00015229716568474633,
+                0.0016040655863556838
+              ],
+              "luma_mean_abs_error": 0.00039288204292913556,
+              "gradient_joint_dot": 0.8991993018487193
+            }
+          },
+          "jitter_retained/wrong_sign": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.00017051567861607045,
+                0.0015835624671444385
+              ],
+              "luma_mean_abs_error": 0.00042784679963492285,
+              "gradient_joint_dot": 0.9150448057944605
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.0001679830050046845,
+                0.0015589810233001405
+              ],
+              "luma_mean_abs_error": 0.0004250289228459683,
+              "gradient_joint_dot": 0.9342165893653724
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00017385908777277012,
+                0.0016242755805237089
+              ],
+              "luma_mean_abs_error": 0.00043069065018521894,
+              "gradient_joint_dot": 0.886502632133241
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00016418103679946832,
+                0.0010661252895769746
+              ],
+              "luma_mean_abs_error": 0.0003941712925074695,
+              "gradient_joint_dot": 0.9410030802403169
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.00014254060947165416,
+                0.0010927182344204242
+              ],
+              "luma_mean_abs_error": 0.0002965860265013291,
+              "gradient_joint_dot": 0.9312972488705437
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.0002611913078688277,
+                0.0022559588287309686
+              ],
+              "luma_mean_abs_error": 0.0006088873170924344,
+              "gradient_joint_dot": 0.8905213309905949
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.0001524816494417353,
+                0.0016243061776246845
+              ],
+              "luma_mean_abs_error": 0.000393696795366956,
+              "gradient_joint_dot": 0.9020916047720346
+            }
+          },
+          "jitter_retained/double_prev_current_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.0002745136652221485,
+                0.0029750126028447715
+              ],
+              "luma_mean_abs_error": 0.0007769939510102051,
+              "gradient_joint_dot": 0.6609625951451426
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.00027160892657215473,
+                0.0029883767163485786
+              ],
+              "luma_mean_abs_error": 0.0007647466229098954,
+              "gradient_joint_dot": 0.695886244116491
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.0002766208049164291,
+                0.0029054498623129143
+              ],
+              "luma_mean_abs_error": 0.0007893541687792173,
+              "gradient_joint_dot": 0.6133992384743417
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00027418347267571075,
+                0.001949777896321905
+              ],
+              "luma_mean_abs_error": 0.0006712470009773169,
+              "gradient_joint_dot": 0.6972163371702559
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.0001905150232140399,
+                0.0016249233593068836
+              ],
+              "luma_mean_abs_error": 0.00046527059884309983,
+              "gradient_joint_dot": 0.6922079213014966
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.0005082714766818548,
+                0.004588574218286151
+              ],
+              "luma_mean_abs_error": 0.0012316772628984472,
+              "gradient_joint_dot": 0.6319457426099134
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00022222494585542722,
+                0.0028488907866440244
+              ],
+              "luma_mean_abs_error": 0.0006962558101410791,
+              "gradient_joint_dot": 0.6634424915318335
+            }
+          },
+          "jitter_retained/double_current_prev_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                4.992137666677337e-05,
+                0.0005232045615255278
+              ],
+              "luma_mean_abs_error": 0.0001434790782484613,
+              "gradient_joint_dot": 0.9953140108450362
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                4.8655543517874277e-05,
+                0.000512538764289166
+              ],
+              "luma_mean_abs_error": 0.0001421428184826487,
+              "gradient_joint_dot": 0.996440974431026
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                5.166879030788288e-05,
+                0.0005374551269461659
+              ],
+              "luma_mean_abs_error": 0.00014482765498014823,
+              "gradient_joint_dot": 0.9931617307247428
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                4.229888176714635e-05,
+                0.0005208856143055983
+              ],
+              "luma_mean_abs_error": 0.0001508959359055052,
+              "gradient_joint_dot": 0.9954728102803936
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                8.681178434233241e-05,
+                0.0006466914128972974
+              ],
+              "luma_mean_abs_error": 0.0001784167984993083,
+              "gradient_joint_dot": 0.9864444038299653
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                3.069504721354456e-05,
+                0.0003356147761910207
+              ],
+              "luma_mean_abs_error": 9.237665065530303e-05,
+              "gradient_joint_dot": 0.9970319350544521
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                5.589976562682907e-05,
+                0.000690807720226179
+              ],
+              "luma_mean_abs_error": 0.00015775366180077635,
+              "gradient_joint_dot": 0.9945215165586322
+            }
+          },
+          "reverse_jitter/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.000260545731979105,
+                0.00274308233698634
+              ],
+              "luma_mean_abs_error": 0.0007184468542167878,
+              "gradient_joint_dot": 0.7119169244105849
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.0002597938798432407,
+                0.0026480918108233407
+              ],
+              "luma_mean_abs_error": 0.0007125920716119342,
+              "gradient_joint_dot": 0.779494863911197
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00026103050248411355,
+                0.002835136921444773
+              ],
+              "luma_mean_abs_error": 0.0007243556032429842,
+              "gradient_joint_dot": 0.5984864909823967
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00025752769470043955,
+                0.00181233670003995
+              ],
+              "luma_mean_abs_error": 0.0006533627051330932,
+              "gradient_joint_dot": 0.8030352232655367
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.0001836582182547157,
+                0.0015077374190662282
+              ],
+              "luma_mean_abs_error": 0.00043183994150307813,
+              "gradient_joint_dot": 0.7616674893799783
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.00046283697358726365,
+                0.004232344928031154
+              ],
+              "luma_mean_abs_error": 0.0011225053842872433,
+              "gradient_joint_dot": 0.6134425530052192
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00021813777817835368,
+                0.002610873924874805
+              ],
+              "luma_mean_abs_error": 0.0006239683925268235,
+              "gradient_joint_dot": 0.6456983451609626
+            }
+          },
+          "reverse_jitter/raw_pixel_units_1": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.0002605168489300646,
+                0.0027427523631657464
+              ],
+              "luma_mean_abs_error": 0.0007183317926211848,
+              "gradient_joint_dot": 0.7124112990395652
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.0002599293226814314,
+                0.0026465707603935762
+              ],
+              "luma_mean_abs_error": 0.0007124445093470546,
+              "gradient_joint_dot": 0.7802619353841119
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00026103011566868425,
+                0.0028335058330864592
+              ],
+              "luma_mean_abs_error": 0.0007242733418913701,
+              "gradient_joint_dot": 0.5985513782747268
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.0002575265088781574,
+                0.0018121933010867518
+              ],
+              "luma_mean_abs_error": 0.0006532773379503886,
+              "gradient_joint_dot": 0.8032197545121056
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.00018354289404342097,
+                0.0015080363504130945
+              ],
+              "luma_mean_abs_error": 0.0004318082237539027,
+              "gradient_joint_dot": 0.7616649756424076
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.0004628226305305875,
+                0.0042325557676202415
+              ],
+              "luma_mean_abs_error": 0.001122389822837932,
+              "gradient_joint_dot": 0.6135211785944047
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00021812144453487828,
+                0.002610783526251357
+              ],
+              "luma_mean_abs_error": 0.0006237312151533987,
+              "gradient_joint_dot": 0.6483552813216992
+            }
+          },
+          "reverse_jitter/wrong_sign": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.00026007096645201504,
+                0.0027491436249610078
+              ],
+              "luma_mean_abs_error": 0.0007180443356091819,
+              "gradient_joint_dot": 0.7140508493943057
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.0002589294397043697,
+                0.0026870595840219006
+              ],
+              "luma_mean_abs_error": 0.0007122796935966929,
+              "gradient_joint_dot": 0.7826604239837032
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.0002609353484066034,
+                0.0028292529839661178
+              ],
+              "luma_mean_abs_error": 0.0007238621131726784,
+              "gradient_joint_dot": 0.5988751475096958
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.0002575205797729055,
+                0.0018116170852701002
+              ],
+              "luma_mean_abs_error": 0.0006528493386477134,
+              "gradient_joint_dot": 0.8041317530648697
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.00018315735730149024,
+                0.0015094978381402324
+              ],
+              "luma_mean_abs_error": 0.0004316496287894775,
+              "gradient_joint_dot": 0.761649400035459
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.0004622995385432666,
+                0.0042272184717292395
+              ],
+              "luma_mean_abs_error": 0.0011218120867510135,
+              "gradient_joint_dot": 0.6139141634352934
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00021706997442131996,
+                0.0026223828126086613
+              ],
+              "luma_mean_abs_error": 0.0006238073878154206,
+              "gradient_joint_dot": 0.6559828198745191
+            }
+          },
+          "reverse_jitter/double_prev_current_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.00036481669064636736,
+                0.004123502576416819
+              ],
+              "luma_mean_abs_error": 0.0010620929089663622,
+              "gradient_joint_dot": 0.404817300602359
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.0003587150814560343,
+                0.0041361428837832365
+              ],
+              "luma_mean_abs_error": 0.0010466174521511272,
+              "gradient_joint_dot": 0.4941840962975859
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.0003724084211593171,
+                0.0041173647358511015
+              ],
+              "luma_mean_abs_error": 0.0010777110107061541,
+              "gradient_joint_dot": 0.2647822685582369
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00036950671854483146,
+                0.0025704055146373987
+              ],
+              "luma_mean_abs_error": 0.0009226962121394353,
+              "gradient_joint_dot": 0.5013589688566129
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.0002330853575203502,
+                0.002140496457846295
+              ],
+              "luma_mean_abs_error": 0.0006098889604284338,
+              "gradient_joint_dot": 0.4478019063324119
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.0007216260995910728,
+                0.006542048301158248
+              ],
+              "luma_mean_abs_error": 0.0017240674387870637,
+              "gradient_joint_dot": 0.2975210555807573
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00027908754576056946,
+                0.00393052078938169
+              ],
+              "luma_mean_abs_error": 0.000926194980997773,
+              "gradient_joint_dot": 0.38760433631304614
+            }
+          },
+          "reverse_jitter/double_current_prev_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.00017279385264619938,
+                0.0016784869253840303
+              ],
+              "luma_mean_abs_error": 0.00045202157184240843,
+              "gradient_joint_dot": 0.9128556665261293
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.00016792887100799698,
+                0.0016539057339253454
+              ],
+              "luma_mean_abs_error": 0.00044926697197394114,
+              "gradient_joint_dot": 0.9441380537087041
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00017726481629298243,
+                0.0016982148932802876
+              ],
+              "luma_mean_abs_error": 0.00045480156221760603,
+              "gradient_joint_dot": 0.8548876439109884
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.0001639488730291825,
+                0.0011621538555698432
+              ],
+              "luma_mean_abs_error": 0.00043120081702984245,
+              "gradient_joint_dot": 0.956727749816921
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.00013810729955737126,
+                0.001096291281164422
+              ],
+              "luma_mean_abs_error": 0.0002992706238286259,
+              "gradient_joint_dot": 0.9146606149563031
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.0002842181636910522,
+                0.002455214944075018
+              ],
+              "luma_mean_abs_error": 0.0006625418153452069,
+              "gradient_joint_dot": 0.8600241368495828
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00014965664317675574,
+                0.001682688508581465
+              ],
+              "luma_mean_abs_error": 0.0003915170052853769,
+              "gradient_joint_dot": 0.8694174198695481
+            }
+          },
+          "half_plus/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                6.604671459916993e-05,
+                0.0005495686617283584
+              ],
+              "luma_mean_abs_error": 0.00016044732942785167,
+              "gradient_joint_dot": 0.9935391229120389
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                6.324126885260068e-05,
+                0.0005413767920308627
+              ],
+              "luma_mean_abs_error": 0.0001565498073353488,
+              "gradient_joint_dot": 0.9953968990418303
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                6.898001220785295e-05,
+                0.0005590756034749513
+              ],
+              "luma_mean_abs_error": 0.0001643807769054002,
+              "gradient_joint_dot": 0.9914775555795339
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                5.5524195133321115e-05,
+                0.0005182890109994146
+              ],
+              "luma_mean_abs_error": 0.00016082732218458966,
+              "gradient_joint_dot": 0.9937208563378491
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                9.801971955587427e-05,
+                0.0006720746900872623
+              ],
+              "luma_mean_abs_error": 0.00019484455001252414,
+              "gradient_joint_dot": 0.9885345375444411
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                5.329250863585905e-05,
+                0.00039333723082243165
+              ],
+              "luma_mean_abs_error": 0.00011863266953074938,
+              "gradient_joint_dot": 0.99402518920305
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                7.022680080438597e-05,
+                0.000726429863257548
+              ],
+              "luma_mean_abs_error": 0.00017242473422690268,
+              "gradient_joint_dot": 0.9960037814776685
+            }
+          },
+          "half_plus/raw_pixel_units_1": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                6.613326488801507e-05,
+                0.0005490523576940123
+              ],
+              "luma_mean_abs_error": 0.00016020144233352455,
+              "gradient_joint_dot": 0.9936462879187312
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                6.338608724047018e-05,
+                0.0005402424376979221
+              ],
+              "luma_mean_abs_error": 0.0001560910937254742,
+              "gradient_joint_dot": 0.9955886899017635
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                6.890895025283943e-05,
+                0.0005594373687443394
+              ],
+              "luma_mean_abs_error": 0.00016434967805367107,
+              "gradient_joint_dot": 0.9914784440522816
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                5.5698419829824626e-05,
+                0.0005181918554985075
+              ],
+              "luma_mean_abs_error": 0.00016082891828269745,
+              "gradient_joint_dot": 0.9937350925583913
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                9.801972325612239e-05,
+                0.0006720782629068479
+              ],
+              "luma_mean_abs_error": 0.00019481237725974636,
+              "gradient_joint_dot": 0.9885237934659604
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                5.329263813793304e-05,
+                0.00039336469281928875
+              ],
+              "luma_mean_abs_error": 0.00011861015813577115,
+              "gradient_joint_dot": 0.9940282536112214
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                6.994330363693031e-05,
+                0.0007082639545415663
+              ],
+              "luma_mean_abs_error": 0.00017140661912675616,
+              "gradient_joint_dot": 0.9968026286104573
+            }
+          },
+          "half_plus/wrong_sign": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                6.604928493929643e-05,
+                0.0005505881049659462
+              ],
+              "luma_mean_abs_error": 0.00016051156723978613,
+              "gradient_joint_dot": 0.9931417033641078
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                6.347207864753485e-05,
+                0.0005435680953257225
+              ],
+              "luma_mean_abs_error": 0.00015684961757554818,
+              "gradient_joint_dot": 0.9946401505161514
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                6.888464939680105e-05,
+                0.0005594480087259555
+              ],
+              "luma_mean_abs_error": 0.00016420727090171364,
+              "gradient_joint_dot": 0.9914815063324065
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                5.5781969726988406e-05,
+                0.0005184899255901245
+              ],
+              "luma_mean_abs_error": 0.00016097668329873282,
+              "gradient_joint_dot": 0.9937995232368569
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                9.79627204376267e-05,
+                0.0006708482472387918
+              ],
+              "luma_mean_abs_error": 0.00019465536974017938,
+              "gradient_joint_dot": 0.9884669866670575
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                5.323610850616967e-05,
+                0.0003935697403641953
+              ],
+              "luma_mean_abs_error": 0.00011850317506450381,
+              "gradient_joint_dot": 0.9940431018872324
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                7.015775432700922e-05,
+                0.0007314015481933877
+              ],
+              "luma_mean_abs_error": 0.00017288933861319355,
+              "gradient_joint_dot": 0.9923961711981297
+            }
+          },
+          "half_plus/double_prev_current_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.0001883013883263165,
+                0.0017084408423961416
+              ],
+              "luma_mean_abs_error": 0.0004846920134039034,
+              "gradient_joint_dot": 0.8932748971251022
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.00018402261148805035,
+                0.0016314051788281015
+              ],
+              "luma_mean_abs_error": 0.00046418768558122354,
+              "gradient_joint_dot": 0.9138980780742678
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00019365236400973544,
+                0.0017819463680953285
+              ],
+              "luma_mean_abs_error": 0.0005053853397375985,
+              "gradient_joint_dot": 0.8728560033847522
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00017093767770003402,
+                0.0011179640844422582
+              ],
+              "luma_mean_abs_error": 0.0004191610396361487,
+              "gradient_joint_dot": 0.9259692070725571
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.0001539745748179225,
+                0.0011571997143128758
+              ],
+              "luma_mean_abs_error": 0.000322265581173095,
+              "gradient_joint_dot": 0.921337851947089
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.0003008687375211628,
+                0.002706966343755642
+              ],
+              "luma_mean_abs_error": 0.0007272352787046874,
+              "gradient_joint_dot": 0.8705954478860258
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00016635637541117707,
+                0.0018046354235120915
+              ],
+              "luma_mean_abs_error": 0.0004479175244398689,
+              "gradient_joint_dot": 0.8719715553249393
+            }
+          },
+          "half_plus/double_current_prev_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.00016578509775007529,
+                0.0016261533515757383
+              ],
+              "luma_mean_abs_error": 0.000438020386034287,
+              "gradient_joint_dot": 0.8921574199809027
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.000166400315619843,
+                0.0015413789410382577
+              ],
+              "luma_mean_abs_error": 0.00043196165176232973,
+              "gradient_joint_dot": 0.9259468087124482
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00016501481921061948,
+                0.0016947796661773583
+              ],
+              "luma_mean_abs_error": 0.00044413496665077895,
+              "gradient_joint_dot": 0.8514477025028371
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00014489491072387523,
+                0.0010528509480670135
+              ],
+              "luma_mean_abs_error": 0.0003843794695204366,
+              "gradient_joint_dot": 0.9387203957688861
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.0001243217760381768,
+                0.0009641401545245643
+              ],
+              "luma_mean_abs_error": 0.000266387085297947,
+              "gradient_joint_dot": 0.9123339984909173
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.00029457586703696397,
+                0.0024993227658723994
+              ],
+              "luma_mean_abs_error": 0.0006879278028491746,
+              "gradient_joint_dot": 0.8510542293531471
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.0001401530685287422,
+                0.0017252053600393079
+              ],
+              "luma_mean_abs_error": 0.0003888540435108933,
+              "gradient_joint_dot": 0.8803354868412775
+            }
+          },
+          "half_minus/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                4.679338889784605e-05,
+                0.0005154941264438233
+              ],
+              "luma_mean_abs_error": 0.00014128409536949682,
+              "gradient_joint_dot": 0.9946083185960444
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                4.6711197184784404e-05,
+                0.000514627677892754
+              ],
+              "luma_mean_abs_error": 0.00013992515123663384,
+              "gradient_joint_dot": 0.9944585843696259
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                4.686369395888229e-05,
+                0.0005152799090191084
+              ],
+              "luma_mean_abs_error": 0.0001426555655612428,
+              "gradient_joint_dot": 0.9949120781336914
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                3.951339850639073e-05,
+                0.0005154320085140962
+              ],
+              "luma_mean_abs_error": 0.00015323631189358955,
+              "gradient_joint_dot": 0.9928901597463489
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                8.309256181254516e-05,
+                0.0006362623382850588
+              ],
+              "luma_mean_abs_error": 0.00017726899580679123,
+              "gradient_joint_dot": 0.9866567372511269
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                2.4937531249789868e-05,
+                0.00034578528077686154
+              ],
+              "luma_mean_abs_error": 8.559444372570754e-05,
+              "gradient_joint_dot": 0.997836280785421
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                5.409641229381715e-05,
+                0.0006827917127725817
+              ],
+              "luma_mean_abs_error": 0.000154652724392903,
+              "gradient_joint_dot": 0.9958046033975472
+            }
+          },
+          "half_minus/raw_pixel_units_1": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                4.677822238591527e-05,
+                0.0005154348606960153
+              ],
+              "luma_mean_abs_error": 0.00014134316164451883,
+              "gradient_joint_dot": 0.9946843544829088
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                4.671418039620492e-05,
+                0.0005121247021737784
+              ],
+              "luma_mean_abs_error": 0.00014005775686319347,
+              "gradient_joint_dot": 0.9945745562280941
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                4.6863820885875186e-05,
+                0.0005155259262747384
+              ],
+              "luma_mean_abs_error": 0.00014264041463622315,
+              "gradient_joint_dot": 0.9949121222783985
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                3.951401370703197e-05,
+                0.0005141489771437327
+              ],
+              "luma_mean_abs_error": 0.00015327036553939327,
+              "gradient_joint_dot": 0.9928824230614262
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                8.286550757219836e-05,
+                0.000636364934456283
+              ],
+              "luma_mean_abs_error": 0.0001772484782634025,
+              "gradient_joint_dot": 0.986648304261724
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                2.4854405913541863e-05,
+                0.0003458851232295399
+              ],
+              "luma_mean_abs_error": 8.557655191509434e-05,
+              "gradient_joint_dot": 0.9978363766874683
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                5.376038228845732e-05,
+                0.0007011194834898262
+              ],
+              "luma_mean_abs_error": 0.00015491546150978955,
+              "gradient_joint_dot": 0.9963686034811852
+            }
+          },
+          "half_minus/wrong_sign": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                4.673168513894292e-05,
+                0.0005180741045981575
+              ],
+              "luma_mean_abs_error": 0.00014235660532153671,
+              "gradient_joint_dot": 0.9944390891353121
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                4.671983294371874e-05,
+                0.0005180375768134063
+              ],
+              "luma_mean_abs_error": 0.00014212841911704906,
+              "gradient_joint_dot": 0.9941989276322496
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                4.676994980846224e-05,
+                0.0005156002521377941
+              ],
+              "luma_mean_abs_error": 0.00014258689483090978,
+              "gradient_joint_dot": 0.9949109833342338
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                3.9626626977045764e-05,
+                0.0005138744959689329
+              ],
+              "luma_mean_abs_error": 0.00015345705772932186,
+              "gradient_joint_dot": 0.9928348734371953
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                8.286299229086098e-05,
+                0.0006368778563632288
+              ],
+              "luma_mean_abs_error": 0.0001771668096949582,
+              "gradient_joint_dot": 0.9866015386737427
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                2.4526055175345604e-05,
+                0.00034638433549292135
+              ],
+              "luma_mean_abs_error": 8.55156513103996e-05,
+              "gradient_joint_dot": 0.9978364450967621
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                5.407908613197466e-05,
+                0.0007307738562929033
+              ],
+              "luma_mean_abs_error": 0.00015929998806358915,
+              "gradient_joint_dot": 0.9947911451872423
+            }
+          },
+          "half_minus/double_prev_current_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.00018388315311774085,
+                0.0018233296567391722
+              ],
+              "luma_mean_abs_error": 0.0004800520947952025,
+              "gradient_joint_dot": 0.8809562766750739
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.00018114352986877249,
+                0.0017860600516137193
+              ],
+              "luma_mean_abs_error": 0.0004756712373747509,
+              "gradient_joint_dot": 0.8902646675265622
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.0001863432968957526,
+                0.00188299603638586
+              ],
+              "luma_mean_abs_error": 0.0004844733327410046,
+              "gradient_joint_dot": 0.8647902538656703
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00017370128053108782,
+                0.0012104487544378807
+              ],
+              "luma_mean_abs_error": 0.0004235400061002431,
+              "gradient_joint_dot": 0.8804561894193986
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.00014651089795936602,
+                0.001166142999838336
+              ],
+              "luma_mean_abs_error": 0.0003286931107449403,
+              "gradient_joint_dot": 0.87520197029572
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.00030125576080890573,
+                0.0026423973101323836
+              ],
+              "luma_mean_abs_error": 0.0007002695416570357,
+              "gradient_joint_dot": 0.8732987202263266
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.00015636179242921149,
+                0.0018911097105828736
+              ],
+              "luma_mean_abs_error": 0.00044739510815121943,
+              "gradient_joint_dot": 0.9098180765042639
+            }
+          },
+          "half_minus/double_current_prev_jitter": {
+            "all": {
+              "samples": 10245,
+              "luma_abs_error_p50_p95": [
+                0.0001770180502761896,
+                0.0017109998154631353
+              ],
+              "luma_mean_abs_error": 0.00045588310971269967,
+              "gradient_joint_dot": 0.8824081142661374
+            },
+            "fixed_even_tiles": {
+              "samples": 5146,
+              "luma_abs_error_p50_p95": [
+                0.0001784061731821817,
+                0.0016443103830961225
+              ],
+              "luma_mean_abs_error": 0.0004591316895048169,
+              "gradient_joint_dot": 0.8977140458135413
+            },
+            "fixed_odd_tiles": {
+              "samples": 5099,
+              "luma_abs_error_p50_p95": [
+                0.00017602471961923897,
+                0.0018554461893080542
+              ],
+              "luma_mean_abs_error": 0.0004526045861570545,
+              "gradient_joint_dot": 0.8526069751073004
+            },
+            "quadrant_0_0": {
+              "samples": 2668,
+              "luma_abs_error_p50_p95": [
+                0.00016291445009146714,
+                0.001248650755089144
+              ],
+              "luma_mean_abs_error": 0.000423912898113097,
+              "gradient_joint_dot": 0.8967781465343995
+            },
+            "quadrant_0_1": {
+              "samples": 2493,
+              "luma_abs_error_p50_p95": [
+                0.00013282504043062677,
+                0.00113434405299633
+              ],
+              "luma_mean_abs_error": 0.0002931411557644456,
+              "gradient_joint_dot": 0.8786001111234055
+            },
+            "quadrant_1_0": {
+              "samples": 2745,
+              "luma_abs_error_p50_p95": [
+                0.00031332262290658134,
+                0.002509618650239233
+              ],
+              "luma_mean_abs_error": 0.0006608826658843282,
+              "gradient_joint_dot": 0.8669684947122036
+            },
+            "quadrant_1_1": {
+              "samples": 2339,
+              "luma_abs_error_p50_p95": [
+                0.0001482072563146824,
+                0.0016948441176443093
+              ],
+              "luma_mean_abs_error": 0.00042522403919094555,
+              "gradient_joint_dot": 0.883714969915508
+            }
+          }
+        },
+        "interpretation": "Descriptive SR temporal reprojection only; no residual mask or exposure fitting. Unknown object regions and SR history can change ranking. NOT NR scale or phase acceptance."
+      }
+    },
+    {
+      "dump_frame": 2,
+      "source": 12332,
+      "jitter_render_pixels": [
+        -0.25,
+        0.1666666865348816
+      ],
+      "MV_unit_variants": {
+        "camera_render_pixels": {
+          "samples": 818302,
+          "within_budget_pixels": 773810,
+          "within_budget_fraction": 0.9456288754029686,
+          "component_error_p50_p95_p99": [
+            0.0024971961975097656,
+            0.13997611999511683,
+            1.7118222808837888
+          ]
+        },
+        "wrong_sign": {
+          "samples": 818302,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            14.808349609375,
+            36.037616729736314,
+            47.726104736328125
+          ]
+        },
+        "camera_output_pixels_1.5": {
+          "samples": 818302,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            3.7053909301757812,
+            9.019386291503906,
+            11.9404296875
+          ]
+        },
+        "camera_render_pixels_div_1.5": {
+          "samples": 818302,
+          "within_budget_pixels": 5,
+          "within_budget_fraction": 6.110213588626204e-06,
+          "component_error_p50_p95_p99": [
+            2.4728293418884277,
+            6.000965595245361,
+            7.948332719802855
+          ]
+        },
+        "extra_previous_minus_current_jitter": {
+          "samples": 818302,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            0.33334383368492126,
+            0.337191104888916,
+            1.4975718688964825
+          ]
+        },
+        "extra_current_minus_previous_jitter": {
+          "samples": 818302,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            0.3333476483821869,
+            0.346342772245406,
+            1.9618222808837888
+          ]
+        }
+      },
+      "original_Q0_camera_integer_counts_reproduced": true
+    },
+    {
+      "dump_frame": 3,
+      "source": 12333,
+      "jitter_render_pixels": [
+        0.25,
+        -0.3888888955116272
+      ],
+      "MV_unit_variants": {
+        "camera_render_pixels": {
+          "samples": 802552,
+          "within_budget_pixels": 758486,
+          "within_budget_fraction": 0.9450926544323608,
+          "component_error_p50_p95_p99": [
+            0.0022716522216796875,
+            0.16680057048797547,
+            1.7714794158935536
+          ]
+        },
+        "wrong_sign": {
+          "samples": 802552,
+          "within_budget_pixels": 1,
+          "within_budget_fraction": 1.246025179676831e-06,
+          "component_error_p50_p95_p99": [
+            15.26861572265625,
+            36.539314270019524,
+            49.27311416625962
+          ]
+        },
+        "camera_output_pixels_1.5": {
+          "samples": 802552,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            3.8197174072265625,
+            9.14420547485349,
+            12.327512359619138
+          ]
+        },
+        "camera_render_pixels_div_1.5": {
+          "samples": 802552,
+          "within_budget_pixels": 9,
+          "within_budget_fraction": 1.1214226617091477e-05,
+          "component_error_p50_p95_p99": [
+            2.549591064453125,
+            6.08261852264404,
+            8.206466178894043
+          ]
+        },
+        "extra_previous_minus_current_jitter": {
+          "samples": 802552,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            0.5556035041809082,
+            0.5576852440834046,
+            2.2714794158935536
+          ]
+        },
+        "extra_current_minus_previous_jitter": {
+          "samples": 802552,
+          "within_budget_pixels": 0,
+          "within_budget_fraction": 0.0,
+          "component_error_p50_p95_p99": [
+            0.5555355548858643,
+            0.5593156814575195,
+            1.479300689697265
+          ]
+        }
+      },
+      "original_Q0_camera_integer_counts_reproduced": true,
+      "SR_temporal_pair": {
+        "samples_common_all_variants": 10517,
+        "candidates": {
+          "k0/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                3.531579077649665e-05,
+                0.00045902277504059134
+              ],
+              "luma_mean_abs_error": 0.00013366264293447955,
+              "gradient_joint_dot": 0.9856662649816812
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                3.542388455417397e-05,
+                0.00046206934734147753
+              ],
+              "luma_mean_abs_error": 0.00014480074848330466,
+              "gradient_joint_dot": 0.9855230495177637
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                3.527717675044941e-05,
+                0.0004540921967609797
+              ],
+              "luma_mean_abs_error": 0.00012264461909858865,
+              "gradient_joint_dot": 0.9860631614306096
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                5.999111256491606e-05,
+                0.0006909718320329161
+              ],
+              "luma_mean_abs_error": 0.0001873455316272769,
+              "gradient_joint_dot": 0.9804853344160422
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                6.439930450875819e-05,
+                0.0006573911356517983
+              ],
+              "luma_mean_abs_error": 0.00022972256273741135,
+              "gradient_joint_dot": 0.9888825410803925
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                1.4428244271404243e-05,
+                0.00016727444586896772
+              ],
+              "luma_mean_abs_error": 4.3742473528307e-05,
+              "gradient_joint_dot": 0.9871975361345972
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                2.7769425731686854e-05,
+                0.00026227420170152625
+              ],
+              "luma_mean_abs_error": 8.713440152891572e-05,
+              "gradient_joint_dot": 0.9920175389163559
+            }
+          },
+          "k0/raw_pixel_units_1": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0004001343906736539,
+                0.004837648758261131
+              ],
+              "luma_mean_abs_error": 0.0013287003459407907,
+              "gradient_joint_dot": 0.49063902548036914
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.00040595398994676613,
+                0.004970575605020763
+              ],
+              "luma_mean_abs_error": 0.001442391300288685,
+              "gradient_joint_dot": 0.4855547083576709
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00039056176006554435,
+                0.0047188231286870025
+              ],
+              "luma_mean_abs_error": 0.0012162351121145214,
+              "gradient_joint_dot": 0.5088248612106304
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0008026993776783412,
+                0.009130028552547955
+              ],
+              "luma_mean_abs_error": 0.0025477970253969823,
+              "gradient_joint_dot": 0.1839799473548324
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0007458539203175117,
+                0.007023348228587673
+              ],
+              "luma_mean_abs_error": 0.0019061289237698486,
+              "gradient_joint_dot": 0.6683480923041754
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.00018139246131157038,
+                0.0014458944211245563
+              ],
+              "luma_mean_abs_error": 0.0003967886049066081,
+              "gradient_joint_dot": 0.47724210590953187
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0002784981077264969,
+                0.0018389545051564734
+              ],
+              "luma_mean_abs_error": 0.0005516649945709569,
+              "gradient_joint_dot": 0.8873393197009765
+            }
+          },
+          "k0/wrong_sign": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0008621298334000756,
+                0.00985798391690515
+              ],
+              "luma_mean_abs_error": 0.003146136807841165,
+              "gradient_joint_dot": 0.07192245574894089
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0008593134953568995,
+                0.009771782362768442
+              ],
+              "luma_mean_abs_error": 0.0036108095444303636,
+              "gradient_joint_dot": 0.06279258175692785
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0008651640072073938,
+                0.009947632932320975
+              ],
+              "luma_mean_abs_error": 0.002686473782995032,
+              "gradient_joint_dot": 0.09457975437236359
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0016221686326980018,
+                0.016295678648372874
+              ],
+              "luma_mean_abs_error": 0.005694330939297401,
+              "gradient_joint_dot": -0.01080052683070644
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.001693954447326389,
+                0.013465544774434018
+              ],
+              "luma_mean_abs_error": 0.004280370336091542,
+              "gradient_joint_dot": 0.10883832559300083
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.00041433128311033497,
+                0.0026912682176082263
+              ],
+              "luma_mean_abs_error": 0.0008234103880914604,
+              "gradient_joint_dot": 0.02461949781514834
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0006294547394286056,
+                0.005362666477759916
+              ],
+              "luma_mean_abs_error": 0.0019724581417330154,
+              "gradient_joint_dot": 0.11017865970631988
+            }
+          },
+          "k0/double_prev_current_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0002334533725613856,
+                0.0028665411476103872
+              ],
+              "luma_mean_abs_error": 0.0007511861431246504,
+              "gradient_joint_dot": 0.7427589466039483
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.00024245596627891076,
+                0.0029988820277437244
+              ],
+              "luma_mean_abs_error": 0.0008301834470531155,
+              "gradient_joint_dot": 0.7516761636156921
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00022495367706437328,
+                0.0027404124405871135
+              ],
+              "luma_mean_abs_error": 0.0006730405218751947,
+              "gradient_joint_dot": 0.7190267702549599
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0004356814896962478,
+                0.0044057542661787566
+              ],
+              "luma_mean_abs_error": 0.00115119699124877,
+              "gradient_joint_dot": 0.7273925963515915
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0004444082974674225,
+                0.004250047707533952
+              ],
+              "luma_mean_abs_error": 0.0012135096669608242,
+              "gradient_joint_dot": 0.743110342359437
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                9.236318545442117e-05,
+                0.0008164501684395773
+              ],
+              "luma_mean_abs_error": 0.00023847081160973622,
+              "gradient_joint_dot": 0.7499737586094306
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0001796950107443585,
+                0.0015962717825066465
+              ],
+              "luma_mean_abs_error": 0.00046730204826691624,
+              "gradient_joint_dot": 0.7922224746465778
+            }
+          },
+          "k0/double_current_prev_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.00023663672354560204,
+                0.003018026586774238
+              ],
+              "luma_mean_abs_error": 0.0007829919217273063,
+              "gradient_joint_dot": 0.7621683655320581
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0002417222684470454,
+                0.0029922538658482553
+              ],
+              "luma_mean_abs_error": 0.0008535216721352938,
+              "gradient_joint_dot": 0.7863071704675733
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00023184200040016287,
+                0.0030752602734925587
+              ],
+              "luma_mean_abs_error": 0.000713222563937676,
+              "gradient_joint_dot": 0.6952810224178504
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0004346655762349044,
+                0.004493761650103265
+              ],
+              "luma_mean_abs_error": 0.0011304255702489394,
+              "gradient_joint_dot": 0.7218321503226242
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.00041991048911838675,
+                0.00459291435834894
+              ],
+              "luma_mean_abs_error": 0.0013231555978601081,
+              "gradient_joint_dot": 0.7942857590937029
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                9.271052237454846e-05,
+                0.0009477105129516962
+              ],
+              "luma_mean_abs_error": 0.0002517981296829596,
+              "gradient_joint_dot": 0.6198906651628231
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0001938509200306939,
+                0.0015220974957564743
+              ],
+              "luma_mean_abs_error": 0.0005019037856308372,
+              "gradient_joint_dot": 0.7686874677248718
+            }
+          },
+          "jitter_retained/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.00022797849596518753,
+                0.002746267454331279
+              ],
+              "luma_mean_abs_error": 0.0007364370809295358,
+              "gradient_joint_dot": 0.7637058590895045
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.00023507880575376113,
+                0.002857112740216556
+              ],
+              "luma_mean_abs_error": 0.0008144022565104693,
+              "gradient_joint_dot": 0.7686805441411969
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00022098875138167919,
+                0.002683929253538985
+              ],
+              "luma_mean_abs_error": 0.0006593124604853741,
+              "gradient_joint_dot": 0.751127615708317
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0004312852494012247,
+                0.00409638157358151
+              ],
+              "luma_mean_abs_error": 0.0010850788506980157,
+              "gradient_joint_dot": 0.7530481543324954
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0004012615805747766,
+                0.004348520301889147
+              ],
+              "luma_mean_abs_error": 0.001250320385527645,
+              "gradient_joint_dot": 0.7565272696283887
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                8.800076775531353e-05,
+                0.0008420086053280224
+              ],
+              "luma_mean_abs_error": 0.0002271186347790063,
+              "gradient_joint_dot": 0.6508305946797868
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.00018201038693184965,
+                0.0014430871491699555
+              ],
+              "luma_mean_abs_error": 0.0004549189000468275,
+              "gradient_joint_dot": 0.8547245986836534
+            }
+          },
+          "jitter_retained/raw_pixel_units_1": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0004812104185871399,
+                0.005677849435963606
+              ],
+              "luma_mean_abs_error": 0.0015893595197438019,
+              "gradient_joint_dot": 0.25782305740754485
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0004887060235567373,
+                0.0058200335530698396
+              ],
+              "luma_mean_abs_error": 0.0017546832047656666,
+              "gradient_joint_dot": 0.22864817977673413
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00047442807716252273,
+                0.005483051496440721
+              ],
+              "luma_mean_abs_error": 0.001425818216043338,
+              "gradient_joint_dot": 0.3481717985280403
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0009353867468267392,
+                0.010170340309627908
+              ],
+              "luma_mean_abs_error": 0.002797720569129859,
+              "gradient_joint_dot": 0.08732905465136637
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.000943384031718314,
+                0.008516471292573703
+              ],
+              "luma_mean_abs_error": 0.0025164870411446567,
+              "gradient_joint_dot": 0.2931614680574305
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.0001879606729625516,
+                0.0015215363047928374
+              ],
+              "luma_mean_abs_error": 0.00042439310464382416,
+              "gradient_joint_dot": 0.40617120005544005
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.00036778165755842684,
+                0.0023878135118800456
+              ],
+              "luma_mean_abs_error": 0.0007529226062641097,
+              "gradient_joint_dot": 0.7120193996744225
+            }
+          },
+          "jitter_retained/wrong_sign": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0009066793075157955,
+                0.010141644834750602
+              ],
+              "luma_mean_abs_error": 0.003211510337724483,
+              "gradient_joint_dot": 0.027425911812990963
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0009101627531670018,
+                0.010062938932002443
+              ],
+              "luma_mean_abs_error": 0.003683811780757719,
+              "gradient_joint_dot": 0.009922019615184971
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0009008858584573356,
+                0.010178559711369746
+              ],
+              "luma_mean_abs_error": 0.002744300852749294,
+              "gradient_joint_dot": 0.0851707122900934
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0016676470959811358,
+                0.016474354470146085
+              ],
+              "luma_mean_abs_error": 0.005771763400764388,
+              "gradient_joint_dot": -0.04239914140900823
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.001747959946912062,
+                0.013786018391947765
+              ],
+              "luma_mean_abs_error": 0.004402523370062163,
+              "gradient_joint_dot": 0.04531933356410221
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.0004028693240333833,
+                0.002569784841778021
+              ],
+              "luma_mean_abs_error": 0.0008103590038226452,
+              "gradient_joint_dot": 0.18900674341936213
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.000697518607084219,
+                0.00565153522095191
+              ],
+              "luma_mean_abs_error": 0.0020561181783195714,
+              "gradient_joint_dot": 0.10969608405720903
+            }
+          },
+          "jitter_retained/double_prev_current_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0003973979169803201,
+                0.004790090726985087
+              ],
+              "luma_mean_abs_error": 0.0012650322668564856,
+              "gradient_joint_dot": 0.3032955526019965
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0004186073615603017,
+                0.0050196318952160646
+              ],
+              "luma_mean_abs_error": 0.0014019591674984113,
+              "gradient_joint_dot": 0.31628383600583065
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0003814356503736862,
+                0.004432810785751511
+              ],
+              "luma_mean_abs_error": 0.001129581597222048,
+              "gradient_joint_dot": 0.2647484141325575
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0007278746428406482,
+                0.007375023800353388
+              ],
+              "luma_mean_abs_error": 0.0018678383360956475,
+              "gradient_joint_dot": 0.27641869273433367
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0007414420924944255,
+                0.007423362610853828
+              ],
+              "luma_mean_abs_error": 0.002091374545880269,
+              "gradient_joint_dot": 0.30074259171716233
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.00015475057833992407,
+                0.0013251739985852776
+              ],
+              "luma_mean_abs_error": 0.00039256573944794324,
+              "gradient_joint_dot": 0.2743531175965479
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0003190025632708118,
+                0.002695134183800336
+              ],
+              "luma_mean_abs_error": 0.0008250340253853861,
+              "gradient_joint_dot": 0.41612136368697134
+            }
+          },
+          "jitter_retained/double_current_prev_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                2.743025292292929e-05,
+                0.0003818697537943126
+              ],
+              "luma_mean_abs_error": 0.00010939195391967811,
+              "gradient_joint_dot": 0.99012406701447
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                2.6798689471696285e-05,
+                0.0003817472353584707
+              ],
+              "luma_mean_abs_error": 0.00011835163676060657,
+              "gradient_joint_dot": 0.9907617385338977
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                2.792207953354218e-05,
+                0.0003818236629044208
+              ],
+              "luma_mean_abs_error": 0.00010052886686500514,
+              "gradient_joint_dot": 0.9880916898528405
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                4.820978176544818e-05,
+                0.0006306080351078397
+              ],
+              "luma_mean_abs_error": 0.00015607438741104776,
+              "gradient_joint_dot": 0.9916492393476365
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                5.143352276680557e-05,
+                0.0005379415897554261
+              ],
+              "luma_mean_abs_error": 0.00018580393930463666,
+              "gradient_joint_dot": 0.9892615920274676
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                1.2329925826946246e-05,
+                0.0001250910022676822
+              ],
+              "luma_mean_abs_error": 3.3713074105463594e-05,
+              "gradient_joint_dot": 0.9906925885030278
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                2.2437925548898735e-05,
+                0.00022842037980367222
+              ],
+              "luma_mean_abs_error": 7.265760529562671e-05,
+              "gradient_joint_dot": 0.9919392810795905
+            }
+          },
+          "reverse_jitter/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.00039497347288320255,
+                0.004687145434687054
+              ],
+              "luma_mean_abs_error": 0.0012697193731240506,
+              "gradient_joint_dot": 0.37510808008924595
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.00041118001633063056,
+                0.004650575288836076
+              ],
+              "luma_mean_abs_error": 0.0014203361858295353,
+              "gradient_joint_dot": 0.4062371768038404
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00038216952722883255,
+                0.004694311023495174
+              ],
+              "luma_mean_abs_error": 0.00112072638457673,
+              "gradient_joint_dot": 0.2762899253774631
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0007084466534167831,
+                0.006889214509316279
+              ],
+              "luma_mean_abs_error": 0.0018430000067816096,
+              "gradient_joint_dot": 0.3307793429575526
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0007396909690325743,
+                0.007209115724786838
+              ],
+              "luma_mean_abs_error": 0.0021781449528146994,
+              "gradient_joint_dot": 0.38935056119243533
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.00015293480048445733,
+                0.001441115644945882
+              ],
+              "luma_mean_abs_error": 0.0003902680866731143,
+              "gradient_joint_dot": 0.10517924426241215
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0003166302060955387,
+                0.0024447903616715556
+              ],
+              "luma_mean_abs_error": 0.0007937618682843669,
+              "gradient_joint_dot": 0.48414889431173097
+            }
+          },
+          "reverse_jitter/raw_pixel_units_1": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0005781681811266254,
+                0.006708830488815069
+              ],
+              "luma_mean_abs_error": 0.001872781140023056,
+              "gradient_joint_dot": 0.042519716234379376
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0006032227400632458,
+                0.006718723762936506
+              ],
+              "luma_mean_abs_error": 0.0020922612433095095,
+              "gradient_joint_dot": 0.020026870252111317
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0005516106047715654,
+                0.006699825542411642
+              ],
+              "luma_mean_abs_error": 0.0016556672871408634,
+              "gradient_joint_dot": 0.11704711424631939
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0010697312645600037,
+                0.01137755871566279
+              ],
+              "luma_mean_abs_error": 0.0031030205342699566,
+              "gradient_joint_dot": 0.030122466349236317
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0011574834473842095,
+                0.009563333658412863
+              ],
+              "luma_mean_abs_error": 0.003059027922457393,
+              "gradient_joint_dot": 0.012504994552201965
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.00020888281410977907,
+                0.001858954631692593
+              ],
+              "luma_mean_abs_error": 0.0005065856155987399,
+              "gradient_joint_dot": 0.1003918408246172
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0004476098754952702,
+                0.0031810549580197135
+              ],
+              "luma_mean_abs_error": 0.0009917542999587472,
+              "gradient_joint_dot": 0.34437063793885364
+            }
+          },
+          "reverse_jitter/wrong_sign": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0009193167535627811,
+                0.010493455751651865
+              ],
+              "luma_mean_abs_error": 0.003286450809106131,
+              "gradient_joint_dot": -0.03217622739227733
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0009213099818435492,
+                0.010425318013651205
+              ],
+              "luma_mean_abs_error": 0.0037460097177486446,
+              "gradient_joint_dot": -0.04925110761648419
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0009139138492327585,
+                0.010502527295235473
+              ],
+              "luma_mean_abs_error": 0.0028318464792025286,
+              "gradient_joint_dot": 0.034513947940155415
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.001776804044449879,
+                0.016245236655292435
+              ],
+              "luma_mean_abs_error": 0.005873504133072445,
+              "gradient_joint_dot": -0.08624005802463962
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0017513352581858968,
+                0.01463487045446075
+              ],
+              "luma_mean_abs_error": 0.004551570839185315,
+              "gradient_joint_dot": -0.027784840722321156
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.0003986920811181163,
+                0.002556373476391204
+              ],
+              "luma_mean_abs_error": 0.0008005330970837279,
+              "gradient_joint_dot": 0.30721703941865014
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0006887942409818602,
+                0.005709139290725553
+              ],
+              "luma_mean_abs_error": 0.002125698577294887,
+              "gradient_joint_dot": 0.05901612769618704
+            }
+          },
+          "reverse_jitter/double_prev_current_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0005090563528935515,
+                0.005930143605448201
+              ],
+              "luma_mean_abs_error": 0.001621504665241268,
+              "gradient_joint_dot": 0.057438701147823984
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0005297024107870862,
+                0.005953419280627383
+              ],
+              "luma_mean_abs_error": 0.001803089791973557,
+              "gradient_joint_dot": 0.0683250133549957
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0004925367642256834,
+                0.005867550366524318
+              ],
+              "luma_mean_abs_error": 0.0014418772370570676,
+              "gradient_joint_dot": 0.021947586254256347
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0009083195356885136,
+                0.009303574290350444
+              ],
+              "luma_mean_abs_error": 0.0023389578109055446,
+              "gradient_joint_dot": 0.06277315918593229
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.000942151984509886,
+                0.00923769287830372
+              ],
+              "luma_mean_abs_error": 0.0027396519180651075,
+              "gradient_joint_dot": 0.039220023385551646
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.000195593418858356,
+                0.001694996961809267
+              ],
+              "luma_mean_abs_error": 0.0004900161386022059,
+              "gradient_joint_dot": 0.014931916415368238
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.000423630606855303,
+                0.003384388133802113
+              ],
+              "luma_mean_abs_error": 0.0010742564257519387,
+              "gradient_joint_dot": 0.20319654846327087
+            }
+          },
+          "reverse_jitter/double_current_prev_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.00022405032006783953,
+                0.00289042000460162
+              ],
+              "luma_mean_abs_error": 0.0007425318648798622,
+              "gradient_joint_dot": 0.7757456988076188
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.00022716240862494849,
+                0.0029069272941488183
+              ],
+              "luma_mean_abs_error": 0.0008242382942583898,
+              "gradient_joint_dot": 0.7931953219337226
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00022038463676336655,
+                0.0028241490412336057
+              ],
+              "luma_mean_abs_error": 0.0006617063256989092,
+              "gradient_joint_dot": 0.7231149608095213
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0004154027507234687,
+                0.0042389543171554795
+              ],
+              "luma_mean_abs_error": 0.0010752733115861723,
+              "gradient_joint_dot": 0.6881960399463972
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.00038325167716434926,
+                0.004233837163034455
+              ],
+              "luma_mean_abs_error": 0.0012800971588035326,
+              "gradient_joint_dot": 0.8111163386445803
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                9.264398814230203e-05,
+                0.0008467783436905678
+              ],
+              "luma_mean_abs_error": 0.0002415722403407766,
+              "gradient_joint_dot": 0.6302459026199813
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.00018499558170551132,
+                0.0014305123791845144
+              ],
+              "luma_mean_abs_error": 0.00044737048952779064,
+              "gradient_joint_dot": 0.8163932843104963
+            }
+          },
+          "half_plus/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                3.042140057728628e-05,
+                0.00040458839756028254
+              ],
+              "luma_mean_abs_error": 0.0001202559705714669,
+              "gradient_joint_dot": 0.9907186214234246
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                2.9859348053507104e-05,
+                0.0004043369105353336
+              ],
+              "luma_mean_abs_error": 0.00012953718256976916,
+              "gradient_joint_dot": 0.9907350507454367
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                3.083004885114397e-05,
+                0.000404660005862617
+              ],
+              "luma_mean_abs_error": 0.00011107482081714104,
+              "gradient_joint_dot": 0.9907248999638399
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                5.247238717402073e-05,
+                0.0006278899188725912
+              ],
+              "luma_mean_abs_error": 0.00015990943184563208,
+              "gradient_joint_dot": 0.9915878583658618
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                5.750575441839409e-05,
+                0.0006345169765601418
+              ],
+              "luma_mean_abs_error": 0.00021435496403575779,
+              "gradient_joint_dot": 0.9906160082140318
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                1.368344039146132e-05,
+                0.00012949455660934758
+              ],
+              "luma_mean_abs_error": 3.4919173093959646e-05,
+              "gradient_joint_dot": 0.990974942909753
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                2.4373201213440148e-05,
+                0.00023974578854561737
+              ],
+              "luma_mean_abs_error": 8.483923101469063e-05,
+              "gradient_joint_dot": 0.9891298944666524
+            }
+          },
+          "half_plus/raw_pixel_units_1": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.00038025723807196075,
+                0.0046412041391968775
+              ],
+              "luma_mean_abs_error": 0.0012601672010110502,
+              "gradient_joint_dot": 0.447796462205973
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0003910722664142428,
+                0.0047738896755149165
+              ],
+              "luma_mean_abs_error": 0.0013604721083729197,
+              "gradient_joint_dot": 0.4098760122225633
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0003680068074109885,
+                0.004530239773810319
+              ],
+              "luma_mean_abs_error": 0.0011609436970385562,
+              "gradient_joint_dot": 0.557492593847285
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0007803791576956755,
+                0.008700583470754279
+              ],
+              "luma_mean_abs_error": 0.0024045084387054948,
+              "gradient_joint_dot": 0.05308166077989604
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0006746846178881426,
+                0.006642574931898445
+              ],
+              "luma_mean_abs_error": 0.0017907323988519274,
+              "gradient_joint_dot": 0.6922725176229878
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.00017399701531554794,
+                0.0013467976085564414
+              ],
+              "luma_mean_abs_error": 0.0003716020481629987,
+              "gradient_joint_dot": 0.5341764561436908
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.00027717582870707925,
+                0.001869756207621097
+              ],
+              "luma_mean_abs_error": 0.0005551511876456654,
+              "gradient_joint_dot": 0.8997374140436132
+            }
+          },
+          "half_plus/wrong_sign": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0008628778903474688,
+                0.009888229903576061
+              ],
+              "luma_mean_abs_error": 0.0031489657659792094,
+              "gradient_joint_dot": 0.11913178109747208
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.000873078004192257,
+                0.009557634790603653
+              ],
+              "luma_mean_abs_error": 0.0035878490007741543,
+              "gradient_joint_dot": 0.11086623162262883
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0008508892998851485,
+                0.010181294710341616
+              ],
+              "luma_mean_abs_error": 0.002714814202147631,
+              "gradient_joint_dot": 0.13913429275594716
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.001663652023334797,
+                0.016704565640929786
+              ],
+              "luma_mean_abs_error": 0.005683191624785178,
+              "gradient_joint_dot": 0.05914882000047072
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0016084550269300714,
+                0.013125264781698134
+              ],
+              "luma_mean_abs_error": 0.004296218487902465,
+              "gradient_joint_dot": 0.13207658521163054
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.0004074444646688778,
+                0.0025402067303708416
+              ],
+              "luma_mean_abs_error": 0.0008053012185519543,
+              "gradient_joint_dot": -0.024920128341006938
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0006218575535225317,
+                0.0052267003316246894
+              ],
+              "luma_mean_abs_error": 0.0019993322055449733,
+              "gradient_joint_dot": 0.19589565073572343
+            }
+          },
+          "half_plus/double_prev_current_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0002283620583182662,
+                0.002701294938536051
+              ],
+              "luma_mean_abs_error": 0.0007373059389783882,
+              "gradient_joint_dot": 0.7833191348076709
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.00023601511666138976,
+                0.0027806183780061484
+              ],
+              "luma_mean_abs_error": 0.0008184353127078187,
+              "gradient_joint_dot": 0.791375668580872
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0002192183770481906,
+                0.002623312125372393
+              ],
+              "luma_mean_abs_error": 0.0006570512341164775,
+              "gradient_joint_dot": 0.7620249769443088
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.00042010129217056854,
+                0.00425737394955965
+              ],
+              "luma_mean_abs_error": 0.00109902304200779,
+              "gradient_joint_dot": 0.7719953492701533
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0004110786975927729,
+                0.0042062877433078
+              ],
+              "luma_mean_abs_error": 0.0012185449958161763,
+              "gradient_joint_dot": 0.793762223814929
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                9.218681152875952e-05,
+                0.0008415201098099899
+              ],
+              "luma_mean_abs_error": 0.0002364468875136975,
+              "gradient_joint_dot": 0.742577833675134
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.00018197251065295585,
+                0.0015437004373442613
+              ],
+              "luma_mean_abs_error": 0.00046289844769097923,
+              "gradient_joint_dot": 0.7817687384566563
+            }
+          },
+          "half_plus/double_current_prev_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.00022331838736087354,
+                0.0028750204980563937
+              ],
+              "luma_mean_abs_error": 0.0007289948129824675,
+              "gradient_joint_dot": 0.7591621629459009
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0002329894591192388,
+                0.0029628380195632588
+              ],
+              "luma_mean_abs_error": 0.0008018874662784868,
+              "gradient_joint_dot": 0.7803018788956341
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00021621046880620836,
+                0.002809541881684387
+              ],
+              "luma_mean_abs_error": 0.0006568880271420703,
+              "gradient_joint_dot": 0.6986006765580653
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.00040888040501947144,
+                0.0046428719788095775
+              ],
+              "luma_mean_abs_error": 0.001067922486797566,
+              "gradient_joint_dot": 0.6579543983948493
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.00038933866825300234,
+                0.004176633958259817
+              ],
+              "luma_mean_abs_error": 0.001222496120511453,
+              "gradient_joint_dot": 0.817255556031161
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                9.006699696744672e-05,
+                0.0008978670954691527
+              ],
+              "luma_mean_abs_error": 0.00023355763553312064,
+              "gradient_joint_dot": 0.6948255739587601
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0001826302549648043,
+                0.0015078590818590272
+              ],
+              "luma_mean_abs_error": 0.00046101819860728665,
+              "gradient_joint_dot": 0.7003078722299978
+            }
+          },
+          "half_minus/output_pixel_units_1.5": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                2.5732184848208995e-05,
+                0.000373785123093057
+              ],
+              "luma_mean_abs_error": 0.00010762956421161112,
+              "gradient_joint_dot": 0.9917237834664892
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                2.4672717970784276e-05,
+                0.0003781561709443065
+              ],
+              "luma_mean_abs_error": 0.00011492744452862283,
+              "gradient_joint_dot": 0.9918797453566686
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                2.6455822235206018e-05,
+                0.00036925191351052744
+              ],
+              "luma_mean_abs_error": 0.00010041036351973083,
+              "gradient_joint_dot": 0.9912600893041671
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                4.6752531981919185e-05,
+                0.0006157781864715558
+              ],
+              "luma_mean_abs_error": 0.00015390140052231273,
+              "gradient_joint_dot": 0.9911939275485285
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                4.757280927513048e-05,
+                0.0005585101885595949
+              ],
+              "luma_mean_abs_error": 0.0001867757538881563,
+              "gradient_joint_dot": 0.9913080934212712
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                1.0550590325561287e-05,
+                0.00010998945594854972
+              ],
+              "luma_mean_abs_error": 3.0656907528618314e-05,
+              "gradient_joint_dot": 0.991645473823243
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                2.0649076975654554e-05,
+                0.0002234863105640872
+              ],
+              "luma_mean_abs_error": 7.021471167503209e-05,
+              "gradient_joint_dot": 0.995606946119562
+            }
+          },
+          "half_minus/raw_pixel_units_1": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0003928836335797967,
+                0.004806571640530498
+              ],
+              "luma_mean_abs_error": 0.0013122413135231003,
+              "gradient_joint_dot": 0.5041336437567898
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.00039275970415153733,
+                0.004993501715337785
+              ],
+              "luma_mean_abs_error": 0.00142551113653629,
+              "gradient_joint_dot": 0.49239493797527073
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0003933115113758344,
+                0.004661745066048875
+              ],
+              "luma_mean_abs_error": 0.0012001926707466705,
+              "gradient_joint_dot": 0.5516117313298251
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0007633676529324007,
+                0.009348171628870246
+              ],
+              "luma_mean_abs_error": 0.0025217089419412786,
+              "gradient_joint_dot": 0.22660770197848706
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0007436860602547286,
+                0.006621242764442543
+              ],
+              "luma_mean_abs_error": 0.0018882995706812468,
+              "gradient_joint_dot": 0.649586849792267
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.00018276612015323505,
+                0.001396423799167989
+              ],
+              "luma_mean_abs_error": 0.0003921215615321954,
+              "gradient_joint_dot": 0.5254069772239546
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0002746019232983559,
+                0.0017454526329849411
+              ],
+              "luma_mean_abs_error": 0.0005339498781245447,
+              "gradient_joint_dot": 0.9150145053013534
+            }
+          },
+          "half_minus/wrong_sign": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.0008712397890716566,
+                0.009849343788859445
+              ],
+              "luma_mean_abs_error": 0.003122219507757152,
+              "gradient_joint_dot": 0.04777925018329042
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0008689282470522053,
+                0.010019578237775287
+              ],
+              "luma_mean_abs_error": 0.0036154907422831636,
+              "gradient_joint_dot": 0.008166708105468785
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.0008755047829244363,
+                0.009731902046276922
+              ],
+              "luma_mean_abs_error": 0.0026342663099945193,
+              "gradient_joint_dot": 0.16654322406503447
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0016665854999347843,
+                0.0163436198619663
+              ],
+              "luma_mean_abs_error": 0.005645932852121021,
+              "gradient_joint_dot": -0.0243551055936874
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0016944870822442554,
+                0.013596162816982024
+              ],
+              "luma_mean_abs_error": 0.004259582447791705,
+              "gradient_joint_dot": 0.03961085243261541
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                0.000413290851811958,
+                0.0025543358021072357
+              ],
+              "luma_mean_abs_error": 0.0008304092974926808,
+              "gradient_joint_dot": 0.1287015419137025
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.0006304957591412837,
+                0.005226922148100059
+              ],
+              "luma_mean_abs_error": 0.001938516903988325,
+              "gradient_joint_dot": 0.24914604687968658
+            }
+          },
+          "half_minus/double_prev_current_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.00022381124812833643,
+                0.0026393102989009584
+              ],
+              "luma_mean_abs_error": 0.000713869758823527,
+              "gradient_joint_dot": 0.7134731867651178
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0002338636204713869,
+                0.002699479084347759
+              ],
+              "luma_mean_abs_error": 0.0007870114481104891,
+              "gradient_joint_dot": 0.7172353289461142
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00021562253500685084,
+                0.0025531610392085123
+              ],
+              "luma_mean_abs_error": 0.0006415166218893846,
+              "gradient_joint_dot": 0.7015511355860072
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.00041002770305098026,
+                0.003939794658277944
+              ],
+              "luma_mean_abs_error": 0.0010407486017919815,
+              "gradient_joint_dot": 0.7413099450217258
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0004197952680429363,
+                0.0039451438145621616
+              ],
+              "luma_mean_abs_error": 0.0011956603948588892,
+              "gradient_joint_dot": 0.6944003196172281
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                8.606421629103831e-05,
+                0.0007264947265439205
+              ],
+              "luma_mean_abs_error": 0.0002230040949298168,
+              "gradient_joint_dot": 0.7043314926455894
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.00018381361822795712,
+                0.0015468667004090002
+              ],
+              "luma_mean_abs_error": 0.0004636756639649462,
+              "gradient_joint_dot": 0.7680915856543828
+            }
+          },
+          "half_minus/double_current_prev_jitter": {
+            "all": {
+              "samples": 10517,
+              "luma_abs_error_p50_p95": [
+                0.000223658785997263,
+                0.002728545390155657
+              ],
+              "luma_mean_abs_error": 0.0007377259040329761,
+              "gradient_joint_dot": 0.768588694152726
+            },
+            "fixed_even_tiles": {
+              "samples": 5230,
+              "luma_abs_error_p50_p95": [
+                0.0002321967561043522,
+                0.002682905862760163
+              ],
+              "luma_mean_abs_error": 0.0008110843981266405,
+              "gradient_joint_dot": 0.7711133581780043
+            },
+            "fixed_odd_tiles": {
+              "samples": 5287,
+              "luma_abs_error_p50_p95": [
+                0.00021618761184097899,
+                0.002754914065625571
+              ],
+              "luma_mean_abs_error": 0.0006651582996997315,
+              "gradient_joint_dot": 0.7604794678985276
+            },
+            "quadrant_0_0": {
+              "samples": 2694,
+              "luma_abs_error_p50_p95": [
+                0.0004159966356237358,
+                0.003957322497699903
+              ],
+              "luma_mean_abs_error": 0.001062183966649397,
+              "gradient_joint_dot": 0.6714418143943114
+            },
+            "quadrant_0_1": {
+              "samples": 2379,
+              "luma_abs_error_p50_p95": [
+                0.0003947902757475818,
+                0.004353146462400838
+              ],
+              "luma_mean_abs_error": 0.0012658841214529478,
+              "gradient_joint_dot": 0.7961438225977951
+            },
+            "quadrant_1_0": {
+              "samples": 2762,
+              "luma_abs_error_p50_p95": [
+                8.56651472817005e-05,
+                0.0007409225201199657
+              ],
+              "luma_mean_abs_error": 0.00021842290309653675,
+              "gradient_joint_dot": 0.6075080798762567
+            },
+            "quadrant_1_1": {
+              "samples": 2682,
+              "luma_abs_error_p50_p95": [
+                0.00018790105079871916,
+                0.0014976633996830436
+              ],
+              "luma_mean_abs_error": 0.0004781198147919975,
+              "gradient_joint_dot": 0.8822121931588948
+            }
+          }
+        },
+        "interpretation": "Descriptive SR temporal reprojection only; no residual mask or exposure fitting. Unknown object regions and SR history can change ranking. NOT NR scale or phase acceptance."
+      }
+    }
+  ],
+  "Q1_recorded_contract_evidence": [
+    {
+      "input": {
+        "path": "bbport/runs/q1-game-q1-single-20261012/frames/bucket-000000/input-q1-single-20261012-g0-f0.json",
+        "bytes": 2834,
+        "sha256": "564732aa63e2d91e2b8c745b408a4f7b9d768a779bf74a5eabaa06e4a462773c"
+      },
+      "source": 8684,
+      "guide_extent": [
+        1280,
+        720
+      ],
+      "output_extent": [
+        1920,
+        1080
+      ],
+      "current_jitter": [
+        -0.4375,
+        0.3888888955116272
+      ],
+      "previous_jitter": [
+        0.375,
+        0.05555558204650879
+      ],
+      "NR_scale_candidate": [
+        1.0,
+        1.0
+      ],
+      "same_texel_conversion": "previously independently byte-verified; no spatial correction",
+      "camera_matrices": "NOT_RECORDED_IN_INPUT; no Q0 camera mask borrowed"
+    },
+    {
+      "input": {
+        "path": "bbport/runs/q1-game-q1-resident4-20261012/frames/bucket-000000/input-q1-resident4-20261012-g0-f0.json",
+        "bytes": 2843,
+        "sha256": "882ca63350f904c1205c09a43d8f702975effcb973c4023f7fded4b44209cad4"
+      },
+      "source": 9541,
+      "guide_extent": [
+        1280,
+        720
+      ],
+      "output_extent": [
+        1920,
+        1080
+      ],
+      "current_jitter": [
+        0.0,
+        -0.1666666567325592
+      ],
+      "previous_jitter": [
+        -0.21875,
+        -0.4259259104728699
+      ],
+      "NR_scale_candidate": [
+        1.0,
+        1.0
+      ],
+      "same_texel_conversion": "previously independently byte-verified; no spatial correction",
+      "camera_matrices": "NOT_RECORDED_IN_INPUT; no Q0 camera mask borrowed"
+    },
+    {
+      "input": {
+        "path": "bbport/runs/q1-game-q1-resident4-20261012/frames/bucket-000000/input-q1-resident4-20261012-g0-f1.json",
+        "bytes": 2842,
+        "sha256": "fb76454fd4bcb9c4c8746c1ec5ed1b4ceef50be83ee73762f102f4941e61de5d"
+      },
+      "source": 9542,
+      "guide_extent": [
+        1280,
+        720
+      ],
+      "output_extent": [
+        1920,
+        1080
+      ],
+      "current_jitter": [
+        -0.25,
+        0.1666666865348816
+      ],
+      "previous_jitter": [
+        0.0,
+        -0.1666666567325592
+      ],
+      "NR_scale_candidate": [
+        1.0,
+        1.0
+      ],
+      "same_texel_conversion": "previously independently byte-verified; no spatial correction",
+      "camera_matrices": "NOT_RECORDED_IN_INPUT; no Q0 camera mask borrowed"
+    },
+    {
+      "input": {
+        "path": "bbport/runs/q1-game-q1-resident4-20261012/frames/bucket-000000/input-q1-resident4-20261012-g0-f2.json",
+        "bytes": 2845,
+        "sha256": "cc8e0c30d9fb39820cc6a08fe529fe65500a201b1478c2e3daf94813c905126c"
+      },
+      "source": 9543,
+      "guide_extent": [
+        1280,
+        720
+      ],
+      "output_extent": [
+        1920,
+        1080
+      ],
+      "current_jitter": [
+        0.25,
+        -0.3888888955116272
+      ],
+      "previous_jitter": [
+        -0.25,
+        0.1666666865348816
+      ],
+      "NR_scale_candidate": [
+        1.0,
+        1.0
+      ],
+      "same_texel_conversion": "previously independently byte-verified; no spatial correction",
+      "camera_matrices": "NOT_RECORDED_IN_INPUT; no Q0 camera mask borrowed"
+    },
+    {
+      "input": {
+        "path": "bbport/runs/q1-game-q1-resident4-20261012/frames/bucket-000000/input-q1-resident4-20261012-g0-f3.json",
+        "bytes": 2849,
+        "sha256": "c3724701a0624fba26b9fe36873f4714f81d478d7bebe9d86ff3099f771233a1"
+      },
+      "source": 9544,
+      "guide_extent": [
+        1280,
+        720
+      ],
+      "output_extent": [
+        1920,
+        1080
+      ],
+      "current_jitter": [
+        -0.375,
+        -0.0555555522441864
+      ],
+      "previous_jitter": [
+        0.25,
+        -0.3888888955116272
+      ],
+      "NR_scale_candidate": [
+        1.0,
+        1.0
+      ],
+      "same_texel_conversion": "previously independently byte-verified; no spatial correction",
+      "camera_matrices": "NOT_RECORDED_IN_INPUT; no Q0 camera mask borrowed"
+    }
+  ],
+  "NR_MVecScale": "UNVERIFIED; output coordinate factor1.5 is not model API parameter proof",
+  "k_output": "NOT_IDENTIFIED",
+  "object_mask": "UNAVAILABLE; geometric samples not certified camera-only",
+  "NR_phase": "UNVERIFIED",
+  "quality_performance": "NOT_ASSESSED"
+}
