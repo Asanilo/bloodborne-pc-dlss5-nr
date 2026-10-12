@@ -3226,6 +3226,14 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         last_dlss_jitter_x = sign * jitter[0];
         last_dlss_jitter_y = sign * jitter[1];
         last_dlss_frame_ms = frame_ms;
+        // Only the normal opt-in Quality HDR route. Feature creation above, motion
+        // generation, sharpening, NR, merge and Present are outside this interval.
+        const u64 sr_timing_source=BbStats::gpu_frames.load(std::memory_order_relaxed);
+        std::optional<unsigned> sr_timing_slot;
+        if (P0SrTiming::Enabled() && hdr && !Scaled() && w==1280 && h==720 && ow==1920 && oh==1080) {
+            if (!p0_sr_timing) p0_sr_timing=std::make_shared<P0SrTiming>(instance);
+            sr_timing_slot=p0_sr_timing->Begin(cmdbuf,sr_timing_source);
+        }
         ok = dlss->Evaluate(cmdbuf, {
             .color = color,
             .depth = depth,
@@ -3239,6 +3247,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             .frame_ms = frame_ms,
             .sharpness = settings.sharpen ? std::min(settings.sharpness.load(), 1.0f) : 0.0f,
         });
+        if (sr_timing_slot) p0_sr_timing->End(cmdbuf,scheduler,*sr_timing_slot,sr_timing_source,ok);
     }
     if (ok) {
         const u64 source_frame = BbStats::gpu_frames.load(std::memory_order_relaxed);

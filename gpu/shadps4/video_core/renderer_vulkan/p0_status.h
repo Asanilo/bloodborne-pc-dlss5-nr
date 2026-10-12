@@ -90,4 +90,14 @@ EnableRequest ReadRequest() noexcept;
 // Called only by renderer/controller. No UI thread may use this to release resources.
 void Publish(Snapshot value);
 Snapshot ReadSnapshot();
+// Separate local timing mailbox: controller state publication cannot overwrite it.
+// Latest completed source is explicit; it is not necessarily the current UI frame.
+struct SrTiming {
+    bool enabled=false;
+    uint64_t source_game_frame=0, completed_tick=0;
+    std::optional<double> commands_gpu_ms;
+    std::string reason;
+};
+void PublishSrTiming(SrTiming);
+SrTiming ReadSrTiming();
 } // namespace BbP0

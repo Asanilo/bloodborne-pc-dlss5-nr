@@ -2,6 +2,7 @@
 #include "p0_game_bridge.h"
 #include "p0_wire.h"
 #include "p0_wait_budget.h"
+#include "p0_timing_math.h"
 
 #include <cerrno>
 #include <algorithm>
@@ -1216,6 +1217,7 @@ vk::ImageView P0GameBridge::ProcessFrame(const Instance& instance, Scheduler& sc
         pending_input=wire_input;
         late_completion_deadline=std::chrono::steady_clock::now()+std::chrono::seconds(60);
         AtomicWrite(input_path, input_wire);
+        const auto input_publish_completed_ns = monotonic_ns(); // successful rename has returned
         std::printf("P0_INPUT_READY mode=%s session=%s execution_mode=%s frame=%u source_game_frame=%llu prev_source_game_frame=%llu source_reset=%u nr_reset=%u reset_reason=%s audit_kind=%s input_tick=%llu actual_jitter_recorded=1 pixel_scope=%s signature=%s\n",
             mode.c_str(), session.c_str(), execution_mode.c_str(), frame, (unsigned long long)source_game_frame,
             (unsigned long long)previous_source, source_reset, nr_reset, reset_reason.c_str(),
@@ -1514,9 +1516,19 @@ vk::ImageView P0GameBridge::ProcessFrame(const Instance& instance, Scheduler& sc
         frame_record["guard_profile"] = "finite_abs_le65504";
         frame_record["audit_readback_bytes"] = diagnostic?bytes32*2+(skip?0:bytes16)+18432000+(skip?128:148):4u;
         frame_record["input_observed_cpu_monotonic_ns"] = frame_start_monotonic_ns;
-        frame_record["input_published_cpu_monotonic_ns"] = input_published_ns;
+        frame_record["input_published_cpu_monotonic_ns"] = input_published_ns; // legacy BEFORE-write point
+        frame_record["input_published_cpu_monotonic_scope"] = "legacy_before_AtomicWrite_not_publication_completion";
+        frame_record["input_publish_completed_cpu_monotonic_ns"] = input_publish_completed_ns;
+        frame_record["input_publish_completed_scope"] = "native_AtomicWrite_close_and_successful_atomic_rename_returned_not_peer_observation";
+        frame_record["input_publication_cpu_ms"] = double(input_publish_completed_ns-input_published_ns)/1e6;
+        frame_record["published_to_complete_observed_cpu_ms"] = double(complete_observed_ns-input_publish_completed_ns)/1e6;
+        frame_record["CPU_clock_scope"] = "same_native_steady_clock_no_Helper_clock_synchronization";
         frame_record["complete_observed_cpu_monotonic_ns"] = complete_observed_ns;
-        frame_record["selection_ready_cpu_monotonic_ns"] = monotonic_ns();
+        const auto selection_ready_ns=monotonic_ns();
+        frame_record["selection_ready_cpu_monotonic_ns"] = selection_ready_ns;
+        frame_record["selection_ready_scope"] = "native_validation_and_consumed_complete_before_caller_selection_and_merge_not_Present";
+        frame_record["publication_clock_order_valid"] = P0Timing::PublishOrder(
+            input_published_ns,input_publish_completed_ns,complete_observed_ns,selection_ready_ns);
         frame_record["completion_poll"] = {{"interval_ms", 1u},
             {"attempts", completion_poll_attempts}, {"sleeps", completion_poll_sleeps},
             {"elapsed_ms", completion_poll_elapsed_ms}, {"clock", "steady_clock monotonic"},

@@ -32,6 +32,7 @@
 #include "video_core/renderer_vulkan/q1_nr_process.h"
 #include "video_core/renderer_vulkan/q1_game_bridge.h"
 #include "video_core/renderer_vulkan/p0_controller.h"
+#include "video_core/renderer_vulkan/p0_sr_timing.h"
 #include "video_core/renderer_vulkan/vk_dlss.h"
 #include "video_core/renderer_vulkan/vk_fsr4.h"
 #include "video_core/texture_cache/image.h"
@@ -180,6 +181,7 @@ private:
     std::array<ViewEntry, 6> view_cache{};
     u64 view_uses = 0;
 
+    std::shared_ptr<P0SrTiming> p0_sr_timing; // pool kept alive by actual-GPU completion callbacks
     void Run();
     void RunScaled();
     void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth);

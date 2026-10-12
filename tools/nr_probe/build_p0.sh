@@ -19,8 +19,12 @@ SOURCE_LIST=(
     gpu/shadps4/video_core/renderer_vulkan/p0_status.h
     gpu/shadps4/video_core/renderer_vulkan/p0_wire.h
     gpu/shadps4/video_core/renderer_vulkan/p0_wait_budget.h
+    gpu/shadps4/video_core/renderer_vulkan/p0_timing_math.h
+    gpu/shadps4/video_core/renderer_vulkan/p0_sr_timing.h
+    gpu/shadps4/video_core/renderer_vulkan/p0_sr_timing.cpp
     gpu/shadps4/video_core/host_shaders/p0_game_bridge.comp
     gpu/shim/bbport_overlay.cpp
+    gpu/shim/bbgpu.cpp
     tools/nr_probe/build_p0.sh
     tools/nr_probe/run_game_p0.sh
     tools/nr_probe/test_p0_cpu.cpp

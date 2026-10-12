@@ -2,11 +2,13 @@
 #include "video_core/renderer_vulkan/p0_wire.h"
 #include "video_core/renderer_vulkan/p0_status.h"
 #include "video_core/renderer_vulkan/p0_wait_budget.h"
+#include "video_core/renderer_vulkan/p0_timing_math.h"
 #include <atomic>
 #include <cassert>
 #include <iostream>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <thread>
 using namespace Vulkan;
 int main(int argc,char**argv) {
@@ -39,6 +41,30 @@ int main(int argc,char**argv) {
  const auto point=std::chrono::steady_clock::time_point{std::chrono::nanoseconds{123}};
  require(P0Wait::EpochNs(point)==123);
  const auto now=std::chrono::steady_clock::now();require(P0Wait::Remaining(P0Wait::EpochNs(now),P0Wait::EpochNs(now)).kind==BK::Expired);
+ // Production timestamp arithmetic and finite-slot reuse decision, no actual queries/GPU.
+ P0Timing::Slots timing_slots;
+ for(unsigned i=0;i<4;++i) require(timing_slots.Claim()==i);
+ require(!timing_slots.Claim());require(!timing_slots.Complete(0,false));require(!timing_slots.Claim());
+ require(!timing_slots.Complete(4,true));require(timing_slots.Complete(0,true));
+ require(!timing_slots.Complete(0,true));require(timing_slots.Claim()==0);
+ const std::array<uint64_t,4> q{100,1,150,1};
+ require(P0Timing::DurationMs(0,q,64,1000,true)==.05);
+ require(P0Timing::DurationMs(0,{250,1,5,1},8,1000,true)==.011);
+ require(P0Timing::DurationMs(0,{UINT64_MAX-4,1,5,1},64,1000,true)==.010);
+ require(!P0Timing::DurationMs(1,q,64,1,true));require(!P0Timing::DurationMs(-4,q,64,1,true));
+ require(!P0Timing::DurationMs(0,q,64,1,false));
+ require(!P0Timing::DurationMs(0,{100,0,150,1},64,1,true));
+ require(!P0Timing::DurationMs(0,{100,1,150,0},64,1,true));
+ require(!P0Timing::DurationMs(0,q,0,1,true));require(!P0Timing::DurationMs(0,q,65,1,true));
+ require(!P0Timing::DurationMs(0,q,64,0,true));require(!P0Timing::DurationMs(0,q,64,-1,true));
+ require(!P0Timing::DurationMs(0,q,64,std::numeric_limits<double>::infinity(),true));
+ require(!P0Timing::DurationMs(0,q,64,std::numeric_limits<double>::quiet_NaN(),true));
+ require(P0Timing::PublishOrder(1,2,3,4));require(P0Timing::PublishOrder(1,1,1,1));
+ require(!P0Timing::PublishOrder(2,1,3,4));require(!P0Timing::PublishOrder(1,3,2,4));
+ require(!P0Timing::PublishOrder(1,2,4,3));
+ BbP0::PublishSrTiming({true,9,18,.25,"available"});
+ BbP0::PublishSrTiming({true,8,16,.5,"older"});require(BbP0::ReadSrTiming().source_game_frame==9);
+ BbP0::PublishSrTiming({true,10,0,{},"pending_slots"});require(!BbP0::ReadSrTiming().commands_gpu_ms);
  auto profile=P0Wire::Parse(P0Wire::Profile().dump(),"own wire");P0Wire::ValidateProfile(profile);++checks;
  require(profile["passthrough"].is_boolean()&&!profile["passthrough"].get<bool>());
  require(profile["nr_mvec_scale_status"]=="EXPERIMENTAL_UNVERIFIED");
@@ -132,5 +158,5 @@ int main(int argc,char**argv) {
  unsafe=retired;unsafe.unknown_gpu_state=true;require(!active.PublishProof(unsafe));
  require(active.Read()==BbP0::ExitState::Draining);require(active.PublishProof(retired));
  require(!active.PublishProof(retired));require(active.Read()==BbP0::ExitState::NormalComplete);
- std::cout<<"{\"status\":\"PASS\",\"scope\":\"CPU wire/types/paths/UI and pure wait budget/result cases only; actual Vulkan/GPU waits NOT_RUN\",\"checks\":"<<checks<<"}\n";
+ std::cout<<"{\"status\":\"PASS\",\"scope\":\"CPU wire/types/paths/UI and pure wait/timestamp/slot/publication math only; actual Vulkan/GPU waits/queries NOT_RUN\",\"checks\":"<<checks<<"}\n";
 }

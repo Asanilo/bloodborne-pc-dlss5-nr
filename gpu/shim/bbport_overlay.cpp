@@ -205,6 +205,11 @@ void Menu() {
         ImGui::TextWrapped("%s",p0.reason.c_str());
         ImGui::TextWrapped("Quality direct720; motion scale/phase experimental. Style 0, strength 1.");
     }
+    if (const auto sr=BbP0::ReadSrTiming();sr.enabled) {
+        if(sr.commands_gpu_ms) ImGui::Text("SR Evaluate commands %.2f ms (includes dependencies)",*sr.commands_gpu_ms);
+        else ImGui::TextUnformatted("SR Evaluate commands: not measured");
+        ImGui::Text("Latest SR timing source frame %llu",(unsigned long long)sr.source_game_frame);
+    }
     // Always readable, even when the rest of the menu is in Russian.
     static const char* languages[] = {"English", "Русский", "简体中文"};
     int language = static_cast<int>(s.menu_language.load());
