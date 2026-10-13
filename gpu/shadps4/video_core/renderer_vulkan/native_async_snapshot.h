@@ -65,7 +65,8 @@ private:
  std::shared_ptr<Retention> retained;
  std::shared_ptr<NativeOriginOwner> peer;
  std::unique_ptr<BbNativeAsync::Frontend> frontend;
- std::shared_ptr<NativeSkyDiagnostic> diagnostic;
+ std::shared_ptr<NativeSkyDiagnostic> diagnostic,edit_diagnostic;
+ std::optional<NativeSkyDiagnostic::EditContext> edit_anchor;
  bool snapshot_creation_attempted=false;
  bool sparse_anchor=false,effect_selected=false;unsigned effect_job=0;
  uint64_t source_count=0;

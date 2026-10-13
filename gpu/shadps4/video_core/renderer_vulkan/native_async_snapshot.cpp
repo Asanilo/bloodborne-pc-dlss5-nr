@@ -13,6 +13,7 @@ void NativeAsyncSnapshot::Create(const Instance& instance) {
  auto next=std::make_shared<Retention>();
  if(peer)next->quiescence=peer->Quiescence();
  if(NativeSkyDiagnostic::Enabled()&&!diagnostic)diagnostic=std::make_shared<NativeSkyDiagnostic>(instance);
+ if(NativeSkyDiagnostic::EditEnabled()&&!edit_diagnostic)edit_diagnostic=std::make_shared<NativeSkyDiagnostic>(instance,true);
  for(unsigned i=0;i<next->images.size();++i){
   const bool color=i%3==0,depth=i%3==1;
   auto& image=next->images[i];image=VideoCore::UniqueImage(instance.GetDevice(),instance.GetAllocator());
@@ -123,7 +124,17 @@ vk::ImageView NativeAsyncSnapshot::RecordAdvanceAndApply(Scheduler& scheduler,ui
    auto final=TryRecordSparseComplete(scheduler,job->resources,job->complete,current_source,job->final);
    if(final.disposition!=SparseDisposition::Unavailable){
     TrackUse(scheduler);peer->FinalRecorded(job,final.disposition);
-    if(final.view){view=final.view;sparse_anchor=true;effect_job=unsigned(job->id.job);}
+    if(final.view){view=final.view;sparse_anchor=true;effect_job=unsigned(job->id.job);
+     // Only a verified, actually Captured sparse result can establish this
+     // diagnostic origin. Cache applications must remain in the same lineage.
+     NativeSkyDiagnostic::EditContext c;
+     c.identity.origin=job->id.origin_source;c.identity.origin_epoch=job->id.origin_epoch;
+     c.identity.origin_history=job->id.origin_history;c.identity.origin_params=job->id.params_version;
+     c.identity.job=job->id.job;c.identity.resident=true;
+     c.identity.captured=final.disposition==SparseDisposition::Captured;
+     c.native_input_tick=job->complete.input_tick_echo;c.helper_serial=job->complete.helper_gpu_serial;
+     c.resource_set=job->id.resource_set;edit_anchor=c;
+    }
    }
   }
   if(peer->State()==NativeOriginOwner::Phase::Ready){
@@ -134,6 +145,18 @@ vk::ImageView NativeAsyncSnapshot::RecordAdvanceAndApply(Scheduler& scheduler,ui
   }
   if(!sparse_anchor)return {};
   effect_selected=true;
+ }
+ // AFTER sparse completion/catchup: resolve the final returned view to its
+ // actual image. The current converted SR is never the old origin's Color.
+ if(edit_diagnostic&&peer&&effect_selected&&edit_anchor){
+  auto c=*edit_anchor;c.identity.current=record->frame.source;
+  c.identity.current_epoch=record->frame.epoch;c.identity.current_history=record->frame.history;
+  c.identity.current_params=record->frame.params;
+  bool replay=false;auto selected=retained->sky->SelectedOutput(index,view,replay);
+  c.identity.actual_view_image_match=bool(selected);c.replay=replay;
+  if(c.identity.origin==origin.source&&c.identity.origin_epoch==origin.epoch&&
+     c.identity.origin_history==origin.history&&c.identity.origin_params==origin.params)
+   edit_diagnostic->RecordEditOnce(scheduler,retained->sky->Converted(index)[0],selected,record->frame,c);
  }
  return view;
 }
@@ -203,6 +226,7 @@ void NativeAsyncSnapshot::MergeRecorded(Scheduler& scheduler,uint64_t source) {
  if(!retained||chain.LastSource()!=source)return;
  TrackUse(scheduler);
  const auto tick=scheduler.CurrentTick();auto hold=retained;
+ if(edit_diagnostic)edit_diagnostic->EditMergeRecorded(scheduler,source);
  // Every retained origin/link and both history banks have participated in this
  // queue-ordered cache chain. Keep them through the REAL merge final-use tick.
  for(const auto& lease:hold->leases)if(lease)lease->merge=tick;
@@ -239,7 +263,7 @@ bool NativeAsyncSnapshot::TryCaptureOrigin(const Instance& instance,Scheduler& s
   chain.Restart(decision==BbNativeAsync::Chain::Decision::Discontinuity);
   for(auto& record:retained->records)record.reset();
   for(auto& lease:retained->leases)lease.reset();
-  retained->sky->Restart();sparse_anchor=false;
+  retained->sky->Restart();sparse_anchor=false;edit_anchor.reset();
  }
  const unsigned index=chain.Size();meta.copy_tick=scheduler.CurrentTick();
  BbNativeAsync::Frame next=meta; // commit chain only if bounded owner reservation succeeds

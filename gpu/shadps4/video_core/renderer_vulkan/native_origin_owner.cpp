@@ -160,7 +160,11 @@ void NativeOriginOwner::Run(std::stop_token stop,const Instance&instance){
    if(state==Phase::InputRecorded&&current&&current->input->native_GPU_complete.load(std::memory_order_acquire)){
     imported_native_used=true;auto x=common;x.update(J{{"job",current->id.job},{"origin_source",current->id.origin_source},{"origin_epoch",current->id.origin_epoch},{"origin_history",current->id.origin_history},{"op","input"},{"status","ORIGIN_INPUT_READY"},{"native_input_tick",current->input->native_target_tick},{"native_input_GPU_complete",true},{"source_reset",current->origin.sr_reset},{"model_reset",1u},
      {"source_jitter_metadata",{{"viewport_jitter_x",current->origin.viewport[0]},{"viewport_jitter_y",current->origin.viewport[1]},{"previous_viewport_jitter_x",current->origin.previous_viewport[0]},{"previous_viewport_jitter_y",current->origin.previous_viewport[1]},{"sr_jitter_x",current->origin.sr_jitter[0]},{"sr_jitter_y",current->origin.sr_jitter[1]},{"previous_sr_jitter_x",current->origin.previous_sr_jitter[0]},{"previous_sr_jitter_y",current->origin.previous_sr_jitter[1]}}}});
-    x=W::parse(x.dump());W::input(x,common,counts.finalized);Atomic(W::job_path(run,"input",session,counts.finalized),x.dump()+"\n");phase.store(Phase::WaitingComplete,std::memory_order_release);
+    x=W::parse(x.dump());W::input(x,common,counts.finalized);Atomic(W::job_path(run,"input",session,counts.finalized),x.dump()+"\n");std::printf("NATIVE_ORIGIN_INPUT_PUBLISHED session=%s job=%llu origin=%llu native_input_tick=%llu native_monotonic_ns=%llu scope=after_successful_atomic_publish clock=native_steady helper_serial=NOT_YET_AVAILABLE\n",
+     session.c_str(),(unsigned long long)current->id.job,(unsigned long long)current->id.origin_source,
+     (unsigned long long)current->input->native_target_tick,
+     (unsigned long long)std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
+    phase.store(Phase::WaitingComplete,std::memory_order_release);
     auto e=wait(W::job_path(run,"complete",session,counts.finalized),std::chrono::seconds(30));auto keys=W::keys(common);
     for(auto k:{"job","origin_source","origin_epoch","origin_history","op","status","native_input_tick_echo","helper_gpu_serial","helper_GPU_complete","output_valid","model_valid","evaluate_calls","evaluate_result","resolve_calls","model_reset","evaluate_parameters","gpu_times"})keys.insert(k);
     W::exact(e,keys);W::common_check(e,common);
@@ -169,6 +173,10 @@ void NativeOriginOwner::Run(std::stop_token stop,const Instance&instance){
     J params=negative?J::object():J{{"model_extent",{1280u,720u}},{"guide_extent",{1280u,720u}},{"color_format",109u},{"raw_format",97u},{"DepthInverted",0u},{"Reset",1u},{"Intensity",1.0},{"Style",0u},{"LocalStructure",1.0},{"LocalTone",1.0},{"SkinStructure",1.0},{"AutoMask",1u},{"MVecScale",{1.0,1.0}},{"jitter_setter","NONE"}};
     W::need(W::same_typed(e["evaluate_parameters"],W::parse(J{{"p",params}}.dump())["p"]),"actual fixed Evaluate arguments");last_helper_serial=W::u(e,"helper_gpu_serial");
     current->complete={current->id,current->input->native_target_tick,last_helper_serial,true,true,!negative,!negative,negative,W::u(e,"evaluate_calls"),W::u(e,"evaluate_result"),W::u(e,"resolve_calls"),1};
+    std::printf("NATIVE_ORIGIN_COMPLETE_VERIFIED session=%s job=%llu origin=%llu native_input_tick=%llu helper_serial=%llu native_monotonic_ns=%llu scope=after_strict_complete_validation_before_phase_publish clock=native_steady helper_serial_domain=source_identifier_only\n",
+     session.c_str(),(unsigned long long)current->id.job,(unsigned long long)current->id.origin_source,
+     (unsigned long long)current->input->native_target_tick,(unsigned long long)last_helper_serial,
+     (unsigned long long)std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
     phase.store(Phase::Complete,std::memory_order_release);
    }else if(state==Phase::FinalRecorded&&current&&current->final->native_GPU_complete.load(std::memory_order_acquire)){
     auto d=current->disposition;std::string disposition=d==NativeAsyncSnapshot::SparseDisposition::Captured?"captured":d==NativeAsyncSnapshot::SparseDisposition::ExpectedSkip?"expected_skip":"obsolete_discard";

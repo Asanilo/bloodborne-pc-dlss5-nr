@@ -17,6 +17,14 @@ public:
  std::array<vk::Image,3> ConvertedOrigin()const noexcept;
  std::array<vk::Image,3> Converted(unsigned i)const noexcept{return {vk::Image(packets[i].converted[0].image),vk::Image(packets[i].converted[1].image),vk::Image(packets[i].converted[2].image)};}
  vk::Image Output(unsigned i)const noexcept{return vk::Image(packets[i].output.image);}
+ // Resolve only an actual current packet's selected view. Replay and regular
+ // outputs are different images; a flag or the origin packet is not sufficient.
+ vk::Image SelectedOutput(unsigned i,vk::ImageView selected,bool& replay)const noexcept {
+  if(i>=packets.size()||!selected)return {};
+  if(selected==packets[i].output.View()){replay=false;return vk::Image(packets[i].output.image);}
+  if(selected==replay_packets[i].output.View()){replay=true;return vk::Image(replay_packets[i].output.image);}
+  return {};
+ }
  vk::ImageView RecordSparseCatchup(Scheduler&,unsigned current_index,vk::ImageView actual_origin_NR);
  void CompleteSparseNativeUse()noexcept {replay_busy.store(false,std::memory_order_release);}
  bool SparseScratchBusy()const noexcept {return replay_busy.load(std::memory_order_acquire);}

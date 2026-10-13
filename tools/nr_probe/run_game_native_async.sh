@@ -27,6 +27,9 @@ done
 DIAG=$(printenv BB_NR_NATIVE_ASYNC_DIAGNOSTIC_ONCE || true)
 [[ -n $DIAG ]] || DIAG=0
 [[ $DIAG == 0 || ( $DIAG == 1 && $MODE == localnoop ) ]] || exit 2
+EDIT_DIAG=$(printenv BB_NR_NATIVE_ASYNC_EDIT_DIAGNOSTIC_ONCE || true)
+[[ -n $EDIT_DIAG ]] || EDIT_DIAG=0
+[[ $EDIT_DIAG == 0 || ( $EDIT_DIAG == 1 && $MODE == resident ) ]] || exit 2
 mkdir -p -m 700 "$RUN/dump" "$PROFILE/logs" "$PROFILE/wine-prefix"
 cat > "$PROFILE/bbport.ini" <<'CONFIG'
 upscaler=dlss
@@ -50,6 +53,7 @@ export BB_SAVE_LOG=1 BB_MODS_ENABLED=0 BB_IME_TEXT=NRTest BB_PAD_FILE="$RUN/pad.
 export BB_PRESENT_DUMP_TRIGGER="$RUN/present-dump-trigger" BB_PRESENT_DUMP_COUNT=1
 export BB_NR_NATIVE_ASYNC=1 BB_NR_NATIVE_ASYNC_SESSION="$SESSION" BB_NR_NATIVE_ASYNC_MODE="$MODE"
 export BB_NR_NATIVE_ASYNC_RUN_DIR="$RUN" BB_NR_NATIVE_ASYNC_SCENE_ARM="$RUN/native-scene-arm"
+export BB_NR_NATIVE_ASYNC_EDIT_DIAGNOSTIC_ONCE="$EDIT_DIAG"
 export BB_NR_NATIVE_ASYNC_SOURCE_LIMIT=120 BB_NR_NATIVE_ASYNC_DIAGNOSTIC_ONCE="$DIAG"
 export BB_NR_NATIVE_ORIGIN_RUN_DIR="$RUN" BB_NR_NATIVE_ORIGIN_HELPER="$HELPER"
 export BB_NR_NATIVE_ORIGIN_WINE="$GE/files/lib/wine/x86_64-unix/wine"
@@ -62,6 +66,7 @@ export DLSSNR_DISABLE=1 DLSSNR_AUTO_DOWNLOAD=0
   printf 'scene_arm=%s\nscene_arm_content=%s\\n\nmax_jobs=4\nsource_limit=120\nouter_seconds=300\n' "$RUN/native-scene-arm" "$SESSION"
   printf 'BB_FPS=uncap\nBB_FPS_LIMIT=90\njitter=1\nrender=1280x720\noutput=1920x1080\n'
   printf 'localnoop_starts_helper=0\ndiagnostic_once=%s\nphase=UNVERIFIED\nruntime=NOT_RUN_AT_BUILD\n' "$DIAG"
+  printf 'edit_diagnostic_once=%s\nedit_diagnostic_performance_excluded=1\n' "$EDIT_DIAG"
   env | sort | sed -n '/^BB_NR_NATIVE_/p'
 } > "$RUN/native-launch.env"
 chmod 600 "$RUN/native-launch.env"
