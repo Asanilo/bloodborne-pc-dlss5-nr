@@ -91,3 +91,16 @@ rules still apply; never claim normal release from job count or elapsed time.
 BUILD_ONLY/CPU are not a runtime normal-close, edited-Present or performance
 PASS. Old unarmed PM4/HOLD batch remains STOPPED/unresolved. Fixed producer12199,
 v3 wire/model/phase candidate remain unchanged. Root alone approves GPU cases.
+
+## Startup/PE log separation increment
+
+Owner exclusively redirects the startup stdout+stderr to RUN/async-helper-launch.log
+using the exact1afb posix_spawn FD/actions helper (regular0600, O_EXCL/NOFOLLOW,
+parent actions/FD cleaned). The fixed PE main later reopens its original
+async-helper.log (stdout wb) and async-helper-stderr.log (stderr wb); these are
+unchanged and cannot truncate the distinct launch file. WINEDEBUG/argv/env/PID/
+maps unchanged. Launch log proves startup-stage capture only, not every later
+PE warning in that file. CPU test emits startup text then actual freopen wb to
+both PE-style files and checks all3 exact outputs plus unchanged parent FD.
+No assertion of actual historical warning loss; old logs/audit/FPS are retained.
+This increment is BUILD_ONLY/CPU, Wine/GPU runtime NOT_RUN.

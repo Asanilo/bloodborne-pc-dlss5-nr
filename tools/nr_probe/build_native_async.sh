@@ -17,6 +17,7 @@ INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_origin_identity_policy.h 
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_origin_gpu.h gpu/shadps4/video_core/renderer_vulkan/native_origin_gpu.cpp gpu/shadps4/video_core/renderer_vulkan/native_origin_owner.h gpu/shadps4/video_core/renderer_vulkan/native_origin_owner.cpp gpu/shadps4/video_core/renderer_vulkan/native_origin_wire.h gpu/shadps4/video_core/renderer_vulkan/native_origin_spec.h gpu/shadps4/video_core/renderer_vulkan/native_async_frontend.h gpu/shadps4/video_core/renderer_vulkan/native_sky_diagnostic.h gpu/shadps4/video_core/renderer_vulkan/native_sky_diagnostic.cpp tools/nr_probe/run_game_native_async.sh tools/nr_probe/test_native_origin_wire_cpu.cpp docs/NATIVE-ASYNC-ORIGIN.md)
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_edit_diagnostic_policy.h tools/nr_probe/test_native_edit_diagnostic_cpu.cpp docs/NATIVE-ASYNC-EDIT-DIAGNOSTIC.md)
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_async_scene_first.h tools/nr_probe/test_native_async_scene_first_cpu.cpp)
+INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_pre_sr_spawn_log.h tools/nr_probe/test_native_pre_sr_spawn_log_cpu.cpp)
 while IFS= read -r -d '' f;do [[ ! -f "$WT/$f" ]]||INPUTS+=("$f");done < <(git -C "$WT" diff --name-only -z HEAD)
 mapfile -t INPUTS < <(printf '%s\n' "${INPUTS[@]}"|sort -u)
 manifest(){ : > "$1";for f in "${INPUTS[@]}";do sha256sum "$WT/$f" >> "$1";done;}
@@ -47,6 +48,11 @@ if [[ $cpu -eq 0 ]];then
  c++ -std=c++20 -pthread -Wall -Wextra -Werror -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_async_scene_first_cpu.cpp" -o "$RUN/test-native-async-scene-first" > "$RUN/scene-first-cpu-build.log" 2>&1
  cpu=$?
  if [[ $cpu -eq 0 ]];then timeout 20s "$RUN/test-native-async-scene-first" > "$RUN/scene-first-cpu-tests.json" 2>&1;cpu=$?;fi
+fi
+if [[ $cpu -eq 0 ]];then
+ c++ -std=c++20 -Wall -Wextra -Werror -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_pre_sr_spawn_log_cpu.cpp" -o "$RUN/test-native-pre-sr-spawn-log" > "$RUN/spawn-log-cpu-build.log" 2>&1
+ cpu=$?
+ if [[ $cpu -eq 0 ]];then timeout 20s "$RUN/test-native-pre-sr-spawn-log" > "$RUN/spawn-log-cpu-tests.json" 2>&1;cpu=$?;fi
 fi
 rc=$cpu
 if [[ $rc -eq 0 ]];then bash "$WT/tools/nr_probe/build_c0.sh" > "$RUN/build.log" 2>&1;rc=$?;fi
