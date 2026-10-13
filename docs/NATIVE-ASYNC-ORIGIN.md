@@ -47,3 +47,22 @@ Scale1/jitterDelta0 are experimental phase candidates, not proven semantics.
 Current source and sparse edit origin are independent. Reapplied cached effect
 is not fresh NR inference on the current frame. Runtime/quality/performance NOT_RUN.
 Original15fa/34e9/P0/P3 baselines and failed builds remain separate and untouched.
+
+## Recorded-origin input handoff revision
+
+8256406 resident4 Root run native-async-game-native-real4-stage-a completed all4
+Eval/resolve but all4 were obsolete, with0edit Present; original evidence retained.
+The input publication occurred after source+3/+4, not a model or ownership PASS.
+
+Source copy and NativeSky conversion recorded in the same actual Native Scheduler
+may precede shared INPUT copy/release in that command context without waiting for
+the CPU copyReady callback. A renderer-only RecordedOrigin records immutable
+source/epoch/history/params/copy/conversion tick and Scheduler identity AFTER real
+successful NativeSky Record. Missing conversion, wrong scheduler/lineage/future
+record tick fail closed. It grants recording only, never INPUT publication/edit.
+Peer-read lease remains installed before shared writes. Existing compute-write to
+transfer-read barrier and actual input target callback remain mandatory. Owner
+publishes only after input native_GPU_complete, not from record-time metadata.
+No added Flush, relocated wait, Helper change, age4 widening or early shared reuse.
+Chain restart invalidates this recording proof. GPU/runtime benefit unmeasured
+until Root independently runs a fresh bounded candidate; no edit/quality claim.

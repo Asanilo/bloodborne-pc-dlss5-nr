@@ -52,6 +52,20 @@ int main(){
  lease.catchup=22;lease.merge=24;lease.CompleteNative(23);check(!lease.CanReuse());lease.CompleteNative(24);check(lease.CanReuse());
  lease.unknown=true;lease.CompleteNative(999);check(!lease.CanReuse());lease.unknown=false;
  lease.CompleteNative(1);check(lease.observed.load()==999);check(lease.LastUse()==24);
+ // A recorded same-queue producer permits recording input, never publication.
+ Frame raw{.source=100,.epoch=3,.history=2,.copy_tick=44};
+ RecordedOrigin recorded{100,3,2,1,44,44,1000};check(recorded.Matches(raw,1000,44));
+ check(recorded.Matches(raw,1000,45));check(!recorded.Matches(raw,1001,44));check(!recorded.Matches(raw,1000,43));
+ for(unsigned i=0;i<7;++i){auto bad=recorded;
+  if(i==0){bad.source++;}
+  if(i==1){bad.epoch++;}
+  if(i==2){bad.history++;}
+  if(i==3){bad.params++;}
+  if(i==4){bad.copy_tick=0;}
+  if(i==5){bad.conversion_tick=0;}
+  if(i==6){bad.scheduler_identity=0;}
+  check(!bad.Matches(raw,1000,44));}
+ raw.source_edited=true;check(!recorded.Matches(raw,1000,44));
  // Shared ownership does NOT authorize mutation; actual per-domain lease does.
  auto owned=std::make_shared<OriginLease>();auto alias=owned;owned->copy=10;check(!alias->CanReuse());
  check(!ExitRequested());RequestExit();check(ExitRequested()&&!ExitComplete());PublishExitComplete();check(ExitComplete());

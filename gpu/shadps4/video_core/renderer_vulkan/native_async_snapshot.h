@@ -36,6 +36,8 @@ public:
  void MergeRecorded(Scheduler&,uint64_t current_source);
  void RetireByTick(Scheduler&);
  std::optional<BbNativeAsync::Frame> ReadyOrigin()const noexcept;
+ // Recorded producer ordering, not CPU copyReady or permission to publish INPUT.
+ std::optional<BbNativeAsync::Frame> RecordedOrigin(const Scheduler&)const noexcept;
  void Shutdown(Scheduler&);
  void RejectAssociation()noexcept{rejected=true;}
  void Quarantine()noexcept{rejected=true;stopping=true;if(retained)for(const auto& p:retained->leases)if(p)p->unknown=true;}
@@ -72,6 +74,7 @@ private:
  uint64_t source_count=0;
  std::shared_ptr<BbNativeAsync::Owner> owner;
  std::optional<NativeOriginIdentity> pending_sparse;
+ std::optional<BbNativeAsync::RecordedOrigin> recorded_origin;
  std::shared_ptr<NativeOriginGpuProof> sparse_input_proof,sparse_final_proof;
  uint64_t last_helper_serial=0;
 

@@ -99,6 +99,12 @@ std::optional<BbNativeAsync::Frame> NativeAsyncSnapshot::ReadyOrigin()const noex
  if(stopping||rejected||!retained||!retained->records[0]||!retained->records[0]->gpu_ready.load(std::memory_order_acquire))return {};
  return retained->records[0]->frame;
 }
+std::optional<BbNativeAsync::Frame> NativeAsyncSnapshot::RecordedOrigin(const Scheduler&s)const noexcept {
+ if(stopping||rejected||!retained||!chain.Size()||!retained->records[0]||!recorded_origin)return {};
+ const auto&f=retained->records[0]->frame;
+ if(!recorded_origin->Matches(f,reinterpret_cast<uintptr_t>(&s),s.CurrentTick()))return {};
+ return f;
+}
 vk::ImageView NativeAsyncSnapshot::RecordAdvanceAndApply(Scheduler& scheduler,uint64_t current_source) {
  if(stopping||rejected||!retained||!chain.Size())return {};
  const auto& origin=chain.Origin();
@@ -113,6 +119,9 @@ vk::ImageView NativeAsyncSnapshot::RecordAdvanceAndApply(Scheduler& scheduler,ui
  lease->capture=index==0?scheduler.CurrentTick():0;lease->catchup=scheduler.CurrentTick();
  const std::array<vk::Image,3> images{vk::Image(retained->images[index*3]),vk::Image(retained->images[index*3+1]),vk::Image(retained->images[index*3+2])};
  auto view=retained->sky->Record(scheduler,index,images,index==0);
+ if(index==0)recorded_origin=BbNativeAsync::RecordedOrigin{
+  record->frame.source,record->frame.epoch,record->frame.history,record->frame.params,
+  record->frame.copy_tick,scheduler.CurrentTick(),reinterpret_cast<uintptr_t>(&scheduler)};
  std::printf("NATIVE_SKY_RECORD origin=%llu current_source=%llu epoch=%llu history=%llu params=%llu age=%u Capture=%u Reproject=%u Pyramid=2 Apply=1 tick=%llu source_format=97 cache_format=109 Native_model_calls=0 mode=source-chain phase=UNVERIFIED\n",
   (unsigned long long)origin.source,(unsigned long long)current_source,(unsigned long long)origin.epoch,(unsigned long long)origin.history,(unsigned long long)origin.params,index,index==0,index!=0,(unsigned long long)scheduler.CurrentTick());
  TrackUse(scheduler);
@@ -138,7 +147,7 @@ vk::ImageView NativeAsyncSnapshot::RecordAdvanceAndApply(Scheduler& scheduler,ui
    }
   }
   if(peer->State()==NativeOriginOwner::Phase::Ready){
-   if(auto origin=ReadyOrigin())if(auto job=peer->TryReserve(*origin)){
+   if(auto origin=RecordedOrigin(scheduler))if(auto job=peer->TryReserve(*origin)){
     if(TryRecordSparseInput(scheduler,job->resources,job->id,job->input)){TrackUse(scheduler);peer->InputRecorded(job);}
     else peer->CancelReservation(job);
    }
@@ -164,12 +173,17 @@ vk::ImageView NativeAsyncSnapshot::RecordAdvanceAndApply(Scheduler& scheduler,ui
 bool NativeAsyncSnapshot::TryRecordSparseInput(Scheduler& scheduler,const NativeOriginResources& resources,
  const NativeOriginIdentity& id,const std::shared_ptr<NativeOriginGpuProof>& proof) {
  if(stopping||rejected||pending_sparse||!retained||!chain.Size()||!proof||proof->native_target_tick||
-    !id.Matches(chain.Origin())||!resources.Valid(id)||!retained->records[0]->gpu_ready.load(std::memory_order_acquire))return false;
+    !id.Matches(chain.Origin())||!resources.Valid(id)||!recorded_origin||
+    !recorded_origin->Matches(retained->records[0]->frame,reinterpret_cast<uintptr_t>(&scheduler),scheduler.CurrentTick()))return false;
  auto lease=retained->leases[0];if(!lease||lease->peer_read||lease->unknown)return false;
  // The lease is installed BEFORE any shared writes. An INPUT is not publishable
  // until proof callback reports this native copied/released target actually done.
  lease->peer_read=true;pending_sparse=id;sparse_input_proof=proof;
  RecordOriginInput(scheduler,resources,id,retained->sky->ConvertedOrigin(),proof);
+ std::printf("NATIVE_ORIGIN_INPUT_RECORDED origin=%llu job=%llu source_copy_tick=%llu source_conversion_tick=%llu input_target_tick=%llu producer=same_native_scheduler_recorded actual_input_GPU_complete=NOT_YET_OBSERVED no_extra_flush=1\n",
+  (unsigned long long)id.origin_source,(unsigned long long)id.job,
+  (unsigned long long)recorded_origin->copy_tick,(unsigned long long)recorded_origin->conversion_tick,
+  (unsigned long long)proof->native_target_tick);
  lease->capture=std::max(lease->capture,proof->native_target_tick);
  scheduler.DeferPriorityOperation([hold=retained,lease,proof]{lease->CompleteNative(proof->native_target_tick);});
  return true;
@@ -263,7 +277,7 @@ bool NativeAsyncSnapshot::TryCaptureOrigin(const Instance& instance,Scheduler& s
   chain.Restart(decision==BbNativeAsync::Chain::Decision::Discontinuity);
   for(auto& record:retained->records)record.reset();
   for(auto& lease:retained->leases)lease.reset();
-  retained->sky->Restart();sparse_anchor=false;edit_anchor.reset();
+  retained->sky->Restart();sparse_anchor=false;edit_anchor.reset();recorded_origin.reset();
  }
  const unsigned index=chain.Size();meta.copy_tick=scheduler.CurrentTick();
  BbNativeAsync::Frame next=meta; // commit chain only if bounded owner reservation succeeds
