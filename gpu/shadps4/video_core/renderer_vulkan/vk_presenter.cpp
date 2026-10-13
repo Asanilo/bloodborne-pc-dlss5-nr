@@ -846,6 +846,11 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         if (is_game_frame && !is_reusing_frame && std::getenv("BB_NR_C4_BASELINE"))
             std::printf("C4_SR_PRESENT mode=srOnly actual_game_frame=1 reused=0 cpu_monotonic_ns=%lld present_frame_number=%llu swapchain_present=%u helper_started=0 IPC=0\n",
                 (long long)c4_now_ns, (unsigned long long)BbStats::frame_number.load(), presented);
+        if(is_game_frame&&!is_reusing_frame&&frame->audit_stage=="NATIVE_ASYNC"&&frame->c1_source_game_frame)
+            std::printf("NATIVE_ASYNC_CURRENT_PRESENT session=%s snapshot_scope=%s source_game_frame=%llu present_frame_number=%llu merge_tick=%llu prepare_tick=%llu ready_tick=%llu swapchain_present=%u cpu_monotonic_ns=%lld current_SR=1 edited=0 NR_fresh_count=0\n",
+                frame->audit_session.c_str(),frame->audit_mode.c_str(),(unsigned long long)frame->c1_source_game_frame,
+                (unsigned long long)frame->c1_present_frame_number,(unsigned long long)frame->c1_merge_tick,
+                (unsigned long long)frame->c1_guest_prepare_tick,(unsigned long long)frame->ready_tick,presented,(long long)c4_now_ns);
         if (is_game_frame && !is_reusing_frame && frame->audit_stage == "C4" && frame->c1_source_game_frame)
             std::printf("C4_PRESENT_CPU_TIME session=%s frame=%u source_game_frame=%llu cpu_monotonic_ns=%lld selected_output=%u swapchain_present=%u scope=CPU_present_call_completed_not_input_to_photon\n",
                 frame->audit_session.c_str(), frame->audit_nr_frame, (unsigned long long)frame->c1_source_game_frame,
@@ -902,7 +907,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                         static_cast<unsigned long long>(frame->c1_present_frame_number),
                         static_cast<unsigned long long>(frame->ready_tick),
                         static_cast<unsigned long long>(present_submit_tick), is_game_frame, presented);
-        } else if (frame->c1_source_game_frame != 0 && is_game_frame) {
+        } else if (frame->c1_source_game_frame != 0 && is_game_frame && frame->audit_stage != "NATIVE_ASYNC") {
             std::printf("C1_PRESENT_SUBMITTED route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu "
                         "guest_buffer_address=0x%llx guest_prepare_gpu_frame=%llu "
                         "guest_prepare_tick=%llu present_frame_number=%llu "

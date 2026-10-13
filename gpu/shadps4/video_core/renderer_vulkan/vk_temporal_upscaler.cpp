@@ -346,6 +346,7 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
 }
 
 TemporalUpscaler::~TemporalUpscaler() {
+    native_async_snapshot.RetireByTick(scheduler);
     p0_controller.Shutdown(instance, scheduler);
     if (resources_ready) scheduler.Finish();
     if (context) {
@@ -434,6 +435,7 @@ bool TemporalUpscaler::RasterScaling() const {
 
 bool TemporalUpscaler::OnFrameStart() {
     const auto& p0_settings=BbSettings::Get();
+    native_async_snapshot.PollReady(scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);
     p0_controller.Tick(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter,BbOverlay::MenuOpen());
     // bbport: BB_PRESET_FILE=<file> holding a preset number, read about once a second: switches
     // the preset like the menu does (scripted tests of live preset changes).
@@ -607,7 +609,7 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     output_view.reset();
     motion_image = VideoCore::UniqueImage(device, allocator);
     auto motion_usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
-    if (C0CaptureEnabled() || Q0CaptureEnabled() || Q1DiagnosticEnabled() || P0Enabled()) {
+    if (C0CaptureEnabled() || Q0CaptureEnabled() || Q1DiagnosticEnabled() || P0Enabled() || BbNativeAsync::OptIn()) {
         motion_usage |= vk::ImageUsageFlagBits::eTransferSrc;
     }
     motion_image.Create(vk::ImageCreateInfo{
@@ -1680,6 +1682,22 @@ void TemporalUpscaler::Run() {
         const auto q1_proxy_depth=scene_targets.CaptureCreateInfo(input_depth);
         const bool q1_profile=!Scaled()&&reduced&&w==1280&&h==720&&ow==1920&&oh==1080&&
             last_dlss_called&&last_dlss_hdr&&UseDlss()&&BbSettings::Get().jitter&&q1_proxy_depth;
+        bool native_async_recorded=false,native_async_current=false;
+        if(native_async_snapshot.Enabled()&&q1_profile) {
+            bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pending_audit.has_value();}
+            if(!pending)try {
+                native_async_current=true;
+                native_async_recorded=native_async_snapshot.TryCaptureOrigin(instance,scheduler,
+                    {vk::Image(output_image),input_depth,vk::Image(motion_image)},
+                    {output_image.image_ci,*q1_proxy_depth,motion_image.image_ci},
+                    {.source=source_game_frame,.sr_reset=last_dlss_reset,
+                     .viewport=c2_current_viewport_jitter,.previous_viewport=c2_previous_viewport_jitter,
+                     .sr_jitter=c2_current_sr_jitter,.previous_sr_jitter=c2_previous_sr_jitter});
+                // Current genuine link is recorded before checking complete catchup.
+                const auto native_edit=native_async_snapshot.RecordAdvanceAndApply(scheduler,source_game_frame);
+                if(native_edit)throw std::runtime_error("Native async edit is not authorized before Sky/cross-endpoint gates");
+            }catch(const std::exception& e){native_async_snapshot.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_HOLD reason=%s current_SR=1 no_edit_selected=1\n",e.what());}
+        }
         bool p0_selected=false, p0_frame_processed=false;
         if(P0Enabled() && q1_profile) {
             bool pending=false;
@@ -1979,6 +1997,15 @@ void TemporalUpscaler::Run() {
         if (c4_frame_processed) c4_game_bridge.EndMergeTiming(scheduler);
         if (q1_frame_processed) q1_game_bridge.EndMergeTiming(scheduler);
         if (p0_frame_processed) p0_controller.EndMergeTiming(scheduler);
+        if(native_async_current) {
+            std::scoped_lock lock{c1_audit_mutex};
+            if(native_async_pending_audit)throw std::runtime_error("Native async cannot overwrite pending source ledger");
+            native_async_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC",.mode=native_async_recorded?"copy-recorded":"busy-current-SR",.session=native_async_snapshot.Session(),
+                .execution_mode="native-only",.selected_output=false,.audit_full=false,
+                .source_game_frame=source_game_frame,.merge_tick=scheduler.CurrentTick()};
+            std::printf("NATIVE_ASYNC_MERGE_CURRENT_SR source_game_frame=%llu tick=%llu origin_epoch=%llu edited=0 Helper=NOT_CONNECTED\n",
+                (unsigned long long)source_game_frame,(unsigned long long)scheduler.CurrentTick(),(unsigned long long)native_async_snapshot.Epoch());
+        }
         if (c3_frame_processed) {
             std::scoped_lock lock{c1_audit_mutex};
             if (c3_pending_audit) throw std::runtime_error("C3 must not overwrite an unbound presentation audit");
@@ -2930,6 +2957,19 @@ bool TemporalUpscaler::TakeC1PresentAudit(VAddr address, u64 present_frame_count
                                           u64 gpu_frame_at_prepare, u64 prepare_tick,
                                           C1PresentAudit& audit) {
     std::scoped_lock lock{c1_audit_mutex};
+    if(native_async_pending_audit) {
+        const auto& pending=*native_async_pending_audit;
+        if(gpu_frame_at_prepare!=pending.source_game_frame+1||prepare_tick<pending.merge_tick) {
+            native_async_snapshot.RejectAssociation();native_async_pending_audit.reset();audit={};
+            std::fprintf(stderr,"NATIVE_ASYNC_ASSOCIATION_REJECTED current_SR=1 edited=0 counted_valid=0\n");return false;
+        }
+        audit=pending;audit.buffer_address=address;audit.buffer_prepare_gpu_frame=gpu_frame_at_prepare;
+        audit.buffer_prepare_tick=prepare_tick;audit.present_frame_counter_before=present_frame_counter_before;
+        std::printf("NATIVE_ASYNC_GUEST_BIND source_game_frame=%llu gpu_frame_at_prepare=%llu merge_tick=%llu prepare_tick=%llu guest_address=0x%llx edited=0\n",
+            (unsigned long long)audit.source_game_frame,(unsigned long long)gpu_frame_at_prepare,(unsigned long long)audit.merge_tick,
+            (unsigned long long)prepare_tick,(unsigned long long)address);
+        native_async_pending_audit.reset();return true;
+    }
     if (p0_pending_audit) {
         // HDR Run records the completed scene before the display-pass NoteFrameStart
         // increments gpu_frames (vk_rasterizer.cpp). Require that immediate epoch;

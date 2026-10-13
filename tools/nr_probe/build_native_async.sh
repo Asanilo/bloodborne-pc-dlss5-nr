@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Native-only snapshot/metadata BUILD_ONLY, no Helper/Wine/game/GPU execution.
+set -euo pipefail
+WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
+R=/home/arinp/Code/nrbridge-design/game-poc-20261011
+RUN="$R/bbport/runs/native-async-build-$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -m 700 -p "$RUN/source-snapshot"
+mapfile -t INPUTS < <(python3 - "$R/bbport/runs/p0-build-20261012T101054Z/source-sha256.txt" <<'PY'
+import pathlib,sys
+p=pathlib.Path('/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree')
+for line in pathlib.Path(sys.argv[1]).read_text().splitlines(): print(pathlib.Path(line.split(None,1)[1].strip()).relative_to(p))
+PY
+)
+INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_async_state.h gpu/shadps4/video_core/renderer_vulkan/native_async_owner.h gpu/shadps4/video_core/renderer_vulkan/native_async_owner.cpp gpu/shadps4/video_core/renderer_vulkan/native_async_snapshot.h gpu/shadps4/video_core/renderer_vulkan/native_async_snapshot.cpp tools/nr_probe/test_native_async_cpu.cpp tools/nr_probe/build_native_async.sh docs/NATIVE-ASYNC-SNAPSHOT.md gpu/shim/bbgpu.cpp gpu/shadps4/video_core/renderer_vulkan/vk_instance.cpp)
+while IFS= read -r -d '' f;do [[ ! -f "$WT/$f" ]]||INPUTS+=("$f");done < <(git -C "$WT" diff --name-only -z HEAD)
+mapfile -t INPUTS < <(printf '%s\n' "${INPUTS[@]}"|sort -u)
+manifest(){ : > "$1";for f in "${INPUTS[@]}";do sha256sum "$WT/$f" >> "$1";done;}
+manifest "$RUN/source-sha256.txt"
+for f in "${INPUTS[@]}";do mkdir -p "$RUN/source-snapshot/$(dirname "$f")";cp -a "$WT/$f" "$RUN/source-snapshot/$f";done
+git -C "$WT" diff HEAD > "$RUN/tracked-source.patch"
+printf 'command=bash tools/nr_probe/build_c0.sh\nworktree=%s\nbase=%s\nno_GPU_no_Wine_no_game=1\nexisting_p0_wire_and_Helper_unchanged=1\n' "$WT" "$(git -C "$WT" rev-parse HEAD)" > "$RUN/commands.txt"
+set +e
+c++ -std=c++20 -pthread -Wall -Wextra -Werror -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_async_cpu.cpp" "$WT/gpu/shadps4/video_core/renderer_vulkan/native_async_owner.cpp" -o "$RUN/test-native-async-cpu" > "$RUN/cpu-build.log" 2>&1
+cpu=$?
+if [[ $cpu -eq 0 ]];then timeout 20s "$RUN/test-native-async-cpu" > "$RUN/cpu-tests.json" 2>&1;cpu=$?;fi
+rc=$cpu
+if [[ $rc -eq 0 ]];then bash "$WT/tools/nr_probe/build_c0.sh" > "$RUN/build.log" 2>&1;rc=$?;fi
+set -e
+[[ ! -f "$WT/out/gpu-build.log" ]]||cp -a "$WT/out/gpu-build.log" "$RUN/gpu-build.log"
+manifest "$RUN/source-sha256.post.txt"
+cmp -s "$RUN/source-sha256.txt" "$RUN/source-sha256.post.txt" || rc=3
+if [[ $rc -eq 0 ]];then sha256sum "$WT/out/bb-probe" "$WT/out/gpu/libbbgpu.so" "$WT/out/libbbport_dlss.so" "$WT"/out/libnvidia-ngx-dlss.so.* > "$RUN/artifact-sha256.txt";fi
+python3 - "$RUN" "$WT" "$rc" "$cpu" <<'PY'
+import json,pathlib,sys
+r,wt,rc,cpu=pathlib.Path(sys.argv[1]),sys.argv[2],int(sys.argv[3]),int(sys.argv[4])
+d={'status':'PASS' if rc==0 else 'FAIL','scope':'NATIVE_ASYNC_SOURCE_ONLY_BUILD_ONLY','exit_code':rc,'CPU_exit':cpu,'worktree':wt,'GPU':'NOT_RUN','NR_transport':'NOT_CONNECTED_PENDING_ROOT_CANONICAL','NR_edit_selection':'NOT_IMPLEMENTED_PENDING_CANONICAL','source_manifest':str(r/'source-sha256.txt'),'artifacts':str(r/'artifact-sha256.txt') if rc==0 else None}
+(r/'build-result.json').write_text(json.dumps(d,indent=2)+'\n');print(json.dumps(d))
+PY
+exit "$rc"

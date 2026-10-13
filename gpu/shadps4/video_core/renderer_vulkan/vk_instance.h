@@ -111,6 +111,11 @@ public:
         return profiler_context;
     }
 
+    // Device creation enables this exact flag (vk_instance.cpp Vk12 feature chain).
+    bool IsSeparateDepthStencilLayoutsEnabled() const noexcept {
+        return vk12_features.separateDepthStencilLayouts;
+    }
+
     /// Returns true if anisotropic filtering is supported
     bool IsAnisotropicFilteringSupported() const {
         return features.samplerAnisotropy;
