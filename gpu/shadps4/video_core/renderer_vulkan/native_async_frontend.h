@@ -20,7 +20,9 @@ public:
   const std::string run(r),path(p),session(s);
   if(path!=run+"/native-scene-arm"||run!=
     "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/native-async-game-"+session)return;
+  finished.store(false,std::memory_order_release);
   thread=std::jthread([this,path,session](std::stop_token token){
+   struct Finish{std::atomic<bool>& flag;~Finish(){flag.store(true,std::memory_order_release);}} finish{finished};
    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(300);
    while(!token.stop_requested()&&std::chrono::steady_clock::now()<deadline) {
     std::ifstream f(path,std::ios::binary);std::string value;
@@ -36,9 +38,12 @@ public:
   });
  }
  ~Frontend(){if(thread.joinable()){thread.request_stop();thread.join();}}
+ void RequestStop()noexcept{thread.request_stop();}
+ bool Finished()const noexcept{return finished.load(std::memory_order_acquire);}
+ void JoinFinished(){if(Finished()&&thread.joinable())thread.join();}
  bool Armed()const noexcept{return armed.load(std::memory_order_acquire);}
 private:
- std::atomic<bool> armed{false};
+ std::atomic<bool> armed{false},finished{true};
  std::jthread thread;
 };
 }

@@ -294,7 +294,9 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
                 std::fprintf(stderr,"NATIVE_ASYNC_EXIT_HELD renderer_proof=UNKNOWN process_exit_not_requested=1 no_UI_Vulkan=1 no_UI_IPC=1\n");
                 return; // no forced termination/cleanup: Root bounded owner must classify this abnormal
             }
-            std::printf("NATIVE_ASYNC_EXIT_PROOF actual_snapshot_GPU_lastuse_complete=1 managed_owner_joined=1 Helper=NOT_CONNECTED\n");
+            if(BbNativeAsync::ExitAbnormalEmpty())
+                std::printf("NATIVE_ASYNC_EXIT_ABNORMAL_SAFE functional=FAIL normal_peer=0 no_native_async_owners=1 no_UI_Vulkan=1 no_UI_IPC=1\n");
+            else std::printf("NATIVE_ASYNC_EXIT_PROOF actual_snapshot_GPU_lastuse_complete=1 managed_owner_joined=1 peer_retirement=OWNER_PROOF\n");
         }
         const char* p0_mode=std::getenv("BB_NR_P0_MODE");
         if(p0_mode && (std::strcmp(p0_mode,"resident")==0 || std::strcmp(p0_mode,"skipEvaluate")==0 || std::strcmp(p0_mode,"srOnly")==0)) {

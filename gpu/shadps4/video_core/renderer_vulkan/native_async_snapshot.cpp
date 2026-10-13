@@ -9,6 +9,7 @@
 namespace Vulkan {
 std::string NativeAsyncSnapshot::Session()const {const char* p=std::getenv("BB_NR_NATIVE_ASYNC_SESSION");return p?p:"";}
 void NativeAsyncSnapshot::Create(const Instance& instance) {
+ snapshot_creation_attempted=true; // EVER, even partial creation before an exception.
  auto next=std::make_shared<Retention>();
  if(peer)next->quiescence=peer->Quiescence();
  if(NativeSkyDiagnostic::Enabled()&&!diagnostic)diagnostic=std::make_shared<NativeSkyDiagnostic>(instance);
@@ -65,6 +66,7 @@ void NativeAsyncSnapshot::PollReady(const Instance& instance,Scheduler& schedule
  if(!peer&&supported){auto candidate=std::make_shared<NativeOriginOwner>();
   if(candidate->Enabled()){peer=candidate;peer->Start(instance);}
  }
+ if(BbNativeAsync::ExitRequested()&&frontend)frontend->RequestStop();
  PollPeer(scheduler,supported);
  if(owner&&owner->ReadyCount()!=last_reported_ready){
   last_reported_ready=owner->ReadyCount();
@@ -78,8 +80,17 @@ void NativeAsyncSnapshot::PollReady(const Instance& instance,Scheduler& schedule
   if(owner)owner->Stop();
   owner.reset();retained.reset();
   if(peer){if(!peer->Quiescence()->last_use_tick.load())peer->Quiescence()->stopped_and_destroyed.store(true);
-   if(BbNativeAsync::ExitRequested()&&peer->ReapedNormally())BbNativeAsync::PublishExitComplete();
-  }else if(BbNativeAsync::ExitRequested())BbNativeAsync::PublishExitComplete();
+   if(BbNativeAsync::ExitRequested()&&peer->ReapedNormally()&&(!frontend||frontend->Finished())){
+    if(frontend)frontend->JoinFinished();BbNativeAsync::PublishExitComplete();
+   }
+   else if(BbNativeAsync::ExitRequested()&&!BbNativeAsync::ExitComplete()&&(!frontend||frontend->Finished())&&peer->SafeEmptyBootstrapExit(snapshot_creation_attempted||bool(retained),bool(pending_sparse),source_count)){
+    peer->JoinFinished();if(frontend)frontend->JoinFinished();
+    std::printf("NATIVE_ASYNC_EMPTY_BOOTSTRAP_EXIT_SAFE functional=FAIL normal_peer=0 actual_wait_status=%d imports_ever=0 snapshots_ever=0 native_async_GPU_use=0 scope=native_async_only\n",peer->ActualWaitStatus());
+    BbNativeAsync::PublishAbnormalEmptyExitComplete();
+   }
+  }else if(BbNativeAsync::ExitRequested()&&(!frontend||frontend->Finished())){
+   if(frontend)frontend->JoinFinished();BbNativeAsync::PublishExitComplete();
+  }
   if(!permanent&&source_count<120){chain.Restart(true);stopping=false;}
  }
 }

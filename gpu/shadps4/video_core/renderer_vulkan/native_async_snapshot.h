@@ -66,6 +66,7 @@ private:
  std::shared_ptr<NativeOriginOwner> peer;
  std::unique_ptr<BbNativeAsync::Frontend> frontend;
  std::shared_ptr<NativeSkyDiagnostic> diagnostic;
+ bool snapshot_creation_attempted=false;
  bool sparse_anchor=false,effect_selected=false;unsigned effect_job=0;
  uint64_t source_count=0;
  std::shared_ptr<BbNativeAsync::Owner> owner;

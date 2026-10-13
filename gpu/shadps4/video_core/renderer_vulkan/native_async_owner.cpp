@@ -4,7 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 namespace BbNativeAsync {
-namespace {std::atomic<bool> exit_requested{false},exit_complete{false};}
+namespace {std::atomic<bool> exit_requested{false},exit_complete{false},exit_abnormal_empty{false};}
 bool OptIn() noexcept {
  static const bool enabled=[] {
   const char* on=std::getenv("BB_NR_NATIVE_ASYNC");
@@ -21,6 +21,8 @@ bool OptIn() noexcept {
 void RequestExit()noexcept{exit_requested.store(true);}
 bool ExitRequested()noexcept{return exit_requested.load();}
 void PublishExitComplete()noexcept{exit_complete.store(true);}
+void PublishAbnormalEmptyExitComplete()noexcept{exit_abnormal_empty.store(true,std::memory_order_release);exit_complete.store(true,std::memory_order_release);}
+bool ExitAbnormalEmpty()noexcept{return exit_abnormal_empty.load(std::memory_order_acquire);}
 bool ExitComplete()noexcept{return exit_complete.load();}
 Owner::Owner():thread([this](std::stop_token token){Run(token);}){}
 Owner::~Owner(){Stop();}

@@ -13,6 +13,7 @@ PY
 )
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_async_state.h gpu/shadps4/video_core/renderer_vulkan/native_async_owner.h gpu/shadps4/video_core/renderer_vulkan/native_async_owner.cpp gpu/shadps4/video_core/renderer_vulkan/native_async_snapshot.h gpu/shadps4/video_core/renderer_vulkan/native_async_snapshot.cpp tools/nr_probe/test_native_async_cpu.cpp tools/nr_probe/build_native_async.sh docs/NATIVE-ASYNC-SNAPSHOT.md gpu/shim/bbgpu.cpp gpu/shadps4/video_core/renderer_vulkan/vk_instance.cpp)
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_sky_gpu.h gpu/shadps4/video_core/renderer_vulkan/native_sky_gpu.cpp gpu/shadps4/video_core/renderer_vulkan/native_sky_constants.h gpu/shadps4/video_core/renderer_vulkan/native_sky_r2_spv.h gpu/shadps4/video_core/renderer_vulkan/native_sky_provenance.json gpu/shadps4/video_core/renderer_vulkan/native_origin_lease.h gpu/shadps4/video_core/host_shaders/native_sky_convert.comp gpu/shadps4/video_core/host_shaders/upscale_merge.comp gpu/CMakeLists.txt docs/NATIVE-SKY-GPU.md)
+INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_origin_identity_policy.h tools/nr_probe/test_native_origin_identity_cpu.cpp)
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_origin_gpu.h gpu/shadps4/video_core/renderer_vulkan/native_origin_gpu.cpp gpu/shadps4/video_core/renderer_vulkan/native_origin_owner.h gpu/shadps4/video_core/renderer_vulkan/native_origin_owner.cpp gpu/shadps4/video_core/renderer_vulkan/native_origin_wire.h gpu/shadps4/video_core/renderer_vulkan/native_origin_spec.h gpu/shadps4/video_core/renderer_vulkan/native_async_frontend.h gpu/shadps4/video_core/renderer_vulkan/native_sky_diagnostic.h gpu/shadps4/video_core/renderer_vulkan/native_sky_diagnostic.cpp tools/nr_probe/run_game_native_async.sh tools/nr_probe/test_native_origin_wire_cpu.cpp docs/NATIVE-ASYNC-ORIGIN.md)
 while IFS= read -r -d '' f;do [[ ! -f "$WT/$f" ]]||INPUTS+=("$f");done < <(git -C "$WT" diff --name-only -z HEAD)
 mapfile -t INPUTS < <(printf '%s\n' "${INPUTS[@]}"|sort -u)
@@ -29,6 +30,11 @@ if [[ $cpu -eq 0 ]];then
  c++ -std=c++20 -pthread -Wall -Wextra -Werror -I"$WT/gpu/shadps4" -I"$WT/gpu/shadps4/externals/nlohmann" "$WT/tools/nr_probe/test_native_origin_wire_cpu.cpp" -o "$RUN/test-native-origin-wire" > "$RUN/wire-build.log" 2>&1
  cpu=$?
  if [[ $cpu -eq 0 ]];then timeout 20s "$RUN/test-native-origin-wire" > "$RUN/wire-tests.json" 2>&1;cpu=$?;fi
+fi
+if [[ $cpu -eq 0 ]];then
+ c++ -std=c++20 -Wall -Wextra -Werror -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_origin_identity_cpu.cpp" -o "$RUN/test-native-origin-identity" > "$RUN/identity-build.log" 2>&1
+ cpu=$?
+ if [[ $cpu -eq 0 ]];then timeout 20s "$RUN/test-native-origin-identity" > "$RUN/identity-tests.json" 2>&1;cpu=$?;fi
 fi
 rc=$cpu
 if [[ $rc -eq 0 ]];then bash "$WT/tools/nr_probe/build_c0.sh" > "$RUN/build.log" 2>&1;rc=$?;fi

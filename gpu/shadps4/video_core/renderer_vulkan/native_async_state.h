@@ -66,4 +66,6 @@ void RequestExit() noexcept;
 bool ExitRequested() noexcept;
 void PublishExitComplete() noexcept;
 bool ExitComplete() noexcept;
+void PublishAbnormalEmptyExitComplete() noexcept;
+bool ExitAbnormalEmpty() noexcept;
 } // namespace BbNativeAsync

@@ -28,12 +28,18 @@ public:
  void FinalizedAck(const std::shared_ptr<Job>&);
  void RequestStop(unsigned reason)noexcept; // 1off/2exit/3profile/4budget, memory only
  std::shared_ptr<NativeOriginQuiescence> Quiescence()const{return quiescence;}
+ bool SafeEmptyBootstrapExit(bool has_snapshot,bool pending_lease,uint64_t copies_ever)const noexcept;
+ void JoinFinished(); // only after actual worker_finished; no peer/model wait
+ int ActualWaitStatus()const noexcept{return actual_wait_status.load();}
  bool ReapedNormally()const noexcept{return normal_reap.load(std::memory_order_acquire);}
 private:
  void Run(std::stop_token,const Instance&);
  void Fail(const std::string&)noexcept;
  std::atomic<Phase> phase{Phase::Disabled};std::atomic<unsigned> stop_reason{0};
  std::atomic<bool> started{false},normal_reap{false};
+ std::atomic<bool> peer_spawned{false},peer_reaped{false},worker_finished{false},empty_imports_destroyed{false};
+ std::atomic<uint64_t> import_objects_ever_created{0};
+ std::atomic<int> actual_wait_status{-1};
  std::mutex mutex;std::jthread worker;std::shared_ptr<Job> job;
  std::shared_ptr<NativeOriginQuiescence> quiescence=std::make_shared<NativeOriginQuiescence>();
  NativeOriginResources registry;std::string session,mode,run,helper,wine,preloader,prefix;
