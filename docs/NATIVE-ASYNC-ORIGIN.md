@@ -104,3 +104,26 @@ PE warning in that file. CPU test emits startup text then actual freopen wb to
 both PE-style files and checks all3 exact outputs plus unchanged parent FD.
 No assertion of actual historical warning loss; old logs/audit/FPS are retained.
 This increment is BUILD_ONLY/CPU, Wine/GPU runtime NOT_RUN.
+
+## Bounded real4 coverage / callback-only reuse increment
+
+Root real4-a (native-async-async-scene-real4-a-20261013T163444.841129Z) finalized
+4 captured NR jobs, 7 edited current Presents; source origins5973/5980/5986/5992
+stride7/6/6, selected ages4 then3..4. Raw gaps after Full were5978..5979,5985,5991.
+Same-Native INPUT publish->strict COMPLETE durations23.628/22.767/21.578/19.259ms
+include real GPU/model/dependencies/control, not pure IPC. Cold66MB diagnostic
+and short26frame window are not performance acceptance. Visual gate pending;
+no new quality/phase/high-FPS claim. Analysis bbport/runs/native-async-real4-
+coverage-offline/analysis.json fixes scope/UNKNOWNs, original logs unchanged.
+
+Full/discontinuity reuse formerly only read delayed callback lease.observed.
+Increment uses existing nonblocking Scheduler.IsFree(max real previous Native
+copy/capture/catchup/merge tick), only for closed prior tick and no peer/unknown
+block, then KnownGpuTick observation and unchanged AllUsesReady. No wait/Flush/
+Scheduler/wire/model/r2/age4/strength changes, no clearing peer lease/CONSUMED.
+Callbacks still hold old shared records/leases; late callbacks cannot regress a
+counter or mark newly reserved lease done. Per-reuse proof log is
+NATIVE_ASYNC_REUSE_GPU_OBSERVED. CPU declaration/thread counterexamples are not
+GPU proof. Actual earlier GPU readiness in old raw gaps is UNKNOWN; this removes
+an avoidable callback-publication prerequisite if already completed, benefit
+UNMEASURED. Origin immutability and current source+complete age4 lineage remain.

@@ -299,7 +299,22 @@ bool NativeAsyncSnapshot::TryCaptureOrigin(const Instance& instance,Scheduler& s
  auto decision=chain.Classify(meta);
  if(decision==BbNativeAsync::Chain::Decision::Reject)return false;
  if(decision==BbNativeAsync::Chain::Decision::Full||decision==BbNativeAsync::Chain::Decision::Discontinuity){
-  if(!retained->AllUsesReady())return false; // GPU incomplete: no overwrite, current SR only
+  if(!retained->AllUsesReady()){
+   // A delayed callback is not itself a GPU dependency. Observe ONLY this
+   // Scheduler's actual completed timeline; never wait, Flush, or use Helper
+   // serials. Peer-read/unknown flags remain independent and cannot be cleared.
+   uint64_t target=0;bool peer_blocked=false;
+   for(const auto& lease:retained->leases)if(lease){
+    target=std::max(target,lease->LastUse());peer_blocked|=lease->peer_read||lease->unknown;
+   }
+   if(!peer_blocked&&target&&target<scheduler.CurrentTick()&&scheduler.IsFree(target)){
+    const auto observed=scheduler.GetWorkSemaphore()->KnownGpuTick();
+    for(const auto& lease:retained->leases)if(lease)lease->CompleteNative(observed);
+    std::printf("NATIVE_ASYNC_REUSE_GPU_OBSERVED prior_origin=%llu target_tick=%llu observed_tick=%llu proof=actual_same_Native_timeline_counter callback_pending_allowed=1 peer_and_unknown_gates=UNCHANGED\n",
+     (unsigned long long)chain.Origin().source,(unsigned long long)target,(unsigned long long)observed);
+   }
+  }
+  if(!retained->AllUsesReady())return false; // Real GPU OR peer/unknown incomplete: current SR only.
   chain.Restart(decision==BbNativeAsync::Chain::Decision::Discontinuity);
   for(auto& record:retained->records)record.reset();
   for(auto& lease:retained->leases)lease.reset();

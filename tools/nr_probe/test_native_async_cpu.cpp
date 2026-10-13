@@ -68,6 +68,17 @@ int main(){
  raw.source_edited=true;check(!recorded.Matches(raw,1000,44));
  // Shared ownership does NOT authorize mutation; actual per-domain lease does.
  auto owned=std::make_shared<OriginLease>();auto alias=owned;owned->copy=10;check(!alias->CanReuse());
+ // Delayed CPU callback model: an actual-counter declaration covers GPU use
+ // only. No peer read/unknown flag is released by that observation. NOT GPU proof.
+ auto previous=std::make_shared<OriginLease>();previous->copy=100;previous->catchup=104;previous->merge=106;
+ previous->peer_read=true;check(!previous->CanReuse());previous->CompleteNative(106);check(!previous->CanReuse());
+ previous->peer_read=false;check(previous->CanReuse());previous->unknown=true;check(!previous->CanReuse());previous->unknown=false;
+ auto fresh=std::make_shared<OriginLease>();fresh->copy=108;
+ std::atomic<bool>release_old{false};
+ std::jthread delayed([previous,&release_old]{while(!release_old.load(std::memory_order_acquire)){std::this_thread::yield();}previous->CompleteNative(104);});
+ check(!fresh->CanReuse());release_old.store(true,std::memory_order_release);delayed.join();
+ check(previous->observed.load()==106);check(!fresh->CanReuse());
+ fresh->CompleteNative(107);check(!fresh->CanReuse());fresh->CompleteNative(108);check(fresh->CanReuse());
  check(!ExitRequested());RequestExit();check(ExitRequested()&&!ExitComplete());PublishExitComplete();check(ExitComplete());
  std::printf("{\"status\":\"PASS\",\"checks\":%u,\"thread_rounds\":50,\"scope\":\"CPU numeric model/publication/lifetime only; mocked readiness NOT_GPU_PROOF\"}\n",checks);
 }
