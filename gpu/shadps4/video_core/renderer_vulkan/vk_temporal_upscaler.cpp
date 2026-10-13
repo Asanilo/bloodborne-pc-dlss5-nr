@@ -22,6 +22,7 @@
 #include "bbport_toggles.h"
 #include "ffx_vk_portable.h"
 #include "video_core/host_shaders/upscale_merge_comp.h"
+#include "video_core/host_shaders/native_sky_merge_comp.h"
 #include "video_core/host_shaders/upscale_reactive_comp.h"
 #include "video_core/host_shaders/taa_comp.h"
 #include "video_core/host_shaders/taa_sharpen_comp.h"
@@ -786,6 +787,7 @@ void TemporalUpscaler::CreatePipelines() {
         }));
     }
     merge_pipeline = compute(UPSCALE_MERGE_COMP, *merge_pipeline_layout);
+    if (BbNativeAsync::OptIn()) native_sky_merge_pipeline = compute(NATIVE_SKY_MERGE_COMP, *merge_pipeline_layout);
     storage_layout(3, reactive_desc_layout, reactive_pipeline_layout, 3 * sizeof(float));
     reactive_pipeline = compute(UPSCALE_REACTIVE_COMP, *reactive_pipeline_layout);
     storage_layout(2, taa_sharpen_desc_layout, taa_sharpen_pipeline_layout, sizeof(float));
@@ -1682,7 +1684,7 @@ void TemporalUpscaler::Run() {
         const auto q1_proxy_depth=scene_targets.CaptureCreateInfo(input_depth);
         const bool q1_profile=!Scaled()&&reduced&&w==1280&&h==720&&ow==1920&&oh==1080&&
             last_dlss_called&&last_dlss_hdr&&UseDlss()&&BbSettings::Get().jitter&&q1_proxy_depth;
-        bool native_async_recorded=false,native_async_current=false;
+        bool native_async_recorded=false,native_async_current=false,native_sky_selected=false;
         if(native_async_snapshot.Enabled()&&q1_profile) {
             bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pending_audit.has_value();}
             if(!pending)try {
@@ -1694,8 +1696,8 @@ void TemporalUpscaler::Run() {
                      .viewport=c2_current_viewport_jitter,.previous_viewport=c2_previous_viewport_jitter,
                      .sr_jitter=c2_current_sr_jitter,.previous_sr_jitter=c2_previous_sr_jitter});
                 // Current genuine link is recorded before checking complete catchup.
-                const auto native_edit=native_async_snapshot.RecordAdvanceAndApply(scheduler,source_game_frame);
-                if(native_edit)throw std::runtime_error("Native async edit is not authorized before Sky/cross-endpoint gates");
+                const auto native_edit=native_async_recorded ? native_async_snapshot.RecordAdvanceAndApply(scheduler,source_game_frame) : vk::ImageView{};
+                if(native_edit){merge_view=native_edit;native_sky_selected=true;}
             }catch(const std::exception& e){native_async_snapshot.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_HOLD reason=%s current_SR=1 no_edit_selected=1\n",e.what());}
         }
         bool p0_selected=false, p0_frame_processed=false;
@@ -1988,7 +1990,7 @@ void TemporalUpscaler::Run() {
         if (c4_frame_processed) c4_game_bridge.BeginMergeTiming(scheduler);
         if (q1_frame_processed) q1_game_bridge.BeginMergeTiming(scheduler);
         if (p0_frame_processed) p0_controller.BeginMergeTiming(scheduler);
-        cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, *merge_pipeline);
+        cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, native_sky_selected ? *native_sky_merge_pipeline : *merge_pipeline);
         cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *merge_pipeline_layout, 0,
                                     writes);
         cmdbuf.pushConstants(*merge_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0,
@@ -1998,13 +2000,14 @@ void TemporalUpscaler::Run() {
         if (q1_frame_processed) q1_game_bridge.EndMergeTiming(scheduler);
         if (p0_frame_processed) p0_controller.EndMergeTiming(scheduler);
         if(native_async_current) {
+            if(native_sky_selected) native_async_snapshot.MergeRecorded(scheduler,source_game_frame);
             std::scoped_lock lock{c1_audit_mutex};
             if(native_async_pending_audit)throw std::runtime_error("Native async cannot overwrite pending source ledger");
-            native_async_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC",.mode=native_async_recorded?"copy-recorded":"busy-current-SR",.session=native_async_snapshot.Session(),
-                .execution_mode="native-only",.selected_output=false,.audit_full=false,
+            native_async_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC",.mode=native_sky_selected?"local-noop-Sky-current":"busy-current-SR",.session=native_async_snapshot.Session(),
+                .execution_mode="native-only",.selected_output=native_sky_selected,.audit_full=false,
                 .source_game_frame=source_game_frame,.merge_tick=scheduler.CurrentTick()};
-            std::printf("NATIVE_ASYNC_MERGE_CURRENT_SR source_game_frame=%llu tick=%llu origin_epoch=%llu edited=0 Helper=NOT_CONNECTED\n",
-                (unsigned long long)source_game_frame,(unsigned long long)scheduler.CurrentTick(),(unsigned long long)native_async_snapshot.Epoch());
+            std::printf("NATIVE_ASYNC_MERGE_CURRENT_SR source_game_frame=%llu tick=%llu origin_epoch=%llu origin_source=%llu local_noop_cache_selected=%u edited=0 Helper=NOT_CONNECTED\n",
+                (unsigned long long)source_game_frame,(unsigned long long)scheduler.CurrentTick(),(unsigned long long)native_async_snapshot.Epoch(),(unsigned long long)native_async_snapshot.OriginSource(),native_sky_selected);
         }
         if (c3_frame_processed) {
             std::scoped_lock lock{c1_audit_mutex};

@@ -19,8 +19,10 @@ void NativeAsyncSnapshot::Create(const Instance& instance) {
    .usage=vk::ImageUsageFlagBits::eTransferDst|vk::ImageUsageFlagBits::eTransferSrc|vk::ImageUsageFlagBits::eSampled,
    .initialLayout=vk::ImageLayout::eUndefined});
  }
+ next->sky=std::make_unique<NativeSkyGpu>(instance);
+ std::printf("NATIVE_SKY_RESOURCES rgba32f_history_banks=2 packets=5 packed_image_texel_bytes=%llu CPU_readback=0 cache_scale=1 jitter_delta=0 phase=UNVERIFIED model_calls=0\n",(unsigned long long)next->sky->ImageBytes());
  retained=std::move(next);owner=std::make_shared<BbNativeAsync::Owner>();
- std::printf("NATIVE_ASYNC_INIT session=%s origin1_links4=1 native_snapshots=15 CPU_readback=0 Helper=NOT_CONNECTED cache_transport=PENDING_CANONICAL\n",Session().c_str());
+ std::printf("NATIVE_ASYNC_INIT session=%s origin1_links4=1 native_snapshots=15 CPU_readback=0 Helper=NOT_CONNECTED cache_transport=LOCAL_NOOP_ONLY\n",Session().c_str());
 }
 void NativeAsyncSnapshot::PollReady(Scheduler&,bool supported) {
  if(!Enabled())return;
@@ -31,7 +33,7 @@ void NativeAsyncSnapshot::PollReady(Scheduler&,bool supported) {
  }
  const bool permanent=rejected||BbNativeAsync::ExitRequested();
  if(BbNativeAsync::NeedsHold(supported,bool(retained),BbNativeAsync::ExitRequested(),rejected))stopping=true;
- if(stopping&&(!retained||retained->CopiesReady())) {
+ if(stopping&&(!retained||retained->AllUsesReady())) {
   if(owner){owner->Stop();}
   owner.reset();retained.reset();
   if(BbNativeAsync::ExitRequested())BbNativeAsync::PublishExitComplete();
@@ -42,13 +44,31 @@ std::optional<BbNativeAsync::Frame> NativeAsyncSnapshot::ReadyOrigin()const noex
  if(stopping||rejected||!retained||!retained->records[0]||!retained->records[0]->gpu_ready.load(std::memory_order_acquire))return {};
  return retained->records[0]->frame;
 }
-vk::ImageView NativeAsyncSnapshot::RecordAdvanceAndApply(Scheduler&,uint64_t current_source) {
- const auto origin=ReadyOrigin();
- if(!origin||!chain.CompleteTo(origin->source,current_source,origin->epoch,origin->history))return {};
- // Origin-to-current metadata is complete. Sky GPU kernels and result import remain
- // disconnected until Root's exact transport fields AND zero/invalid identity gates.
- // No alternate RGB delta, borrowed NR frame or synthetic valid edit is selectable.
- return {};
+vk::ImageView NativeAsyncSnapshot::RecordAdvanceAndApply(Scheduler& scheduler,uint64_t current_source) {
+ if(stopping||rejected||!retained||!chain.Size())return {};
+ const auto& origin=chain.Origin();
+ if(!chain.CompleteTo(origin.source,current_source,origin.epoch,origin.history))return {};
+ const unsigned index=chain.Size()-1;
+ const auto record=retained->records[index];const auto lease=retained->leases[index];
+ if(!record||!lease||record->frame.source!=current_source)return {};
+ // Native producer and consumer commands are in the SAME actual timeline/queue.
+ // Copy->sample barriers, not CPU copyReady, establish this recorded dependency.
+ // No Helper ownership/read lease exists in this explicitly LOCAL_NOOP mode.
+ lease->capture=index==0?scheduler.CurrentTick():0;lease->catchup=scheduler.CurrentTick();
+ const std::array<vk::Image,3> images{vk::Image(retained->images[index*3]),vk::Image(retained->images[index*3+1]),vk::Image(retained->images[index*3+2])};
+ auto view=retained->sky->Record(scheduler,index,images,index==0);
+ std::printf("NATIVE_SKY_RECORD origin=%llu current_source=%llu epoch=%llu history=%llu params=%llu age=%u Capture=%u Reproject=%u Pyramid=2 Apply=1 tick=%llu source_format=97 cache_format=109 model_calls=0 mode=local-noop phase=UNVERIFIED\n",
+  (unsigned long long)origin.source,(unsigned long long)current_source,(unsigned long long)origin.epoch,(unsigned long long)origin.history,(unsigned long long)origin.params,index,index==0,index!=0,(unsigned long long)scheduler.CurrentTick());
+ return view;
+}
+void NativeAsyncSnapshot::MergeRecorded(Scheduler& scheduler,uint64_t source) {
+ if(!retained||chain.LastSource()!=source)return;
+ const auto tick=scheduler.CurrentTick();auto hold=retained;
+ // Every retained origin/link and both history banks have participated in this
+ // queue-ordered cache chain. Keep them through the REAL merge final-use tick.
+ for(const auto& lease:hold->leases)if(lease)lease->merge=tick;
+ const auto leases=hold->leases; // immutable ownership snapshot, not mutable slot array
+ scheduler.DeferPriorityOperation([hold,leases,tick]{for(const auto& lease:leases)if(lease)lease->CompleteNative(tick);});
 }
 void NativeAsyncSnapshot::RetireByTick(Scheduler& scheduler) {Shutdown(scheduler);}
 void NativeAsyncSnapshot::Shutdown(Scheduler& scheduler) {
@@ -76,9 +96,11 @@ bool NativeAsyncSnapshot::TryCaptureOrigin(const Instance& instance,Scheduler& s
  auto decision=chain.Classify(meta);
  if(decision==BbNativeAsync::Chain::Decision::Reject)return false;
  if(decision==BbNativeAsync::Chain::Decision::Full||decision==BbNativeAsync::Chain::Decision::Discontinuity){
-  if(!retained->CopiesReady())return false; // GPU incomplete: no overwrite, current SR only
+  if(!retained->AllUsesReady())return false; // GPU incomplete: no overwrite, current SR only
   chain.Restart(decision==BbNativeAsync::Chain::Decision::Discontinuity);
   for(auto& record:retained->records)record.reset();
+  for(auto& lease:retained->leases)lease.reset();
+  retained->sky->Restart();
  }
  const unsigned index=chain.Size();meta.copy_tick=scheduler.CurrentTick();
  BbNativeAsync::Frame next=meta; // commit chain only if bounded owner reservation succeeds
@@ -86,6 +108,7 @@ bool NativeAsyncSnapshot::TryCaptureOrigin(const Instance& instance,Scheduler& s
  auto record=std::make_shared<BbNativeAsync::Node>(next);
  if(!owner->TryPost(record))return false;
  retained->records[index]=record; // unknown partial recording stays held
+ auto lease=std::make_shared<BbNativeAsync::OriginLease>();lease->copy=next.copy_tick;retained->leases[index]=lease;
  auto cmd=scheduler.CommandBuffer();
  for(unsigned role=0;role<3;++role){
   const unsigned target=3*index+role;
@@ -117,7 +140,8 @@ bool NativeAsyncSnapshot::TryCaptureOrigin(const Instance& instance,Scheduler& s
   cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&restore});
  }
  chain=candidate;last_epoch=next.epoch;
- scheduler.DeferPriorityOperation([hold=retained,record,notify=owner]{
+ scheduler.DeferPriorityOperation([hold=retained,record,lease,notify=owner]{
+  lease->CompleteNative(record->frame.copy_tick);
   record->gpu_ready.store(true,std::memory_order_release);notify->Signal();
  });
  std::printf("NATIVE_ASYNC_SOURCE session=%s origin=%llu source=%llu previous=%llu epoch=%llu history=%llu link=%u sr_reset=%u copy_tick=%llu viewport=%.9g,%.9g previous_viewport=%.9g,%.9g sr_jitter=%.9g,%.9g previous_sr_jitter=%.9g,%.9g source_edited=0 GPU_ready=NOT_YET_OBSERVED current_SR=1\n",

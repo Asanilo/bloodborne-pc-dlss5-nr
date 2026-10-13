@@ -12,6 +12,7 @@ for line in pathlib.Path(sys.argv[1]).read_text().splitlines(): print(pathlib.Pa
 PY
 )
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_async_state.h gpu/shadps4/video_core/renderer_vulkan/native_async_owner.h gpu/shadps4/video_core/renderer_vulkan/native_async_owner.cpp gpu/shadps4/video_core/renderer_vulkan/native_async_snapshot.h gpu/shadps4/video_core/renderer_vulkan/native_async_snapshot.cpp tools/nr_probe/test_native_async_cpu.cpp tools/nr_probe/build_native_async.sh docs/NATIVE-ASYNC-SNAPSHOT.md gpu/shim/bbgpu.cpp gpu/shadps4/video_core/renderer_vulkan/vk_instance.cpp)
+INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_sky_gpu.h gpu/shadps4/video_core/renderer_vulkan/native_sky_gpu.cpp gpu/shadps4/video_core/renderer_vulkan/native_sky_constants.h gpu/shadps4/video_core/renderer_vulkan/native_sky_r2_spv.h gpu/shadps4/video_core/renderer_vulkan/native_sky_provenance.json gpu/shadps4/video_core/renderer_vulkan/native_origin_lease.h gpu/shadps4/video_core/host_shaders/native_sky_convert.comp gpu/shadps4/video_core/host_shaders/upscale_merge.comp gpu/CMakeLists.txt docs/NATIVE-SKY-GPU.md)
 while IFS= read -r -d '' f;do [[ ! -f "$WT/$f" ]]||INPUTS+=("$f");done < <(git -C "$WT" diff --name-only -z HEAD)
 mapfile -t INPUTS < <(printf '%s\n' "${INPUTS[@]}"|sort -u)
 manifest(){ : > "$1";for f in "${INPUTS[@]}";do sha256sum "$WT/$f" >> "$1";done;}
@@ -33,7 +34,7 @@ if [[ $rc -eq 0 ]];then sha256sum "$WT/out/bb-probe" "$WT/out/gpu/libbbgpu.so" "
 python3 - "$RUN" "$WT" "$rc" "$cpu" <<'PY'
 import json,pathlib,sys
 r,wt,rc,cpu=pathlib.Path(sys.argv[1]),sys.argv[2],int(sys.argv[3]),int(sys.argv[4])
-d={'status':'PASS' if rc==0 else 'FAIL','scope':'NATIVE_ASYNC_SOURCE_ONLY_BUILD_ONLY','exit_code':rc,'CPU_exit':cpu,'worktree':wt,'GPU':'NOT_RUN','NR_transport':'NOT_CONNECTED_PENDING_ROOT_CANONICAL','NR_edit_selection':'NOT_IMPLEMENTED_PENDING_CANONICAL','source_manifest':str(r/'source-sha256.txt'),'artifacts':str(r/'artifact-sha256.txt') if rc==0 else None}
+d={'status':'PASS' if rc==0 else 'FAIL','scope':'NATIVE_SKY_LOCAL_NOOP_BUILD_ONLY','exit_code':rc,'CPU_exit':cpu,'worktree':wt,'GPU':'NOT_RUN','NR_transport':'NOT_CONNECTED','NR_edit_selection':'LOCAL_NOOP_SKY_RUNTIME_NOT_RUN','source_manifest':str(r/'source-sha256.txt'),'artifacts':str(r/'artifact-sha256.txt') if rc==0 else None}
 (r/'build-result.json').write_text(json.dumps(d,indent=2)+'\n');print(json.dumps(d))
 PY
 exit "$rc"

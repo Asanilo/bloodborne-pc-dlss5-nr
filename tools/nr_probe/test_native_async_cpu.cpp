@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "video_core/renderer_vulkan/native_async_owner.h"
+#include "video_core/renderer_vulkan/native_origin_lease.h"
 #include <chrono>
+#include <bit>
 #include <cstdio>
 #include <cstdlib>
 #include <limits>
@@ -38,6 +40,20 @@ int main(){
   check(seen);check(owner->ObservedNoticeCount()==1);
   owner->Stop();check(!owner->TryPost(node));check(!owner->TryObserve(f,notice));
  }
+ for(unsigned bits=0;bits<65536;bits++){
+  if((bits&0x7c00)==0x7c00)continue; // finite only, exact raw r2 identity domain
+  const auto half=std::bit_cast<_Float16>(static_cast<uint16_t>(bits));
+  const float wide=static_cast<float>(half);const auto back=static_cast<_Float16>(wide);
+  check(std::bit_cast<uint16_t>(back)==bits);
+ }
+ OriginLease lease;check(!lease.CanReuse());lease.copy=20;lease.CompleteNative(20);check(lease.CanReuse());
+ lease.peer_read=true;check(!lease.CanReuse());lease.peer_read=false;
+ lease.capture=21;check(!lease.CanReuse());lease.CompleteNative(21);check(lease.CanReuse());
+ lease.catchup=22;lease.merge=24;lease.CompleteNative(23);check(!lease.CanReuse());lease.CompleteNative(24);check(lease.CanReuse());
+ lease.unknown=true;lease.CompleteNative(999);check(!lease.CanReuse());lease.unknown=false;
+ lease.CompleteNative(1);check(lease.observed.load()==999);check(lease.LastUse()==24);
+ // Shared ownership does NOT authorize mutation; actual per-domain lease does.
+ auto owned=std::make_shared<OriginLease>();auto alias=owned;owned->copy=10;check(!alias->CanReuse());
  check(!ExitRequested());RequestExit();check(ExitRequested()&&!ExitComplete());PublishExitComplete();check(ExitComplete());
  std::printf("{\"status\":\"PASS\",\"checks\":%u,\"thread_rounds\":50,\"scope\":\"CPU numeric model/publication/lifetime only; mocked readiness NOT_GPU_PROOF\"}\n",checks);
 }

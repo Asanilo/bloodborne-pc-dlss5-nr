@@ -1,0 +1,18 @@
+{
+  "SPIRV": {
+    "source": "/home/arinp/Code/nrbridge-design/game-poc-20261011/opti-highfps-worktree/poc/game_nr/cache-r2/out/sky_cache.spv",
+    "sha256": "e99efc568377f2a59563609e68705fcc038789b1fd7e70522981437a89c08f92",
+    "entry": "CSMain",
+    "local_size": [
+      8,
+      8,
+      1
+    ]
+  },
+  "constants": {
+    "source": "/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/OptiScaler/shaders/dlssnr/DlssNr_CacheCommon.h",
+    "sha256": "d4d5c8bf9d24f5923ac33501900558b69c60ab40c7b38184bbe3910e6cc97ba8"
+  },
+  "interface": "/home/arinp/Code/nrbridge-design/game-poc-20261011/opti-highfps-worktree/poc/game_nr/sky-cache-late-vk/SKY-PASS-INTERFACE.md",
+  "scope": "fixed r2 shader; native integration GPU NOT_RUN; no NR transport"
+}

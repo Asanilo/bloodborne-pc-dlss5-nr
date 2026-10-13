@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#version 450
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D sourceColor;
+layout(binding=1) uniform sampler2D sourceDepth;
+layout(binding=2) uniform sampler2D sourceMotion;
+layout(binding=3,rgba32f) writeonly uniform image2D color32;
+layout(binding=4,r32f) writeonly uniform image2D depth32;
+layout(binding=5,rg32f) writeonly uniform image2D motion32;
+void main(){ivec2 q=ivec2(gl_GlobalInvocationID.xy);
+ if(all(lessThan(q,imageSize(color32))))imageStore(color32,q,texelFetch(sourceColor,q,0));
+ if(all(lessThan(q,imageSize(depth32)))){
+  imageStore(depth32,q,vec4(texelFetch(sourceDepth,q,0).r,0,0,0));
+  imageStore(motion32,q,vec4(texelFetch(sourceMotion,q,0).rg,0,0));
+ }
+}
