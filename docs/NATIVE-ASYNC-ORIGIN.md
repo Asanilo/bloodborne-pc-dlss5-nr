@@ -66,3 +66,28 @@ publishes only after input native_GPU_complete, not from record-time metadata.
 No added Flush, relocated wait, Helper change, age4 widening or early shared reuse.
 Chain restart invalidates this recording proof. GPU/runtime benefit unmeasured
 until Root independently runs a fresh bounded candidate; no edit/quality claim.
+
+## Independent scene-first candidate (base131a3c29)
+
+BB_NR_NATIVE_ASYNC_SCENE_FIRST=1 is opt-in only for resident/skipEvaluate;
+default0 retains the previous cold startup, localnoop ignores this option.
+Entry run_game_native_async.sh SESSION localnoop|resident|skipEvaluate still
+uses native-async-game-SESSION/profile/.native-async-profile and private assets.
+After actual Clinic, Root atomically writes RUN/native-helper-start containing
+exact SESSION newline. The existing managed preparation thread polls at100ms,
+publishes only an atomic request; supported renderer Poll starts the ColdOwner.
+Actual Ready imports/FD-retired is observed before new scene-first mode permits
+snapshot capture. Root then writes the existing native-scene-arm token. Tokens
+are preparation requests, not scene/GPU proof. No renderer file reads, model
+wait, new threads, Flush, or ownership/age4/latechain/metadata/4job changes.
+
+Before Peer creation, window close requests/stops the same preparation thread.
+ExitComplete requires actual thread finish+join, no current or ever Peer creation,
+no retained storage/snapshot Owner/pending proofs/chain/source copies, no partial
+snapshot creation, no unknown state, maximum Native use tick0. N0 is not this
+proof. If resources/Peer were created, original actual GPU/lease/peer retirement
+rules still apply; never claim normal release from job count or elapsed time.
+
+BUILD_ONLY/CPU are not a runtime normal-close, edited-Present or performance
+PASS. Old unarmed PM4/HOLD batch remains STOPPED/unresolved. Fixed producer12199,
+v3 wire/model/phase candidate remain unchanged. Root alone approves GPU cases.

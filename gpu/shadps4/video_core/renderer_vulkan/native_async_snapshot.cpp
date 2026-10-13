@@ -8,6 +8,10 @@
 #include <stdexcept>
 namespace Vulkan {
 std::string NativeAsyncSnapshot::Session()const {const char* p=std::getenv("BB_NR_NATIVE_ASYNC_SESSION");return p?p:"";}
+bool NativeAsyncSnapshot::Armed()const noexcept {
+ return frontend&&frontend->Armed()&&(!BbNativeAsync::SceneFirst::Active()||
+  (frontend->HelperStartRequested()&&peer&&peer_ready_observed));
+}
 void NativeAsyncSnapshot::Create(const Instance& instance) {
  snapshot_creation_attempted=true; // EVER, even partial creation before an exception.
  auto next=std::make_shared<Retention>();
@@ -37,6 +41,7 @@ void NativeAsyncSnapshot::HoldUnknown(std::shared_ptr<Retention> hold) {
  std::scoped_lock lock(*mutex);held->push_back(std::move(hold));
 }
 void NativeAsyncSnapshot::TrackUse(Scheduler& scheduler){
+ maximum_native_use_tick=std::max(maximum_native_use_tick,scheduler.CurrentTick());
  if(!peer)return;
  auto q=peer->Quiescence();const auto tick=scheduler.CurrentTick();
  auto old=q->last_use_tick.load();while(old<tick&&!q->last_use_tick.compare_exchange_weak(old,tick)){}
@@ -47,6 +52,7 @@ void NativeAsyncSnapshot::TrackUse(Scheduler& scheduler){
 void NativeAsyncSnapshot::PollPeer(Scheduler& scheduler,bool supported){
  if(!peer)return;
  using Phase=NativeOriginOwner::Phase;
+ if(peer->State()==Phase::Ready)peer_ready_observed=true;
  if(BbNativeAsync::ExitRequested())peer->RequestStop(2);
  if(!supported&&retained)peer->RequestStop(3);
  if(peer->State()==Phase::Failed){Quarantine();return;}
@@ -64,8 +70,27 @@ void NativeAsyncSnapshot::PollPeer(Scheduler& scheduler,bool supported){
 void NativeAsyncSnapshot::PollReady(const Instance& instance,Scheduler& scheduler,bool supported) {
  if(!Enabled())return;
  if(!frontend){frontend=std::make_unique<BbNativeAsync::Frontend>();std::printf("NATIVE_ASYNC_FRONTEND_READY session=%s scene_arm=REQUIRED availability_only=1 no_GPU_proof=1\n",Session().c_str());}
- if(!peer&&supported){auto candidate=std::make_shared<NativeOriginOwner>();
-  if(candidate->Enabled()){peer=candidate;peer->Start(instance);}
+ if(BbNativeAsync::SceneFirst::Active()&&BbNativeAsync::ExitRequested()&&!peer){
+  stopping=true;if(frontend)frontend->RequestStop();
+  if(frontend&&frontend->Finished())frontend->JoinFinished();
+  const BbNativeAsync::SceneFirst::NoPeerExitProof proof{
+   .no_peer=!peer,.no_retained=!retained,.no_snapshot_owner=!owner,
+   .no_pending=!pending_sparse&&!sparse_input_proof&&!sparse_final_proof&&!recorded_origin,
+   .frontend_joined=frontend&&frontend->Joined(),.unknown=rejected,
+   .peer_creation_attempted=peer_creation_attempted,.snapshot_creation_attempted=snapshot_creation_attempted,
+   .copies_ever=source_count,.maximum_native_use_tick=maximum_native_use_tick,.chain_size=chain.Size()};
+  if(BbNativeAsync::SceneFirst::CanExitWithoutPeer(proof)&&!BbNativeAsync::ExitComplete()){
+   std::printf("NATIVE_ASYNC_EXIT_NO_PEER session=%s actual_no_owner=1 actual_no_snapshot=1 actual_no_pending=1 maximum_native_use_tick=0 preparation_joined=1 no_peer_created=1 no_NR_claim=1 scope=native_async_only\n",Session().c_str());
+   BbNativeAsync::PublishExitComplete();
+  }
+  return;
+ }
+ const bool start_requested=!BbNativeAsync::SceneFirst::Active()||(frontend&&frontend->HelperStartRequested());
+ const bool can_start=BbNativeAsync::SceneFirst::Active()?
+  BbNativeAsync::SceneFirst::CanStartPeer(supported,start_requested,BbNativeAsync::ExitRequested()):supported;
+ if(!peer&&can_start){
+  auto candidate=std::make_shared<NativeOriginOwner>();
+  if(candidate->Enabled()){peer_creation_attempted=true;peer=candidate;peer->Start(instance);}
  }
  if(BbNativeAsync::ExitRequested()&&frontend)frontend->RequestStop();
  PollPeer(scheduler,supported);
@@ -250,6 +275,7 @@ void NativeAsyncSnapshot::MergeRecorded(Scheduler& scheduler,uint64_t source) {
 void NativeAsyncSnapshot::RetireByTick(Scheduler& scheduler) {Shutdown(scheduler);}
 void NativeAsyncSnapshot::Shutdown(Scheduler& scheduler) {
  stopping=true;
+ if(BbNativeAsync::SceneFirst::Active()&&frontend)frontend->RequestStop();
  if(peer)peer->RequestStop(2);
  if(owner)owner->Stop();
  owner.reset();

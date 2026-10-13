@@ -17,7 +17,7 @@ public:
  bool TryCaptureOrigin(const Instance&,Scheduler&,const std::array<vk::Image,3>&,
              const std::array<vk::ImageCreateInfo,3>&,BbNativeAsync::Frame);
  void PollReady(const Instance&,Scheduler&,bool supported);
- bool Armed()const noexcept{return frontend&&frontend->Armed();}
+ bool Armed()const noexcept;
  bool EffectSelected()const noexcept{return effect_selected;}
  unsigned EffectJob()const noexcept{return effect_job;}
  vk::ImageView RecordAdvanceAndApply(Scheduler&,uint64_t current_source);
@@ -69,7 +69,8 @@ private:
  std::unique_ptr<BbNativeAsync::Frontend> frontend;
  std::shared_ptr<NativeSkyDiagnostic> diagnostic,edit_diagnostic;
  std::optional<NativeSkyDiagnostic::EditContext> edit_anchor;
- bool snapshot_creation_attempted=false;
+ bool snapshot_creation_attempted=false,peer_creation_attempted=false,peer_ready_observed=false;
+ uint64_t maximum_native_use_tick=0;
  bool sparse_anchor=false,effect_selected=false;unsigned effect_job=0;
  uint64_t source_count=0;
  std::shared_ptr<BbNativeAsync::Owner> owner;

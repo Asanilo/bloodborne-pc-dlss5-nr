@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include "native_async_scene_first.h"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -13,6 +14,8 @@ namespace BbNativeAsync {
 class Frontend {
 public:
  Frontend() {
+  const bool scene_first=SceneFirst::Active();
+  helper_start_requested.store(!scene_first,std::memory_order_release);
   const char* r=std::getenv("BB_NR_NATIVE_ASYNC_RUN_DIR");
   const char* p=std::getenv("BB_NR_NATIVE_ASYNC_SCENE_ARM");
   const char* s=std::getenv("BB_NR_NATIVE_ASYNC_SESSION");
@@ -21,18 +24,25 @@ public:
   if(path!=run+"/native-scene-arm"||run!=
     "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/native-async-game-"+session)return;
   finished.store(false,std::memory_order_release);
-  thread=std::jthread([this,path,session](std::stop_token token){
+  thread=std::jthread([this,path,run,session,scene_first](std::stop_token token){
    struct Finish{std::atomic<bool>& flag;~Finish(){flag.store(true,std::memory_order_release);}} finish{finished};
    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(300);
    while(!token.stop_requested()&&std::chrono::steady_clock::now()<deadline) {
-    std::ifstream f(path,std::ios::binary);std::string value;
-    if(f){char b[65]{};f.read(b,sizeof(b));value.assign(b,size_t(f.gcount()));
-      if(value==session+"\n"){
-       armed.store(true,std::memory_order_release);
-       std::printf("NATIVE_ASYNC_SCENE_ARM session=%s actual_scene_evidence=REQUIRES_ROOT no_GPU_proof=1\n",session.c_str());
-       return;
-      }
+    const auto exact_token=[&](const std::string& target){
+     std::ifstream f(target,std::ios::binary);char b[65]{};
+     if(!f){return false;}
+     f.read(b,sizeof(b));
+     return SceneFirst::ExactToken(std::string_view(b,size_t(f.gcount())),session);
+    };
+    if(scene_first&&!helper_start_requested.load(std::memory_order_acquire)&&exact_token(run+"/native-helper-start")){
+     helper_start_requested.store(true,std::memory_order_release);
+     std::printf("NATIVE_ASYNC_HELPER_START_REQUEST session=%s scene_first=1 scene_proof=REQUIRES_ROOT GPU_proof=NONE\n",session.c_str());
     }
+    if(!armed.load(std::memory_order_acquire)&&exact_token(path)){
+     armed.store(true,std::memory_order_release);
+     std::printf("NATIVE_ASYNC_SCENE_ARM session=%s actual_scene_evidence=REQUIRES_ROOT no_GPU_proof=1\n",session.c_str());
+    }
+    if(armed.load(std::memory_order_acquire)&&helper_start_requested.load(std::memory_order_acquire))return;
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
    }
   });
@@ -41,9 +51,11 @@ public:
  void RequestStop()noexcept{thread.request_stop();}
  bool Finished()const noexcept{return finished.load(std::memory_order_acquire);}
  void JoinFinished(){if(Finished()&&thread.joinable())thread.join();}
+ bool HelperStartRequested()const noexcept{return helper_start_requested.load(std::memory_order_acquire);}
+ bool Joined()const noexcept{return Finished()&&!thread.joinable();}
  bool Armed()const noexcept{return armed.load(std::memory_order_acquire);}
 private:
- std::atomic<bool> armed{false},finished{true};
+ std::atomic<bool> armed{false},finished{true},helper_start_requested{true};
  std::jthread thread;
 };
 }

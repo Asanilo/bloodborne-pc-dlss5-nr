@@ -3,6 +3,8 @@
 set -euo pipefail
 [[ $# == 2 ]] || { echo 'Usage: run_game_native_async.sh SESSION localnoop|resident|skipEvaluate' >&2; exit 2; }
 SESSION=$1 MODE=$2
+SCENE_FIRST=${BB_NR_NATIVE_ASYNC_SCENE_FIRST-0}
+[[ $SCENE_FIRST == 0 || $SCENE_FIRST == 1 ]] || { echo "NATIVE_ASYNC_LAUNCH BLOCKED scene-first must be exact0|1" >&2; exit 2; }
 [[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,62}$ && ( $MODE == localnoop || $MODE == resident || $MODE == skipEvaluate ) ]] || exit 2
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
 R=/home/arinp/Code/nrbridge-design/game-poc-20261011
@@ -21,7 +23,7 @@ for P in "$BUILD/bb-probe" "$BUILD/gpu/libbbgpu.so" "$BUILD/libbbport_dlss.so" "
 done
 [[ $MODE == localnoop || -f $HELPER ]] || exit 3
 # Fresh case required. Integration creates arm only after actual Clinic + READY.
-[[ ! -e "$RUN/native-scene-arm" && ! -e "$RUN/async-config.json" ]] || {
+[[ ! -e "$RUN/native-scene-arm" && ! -e "$RUN/async-config.json" && ( $SCENE_FIRST == 0 || ! -e "$RUN/native-helper-start" ) ]] || {
   echo 'NATIVE_ASYNC_LAUNCH BLOCKED stale arm/config' >&2; exit 3;
 }
 DIAG=$(printenv BB_NR_NATIVE_ASYNC_DIAGNOSTIC_ONCE || true)
@@ -51,6 +53,7 @@ export BB_PREBUILT=1 BB_PROBE="$BUILD/bb-probe" BB_UPSCALER=dlss BB_UPSCALE_PRES
 export BB_JITTER=1 BB_FPS=uncap BB_FPS_LIMIT=90 BB_FRAME_STATS=1 BB_FRAME_LOG="$PROFILE/logs/frames.csv"
 export BB_SAVE_LOG=1 BB_MODS_ENABLED=0 BB_IME_TEXT=NRTest BB_PAD_FILE="$RUN/pad.txt" BB_DUMP_DIR="$RUN/dump"
 export BB_PRESENT_DUMP_TRIGGER="$RUN/present-dump-trigger" BB_PRESENT_DUMP_COUNT=1
+export BB_NR_NATIVE_ASYNC_SCENE_FIRST="$SCENE_FIRST"
 export BB_NR_NATIVE_ASYNC=1 BB_NR_NATIVE_ASYNC_SESSION="$SESSION" BB_NR_NATIVE_ASYNC_MODE="$MODE"
 export BB_NR_NATIVE_ASYNC_RUN_DIR="$RUN" BB_NR_NATIVE_ASYNC_SCENE_ARM="$RUN/native-scene-arm"
 export BB_NR_NATIVE_ASYNC_EDIT_DIAGNOSTIC_ONCE="$EDIT_DIAG"
@@ -64,6 +67,7 @@ export DLSSNR_DISABLE=1 DLSSNR_AUTO_DOWNLOAD=0
 {
   printf 'session=%s\nmode=%s\nrun=%s\nmarker=%s\nbuild=%s\nassets=%s\n' "$SESSION" "$MODE" "$RUN" "$PROFILE/.native-async-profile" "$BUILD" "$GAME"
   printf 'scene_arm=%s\nscene_arm_content=%s\\n\nmax_jobs=4\nsource_limit=120\nouter_seconds=300\n' "$RUN/native-scene-arm" "$SESSION"
+  printf 'scene_first=%s\nhelper_start=%s\nhelper_start_content=%s\\n\nhelper_start_scope=resident_or_skip_only_localnoop_unchanged\n' "$SCENE_FIRST" "$RUN/native-helper-start" "$SESSION"
   printf 'BB_FPS=uncap\nBB_FPS_LIMIT=90\njitter=1\nrender=1280x720\noutput=1920x1080\n'
   printf 'localnoop_starts_helper=0\ndiagnostic_once=%s\nphase=UNVERIFIED\nruntime=NOT_RUN_AT_BUILD\n' "$DIAG"
   printf 'edit_diagnostic_once=%s\nedit_diagnostic_performance_excluded=1\n' "$EDIT_DIAG"
