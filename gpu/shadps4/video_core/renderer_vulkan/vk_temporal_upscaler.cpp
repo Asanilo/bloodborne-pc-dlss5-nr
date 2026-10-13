@@ -436,7 +436,7 @@ bool TemporalUpscaler::RasterScaling() const {
 
 bool TemporalUpscaler::OnFrameStart() {
     const auto& p0_settings=BbSettings::Get();
-    native_async_snapshot.PollReady(scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);
+    native_async_snapshot.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);
     p0_controller.Tick(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter,BbOverlay::MenuOpen());
     // bbport: BB_PRESET_FILE=<file> holding a preset number, read about once a second: switches
     // the preset like the menu does (scripted tests of live preset changes).
@@ -1685,7 +1685,7 @@ void TemporalUpscaler::Run() {
         const bool q1_profile=!Scaled()&&reduced&&w==1280&&h==720&&ow==1920&&oh==1080&&
             last_dlss_called&&last_dlss_hdr&&UseDlss()&&BbSettings::Get().jitter&&q1_proxy_depth;
         bool native_async_recorded=false,native_async_current=false,native_sky_selected=false;
-        if(native_async_snapshot.Enabled()&&q1_profile) {
+        if(native_async_snapshot.Enabled()&&native_async_snapshot.Armed()&&q1_profile) {
             bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pending_audit.has_value();}
             if(!pending)try {
                 native_async_current=true;
@@ -1698,6 +1698,7 @@ void TemporalUpscaler::Run() {
                 // Current genuine link is recorded before checking complete catchup.
                 const auto native_edit=native_async_recorded ? native_async_snapshot.RecordAdvanceAndApply(scheduler,source_game_frame) : vk::ImageView{};
                 if(native_edit){merge_view=native_edit;native_sky_selected=true;}
+                if(!native_async_recorded)native_async_snapshot.DrainUnavailable(scheduler);
             }catch(const std::exception& e){native_async_snapshot.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_HOLD reason=%s current_SR=1 no_edit_selected=1\n",e.what());}
         }
         bool p0_selected=false, p0_frame_processed=false;
@@ -2003,11 +2004,11 @@ void TemporalUpscaler::Run() {
             if(native_sky_selected) native_async_snapshot.MergeRecorded(scheduler,source_game_frame);
             std::scoped_lock lock{c1_audit_mutex};
             if(native_async_pending_audit)throw std::runtime_error("Native async cannot overwrite pending source ledger");
-            native_async_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC",.mode=native_sky_selected?"local-noop-Sky-current":"busy-current-SR",.session=native_async_snapshot.Session(),
-                .execution_mode="native-only",.selected_output=native_sky_selected,.audit_full=false,
+            native_async_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC",.mode=(native_sky_selected&&native_async_snapshot.EffectSelected())?"sparse-NR-Sky-current":native_sky_selected?"local-noop-Sky-current":"busy-current-SR",.session=native_async_snapshot.Session(),
+                .execution_mode="native-only",.selected_output=native_sky_selected,.audit_full=false,.nr_frame=native_async_snapshot.EffectJob(),
                 .source_game_frame=source_game_frame,.merge_tick=scheduler.CurrentTick()};
-            std::printf("NATIVE_ASYNC_MERGE_CURRENT_SR source_game_frame=%llu tick=%llu origin_epoch=%llu origin_source=%llu local_noop_cache_selected=%u edited=0 Helper=NOT_CONNECTED\n",
-                (unsigned long long)source_game_frame,(unsigned long long)scheduler.CurrentTick(),(unsigned long long)native_async_snapshot.Epoch(),(unsigned long long)native_async_snapshot.OriginSource(),native_sky_selected);
+            std::printf("NATIVE_ASYNC_MERGE_CURRENT_SR source_game_frame=%llu tick=%llu origin_epoch=%llu origin_source=%llu cache_selected=%u effect_applied=%u sparse_job=%u source_edited=0\n",
+                (unsigned long long)source_game_frame,(unsigned long long)scheduler.CurrentTick(),(unsigned long long)native_async_snapshot.Epoch(),(unsigned long long)native_async_snapshot.OriginSource(),native_sky_selected,native_sky_selected&&native_async_snapshot.EffectSelected(),native_async_snapshot.EffectJob());
         }
         if (c3_frame_processed) {
             std::scoped_lock lock{c1_audit_mutex};

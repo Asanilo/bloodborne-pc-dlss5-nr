@@ -14,10 +14,17 @@ public:
  explicit NativeSkyGpu(const Instance&);
  vk::ImageView Record(Scheduler&,unsigned index,const std::array<vk::Image,3>&,
                       bool capture);
+ std::array<vk::Image,3> ConvertedOrigin()const noexcept;
+ std::array<vk::Image,3> Converted(unsigned i)const noexcept{return {vk::Image(packets[i].converted[0].image),vk::Image(packets[i].converted[1].image),vk::Image(packets[i].converted[2].image)};}
+ vk::Image Output(unsigned i)const noexcept{return vk::Image(packets[i].output.image);}
+ vk::ImageView RecordSparseCatchup(Scheduler&,unsigned current_index,vk::ImageView actual_origin_NR);
+ void CompleteSparseNativeUse()noexcept {replay_busy.store(false,std::memory_order_release);}
+ bool SparseScratchBusy()const noexcept {return replay_busy.load(std::memory_order_acquire);}
  void Restart() noexcept {next_index=0;}
  uint64_t ImageBytes()const noexcept;
 private:
- struct Image {VideoCore::UniqueImage image;vk::UniqueImageView view;};
+ struct Image {VideoCore::UniqueImage image;vk::UniqueImageView view;vk::ImageView borrowed{};
+ vk::ImageView View()const noexcept{return view?*view:borrowed;} };
  struct Bank {Image edit,guide,l1guide;std::array<Image,3> levels;};
  struct Packet {
   std::array<Image,3> converted;Image output;
@@ -33,7 +40,8 @@ private:
  DlssNrCacheConstants Base(unsigned)const;
  vk::Device device;VmaAllocator allocator;
  std::array<Bank,2> banks;
- std::array<Packet,BbNativeAsync::NodeCount> packets;
+ std::array<Packet,BbNativeAsync::NodeCount> packets,replay_packets;
+ std::atomic<bool> replay_busy{false};
  Image dummy,exposure,stats;
  vk::UniqueSampler linear,nearest;
  vk::UniqueDescriptorSetLayout layout,conversion_layout;
