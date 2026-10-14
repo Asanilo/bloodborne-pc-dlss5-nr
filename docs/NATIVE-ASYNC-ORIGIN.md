@@ -127,3 +127,26 @@ NATIVE_ASYNC_REUSE_GPU_OBSERVED. CPU declaration/thread counterexamples are not
 GPU proof. Actual earlier GPU readiness in old raw gaps is UNKNOWN; this removes
 an avoidable callback-publication prerequisite if already completed, benefit
 UNMEASURED. Origin immutability and current source+complete age4 lineage remain.
+
+
+## Isolated bb9 handoff clock candidate
+
+BUILD_ONLY telemetry; no runtime/performance result. Three once-per-job events use
+existing native std::chrono::steady_clock nanoseconds, exact immutable job identity
+and actual Native shared last-use target. NATIVE_ORIGIN_GPU_USE_READY is the first
+owner observation of the existing FinalRecorded + actual GPU-complete predicate,
+not the hardware completion instant. NATIVE_ORIGIN_CONSUMED_PUBLISHED is immediately
+after successful existing Atomic fsync/rename and before finalized publication.
+NATIVE_ASYNC_FINALIZED_ACK_OBSERVED is inside the existing FinalizedAck acceptance
+predicate, after job reset and Ready publication, called by the renderer from
+NativeAsyncSnapshot::PollPeer. No inferred success log at the outer void callsite.
+
+All three share exact keys session/job/origin/source/source_scope/current_source/
+native_target_tick/native_monotonic_ns/native_GPU_complete/scope/clock. source is
+the immutable origin's actual source, source_scope=immutable_origin; the renderer's
+current source is unavailable at this unchanged interface, current_source=NOT_MEASURED.
+No Wine clock subtraction, extra wait/Flush/IsFree/poll/lock, new counters, wire fields,
+resources or scheduling changes. Successful phase transition prevents duplicate
+ready/publish observations; accepted ACK cannot repeat after Ready. Exceptions retain
+the old failure/HOLD behavior. Timing includes logging/CPU observation overhead and
+cannot alone classify unobserved actual GPU completion or promise FPS benefit.

@@ -104,7 +104,13 @@ std::shared_ptr<NativeOriginOwner::Job> NativeOriginOwner::TryJob(){std::unique_
 void NativeOriginOwner::CancelReservation(const std::shared_ptr<Job>&j){std::unique_lock lock(mutex,std::try_to_lock);if(lock&&job==j&&State()==Phase::Reserved){job.reset();phase.store(Phase::Ready);}}
 void NativeOriginOwner::InputRecorded(const std::shared_ptr<Job>&j){std::scoped_lock lock(mutex);if(job!=j||State()!=Phase::Reserved||!j->input->native_target_tick||j->id.origin_source<=last_recorded_origin)throw std::runtime_error("async input reservation mismatch");last_recorded_origin=j->id.origin_source;phase.store(Phase::InputRecorded,std::memory_order_release);}
 void NativeOriginOwner::FinalRecorded(const std::shared_ptr<Job>&j,NativeAsyncSnapshot::SparseDisposition d){std::scoped_lock lock(mutex);if(job!=j||State()!=Phase::Complete||!j->final->native_target_tick||d==NativeAsyncSnapshot::SparseDisposition::Unavailable)throw std::runtime_error("async final reservation mismatch");j->disposition=d;phase.store(Phase::FinalRecorded,std::memory_order_release);}
-void NativeOriginOwner::FinalizedAck(const std::shared_ptr<Job>&j){std::scoped_lock lock(mutex);if(job==j&&State()==Phase::Finalized&&j->consumed_published.load()){job.reset();phase.store(Phase::Ready,std::memory_order_release);}}
+void NativeOriginOwner::FinalizedAck(const std::shared_ptr<Job>&j){std::scoped_lock lock(mutex);if(job==j&&State()==Phase::Finalized&&j->consumed_published.load()){job.reset();phase.store(Phase::Ready,std::memory_order_release);
+ std::printf("NATIVE_ASYNC_FINALIZED_ACK_OBSERVED session=%s job=%llu origin=%llu source=%llu source_scope=immutable_origin current_source=NOT_MEASURED native_target_tick=%llu native_monotonic_ns=%llu native_GPU_complete=%u scope=renderer_FinalizedAck_actual_accept_after_Ready_store clock=native_steady\n",
+  j->id.session.c_str(),(unsigned long long)j->id.job,(unsigned long long)j->id.origin_source,
+  (unsigned long long)j->origin.source,(unsigned long long)j->final->native_target_tick,
+  (unsigned long long)std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count(),
+  unsigned(j->final->native_GPU_complete.load(std::memory_order_acquire)));
+}}
 void NativeOriginOwner::RequestStop(unsigned r)noexcept{if(r>=1&&r<=4){unsigned zero=0;stop_reason.compare_exchange_strong(zero,r);}}
 void NativeOriginOwner::Fail(const std::string&why)noexcept {phase.store(Phase::Failed,std::memory_order_release);std::fprintf(stderr,"NATIVE_ORIGIN_QUARANTINE reason=%s normal_release=0 no_gpu_free=1\n",why.c_str());try{if(!run.empty())Atomic(run+"/native.abort",why+"\n");}catch(...){} }
 void NativeOriginOwner::Run(std::stop_token stop,const Instance&instance){
@@ -180,9 +186,18 @@ void NativeOriginOwner::Run(std::stop_token stop,const Instance&instance){
      (unsigned long long)std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
     phase.store(Phase::Complete,std::memory_order_release);
    }else if(state==Phase::FinalRecorded&&current&&current->final->native_GPU_complete.load(std::memory_order_acquire)){
+    std::printf("NATIVE_ORIGIN_GPU_USE_READY session=%s job=%llu origin=%llu source=%llu source_scope=immutable_origin current_source=NOT_MEASURED native_target_tick=%llu native_monotonic_ns=%llu native_GPU_complete=1 scope=first_owner_observation_of_actual_final_GPU_use_before_CONSUMED clock=native_steady\n",
+     current->id.session.c_str(),(unsigned long long)current->id.job,(unsigned long long)current->id.origin_source,
+     (unsigned long long)current->origin.source,(unsigned long long)current->final->native_target_tick,
+     (unsigned long long)std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
     auto d=current->disposition;std::string disposition=d==NativeAsyncSnapshot::SparseDisposition::Captured?"captured":d==NativeAsyncSnapshot::SparseDisposition::ExpectedSkip?"expected_skip":"obsolete_discard";
     auto x=common;x.update(J{{"job",current->id.job},{"origin_source",current->id.origin_source},{"origin_epoch",current->id.origin_epoch},{"origin_history",current->id.origin_history},{"op","consumed"},{"status","ORIGIN_RESOURCES_RELEASED"},{"helper_gpu_serial_echo",current->complete.helper_gpu_serial},{"native_shared_last_use_tick",current->final->native_target_tick},{"native_shared_GPU_complete",true},{"disposition",disposition}});
-    Atomic(W::job_path(run,"consumed",session,counts.finalized),x.dump()+"\n");counts.finalize(x,disposition);finalized.store(counts.finalized);
+    Atomic(W::job_path(run,"consumed",session,counts.finalized),x.dump()+"\n");
+    std::printf("NATIVE_ORIGIN_CONSUMED_PUBLISHED session=%s job=%llu origin=%llu source=%llu source_scope=immutable_origin current_source=NOT_MEASURED native_target_tick=%llu native_monotonic_ns=%llu native_GPU_complete=1 scope=after_successful_CONSUMED_atomic_rename_before_finalized_publication clock=native_steady\n",
+     current->id.session.c_str(),(unsigned long long)current->id.job,(unsigned long long)current->id.origin_source,
+     (unsigned long long)current->origin.source,(unsigned long long)current->final->native_target_tick,
+     (unsigned long long)std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
+    counts.finalize(x,disposition);finalized.store(counts.finalized);
     current->consumed_published.store(true,std::memory_order_release);phase.store(Phase::Finalized,std::memory_order_release);
    }
    std::this_thread::sleep_for(std::chrono::milliseconds(1));
