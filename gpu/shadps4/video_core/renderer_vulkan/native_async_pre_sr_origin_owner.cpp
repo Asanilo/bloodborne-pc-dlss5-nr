@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_async_pre_sr_origin_owner.h"
 #include "native_pre_sr_spawn_log.h"
-#include "native_async_pre_sr_wire.h"
+#include "native_async_pre_sr_play_wire.h"
 #include "native_async_pre_sr_policy.h"
 #include "native_origin_identity_policy.h"
 #include "vk_instance.h"
@@ -26,7 +26,7 @@
 extern char** environ;
 namespace Vulkan {
 namespace {
-namespace W=NativeAsyncPreSrWire;using J=W::J;using Clock=std::chrono::steady_clock;
+namespace W=NativeAsyncPreSrPlayWire;using J=W::J;using Clock=std::chrono::steady_clock;
 std::string Env(const char*k){const char*p=std::getenv(k);return p?p:"";}
 std::string Read(const std::string&p){std::error_code e;auto n=std::filesystem::file_size(p,e);if(!e&&n>65536)throw std::runtime_error("async control64KiB");std::ifstream f(p,std::ios::binary);return f?std::string(std::istreambuf_iterator<char>(f),{}):std::string{};}
 std::string Proc(const std::string&p){std::ifstream f(p,std::ios::binary);return f?std::string(std::istreambuf_iterator<char>(f),{}):std::string{};}
@@ -100,7 +100,7 @@ bool NativeAsyncPreSrOriginOwner::Enabled()const noexcept {const auto m=Env("BB_
 bool NativeAsyncPreSrOriginOwner::Start(const Instance&i){if(!Enabled())return false;bool expected=false;if(!started.compare_exchange_strong(expected,true))return State()!=Phase::Failed;session=Env("BB_NR_NATIVE_ASYNC_SESSION");mode=Env("BB_NR_NATIVE_ORIGIN_MODE");run=Env("BB_NR_NATIVE_ORIGIN_RUN_DIR");helper=Env("BB_NR_NATIVE_ORIGIN_HELPER");wine=Env("BB_NR_NATIVE_ORIGIN_WINE");preloader=Env("BB_NR_NATIVE_ORIGIN_PRELOADER");prefix=Env("BB_NR_NATIVE_ORIGIN_PREFIX");
  const auto abs=[](const auto&s){return !s.empty()&&s[0]=='/';};
  if(session.empty()||session.size()>63||!abs(run)||run.rfind("/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/",0)!=0||!abs(helper)||!abs(wine)||!abs(preloader)||!abs(prefix)||prefix!=run+"/profile/wine-prefix"){phase.store(Phase::Failed);empty_imports_destroyed.store(true);worker_finished.store(true);std::fprintf(stderr,"NATIVE_ORIGIN_ENV_INVALID no_spawn=1\n");return false;}phase.store(Phase::Bootstrap);worker=std::jthread([this,&i](std::stop_token s){Run(s,i);worker_finished.store(true,std::memory_order_release);});return true;}
-std::shared_ptr<NativeAsyncPreSrOriginOwner::Job> NativeAsyncPreSrOriginOwner::TryReserve(const BbNativeAsync::Frame&f){std::unique_lock lock(mutex,std::try_to_lock);if(!lock||State()!=Phase::Ready||stop_reason.load()||finalized.load()>=BbNativeAsyncPreSr::MaxJobs||f.source<=last_recorded_origin)return {};auto next=std::make_shared<Job>();next->id={session,session+"-g0",0,finalized.load(),f.source,f.epoch,f.history,f.params};if(!next->id.Matches(f)||!registry.Valid(next->id))return {};next->origin=f;next->resources=registry;job=next;phase.store(Phase::Reserved,std::memory_order_release);return next;}
+std::shared_ptr<NativeAsyncPreSrOriginOwner::Job> NativeAsyncPreSrOriginOwner::TryReserve(const BbNativeAsync::Frame&f){std::unique_lock lock(mutex,std::try_to_lock);if(!lock||State()!=Phase::Ready||stop_reason.load()||finalized.load()>=BbNativeAsyncPreSrPlay::MaxJobs()||f.source<=last_recorded_origin)return {};auto next=std::make_shared<Job>();next->id={session,session+"-g0",0,finalized.load(),f.source,f.epoch,f.history,f.params};if(!next->id.Matches(f)||!registry.Valid(next->id))return {};next->origin=f;next->resources=registry;job=next;phase.store(Phase::Reserved,std::memory_order_release);return next;}
 std::shared_ptr<NativeAsyncPreSrOriginOwner::Job> NativeAsyncPreSrOriginOwner::TryJob(){std::unique_lock lock(mutex,std::try_to_lock);return lock?job:nullptr;}
 void NativeAsyncPreSrOriginOwner::CancelReservation(const std::shared_ptr<Job>&j){std::unique_lock lock(mutex,std::try_to_lock);if(lock&&job==j&&State()==Phase::Reserved){job.reset();phase.store(Phase::Ready);}}
 void NativeAsyncPreSrOriginOwner::InputRecorded(const std::shared_ptr<Job>&j){std::scoped_lock lock(mutex);if(job!=j||State()!=Phase::Reserved||!j->input->native_target_tick||j->id.origin_source<=last_recorded_origin)throw std::runtime_error("async input reservation mismatch");last_recorded_origin=j->id.origin_source;phase.store(Phase::InputRecorded,std::memory_order_release);}
@@ -123,10 +123,11 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   vk::PhysicalDeviceIDProperties identity{};vk::PhysicalDeviceProperties2 props{.pNext=&identity};instance.GetPhysicalDevice().getProperties2(&props);auto config=W::config_expected(session,mode,Hex(identity.deviceUUID.data()),Hex(identity.driverUUID.data()));config=W::parse(config.dump());W::config(config,session,mode);const auto common=W::common(session,mode);
   const auto env=[](const std::string&prefix){std::vector<std::string>v;const std::string ge="/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64/files/lib/";std::map<std::string,std::string>set{{"WINEPREFIX",prefix},{"WINELOADERNOEXEC","1"},{"WINEDLLOVERRIDES","mscoree,mshtml=;nvapi64=n;dxgi=n"},{"WINEDLLPATH",ge+"vkd3d:"+ge+"wine"},{"DXVK_ENABLE_NVAPI","1"},{"NVIDIA_WINE_DLL_DIR","/usr/lib64/nvidia/wine"},{"WINEDEBUG",Env("BB_NR_NATIVE_ORIGIN_WINEDEBUG").empty()?"-all":Env("BB_NR_NATIVE_ORIGIN_WINEDEBUG")}};for(char**p=environ;p&&*p;p++){std::string s(*p);if(!set.contains(s.substr(0,s.find('='))))v.push_back(s);}for(auto&[k,x]:set)v.push_back(k+"="+x);return v;};
   {
-   for(unsigned bucket=0;bucket<1u;++bucket){
+   for(unsigned bucket=0;bucket<BbNativeAsyncPreSrPlay::BucketCount();++bucket){
     const auto number=std::to_string(bucket);const auto dir=run+"/frames/bucket-"+std::string(6-number.size(),'0')+number;
+    std::filesystem::create_directories(dir);
     const auto state=std::filesystem::symlink_status(dir);
-    W::need(!std::filesystem::is_symlink(state)&&std::filesystem::is_directory(state),"exact one regular prespawn owned bucket");
+    W::need(!std::filesystem::is_symlink(state)&&std::filesystem::is_directory(state),"exact regular prespawn owned bucket");
     W::need(chmod(dir.c_str(),0700)==0,"async preSR bucket private permissions");
    }
   }
@@ -134,7 +135,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   int rc=NativePreSrSpawnLog::Spawn(&child,preloader.c_str(),av.data(),ep.data(),run+"/async-helper-launch.log");W::need(rc==0,"async posix_spawn absolute64");peer_spawned.store(true,std::memory_order_release);Atomic(run+"/async-native-launch.json",J{{"actual_starts",1u},{"launcher_pid",child},{"game_pid",getpid()},{"protocol_version",1u},{"argv",args}}.dump()+"\n");
   const BbNativeAsync::IdentityPolicy::Expected expected{helper,run,mode,session,
     std::filesystem::canonical(wine).string(),std::filesystem::canonical(preloader).string()};
-  const auto check=[&]{W::need(!stop.stop_requested()&&Clock::now()-start<std::chrono::seconds(300),"owner finite service/stop HOLD");if(exporter>1)W::need(Ticks(exporter)==exporter_ticks&&Descendant(exporter,getpid())&&Descendant(exporter,child),"exporter exact live identity");int status=0;auto p=waitpid(child,&status,WNOHANG);if(p==child){actual_wait_status.store(status);peer_reaped.store(true,std::memory_order_release);Atomic(run+"/async-native-helper-exit.json",J{{"wait_status",status},{"normal_exit",false},{"premature",true}}.dump());throw std::runtime_error("async peer exited before normal terminal");}W::need(p>=0||errno==EINTR,"waitpid owner");};
+  const auto check=[&]{W::need(!stop.stop_requested()&&Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds()),"owner finite service/stop HOLD");if(exporter>1)W::need(Ticks(exporter)==exporter_ticks&&Descendant(exporter,getpid())&&Descendant(exporter,child),"exporter exact live identity");int status=0;auto p=waitpid(child,&status,WNOHANG);if(p==child){actual_wait_status.store(status);peer_reaped.store(true,std::memory_order_release);Atomic(run+"/async-native-helper-exit.json",J{{"wait_status",status},{"normal_exit",false},{"premature",true}}.dump());throw std::runtime_error("async peer exited before normal terminal");}W::need(p>=0||errno==EINTR,"waitpid owner");};
   const auto wait=[&](const std::string&path,std::chrono::seconds budget){const auto deadline=Clock::now()+budget;while(Clock::now()<deadline){check();auto s=Read(path);if(!s.empty())return W::parse(s);std::this_thread::sleep_for(std::chrono::milliseconds(2));}throw std::runtime_error("async bounded control timeout "+path);};
   auto request=wait(run+"/async-pid-request.json",std::chrono::seconds(60));W::bootstrap(request,common,"async-pid-request.json");W::need(W::s(request,"op")=="pid_request"&&W::s(request,"status")=="PID_REQUEST"&&!W::b(request,"completed_GPU")&&!W::b(request,"output_valid")&&!W::b(request,"model_valid")&&W::u(request,"win_pid")>0&&W::u(request,"win_pid")<=UINT32_MAX&&Normalize(W::s(request,"exe"))==helper,"actual pid request");
   auto identity_limit=Clock::now()+std::chrono::seconds(60);while(exporter<1&&Clock::now()<identity_limit){check();const auto match=Find(expected,child,candidates);exporter=match.first;exporter_ticks=match.second;if(exporter<1)std::this_thread::sleep_for(std::chrono::milliseconds(5));}W::need(exporter>1,"unique actual PE exporter");Atomic(run+"/async-exporter-candidates.json",candidates.Report().dump()+"\n");
@@ -143,7 +144,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   const auto baseline=wait(run+"/"+W::base("baseline",session),std::chrono::seconds(120));W::bootstrap(baseline,common,"async-baseline-SESSION-g0.json");W::need(W::s(baseline,"op")=="baseline"&&W::s(baseline,"status")=="BASELINE"&&W::b(baseline,"completed_GPU")&&!W::b(baseline,"output_valid")&&!W::b(baseline,"model_valid")&&W::b(baseline,"model_init")&&W::b(baseline,"feature_created")&&W::b(baseline,"creation_GPU_complete")&&W::u(baseline,"feature_create_calls")==1&&W::u(baseline,"creation_GPU_serial")>0,"real model creation baseline");for(auto[k,v]:std::initializer_list<std::pair<const char*,uint64_t>>{{"model_width",1280},{"model_height",720},{"cold_init_timeout_ms",120000},{"control_timeout_ms",60000},{"gpu_timeout_ms",10000},{"job_completion_timeout_ms",30000}})W::need(W::u(baseline,k)==v,"baseline actual profile/budgets");
   auto native_base=Inventory(getpid(),run+"/async-native-fd-baseline.json");Inventory(exporter,run+"/async-wine-fd-baseline.json");auto b=common;b.update(J{{"op","baseline_audit"},{"status","BASELINE_AUDITED"},{"completed_GPU",false},{"output_valid",false},{"model_valid",false},{"helper_creation_GPU_serial_echo",baseline["creation_GPU_serial"]},{"baseline_fd_count",native_base.size()},{"inventory","async-native-fd-baseline.json"},{"helper_inventory","async-wine-fd-baseline.json"}});W::bootstrap(W::parse(b.dump()),common,"async-native-baseline-SESSION-g0.json");Atomic(run+"/"+W::base("native-baseline",session),b.dump()+"\n");
   auto meta=wait(run+"/async-meta-g0.json",std::chrono::seconds(60));W::bootstrap(meta,common,"async-meta-g0.json");W::need(W::s(meta,"op")=="metadata"&&W::s(meta,"status")=="READY"&&W::b(meta,"completed_GPU")&&!W::b(meta,"output_valid")&&!W::b(meta,"model_valid")&&W::u(meta,"linux_pid")==unsigned(exporter)&&W::u(meta,"win_pid")==W::u(request,"win_pid")&&W::s(meta,"device_uuid")==W::s(config,"device_uuid")&&W::s(meta,"driver_uuid")==W::s(config,"driver_uuid")&&W::u(meta,"handle_type")==512&&W::u(meta,"queue_family")<=UINT32_MAX&&W::u(meta,"initial_release_GPU_serial")>W::u(baseline,"creation_GPU_serial")&&meta["resources"].is_array()&&meta["resources"].size()==4,"actual metadata identity");
-  for(auto[k,v]:std::initializer_list<std::pair<const char*,uint64_t>>{{"width",1280},{"height",720},{"render_width",1280},{"render_height",720},{"model_width",1280},{"model_height",720},{"max_jobs",BbNativeAsyncPreSr::MaxJobs},{"initial_history_version",1}})W::need(W::u(meta,k)==v,"shared dimension");
+  for(auto[k,v]:std::initializer_list<std::pair<const char*,uint64_t>>{{"width",1280},{"height",720},{"render_width",1280},{"render_height",720},{"model_width",1280},{"model_height",720},{"max_jobs",BbNativeAsyncPreSrPlay::MaxJobs()},{"initial_history_version",1}})W::need(W::u(meta,k)==v,"shared dimension");
   W::need(meta["manual_white_point"].is_number()&&!meta["manual_white_point"].is_boolean()&&meta["manual_white_point"].get<double>()==1&&!W::b(meta,"passthrough"),"manual profile");
   std::set<uint64_t>fd_numbers;for(unsigned k=0;k<4;k++){W::resource(meta["resources"][k],k);W::need(fd_numbers.insert(W::u(meta["resources"][k],"fd")).second,"unique raw FD numbers");}
   auto before=Inventory(exporter,run+"/async-wine-fd-before-import.json");registry.session=session;registry.resource_set=session+"-g0";registry.native_queue_family=instance.GetGraphicsQueueFamilyIndex();registry.import_owner=imports;J pairs=J::array();
@@ -171,7 +172,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   auto consumed_fds=Inventory(exporter,run+"/async-wine-fd-active-retired.json");for(auto&f:consumed_fds)for(auto&raw:raw_fds)W::need(!Payload(f,raw),"raw payload gone");
   registry.actual_import_fd_retired=true;phase.store(Phase::Ready,std::memory_order_release);std::printf("NATIVE_ORIGIN_READY session=%s actual_imports=4 FD_retired=1 scene_arm=REQUIRED model_phase=UNVERIFIED\n",session.c_str());W::Counts counts;uint64_t last_helper_serial=W::u(meta,"initial_release_GPU_serial");
   const auto terminal=[&](const char*op,const char*status,bool gpu){auto x=common;x.update(counts.fields());x.update(J{{"op",op},{"status",status},{"completed_GPU",gpu},{"output_valid",false},{"model_valid",false}});return x;};
-  while(true){check();const auto state=State();if(counts.finalized==BbNativeAsyncPreSr::MaxJobs)RequestStop(4);
+  while(true){check();const auto state=State();if(counts.finalized==BbNativeAsyncPreSrPlay::MaxJobs())RequestStop(4);
    if(stop_reason.load()&&state==Phase::Ready){std::scoped_lock lock(mutex);if(State()==Phase::Ready&&!job){phase.store(Phase::StopRequested);break;}}
    auto current=TryJob();
    if(state==Phase::InputRecorded&&current&&current->input->native_GPU_complete.load(std::memory_order_acquire)){
@@ -270,7 +271,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   // liveness/reap function, which classifies any early exit as abnormal.
   const auto result_limit=Clock::now()+std::chrono::seconds(60);
   J result;
-  while(Clock::now()<result_limit&&Clock::now()-start<std::chrono::seconds(300)&&!stop.stop_requested()){
+  while(Clock::now()<result_limit&&Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds())&&!stop.stop_requested()){
     auto data=Read(run+"/async-wine-result.json");
     if(!data.empty()){result=W::parse(data);break;}
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -288,7 +289,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
     "actual Helper terminal result, not native Present proof");
   int status=0;pid_t reaped=0;
   const auto reap_limit=Clock::now()+std::chrono::seconds(60);
-  while(Clock::now()<reap_limit&&Clock::now()-start<std::chrono::seconds(300)&&!stop.stop_requested()){
+  while(Clock::now()<reap_limit&&Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds())&&!stop.stop_requested()){
     reaped=waitpid(child,&status,WNOHANG);
     if(reaped==child)break;
     W::need(reaped==0||(reaped<0&&errno==EINTR),"normal waitpid");
@@ -307,7 +308,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   Fail(e.what()); // Functional FAIL survives any later safe host close.
   if(child>1&&!peer_reaped.load(std::memory_order_acquire)){
    const auto reap_limit=Clock::now()+std::chrono::seconds(60);
-   while(!stop.stop_requested()&&Clock::now()<reap_limit&&Clock::now()-start<std::chrono::seconds(300)){
+   while(!stop.stop_requested()&&Clock::now()<reap_limit&&Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds())){
     int status=0;const auto p=waitpid(child,&status,WNOHANG);
     if(p==child){actual_wait_status.store(status);peer_reaped.store(true,std::memory_order_release);
      try{Atomic(run+"/async-native-helper-exit.json",J{{"wait_status",status},{"normal_exit",false}}.dump()+"\n");}catch(...){}

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_async_state.h"
+#include "native_async_pre_sr_play.h"
 #include "native_origin_lease.h"
 #include <cstdlib>
 #include <cstring>
@@ -24,7 +25,7 @@ inline constexpr uint64_t RawPacketBytes=uint64_t(Width)*Height*(8+8+4);
 inline constexpr uint64_t RawPacketsBytes=RawPacketBytes*BbNativeAsync::NodeCount;
 struct CacheIdentity {uint64_t job=0,origin=0,epoch=0,history=0,params=1,current=0;};
 inline bool CacheLineageMatches(const BbNativeAsync::Chain& c,const CacheIdentity& x)noexcept {
- return x.job<MaxJobs&&x.params==1&&c.Size()&&c.Origin().params==x.params&&c.CompleteTo(x.origin,x.current,x.epoch,x.history);
+ return x.job<BbNativeAsyncPreSrPlay::MaxJobs()&&x.params==1&&c.Size()&&c.Origin().params==x.params&&c.CompleteTo(x.origin,x.current,x.epoch,x.history);
 }
 // SR read is a distinct real-use field, never a renamed copy/catchup completion.
 struct SourceLease {

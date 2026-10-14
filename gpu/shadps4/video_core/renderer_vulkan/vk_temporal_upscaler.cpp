@@ -3311,7 +3311,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
                      .previous_sr_jitter={previous_dlss_jitter_x,previous_dlss_jitter_y}});}
                 catch(const std::exception& e){native_async_pre_sr.RejectAssociation();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_SOURCE_HOLD original_raw_SR=1 no_GPU_free=1 reason=%s\n",e.what());}
             }
-            if(pre_source_recorded)std::printf("NATIVE_ASYNC_PRE_SR_DEPTH_SOURCE source=%llu projection_current=%.9g,%.9g,%.9g,%.9g projection_previous=%.9g,%.9g,%.9g,%.9g DepthInverted_candidate=0 convention_proof=UNVERIFIED format130_not_proof=1\n",(unsigned long long)pre_source,pre_projection[0][0],pre_projection[0][1],pre_projection[0][2],pre_projection[0][3],pre_projection[1][0],pre_projection[1][1],pre_projection[1][2],pre_projection[1][3]);
+            if(pre_source_recorded&&!BbNativeAsyncPreSrPlay::Enabled())std::printf("NATIVE_ASYNC_PRE_SR_DEPTH_SOURCE source=%llu projection_current=%.9g,%.9g,%.9g,%.9g projection_previous=%.9g,%.9g,%.9g,%.9g DepthInverted_candidate=0 convention_proof=UNVERIFIED format130_not_proof=1\n",(unsigned long long)pre_source,pre_projection[0][0],pre_projection[0][1],pre_projection[0][2],pre_projection[0][3],pre_projection[1][0],pre_projection[1][1],pre_projection[1][2],pre_projection[1][3]);
             vk::ImageView edited{};
             if(supported&&camera_motion.Ready()&&native_async_pre_sr.Armed()&&!BbOverlay::MenuOpen()){
                 if(pre_source_recorded)try{edited=native_async_pre_sr.RecordAdvanceAndApply(scheduler,pre_source);}

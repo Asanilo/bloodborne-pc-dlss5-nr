@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_async_scene_first.h"
+#include "native_async_pre_sr_play.h"
 #include "native_async_play.h"
 #include <atomic>
 #include <chrono>
@@ -28,7 +29,7 @@ public:
   finished.store(false,std::memory_order_release);
   thread=std::jthread([this,path,run,session,scene_first](std::stop_token token){
    struct Finish{std::atomic<bool>& flag;~Finish(){flag.store(true,std::memory_order_release);}} finish{finished};
-   const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(300);
+   const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds());
    while(!token.stop_requested()&&std::chrono::steady_clock::now()<deadline) {
     const auto exact_token=[&](const std::string& target){
      std::ifstream f(target,std::ios::binary);char b[65]{};
