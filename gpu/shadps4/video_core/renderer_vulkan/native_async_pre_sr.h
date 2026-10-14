@@ -22,6 +22,8 @@ public:
  bool TryCaptureOrigin(const Instance&,Scheduler&,const std::array<vk::Image,3>&,
              const std::array<vk::ImageCreateInfo,3>&,BbNativeAsync::Frame);
  void PollReady(const Instance&,Scheduler&,bool supported);
+ void PrepareCurrentMasks(Scheduler&,uint64_t actual_source,bool supported);
+ void TrackMasks(Scheduler&);
  bool Armed()const noexcept;
  bool EffectSelected()const noexcept{return effect_selected;}
  unsigned EffectJob()const noexcept{return effect_job;}
@@ -47,7 +49,7 @@ public:
  bool FixedTransition()const noexcept{return prior_fixed_input!=actual_fixed_input;}
  std::optional<vk::ImageCreateInfo> ReturnInfo(uint64_t source,vk::Image image)const noexcept;
  bool ChangeInputDomain(bool nr)noexcept{return input_domain.Change(nr);}
- void BeginSource(uint64_t source,bool supported)noexcept{actual_source=source;actual_supported=supported;effect_selected=false;returned_image=vk::Image{};actual_fixed_input=false;}
+ void BeginSource(uint64_t source,bool supported)noexcept;
  uint64_t Source()const noexcept{return actual_source;}
  bool Supported()const noexcept{return actual_supported;}
  void RetireByTick(Scheduler&);
@@ -56,7 +58,7 @@ public:
  std::optional<BbNativeAsync::Frame> RecordedOrigin(const Scheduler&)const noexcept;
  void Shutdown(Scheduler&);
  void RejectAssociation()noexcept{rejected=true;}
- void Quarantine()noexcept{rejected=true;stopping=true;if(fixed_input)fixed_input->HoldUnknown();if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
+ void Quarantine()noexcept{rejected=true;stopping=true;if(fixed_input)fixed_input->HoldUnknown();if(retained&&retained->returns)retained->returns->HoldMasksUnknown();if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
  std::string Session()const;
  uint64_t Epoch()const noexcept{return last_epoch;}
  uint64_t OriginSource()const noexcept{return chain.Size()?chain.Origin().source:0;}
@@ -74,7 +76,11 @@ private:
    }
    returns.reset();sky.reset();for(auto& x:images)x=VideoCore::UniqueImage{};
    if(quiescence)quiescence->stopped_and_destroyed.store(true,std::memory_order_release);}
-  bool AllUsesReady()const noexcept {for(const auto& p:leases)if(p&&!p->CanReuse())return false;return true;}
+  // Snapshot/converted/output/shown/context and their immutable CB/sets all
+  // participated in the actual source cohort through SR/merge. The current
+  // raw path has recorded ONLY mask clear, not any current image/CB use yet.
+  bool PacketAndImageUsesReady()const noexcept {for(const auto& p:leases)if(p&&!p->CanReuse())return false;return true;}
+  bool AllUsesReady()const noexcept {return PacketAndImageUsesReady()&&(!returns||returns->MasksReady());}
 
  };
  void Create(const Instance&);
@@ -107,5 +113,6 @@ private:
  BbNativeAsync::Chain chain;
  BbNativeAsyncPreSr::InputDomain input_domain;vk::Image returned_image{};uint64_t actual_source=0;bool actual_supported=false;
  bool rejected=false,stopping=false;uint64_t last_epoch=0,last_reported_ready=0;
+ uint64_t last_supported_source=0,last_supported_native_ns=0;double actual_source_dt=0;
 };
 }

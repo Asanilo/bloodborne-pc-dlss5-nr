@@ -3299,6 +3299,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pre_sr_pending_audit.has_value();}
             const bool supported=hdr&&!Scaled()&&w==1280&&h==720&&ow==1920&&oh==1080&&settings.preset==1&&settings.jitter&&!pending;
             native_async_pre_sr.BeginSource(pre_source,supported);
+            native_async_pre_sr.PrepareCurrentMasks(scheduler,pre_source,supported);
             bool pre_source_recorded=false;
             const auto pre_projection=camera_motion.TaaDepthParameters();
             if(supported&&camera_motion.Ready()&&!BbOverlay::MenuOpen()) {

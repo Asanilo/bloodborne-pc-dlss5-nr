@@ -1,0 +1,19 @@
+{
+  "status": "READONLY_A_FINAL_FROZEN_COPY",
+  "A_build": "/home/arinp/Code/nrbridge-design/game-poc-20261011/opti-antiflicker-masked-worktree/poc/game_nr/sky-antiflicker-masked/out/build.json",
+  "A_build_sha256": "f05e11d6c944cfab4113de9ba652b672661f3822547281889539256543a4c86b",
+  "A_SPIRV": "/home/arinp/Code/nrbridge-design/game-poc-20261011/opti-antiflicker-masked-worktree/poc/game_nr/sky-antiflicker-masked/out/sky_antiflicker.spv",
+  "A_SPIRV_sha256": "3e31ea305d15bab0ff7e2a657bc952e768027d8b77087d2b21abe22993936270",
+  "control_sha256": "4667d5f888c2453af88946f3a47fb1cb92afad0218e6948a494d759a3ca211a4",
+  "entry": "CSMain",
+  "bindings": 24,
+  "context_bindings": [
+    21,
+    22
+  ],
+  "previous_GPU_mask_binding": 23,
+  "Native_adaptation": "NONE",
+  "Runtime": "NOT_RUN",
+  "A_commit": "0b8bdb11cf72be1066f7d0b364f4f60190dfc8e2",
+  "A_interface_sha256": "0d4aa23a44b0cff5f8afd72c228880a2daea061530cfa49bf1c520a0ce9849db"
+}

@@ -2,6 +2,7 @@
 #pragma once
 #include "native_async_state.h"
 #include "native_sky_constants.h"
+#include "native_pre_sr_sky_policy.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "video_core/texture_cache/image.h"
 #include <memory>
@@ -13,7 +14,15 @@ class NativeAsyncPreSrSky {
 public:
  explicit NativeAsyncPreSrSky(const Instance&);
  vk::ImageView Record(Scheduler&,unsigned index,const std::array<vk::Image,3>&,
-                      bool capture,const BbNativeAsync::Frame&);
+                      bool capture,const BbNativeAsync::Frame&,bool actual_cache_eligible=false);
+ void SetCurrentMasks(vk::Buffer previous,unsigned next)noexcept{previous_mask=previous;shown_next=next;}
+ bool Masked()const noexcept{return BbNativePreSrSkyPolicy::Enabled();}
+ void PrepareShownCurrent(uint64_t source,double real_dt);
+ void ActualSrResult(uint64_t source,bool success,Scheduler&);
+ vk::ImageView FinalizeMaskedCurrent(Scheduler&,unsigned,vk::ImageView selected,const BbNativeAsync::Frame& origin,const BbNativeAsync::Frame& current);
+ bool CurrentWholeEligible()const noexcept{return current_whole;}
+ bool CurrentContextWritten()const noexcept{return current_context;}
+
  std::array<vk::Image,3> ConvertedOrigin()const noexcept;
  std::array<vk::Image,3> Converted(unsigned i)const noexcept{return {vk::Image(packets[i].converted[0].image),vk::Image(packets[i].converted[1].image),vk::Image(packets[i].converted[2].image)};}
  vk::ImageView RawColorView(unsigned i)const noexcept{return *packets[i].source_views[0];}
@@ -38,20 +47,29 @@ private:
  struct Packet {
   std::array<Image,3> converted;Image output;BbNativeAsync::Frame frame;
   std::array<vk::UniqueImageView,3> source_views;
-  std::array<std::unique_ptr<VideoCore::Buffer>,4> constants;
-  std::array<vk::DescriptorSet,4> sets{};vk::DescriptorSet conversion{};
+  std::array<std::unique_ptr<VideoCore::Buffer>,6> constants;
+  std::array<vk::DescriptorSet,6> sets{};vk::DescriptorSet conversion{};
  };
  Image Make(vk::Format,unsigned,unsigned);
  void InitImages(vk::CommandBuffer);
  void Barrier(vk::CommandBuffer);
  void Pass(vk::CommandBuffer,Packet&,unsigned,const DlssNrCacheConstants&,bool,
-           const std::array<Image*,12>&,const std::array<Image*,7>&);
+           const std::array<Image*,12>&,const std::array<Image*,7>&,Image* context_now=nullptr,Image* context_prev=nullptr);
+ void CopyCurrentGuide(vk::CommandBuffer,unsigned bank,uint64_t source);
  DlssNrCacheConstants Base(unsigned)const;
  vk::Device device;VmaAllocator allocator;
  std::array<Bank,2> banks;
  std::array<Packet,BbNativeAsync::NodeCount> packets,replay_packets;
  std::atomic<bool> replay_busy{false};
  Image dummy,exposure,stats;
+ Image raw_edit;std::array<Image,2> shown_edit,shown_guide,shown_context;
+ vk::Buffer previous_mask{};unsigned shown_next=0;
+ struct ShownMetadata {bool eligible=false,context=false,SR_success=false;BbNativeAsync::Frame frame;uint64_t oldest_origin=0,last_use=0;std::shared_ptr<std::atomic<uint64_t>> observed=std::make_shared<std::atomic<uint64_t>>(0);};
+ std::array<ShownMetadata,2> shown_metadata;
+ uint64_t prepared_source=0,last_apply_source=0,last_guide_source=0;unsigned last_guide_slot=0,last_guide_bank=0;bool current_whole=false,current_context=false,last_apply_replay=false;
+ BbNativePreSrSkyPolicy::FrameClock frame_clock;float current_antipop_step=0;
+
+
  vk::UniqueSampler linear,nearest;
  vk::UniqueDescriptorSetLayout layout,conversion_layout;
  vk::UniquePipelineLayout pipeline_layout,conversion_pipeline_layout;
