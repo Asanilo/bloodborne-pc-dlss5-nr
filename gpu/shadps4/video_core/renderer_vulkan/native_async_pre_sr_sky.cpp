@@ -176,5 +176,15 @@ vk::ImageView NativeAsyncPreSrSky::FinalizeMaskedCurrent(Scheduler& scheduler,un
  return p.output.View();
 }
 
+NativeAsyncPreSrSky::ColdCurrent NativeAsyncPreSrSky::DiagnosticCurrent(unsigned index,const BbNativeAsync::Frame& current,const BbNativeAsync::Frame& origin)const{
+ if(!Masked()||index>=packets.size()||shown_next>=2||!current_whole||prepared_source!=current.source||last_apply_source!=current.source||last_guide_source!=current.source||last_guide_slot!=shown_next||last_guide_bank!=(index+1)%2||packets[index].frame.source!=current.source)throw std::runtime_error("masked once CURRENT guide/context identity absent");
+ const auto& m=shown_metadata[shown_next];
+ if(!m.eligible||m.frame.source!=current.source||m.frame.epoch!=current.epoch||m.frame.history!=current.history||m.frame.params!=current.params||!origin.source||current.source<origin.source||current.source-origin.source>BbNativeAsync::MaxLinks||origin.epoch!=current.epoch||origin.history!=current.history||origin.params!=current.params||m.context!=current_context)throw std::runtime_error("masked once current lineage mismatch");
+ ColdCurrent c;c.current=current;c.origin=origin;c.next_slot=shown_next;c.bank=last_guide_bank;c.whole=current_whole;c.context_written=current_context;c.previous=shown_metadata[1-shown_next].frame;c.oldest_contributing_origin=m.oldest_origin;
+ const std::array<const Image*,3> from{&shown_guide[shown_next],&banks[last_guide_bank].guide,&shown_context[shown_next]};
+ for(unsigned n=0;n<(current_context?3u:2u);++n){c.images[n]=vk::Image(from[n]->image);c.ci[n]=from[n]->image.image_ci;}
+ return c;
+}
+
 uint64_t NativeAsyncPreSrSky::ImageBytes()const noexcept{uint64_t n=0;const auto add=[&](const Image& x){const auto& c=x.image.image_ci;n+=uint64_t(c.extent.width)*c.extent.height*(c.format==vk::Format::eR32G32B32A32Sfloat?16:c.format==vk::Format::eR32G32Sfloat?8:4);};for(const auto& b:banks){add(b.edit);add(b.guide);add(b.l1guide);for(const auto& l:b.levels)add(l);}for(const auto& p:packets){for(const auto& x:p.converted)add(x);add(p.output);}for(const auto& p:replay_packets)add(p.output);add(dummy);add(exposure);add(stats);if(Masked()){add(raw_edit);for(unsigned k=0;k<2;++k){add(shown_edit[k]);add(shown_guide[k]);add(shown_context[k]);}}return n;}
 }

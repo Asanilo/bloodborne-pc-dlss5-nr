@@ -15,6 +15,11 @@ SR_INPUT=${BB_NR_NATIVE_ASYNC_PRE_SR_SR_INPUT-switching}
 ONCE=${BB_NR_NATIVE_ASYNC_PRE_SR_DIAGNOSTIC_ONCE-0}
 [[ $ONCE == 0 || $ONCE == 1 ]] || { echo "ASYNC_PRE_SR BLOCKED invalid720once" >&2; exit 2; }
 [[ $ONCE == 0 || $MODE == resident ]] || { echo "ASYNC_PRE_SR BLOCKED once resident-only" >&2; exit 2; }
+MASK_ONCE=${BB_NR_NATIVE_ASYNC_PRE_SR_MASK_DIAGNOSTIC_ONCE-0}
+[[ $MASK_ONCE == 0 || $MASK_ONCE == 1 ]] || { echo 'MASK once invalid exact flag' >&2;exit 2; }
+[[ $MASK_ONCE == 0 || ( $MODE == resident && $SKY != off && $ONCE == 1 ) ]] || { echo 'MASK once requires resident masked Sky and720once1' >&2;exit 2; }
+export BB_NR_NATIVE_ASYNC_PRE_SR_MASK_DIAGNOSTIC_ONCE="$MASK_ONCE"
+
 [[ ${BB_NR_NATIVE_ASYNC_DIAGNOSTIC_ONCE-0} == 0 && ${BB_NR_NATIVE_ASYNC_EDIT_DIAGNOSTIC_ONCE-0} == 0 ]] || { echo "ASYNC_PRE_SR BLOCKED legacy1080 flags must0" >&2; exit 2; }
 SCENE_FIRST=${BB_NR_NATIVE_ASYNC_SCENE_FIRST-1}
 [[ $SCENE_FIRST == 1 ]] || { echo "NATIVE_ASYNC_LAUNCH BLOCKED scene-first must be exact0|1" >&2; exit 2; }
@@ -87,6 +92,7 @@ export DLSSNR_DISABLE=1 DLSSNR_AUTO_DOWNLOAD=0
   printf 'scene_arm=%s\nscene_arm_content=%s\\n\nmax_jobs_backup=16384\nsource_limit_backup=36000\nouter_seconds=600\nprespawn_buckets=256\n' "$RUN/native-scene-arm" "$SESSION"
   printf 'scene_first=%s\nhelper_start=%s\nhelper_start_content=%s\\n\nhelper_start_scope=resident_or_skip_only\n' "$SCENE_FIRST" "$RUN/native-helper-start" "$SESSION"
   printf 'BB_FPS=uncap\nBB_FPS_LIMIT=90\njitter=1\nrender=1280x720\noutput=1920x1080\n'
+  printf 'mask_diagnostic_once=%s\nmask_cold_max_additional_bytes=30412808\nmask_scope=eligible_selected_current_only\n' "$MASK_ONCE"
   printf 'SKY=%s\nSKY_control=4667d5f8\nSKY_GPU_masks=2x4B_unmapped\n' "$SKY"
   printf 'SR_history=%s\nSR_input=%s\nfixed_input_only_after_armed=1\nfixed_packed_increment_bytes=7372800\n' "$SR_HISTORY" "$SR_INPUT"
   printf 'play=1\nshow_fps=1\nservice_seconds=600\nFPS_scope=existing_EWMA_with_reuse_over1s_filter_not_authoritative\n'

@@ -21,6 +21,11 @@ NativeAsyncPreSrDiagnostic::NativeAsyncPreSrDiagnostic(const Instance& i){
  run=r;session=s;if(run!="/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/native-async-pre-sr-game-"+session)throw std::runtime_error("async preSR once private root mismatch");
  for(auto& b:images)b=std::make_unique<VideoCore::Buffer>(i,0,BbNativeAsyncPreSr::DiagnosticImageBytes,VideoCore::MemoryType::HostCached,"Async preSR actual current97 once");
  guard=std::make_unique<VideoCore::Buffer>(i,0,4,VideoCore::MemoryType::HostCached,"Async preSR once actual GPU guard");
+ if(BbNativeAsyncPreSr::MaskDiagnosticEnabled()){
+  for(auto& b:mask_staging)b=std::make_unique<VideoCore::Buffer>(i,0,4,VideoCore::MemoryType::HostCached,"masked once actual Prev/Next GPU word");
+  for(unsigned n=0;n<2;++n)mask_images[n]=std::make_unique<VideoCore::Buffer>(i,0,uint64_t(1280)*720*16,VideoCore::MemoryType::HostCached,"masked once CURRENT guide pair");
+  if(BbNativePreSrSkyPolicy::Current()==BbNativePreSrSkyPolicy::Mode::RegionalAntiPop)mask_images[2]=std::make_unique<VideoCore::Buffer>(i,0,uint64_t(320)*180*16,VideoCore::MemoryType::HostCached,"masked once CURRENT written context");
+ }
  writer=std::jthread([this](std::stop_token token){Run(token);});
 }
 NativeAsyncPreSrDiagnostic::~NativeAsyncPreSrDiagnostic(){writer.request_stop();if(writer.joinable())writer.join();}
@@ -35,6 +40,12 @@ bool NativeAsyncPreSrDiagnostic::RecordOnce(Scheduler& s,vk::Image raw,vk::Image
   c.lineage[n].epoch!=c.admission.origin.epoch||c.lineage[n].history!=c.admission.origin.history||
   c.lineage[n].params!=c.admission.origin.params||!BbNativeAsync::Finite(c.lineage[n])||
   (n&&(c.lineage[n].previous!=c.lineage[n-1].source||c.lineage[n].sr_reset)))return false;
+ if(c.mask_diagnostic!=BbNativeAsyncPreSr::MaskDiagnosticEnabled())return false;
+ if(c.mask_diagnostic){
+  const auto& m=c.mask_current;
+  if(!m.whole||m.next_slot>=2||m.bank>=2||m.current.source!=c.admission.current.source||m.current.epoch!=c.admission.current.epoch||m.current.history!=c.admission.current.history||m.current.params!=c.admission.current.params||m.origin.source!=c.admission.origin.source||!c.masks[0]||!c.masks[1]||c.masks[0]==c.masks[1])return false;
+  for(unsigned n=0;n<(m.context_written?3u:2u);++n){const auto& x=m.ci[n];if(!m.images[n]||!mask_images[n]||x.format!=vk::Format::eR32G32B32A32Sfloat||x.extent.width!=(n==2?320u:1280u)||x.extent.height!=(n==2?180u:720u)||x.extent.depth!=1||x.mipLevels!=1||x.arrayLayers!=1||x.samples!=vk::SampleCountFlagBits::e1||!(x.usage&vk::ImageUsageFlagBits::eTransferSrc))return false;}
+ }
  // Publish metadata before callbacks; writer reads it only after both acquire proofs.
  context=c;actual_ci=ci;copy_tick=s.CurrentTick();scheduler_id=reinterpret_cast<uintptr_t>(&s);
  timeline=reinterpret_cast<uintptr_t>(VkSemaphore(s.GetWorkSemaphore()->Handle()));
@@ -59,6 +70,22 @@ bool NativeAsyncPreSrDiagnostic::RecordOnce(Scheduler& s,vk::Image raw,vk::Image
   .srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.buffer=guard->Handle(),.offset=0,.size=4};
  auto restore=flag;restore.srcStageMask=vk::PipelineStageFlagBits2::eTransfer;restore.srcAccessMask=vk::AccessFlagBits2::eTransferRead;restore.dstStageMask=vk::PipelineStageFlagBits2::eComputeShader;restore.dstAccessMask=vk::AccessFlagBits2::eShaderRead|vk::AccessFlagBits2::eShaderWrite;
  cmd.pipelineBarrier2({.bufferMemoryBarrierCount=2,.pBufferMemoryBarriers=std::array{host,restore}.data()});
+ if(c.mask_diagnostic){
+  for(unsigned n=0;n<2;++n){
+   auto before=flag;before.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands;before.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite;before.buffer=c.masks[n];
+   cmd.pipelineBarrier2({.bufferMemoryBarrierCount=1,.pBufferMemoryBarriers=&before});cmd.copyBuffer(c.masks[n],mask_staging[n]->Handle(),vk::BufferCopy{0,0,4});
+   auto visible=host;visible.buffer=mask_staging[n]->Handle();auto after=restore;after.buffer=c.masks[n];const std::array bb{visible,after};cmd.pipelineBarrier2({.bufferMemoryBarrierCount=2,.pBufferMemoryBarriers=bb.data()});
+  }
+  const auto& m=c.mask_current;
+  for(unsigned n=0;n<(m.context_written?3u:2u);++n){
+   const auto bytes=uint64_t(m.ci[n].extent.width)*m.ci[n].extent.height*16;
+   const vk::ImageMemoryBarrier2 before{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eTransfer,.dstAccessMask=vk::AccessFlagBits2::eTransferRead,.oldLayout=vk::ImageLayout::eGeneral,.newLayout=vk::ImageLayout::eGeneral,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=m.images[n],.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}};
+   cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&before});cmd.copyImageToBuffer(m.images[n],vk::ImageLayout::eGeneral,mask_images[n]->Handle(),vk::BufferImageCopy{.imageSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.imageExtent=m.ci[n].extent});
+   auto visible=host;visible.buffer=mask_images[n]->Handle();visible.size=bytes;auto after=before;after.srcStageMask=vk::PipelineStageFlagBits2::eTransfer;after.srcAccessMask=vk::AccessFlagBits2::eTransferRead;after.dstStageMask=vk::PipelineStageFlagBits2::eAllCommands;after.dstAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite;
+   cmd.pipelineBarrier2({.bufferMemoryBarrierCount=1,.pBufferMemoryBarriers=&visible,.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&after});
+  }
+  std::printf("NATIVE_PRE_SR_MASK_ONCE_RECORDED session=%s source=%llu job=%llu next_slot=%u guide_bank=%u whole=%u context_written=%u target_tick=%llu status=PENDING_GPU_SR_MERGE pixels=NOT_AUDITED performance_excluded=1\n",session.c_str(),(unsigned long long)c.admission.current.source,(unsigned long long)c.job.job,m.next_slot,m.bank,m.whole,m.context_written,(unsigned long long)copy_tick);
+ }
  s.DeferPriorityOperation([hold=shared_from_this()]{hold->copy_observed.store(hold->copy_tick,std::memory_order_release);});
  std::printf("NATIVE_ASYNC_PRE_SR_ONCE_RECORDED session=%s source=%llu origin=%llu job=%llu actual_SR_read_tick=%llu copy_tick=%llu pixel_bytes=14745600 guard_bytes=4 same_current97=1 extraFlush=0 performance_excluded=1 pixels=NOT_AUDITED\n",session.c_str(),(unsigned long long)c.admission.current.source,(unsigned long long)c.admission.origin.source,(unsigned long long)c.job.job,(unsigned long long)c.admission.sr_read_tick,(unsigned long long)copy_tick);
  return true;
@@ -73,7 +100,7 @@ void NativeAsyncPreSrDiagnostic::MergeRecorded(Scheduler& s,uint64_t source){
 bool NativeAsyncPreSrDiagnostic::RetireFinished(){
  if(retired)return true;
  if(!recorded||!copy_observed.load(std::memory_order_acquire)||!merge_observed.load(std::memory_order_acquire)||!writer_finished.load(std::memory_order_acquire))return false;
- if(writer.joinable())writer.join();for(auto& b:images)b.reset();guard.reset();retired=true;
+ if(writer.joinable())writer.join();for(auto& b:images)b.reset();guard.reset();for(auto& b:mask_staging)b.reset();for(auto& b:mask_images)b.reset();retired=true;
  std::printf("NATIVE_ASYNC_PRE_SR_ONCE_RETIRED session=%s source=%llu actual_copy_SR_merge_complete=1 writer_joined=1 staging_buffers=0\n",session.c_str(),(unsigned long long)context.admission.current.source);return true;
 }
 void NativeAsyncPreSrDiagnostic::Run(std::stop_token stop){
@@ -113,6 +140,13 @@ void NativeAsyncPreSrDiagnostic::Run(std::stop_token stop){
    {"excluded_from_performance",true},{"same_source_SR_only1080_AB","NOT_AVAILABLE"},
    {"present_proof","REQUIRES_INDEPENDENT_ROOT_UNIQUE_NONREUSE_LEDGER"},
    {"present_join",{{"event","NATIVE_ASYNC_PRE_SR_CURRENT_PRESENT"},{"session",session},{"source_game_frame",a.current.source},{"job",id.job},{"merge_tick",merge_tick},{"required_cache_selected",true},{"required_swapchain_present",true},{"required_nonreuse",true}}}};
+  if(c.mask_diagnostic){
+   const auto& m=c.mask_current;std::array<uint32_t,2> words{};
+   J reads=J::array();const char* names[]{"current-owned-shown-guide720.rgba32f","current-final-bank-guide720.rgba32f","current-context320x180.rgba32f"};
+   for(unsigned n=0;n<2;++n){mask_staging[n]->Invalidate(0,4);std::memcpy(&words[n],mask_staging[n]->mapped_data.data(),4);const auto data=std::span<const uint8_t>(mask_staging[n]->mapped_data.data(),4);const char* name=n?"next-mask.u32":"previous-mask.u32";std::ofstream out(dir+"/"+name,std::ios::binary);out.write(reinterpret_cast<const char*>(data.data()),4);out.close();if(!out)throw std::runtime_error("masked once word write failed");reads.push_back({{"file",name},{"bytes",4},{"sha256",BbNativeAsyncPreSr::DiagnosticSha256(data)}});}
+   for(unsigned n=0;n<(m.context_written?3u:2u);++n){const auto bytes=uint64_t(m.ci[n].extent.width)*m.ci[n].extent.height*16;mask_images[n]->Invalidate(0,bytes);const auto data=std::span<const uint8_t>(mask_images[n]->mapped_data.data(),bytes);std::ofstream out(dir+"/"+names[n],std::ios::binary);out.write(reinterpret_cast<const char*>(data.data()),data.size());out.close();if(!out)throw std::runtime_error("masked once image write failed");reads.push_back({{"file",names[n]},{"bytes",bytes},{"sha256",BbNativeAsyncPreSr::DiagnosticSha256(data)},{"image_handle",reinterpret_cast<uintptr_t>(VkImage(m.images[n]))},{"format",109},{"width",m.ci[n].extent.width},{"height",m.ci[n].extent.height},{"usage",uint32_t(m.ci[n].usage)}});}
+   j["mask_diagnostic"]={{"scope","eligible_selected_current_only;raw_WholeInvalid_partialrecord_NOT_COVERED"},{"current_source",m.current.source},{"origin_source",m.origin.source},{"oldest_contributing_origin",m.oldest_contributing_origin},{"previous_slot_source",m.previous.source},{"epoch",m.current.epoch},{"history",m.current.history},{"params_version",m.current.params},{"job",id.job},{"previous_slot",1-m.next_slot},{"next_slot",m.next_slot},{"final_guide_bank",m.bank},{"whole_host",m.whole},{"context_written_recorded",m.context_written},{"guard_word_actual",flag},{"previous_mask_word_actual",words[0]},{"next_mask_word_actual",words[1]},{"mask_readback_bytes",8},{"image_readback_bytes",uint64_t(29491200)+(m.context_written?921600:0)},{"actual_GPU_completion_proof","same existing copy_SRread_and_merge targets"},{"written_assets",reads},{"guide_context_pixels","NOT_AUDITED"},{"context_when_unwritten","NOT_READ_NOT_DUMPED"}};
+  }
   std::ofstream meta(dir+"/readback.json.tmp");meta<<j.dump(2)<<"\n";meta.close();if(!meta)throw std::runtime_error("once metadata write failed");std::filesystem::rename(dir+"/readback.json.tmp",dir+"/readback.json");
   std::printf("NATIVE_ASYNC_PRE_SR_ONCE_COMPLETE session=%s source=%llu origin=%llu job=%llu guard_word_actual=%u pixel_bytes=14745600 actual_copy_SR_merge_GPU_complete=1 pixels=NOT_AUDITED Present=REQUIRES_ROOT_JOIN\n",session.c_str(),(unsigned long long)a.current.source,(unsigned long long)a.origin.source,(unsigned long long)id.job,flag);
  }catch(const std::exception& e){std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_ONCE_FAILED session=%s reason=%s retry=0\n",session.c_str(),e.what());}

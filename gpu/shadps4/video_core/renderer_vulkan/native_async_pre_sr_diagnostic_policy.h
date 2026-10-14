@@ -2,6 +2,7 @@
 #pragma once
 #include "native_async_pre_sr_policy.h"
 #include "native_async_pre_sr_sr_policy.h"
+#include "native_pre_sr_sky_policy.h"
 #include <bit>
 #include <span>
 #include <string>
@@ -11,6 +12,10 @@ inline bool DiagnosticEnabled()noexcept{
  const char* d=std::getenv("BB_NR_NATIVE_ASYNC_PRE_SR_DIAGNOSTIC_ONCE");
  const char* m=std::getenv("BB_NR_NATIVE_ASYNC_MODE");
  return Enabled()&&(!BbNativeAsyncPreSrPlay::Enabled()||BbNativeAsyncPreSrSrPolicy::ExplicitModes())&&d&&!std::strcmp(d,"1")&&m&&!std::strcmp(m,"resident");
+}
+inline bool MaskDiagnosticEnabled()noexcept{
+ const char* d=std::getenv("BB_NR_NATIVE_ASYNC_PRE_SR_MASK_DIAGNOSTIC_ONCE");
+ return DiagnosticEnabled()&&BbNativePreSrSkyPolicy::Enabled()&&d&&!std::strcmp(d,"1");
 }
 struct DiagnosticAdmission {
  CacheIdentity cache;BbNativeAsync::Frame current,origin;

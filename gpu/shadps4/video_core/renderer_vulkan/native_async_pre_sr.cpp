@@ -439,6 +439,12 @@ void NativeAsyncPreSr::SrReadRecorded(Scheduler& scheduler,uint64_t source,vk::I
     .SR_success=success,.cache_selected=effect_selected};
    c.lineage_count=chain.Size();for(unsigned n=0;n<c.lineage_count;++n)c.lineage[n]=retained->records[n]->frame;
    c.input_domain_changed=domain_changed;c.applied_sr_reset=applied_reset;
+   c.mask_diagnostic=BbNativeAsyncPreSr::MaskDiagnosticEnabled();
+   if(c.mask_diagnostic){
+    c.mask_current=retained->sky->DiagnosticCurrent(index,c.admission.current,c.admission.origin);
+    if(c.mask_current.next_slot!=retained->returns->NextMaskIndex())throw std::runtime_error("masked once actual mask/guide slot mismatch");
+    c.masks={retained->returns->PreviousMask(),retained->returns->NextMask()};
+   }
    once_diagnostic=std::make_shared<NativeAsyncPreSrDiagnostic>(*diagnostic_instance);
    if(!once_diagnostic->RecordOnce(scheduler,vk::Image(retained->images[index*3]),image,
       {retained->images[index*3].image_ci,actual_fixed_input?fixed_input->Info():retained->returns->Info(index)},retained->returns->Guard(index),c,chain))

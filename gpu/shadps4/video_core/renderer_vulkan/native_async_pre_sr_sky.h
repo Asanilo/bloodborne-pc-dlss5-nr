@@ -22,6 +22,15 @@ public:
  vk::ImageView FinalizeMaskedCurrent(Scheduler&,unsigned,vk::ImageView selected,const BbNativeAsync::Frame& origin,const BbNativeAsync::Frame& current);
  bool CurrentWholeEligible()const noexcept{return current_whole;}
  bool CurrentContextWritten()const noexcept{return current_context;}
+ // Read-only exact-current handles, valid only for recording cold copies in the
+ // same renderer command stream. Not GPU-ready/valid proof or a reusable lease.
+ struct ColdCurrent {
+  BbNativeAsync::Frame current,origin,previous;unsigned next_slot=0,bank=0;uint64_t oldest_contributing_origin=0;
+  bool whole=false,context_written=false;
+  std::array<vk::Image,3> images{};
+  std::array<vk::ImageCreateInfo,3> ci{};
+ };
+ ColdCurrent DiagnosticCurrent(unsigned,const BbNativeAsync::Frame& current,const BbNativeAsync::Frame& origin)const;
 
  std::array<vk::Image,3> ConvertedOrigin()const noexcept;
  std::array<vk::Image,3> Converted(unsigned i)const noexcept{return {vk::Image(packets[i].converted[0].image),vk::Image(packets[i].converted[1].image),vk::Image(packets[i].converted[2].image)};}
