@@ -1685,10 +1685,11 @@ void TemporalUpscaler::Run() {
         const bool q1_profile=!Scaled()&&reduced&&w==1280&&h==720&&ow==1920&&oh==1080&&
             last_dlss_called&&last_dlss_hdr&&UseDlss()&&BbSettings::Get().jitter&&q1_proxy_depth;
         bool native_async_recorded=false,native_async_current=false,native_sky_selected=false;
-        if(native_async_snapshot.Enabled()&&native_async_snapshot.Armed()&&q1_profile) {
+        if(native_async_snapshot.Enabled()&&q1_profile&&(native_async_snapshot.Armed()||BbNativeAsyncPlay::Enabled())) {
             bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pending_audit.has_value();}
             if(!pending)try {
                 native_async_current=true;
+                if(native_async_snapshot.Armed()&&(!BbNativeAsyncPlay::Enabled()||!BbOverlay::MenuOpen()))
                 native_async_recorded=native_async_snapshot.TryCaptureOrigin(instance,scheduler,
                     {vk::Image(output_image),input_depth,vk::Image(motion_image)},
                     {output_image.image_ci,*q1_proxy_depth,motion_image.image_ci},

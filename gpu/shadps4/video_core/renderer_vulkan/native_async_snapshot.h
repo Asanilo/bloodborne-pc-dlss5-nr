@@ -73,6 +73,7 @@ private:
  uint64_t maximum_native_use_tick=0;
  bool sparse_anchor=false,effect_selected=false;unsigned effect_job=0;
  uint64_t source_count=0;
+ uint64_t play_first_source=0,play_last_source=0,play_source_gaps=0;bool play_summary_printed=false;
  std::shared_ptr<BbNativeAsync::Owner> owner;
  std::optional<NativeOriginIdentity> pending_sparse;
  std::optional<BbNativeAsync::RecordedOrigin> recorded_origin;

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_origin_gpu.h"
 #include "vk_scheduler.h"
+#include "native_async_play.h"
 #include <stdexcept>
 namespace Vulkan {
 bool NativeOriginIdentity::Matches(const BbNativeAsync::Frame& f)const noexcept {
- if(session.empty()||session.size()>63||resource_set!=session+"-g0"||generation||job>=4||!origin_source||!origin_epoch||!origin_history||params_version!=1)return false;
+ if(session.empty()||session.size()>63||resource_set!=session+"-g0"||generation||job>=BbNativeAsyncPlay::MaxJobs()||!origin_source||!origin_epoch||!origin_history||params_version!=1)return false;
  for(const auto c:session)if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'))return false;
  return BbNativeAsync::Finite(f)&&origin_source==f.source&&origin_epoch==f.epoch&&origin_history==f.history&&params_version==f.params;
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_async_snapshot.h"
+#include "native_async_play.h"
 #include "native_origin_owner.h"
 #include "vk_instance.h"
 #include "vk_scheduler.h"
@@ -96,13 +97,18 @@ void NativeAsyncSnapshot::PollReady(const Instance& instance,Scheduler& schedule
  PollPeer(scheduler,supported);
  if(owner&&owner->ReadyCount()!=last_reported_ready){
   last_reported_ready=owner->ReadyCount();
-  std::printf("NATIVE_ASYNC_READY_OBSERVED session=%s copies_complete=%llu latest_source=%llu proof=actual_native_copy_tick_not_Helper_serial\n",Session().c_str(),
+  if(!BbNativeAsyncPlay::Enabled())std::printf("NATIVE_ASYNC_READY_OBSERVED session=%s copies_complete=%llu latest_source=%llu proof=actual_native_copy_tick_not_Helper_serial\n",Session().c_str(),
    (unsigned long long)last_reported_ready,(unsigned long long)owner->LatestReadySource());
  }
  const bool permanent=rejected||BbNativeAsync::ExitRequested()||(peer&&stopping);
  if(BbNativeAsync::NeedsHold(supported,bool(retained),BbNativeAsync::ExitRequested(),rejected))stopping=true;
- if(source_count>=120){stopping=true;if(peer)peer->RequestStop(4);}
+ if(source_count>=BbNativeAsyncPlay::SourceLimit()){stopping=true;if(peer)peer->RequestStop(4);}
  if(stopping&&(!retained||retained->AllUsesReady())){
+  if(BbNativeAsyncPlay::Enabled()&&!play_summary_printed){
+   std::printf("NATIVE_ASYNC_PLAY_SOURCE_SUMMARY session=%s admitted=%llu first_source=%llu last_source=%llu gaps=%llu source_backup=36000 scope=actual_admitted_packets_not_elapsed_or_consecutive_proof\n",Session().c_str(),
+    (unsigned long long)source_count,(unsigned long long)play_first_source,(unsigned long long)play_last_source,(unsigned long long)play_source_gaps);
+   play_summary_printed=true;
+  }
   if(owner)owner->Stop();
   owner.reset();retained.reset();
   if(peer){if(!peer->Quiescence()->last_use_tick.load())peer->Quiescence()->stopped_and_destroyed.store(true);
@@ -117,7 +123,7 @@ void NativeAsyncSnapshot::PollReady(const Instance& instance,Scheduler& schedule
   }else if(BbNativeAsync::ExitRequested()&&(!frontend||frontend->Finished())){
    if(frontend)frontend->JoinFinished();BbNativeAsync::PublishExitComplete();
   }
-  if(!permanent&&source_count<120){chain.Restart(true);stopping=false;}
+  if(!permanent&&source_count<BbNativeAsyncPlay::SourceLimit()){chain.Restart(true);stopping=false;}
  }
 }
 std::optional<BbNativeAsync::Frame> NativeAsyncSnapshot::ReadyOrigin()const noexcept {
@@ -147,7 +153,7 @@ vk::ImageView NativeAsyncSnapshot::RecordAdvanceAndApply(Scheduler& scheduler,ui
  if(index==0)recorded_origin=BbNativeAsync::RecordedOrigin{
   record->frame.source,record->frame.epoch,record->frame.history,record->frame.params,
   record->frame.copy_tick,scheduler.CurrentTick(),reinterpret_cast<uintptr_t>(&scheduler)};
- std::printf("NATIVE_SKY_RECORD origin=%llu current_source=%llu epoch=%llu history=%llu params=%llu age=%u Capture=%u Reproject=%u Pyramid=2 Apply=1 tick=%llu source_format=97 cache_format=109 Native_model_calls=0 mode=source-chain phase=UNVERIFIED\n",
+ if(!BbNativeAsyncPlay::Enabled())std::printf("NATIVE_SKY_RECORD origin=%llu current_source=%llu epoch=%llu history=%llu params=%llu age=%u Capture=%u Reproject=%u Pyramid=2 Apply=1 tick=%llu source_format=97 cache_format=109 Native_model_calls=0 mode=source-chain phase=UNVERIFIED\n",
   (unsigned long long)origin.source,(unsigned long long)current_source,(unsigned long long)origin.epoch,(unsigned long long)origin.history,(unsigned long long)origin.params,index,index==0,index!=0,(unsigned long long)scheduler.CurrentTick());
  TrackUse(scheduler);
  if(diagnostic)diagnostic->RecordOnce(scheduler,retained->sky->Converted(index)[0],
@@ -287,7 +293,7 @@ void NativeAsyncSnapshot::Shutdown(Scheduler& scheduler) {
 }
 bool NativeAsyncSnapshot::TryCaptureOrigin(const Instance& instance,Scheduler& scheduler,
  const std::array<vk::Image,3>& source,const std::array<vk::ImageCreateInfo,3>& ci,BbNativeAsync::Frame meta) {
- if(!Enabled()||!Armed()||source_count>=120||stopping||rejected||!BbNativeAsync::Finite(meta))return false;
+ if(!Enabled()||!Armed()||source_count>=BbNativeAsyncPlay::SourceLimit()||stopping||rejected||!BbNativeAsync::Finite(meta))return false;
  // DEPTH-only GENERAL barriers on format130 require the actually enabled feature.
  if(!instance.IsSeparateDepthStencilLayoutsEnabled())return false;
  for(unsigned i=0;i<3;++i){const auto& c=ci[i];
@@ -358,11 +364,16 @@ bool NativeAsyncSnapshot::TryCaptureOrigin(const Instance& instance,Scheduler& s
   cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&restore});
  }
  chain=candidate;last_epoch=next.epoch;++source_count;TrackUse(scheduler);
+ if(BbNativeAsyncPlay::Enabled()){
+  if(!play_first_source)play_first_source=next.source;
+  if(play_last_source&&next.source!=play_last_source+1)++play_source_gaps;
+  play_last_source=next.source;
+ }
  scheduler.DeferPriorityOperation([hold=retained,record,lease,notify=owner]{
   lease->CompleteNative(record->frame.copy_tick);
   record->gpu_ready.store(true,std::memory_order_release);notify->Signal();
  });
- std::printf("NATIVE_ASYNC_SOURCE session=%s origin=%llu source=%llu previous=%llu epoch=%llu history=%llu link=%u sr_reset=%u copy_tick=%llu viewport=%.9g,%.9g previous_viewport=%.9g,%.9g sr_jitter=%.9g,%.9g previous_sr_jitter=%.9g,%.9g source_edited=0 GPU_ready=NOT_YET_OBSERVED current_SR=1\n",
+ if(!BbNativeAsyncPlay::Enabled())std::printf("NATIVE_ASYNC_SOURCE session=%s origin=%llu source=%llu previous=%llu epoch=%llu history=%llu link=%u sr_reset=%u copy_tick=%llu viewport=%.9g,%.9g previous_viewport=%.9g,%.9g sr_jitter=%.9g,%.9g previous_sr_jitter=%.9g,%.9g source_edited=0 GPU_ready=NOT_YET_OBSERVED current_SR=1\n",
   Session().c_str(),(unsigned long long)chain.Origin().source,(unsigned long long)next.source,(unsigned long long)next.previous,
   (unsigned long long)next.epoch,(unsigned long long)next.history,index,next.sr_reset,(unsigned long long)next.copy_tick,
   next.viewport[0],next.viewport[1],next.previous_viewport[0],next.previous_viewport[1],next.sr_jitter[0],next.sr_jitter[1],next.previous_sr_jitter[0],next.previous_sr_jitter[1]);
