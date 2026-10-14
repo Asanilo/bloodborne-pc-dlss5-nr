@@ -91,7 +91,7 @@ vk::ImageView NativeAsyncPreSrSky::Record(Scheduler& scheduler,unsigned index,co
  std::array<Image*,12> reads{&prev.edit,&prev.guide,&color,&depth,&mv,&color,&dummy,&dummy,&dummy,&dummy,&exposure,&dummy};
  auto c=Base(capture?2:1);c.HistoryValid=capture?0:1;c.JitterDeltaX=(frame.previous_viewport[0]-frame.viewport[0])/1280.f;c.JitterDeltaY=(frame.previous_viewport[1]-frame.viewport[1])/720.f;Pass(cmd,p,0,c,true,reads,{&next.edit,&next.guide,&p.output,&next.levels[0],&next.l1guide,&stats,&dummy});
  for(unsigned j=1;j<3;j++){auto d=Base(3);d.Width=next.levels[j].image.image_ci.extent.width;d.Height=next.levels[j].image.image_ci.extent.height;d.SourceWidth=next.levels[j-1].image.image_ci.extent.width;d.SourceHeight=next.levels[j-1].image.image_ci.extent.height;reads[5]=&next.levels[j-1];Pass(cmd,p,j,d,true,reads,{&next.levels[j],&dummy,&p.output,&dummy,&dummy,&stats,&dummy});}
- reads={&next.edit,&next.guide,&color,&depth,&mv,&next.levels[0],&next.l1guide,&next.levels[1],&next.levels[2],&dummy,&exposure,&dummy};Pass(cmd,p,3,Base(4),true,reads,{&p.output,&dummy,&dummy,Masked()?&raw_edit:&dummy,&dummy,&stats,&dummy});
+ reads={&next.edit,&next.guide,&color,&depth,&mv,&next.levels[0],&next.l1guide,&next.levels[1],&next.levels[2],&dummy,&exposure,&dummy};auto apply=Base(4);if(Masked()){apply.LowTemporal=.95f;apply.Temporal=0;apply.CrossfadeOn=0;}Pass(cmd,p,3,apply,true,reads,{&p.output,&dummy,&dummy,Masked()?&raw_edit:&dummy,&dummy,&stats,&dummy});
  if(Masked()){last_apply_source=frame.source;last_apply_replay=false;if(actual_cache_eligible)CopyCurrentGuide(cmd,(index+1)%2,frame.source);}
  next_index++;return *p.output.view;
 }
@@ -112,7 +112,7 @@ vk::ImageView NativeAsyncPreSrSky::RecordSparseCatchup(Scheduler& s,unsigned cur
   for(unsigned j=1;j<3;j++){auto d=Base(3);d.Width=next.levels[j].image.image_ci.extent.width;d.Height=next.levels[j].image.image_ci.extent.height;d.SourceWidth=next.levels[j-1].image.image_ci.extent.width;d.SourceHeight=next.levels[j-1].image.image_ci.extent.height;reads[5]=&next.levels[j-1];Pass(cmd,p,j,d,true,reads,{&next.levels[j],&dummy,&p.output,&dummy,&dummy,&stats,&dummy});}
   // Only the final CURRENT link may grant a composite. Earlier replay output is
   // private scratch, never a displayed NR frame. Apply remains the frozen r2 pass.
-  if(index==current){reads={&next.edit,&next.guide,&color,&depth,&mv,&next.levels[0],&next.l1guide,&next.levels[1],&next.levels[2],&dummy,&exposure,&dummy};Pass(cmd,p,3,Base(4),true,reads,{&p.output,&dummy,&dummy,Masked()?&raw_edit:&dummy,&dummy,&stats,&dummy});if(Masked())CopyCurrentGuide(cmd,(index+1)%2,src.frame.source);}
+  if(index==current){reads={&next.edit,&next.guide,&color,&depth,&mv,&next.levels[0],&next.l1guide,&next.levels[1],&next.levels[2],&dummy,&exposure,&dummy};auto apply=Base(4);if(Masked()){apply.LowTemporal=.95f;apply.Temporal=0;apply.CrossfadeOn=0;}Pass(cmd,p,3,apply,true,reads,{&p.output,&dummy,&dummy,Masked()?&raw_edit:&dummy,&dummy,&stats,&dummy});if(Masked())CopyCurrentGuide(cmd,(index+1)%2,src.frame.source);}
  }
  if(Masked()){last_apply_source=packets[current].frame.source;last_apply_replay=true;}
  return *replay_packets[current].output.view;
