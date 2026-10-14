@@ -3318,10 +3318,19 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
                 catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_CACHE_HOLD raw_SR=1 reason=%s\n",e.what());}
             }
             if(!edited)try{native_async_pre_sr.DrainUnavailable(scheduler);}catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_DISCARD_HOLD raw_SR=1 reason=%s\n",e.what());}
-            const bool selected=bool(edited)&&native_async_pre_sr.EffectSelected();
+            bool selected=bool(edited)&&native_async_pre_sr.EffectSelected();
             if(selected)sr_color={native_async_pre_sr.ReturnImage(),edited,vk::Format::eR16G16B16A16Sfloat,vk::ImageAspectFlagBits::eColor,w,h};
+            if(BbNativeAsyncPreSrSrPolicy::InputMode()==BbNativeAsyncPreSrSrPolicy::Input::Fixed&&supported&&native_async_pre_sr.Armed()){
+                try{
+                    auto ci=selected?native_async_pre_sr.ReturnInfo(pre_source,sr_color.image):scene_targets.CaptureCreateInfo(color.image);
+                    vk::ImageView fixed{};if(ci)fixed=native_async_pre_sr.RecordFixedInput(instance,scheduler,pre_source,sr_color.image,*ci);
+                    if(fixed)sr_color={native_async_pre_sr.FixedImage(),fixed,vk::Format::eR16G16B16A16Sfloat,vk::ImageAspectFlagBits::eColor,w,h};
+                    else {sr_color=color;selected=false;}
+                }catch(const std::exception& e){native_async_pre_sr.Quarantine();sr_color=color;selected=false;std::fprintf(stderr,"NATIVE_PRE_SR_FIXED_HELD session=%s source=%llu raw_SR_fallback=1 no_unknown_free=1 reason=%s\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,e.what());}
+            }
             const bool changed=native_async_pre_sr.ChangeInputDomain(selected);pre_domain_changed=changed;
-            reset=BbNativeAsyncPreSr::InputDomain::AppliedReset(pre_original_reset,changed);last_dlss_reset=reset;
+            reset=BbNativeAsyncPreSrSrPolicy::AppliedReset(pre_original_reset,changed,native_async_pre_sr.FixedTransition());last_dlss_reset=reset;
+            if(BbNativeAsyncPreSrSrPolicy::ExplicitModes())std::printf("NATIVE_PRE_SR_SR_EXPERIMENT session=%s source=%llu history_mode=%s input_mode=%s original_reset=%u domain_changed=%u extra_domain_reset_requested=%u fixed_resource_transition_reset=%u applied_reset=%u actual_SR_input_image=%p fixed_bound=%u cache_content_selected=%u protected_game_resource_cut_history_reset=1 hot_pixel_change=NOT_MEASURED\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,BbNativeAsyncPreSrSrPolicy::HistoryName(),BbNativeAsyncPreSrSrPolicy::InputName(),pre_original_reset,changed,BbNativeAsyncPreSrSrPolicy::ExtraDomainReset(changed),native_async_pre_sr.FixedTransition(),reset,(void*)VkImage(sr_color.image),native_async_pre_sr.FixedThisSource(),selected);
             std::printf("NATIVE_ASYNC_PRE_SR_INPUT_DOMAIN session=%s source=%llu source_sr_reset_requested=%u cache_selected=%u input_domain=%s input_domain_changed=%u applied_sr_reset=%u origin=%llu job=%u age=%llu NR_Reset_does_not_force_SRreset=1 numeric_guard_pixel_result=NOT_MEASURED_HOT\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,pre_original_reset,selected,selected?"cache":"raw",changed,reset,(unsigned long long)native_async_pre_sr.OriginSource(),native_async_pre_sr.EffectJob(),selected?(unsigned long long)(pre_source-native_async_pre_sr.OriginSource()):0ull);
         }
         // Only the normal opt-in Quality HDR route. Feature creation above, motion

@@ -47,6 +47,10 @@ void NativeAsyncPreSr::HoldDiagnostic(std::shared_ptr<NativeAsyncPreSrDiagnostic
  static auto* mutex=new std::mutex;static auto* held=new std::vector<std::shared_ptr<NativeAsyncPreSrDiagnostic>>;
  std::scoped_lock lock(*mutex);held->push_back(std::move(hold));
 }
+void NativeAsyncPreSr::HoldFixed(std::shared_ptr<NativeAsyncPreSrFixedInput> hold){
+ static auto* mutex=new std::mutex;static auto* held=new std::vector<std::shared_ptr<NativeAsyncPreSrFixedInput>>;
+ std::scoped_lock lock(*mutex);held->push_back(std::move(hold));
+}
 void NativeAsyncPreSr::TrackUse(Scheduler& scheduler){
  maximum_native_use_tick=std::max(maximum_native_use_tick,scheduler.CurrentTick());
  if(!peer)return;
@@ -83,7 +87,7 @@ void NativeAsyncPreSr::PollReady(const Instance& instance,Scheduler& scheduler,b
   stopping=true;if(frontend)frontend->RequestStop();
   if(frontend&&frontend->Finished())frontend->JoinFinished();
   const BbNativeAsync::SceneFirst::NoPeerExitProof proof{
-   .no_peer=!peer,.no_retained=!retained,.no_snapshot_owner=!owner,
+   .no_peer=!peer,.no_retained=!retained&&!fixed_input,.no_snapshot_owner=!owner,
    .no_pending=!pending_sparse&&!sparse_input_proof&&!sparse_final_proof&&!recorded_origin,
    .frontend_joined=frontend&&frontend->Joined(),.unknown=rejected,
    .peer_creation_attempted=peer_creation_attempted,.snapshot_creation_attempted=snapshot_creation_attempted,
@@ -111,15 +115,15 @@ void NativeAsyncPreSr::PollReady(const Instance& instance,Scheduler& scheduler,b
  const bool permanent=rejected||BbNativeAsync::ExitRequested()||(peer&&stopping);
  if(BbNativeAsync::NeedsHold(supported,bool(retained),BbNativeAsync::ExitRequested(),rejected))stopping=true;
  if(source_count>=BbNativeAsyncPreSrPlay::SourceLimit()){stopping=true;if(peer)peer->RequestStop(4);}
- if(stopping&&once_retired&&(!retained||retained->AllUsesReady())){
+ if(stopping&&once_retired&&(!fixed_input||fixed_input->Ready())&&(!retained||retained->AllUsesReady())){
   if(BbNativeAsyncPreSrPlay::Enabled()&&!play_summary_printed){
    std::printf("NATIVE_ASYNC_PRE_SR_PLAY_SOURCE_SUMMARY session=%s admitted=%llu first_source=%llu last_source=%llu gaps=%llu source_backup=36000 scope=actual_admitted_packets_not_elapsed_or_consecutive_proof\n",Session().c_str(),
     (unsigned long long)source_count,(unsigned long long)play_first_source,(unsigned long long)play_last_source,(unsigned long long)play_source_gaps);
    play_summary_printed=true;
   }
   if(owner)owner->Stop();
-  owner.reset();retained.reset();
-  if(peer){if(!peer->Quiescence()->last_use_tick.load())peer->Quiescence()->stopped_and_destroyed.store(true);
+  owner.reset();fixed_input.reset();retained.reset();
+  if(peer){if(!peer->Quiescence()->last_use_tick.load()||!snapshot_creation_attempted)peer->Quiescence()->stopped_and_destroyed.store(true);
    if(BbNativeAsync::ExitRequested()&&peer->ReapedNormally()&&once_retired&&(!frontend||frontend->Finished())){
     if(frontend)frontend->JoinFinished();BbNativeAsync::PublishExitComplete();
    }
@@ -284,6 +288,7 @@ void NativeAsyncPreSr::DrainUnavailable(Scheduler& s) {
  }
 }
 void NativeAsyncPreSr::MergeRecorded(Scheduler& scheduler,uint64_t source) {
+ if(fixed_input&&actual_fixed_input&&source==actual_source){TrackUse(scheduler);fixed_input->MergeRecorded(scheduler,source);}
  if(!retained||chain.LastSource()!=source)return;
  TrackUse(scheduler);
  const auto tick=scheduler.CurrentTick();auto hold=retained;
@@ -298,6 +303,7 @@ void NativeAsyncPreSr::MergeRecorded(Scheduler& scheduler,uint64_t source) {
 void NativeAsyncPreSr::RetireByTick(Scheduler& scheduler) {Shutdown(scheduler);}
 void NativeAsyncPreSr::Shutdown(Scheduler& scheduler) {
  stopping=true;
+ if(fixed_input){if(fixed_input->Ready())fixed_input.reset();else HoldFixed(std::move(fixed_input));}
  if(once_diagnostic&&!once_diagnostic->RetireFinished())HoldDiagnostic(std::move(once_diagnostic));
  if(BbNativeAsync::SceneFirst::Active()&&frontend)frontend->RequestStop();
  if(peer)peer->RequestStop(2);
@@ -401,7 +407,10 @@ bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& sche
 
 namespace Vulkan {
 void NativeAsyncPreSr::SrReadRecorded(Scheduler& scheduler,uint64_t source,vk::Image image,bool success,bool domain_changed,bool applied_reset){
- if(!Enabled()||!actual_supported||source!=actual_source)return;
+ if(!Enabled()||source!=actual_source)return;
+ prior_fixed_input=actual_fixed_input;
+ if(!actual_supported)return;
+ if(fixed_input&&actual_fixed_input&&image==fixed_input->Image()){TrackUse(scheduler);fixed_input->SrReadRecorded(scheduler,source,image);}
  if(retained&&chain.LastSource()==source){
   TrackUse(scheduler);const auto tick=scheduler.CurrentTick();const auto leases=retained->leases;auto hold=retained;
   for(auto& lease:leases)if(lease)lease->sr_read=std::max(lease->sr_read,tick);
@@ -409,26 +418,39 @@ void NativeAsyncPreSr::SrReadRecorded(Scheduler& scheduler,uint64_t source,vk::I
  }
  // COLD ONCE ONLY, after the actual SR Evaluate recorded its true selected image.
  if(BbNativeAsyncPreSr::DiagnosticEnabled()&&!once_attempted&&success&&effect_selected&&once_origin&&retained&&
-  image==returned_image&&chain.LastSource()==source){
+  (image==returned_image||(fixed_input&&actual_fixed_input&&image==fixed_input->Image()))&&chain.LastSource()==source){
   once_attempted=true; // allocation/identity/write failures never retry another source
   try{
    const unsigned index=chain.Size()-1;NativeAsyncPreSrDiagnostic::Context c;
    const auto& o=*once_origin;c.job=o.job;c.admission={
     .cache={o.job.job,o.job.origin_source,o.job.origin_epoch,o.job.origin_history,o.job.params_version,source},
     .current=retained->records[index]->frame,.origin=o.frame,.sr_read_tick=scheduler.CurrentTick(),
-    .input_tick=o.input_tick,.helper_serial=o.helper_serial,.actual_selected_image_match=image==returned_image,
+    .input_tick=o.input_tick,.helper_serial=o.helper_serial,.actual_selected_image_match=image==returned_image||(fixed_input&&actual_fixed_input&&image==fixed_input->Image()),
     .SR_success=success,.cache_selected=effect_selected};
    c.lineage_count=chain.Size();for(unsigned n=0;n<c.lineage_count;++n)c.lineage[n]=retained->records[n]->frame;
    c.input_domain_changed=domain_changed;c.applied_sr_reset=applied_reset;
    once_diagnostic=std::make_shared<NativeAsyncPreSrDiagnostic>(*diagnostic_instance);
    if(!once_diagnostic->RecordOnce(scheduler,vk::Image(retained->images[index*3]),image,
-      {retained->images[index*3].image_ci,retained->returns->Info(index)},retained->returns->Guard(index),c,chain))
+      {retained->images[index*3].image_ci,actual_fixed_input?fixed_input->Info():retained->returns->Info(index)},retained->returns->Guard(index),c,chain))
     throw std::runtime_error("once actual current/SR image/lineage admission rejected");
    TrackUse(scheduler);const auto tick=scheduler.CurrentTick();auto hold=retained;const auto leases=hold->leases;
    for(const auto& l:leases)if(l)l->sr_read=std::max(l->sr_read,tick);
    scheduler.DeferPriorityOperation([hold,leases,tick]{for(const auto& l:leases)if(l)l->CompleteNative(tick);});
   }catch(const std::exception& e){Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_ONCE_FAILED session=%s source=%llu reason=%s retry=0 unknown_GPU_use_held=1\n",Session().c_str(),(unsigned long long)source,e.what());}
  }
+ if(actual_fixed_input)std::printf("NATIVE_PRE_SR_FIXED_SR_READ session=%s source=%llu input_image=%p copy_tick=%llu actual_SR_read_tick=%llu last_use_tick=%llu same_Native_timeline=1 actual_CPU_GPU_complete=NOT_YET_OBSERVED\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)fixed_input->CopyTick(),(unsigned long long)fixed_input->ReadTick(),(unsigned long long)fixed_input->LastUse());
  std::printf("NATIVE_ASYNC_PRE_SR_SR_READ session=%s source=%llu actual_input_image=%p native_sr_read_tick=%llu SR_success=%u cache_selected=%u actual_origin=%llu actual_job=%u scope=actual_current720_SR_input_binding_numeric_guard_GPU_wholeframe_fallback_NOT_MEASURED_HOT\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)scheduler.CurrentTick(),success,effect_selected,(unsigned long long)OriginSource(),effect_job);
+}
+}
+
+namespace Vulkan {
+std::optional<vk::ImageCreateInfo> NativeAsyncPreSr::ReturnInfo(uint64_t source,vk::Image image)const noexcept{
+ if(retained&&chain.Size()&&chain.LastSource()==source&&image==returned_image)return retained->returns->Info(chain.Size()-1);
+ return {};
+}
+vk::ImageView NativeAsyncPreSr::RecordFixedInput(const Instance& i,Scheduler& s,uint64_t source,vk::Image input,const vk::ImageCreateInfo& ci){
+ if(!Enabled()||!Armed()||!actual_supported||source!=actual_source||!peer||stopping||rejected||BbNativeAsyncPreSrSrPolicy::InputMode()!=BbNativeAsyncPreSrSrPolicy::Input::Fixed)return {};
+ if(!fixed_input){fixed_input=std::make_shared<NativeAsyncPreSrFixedInput>(i,peer->Quiescence());std::printf("NATIVE_PRE_SR_FIXED_CREATED session=%s format=97 width=1280 height=720 packed_bytes=7372800 native_only=1 origin_packet_or_shared_slot=0 armed=1\n",Session().c_str());}
+ TrackUse(s);auto view=fixed_input->RecordCopy(s,source,input,ci);actual_fixed_input=true;return view;
 }
 }

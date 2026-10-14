@@ -231,7 +231,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
     W::u(stop_ack,"helper_gpu_serial")>=last_helper_serial,"actual STOP_READY");
   phase.store(Phase::AwaitNativeRelease,std::memory_order_release);
   const auto release_limit=Clock::now()+std::chrono::seconds(60);
-  while(!quiescence->stopped_and_destroyed.load(std::memory_order_acquire)){
+  while(!quiescence->stopped_and_destroyed.load(std::memory_order_acquire)||!quiescence->fixed_input_absent_or_destroyed.load(std::memory_order_acquire)){
     check();W::need(Clock::now()<release_limit,"actual Native cleanup bounded HOLD");
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }

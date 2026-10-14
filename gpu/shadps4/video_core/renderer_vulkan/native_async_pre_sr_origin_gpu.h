@@ -26,6 +26,7 @@ struct NativeAsyncPreSrOriginResources {
 struct NativeAsyncPreSrOriginQuiescence {
  std::atomic<uint64_t> last_use_tick{0},observed_tick{0};
  std::atomic<bool> stopped_and_destroyed{false};
+ std::atomic<bool> fixed_input_absent_or_destroyed{true}; // Native-only API-lifetime proof, no wire field
 };
 struct NativeAsyncPreSrOriginGpuProof {
  uint64_t native_target_tick=0;

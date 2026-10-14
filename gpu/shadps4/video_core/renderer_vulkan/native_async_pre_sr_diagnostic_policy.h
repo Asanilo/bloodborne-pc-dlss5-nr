@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_async_pre_sr_policy.h"
+#include "native_async_pre_sr_sr_policy.h"
 #include <bit>
 #include <span>
 #include <string>
@@ -9,7 +10,7 @@ inline constexpr uint64_t DiagnosticImageBytes=uint64_t(1280)*720*8;
 inline bool DiagnosticEnabled()noexcept{
  const char* d=std::getenv("BB_NR_NATIVE_ASYNC_PRE_SR_DIAGNOSTIC_ONCE");
  const char* m=std::getenv("BB_NR_NATIVE_ASYNC_MODE");
- return Enabled()&&!BbNativeAsyncPreSrPlay::Enabled()&&d&&!std::strcmp(d,"1")&&m&&!std::strcmp(m,"resident");
+ return Enabled()&&(!BbNativeAsyncPreSrPlay::Enabled()||BbNativeAsyncPreSrSrPolicy::ExplicitModes())&&d&&!std::strcmp(d,"1")&&m&&!std::strcmp(m,"resident");
 }
 struct DiagnosticAdmission {
  CacheIdentity cache;BbNativeAsync::Frame current,origin;

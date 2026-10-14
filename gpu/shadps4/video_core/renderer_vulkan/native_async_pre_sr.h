@@ -3,6 +3,8 @@
 #include "native_async_owner.h"
 #include "native_async_pre_sr_policy.h"
 #include "native_async_pre_sr_return.h"
+#include "native_async_pre_sr_fixed_input.h"
+#include "native_async_pre_sr_sr_policy.h"
 #include "native_async_pre_sr_diagnostic.h"
 #include "native_origin_lease.h"
 #include "native_async_pre_sr_sky.h"
@@ -39,8 +41,13 @@ public:
  void MergeRecorded(Scheduler&,uint64_t current_source);
  void SrReadRecorded(Scheduler&,uint64_t source,vk::Image image,bool success,bool domain_changed,bool applied_reset);
  vk::Image ReturnImage()const noexcept{return returned_image;}
+ vk::ImageView RecordFixedInput(const Instance&,Scheduler&,uint64_t source,vk::Image input,const vk::ImageCreateInfo&);
+ vk::Image FixedImage()const noexcept{return fixed_input?fixed_input->Image():vk::Image{};}
+ bool FixedThisSource()const noexcept{return actual_fixed_input;}
+ bool FixedTransition()const noexcept{return prior_fixed_input!=actual_fixed_input;}
+ std::optional<vk::ImageCreateInfo> ReturnInfo(uint64_t source,vk::Image image)const noexcept;
  bool ChangeInputDomain(bool nr)noexcept{return input_domain.Change(nr);}
- void BeginSource(uint64_t source,bool supported)noexcept{actual_source=source;actual_supported=supported;effect_selected=false;returned_image=vk::Image{};}
+ void BeginSource(uint64_t source,bool supported)noexcept{actual_source=source;actual_supported=supported;effect_selected=false;returned_image=vk::Image{};actual_fixed_input=false;}
  uint64_t Source()const noexcept{return actual_source;}
  bool Supported()const noexcept{return actual_supported;}
  void RetireByTick(Scheduler&);
@@ -49,7 +56,7 @@ public:
  std::optional<BbNativeAsync::Frame> RecordedOrigin(const Scheduler&)const noexcept;
  void Shutdown(Scheduler&);
  void RejectAssociation()noexcept{rejected=true;}
- void Quarantine()noexcept{rejected=true;stopping=true;if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
+ void Quarantine()noexcept{rejected=true;stopping=true;if(fixed_input)fixed_input->HoldUnknown();if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
  std::string Session()const;
  uint64_t Epoch()const noexcept{return last_epoch;}
  uint64_t OriginSource()const noexcept{return chain.Size()?chain.Origin().source:0;}
@@ -74,6 +81,8 @@ private:
  void TrackUse(Scheduler&);
  void PollPeer(Scheduler&,bool supported);
  static void HoldUnknown(std::shared_ptr<Retention>);
+ std::shared_ptr<NativeAsyncPreSrFixedInput> fixed_input;bool actual_fixed_input=false,prior_fixed_input=false;
+ static void HoldFixed(std::shared_ptr<NativeAsyncPreSrFixedInput>);
  const Instance* diagnostic_instance=nullptr; // borrowed renderer Instance outlives this managed controller
  std::shared_ptr<Retention> retained;
  std::shared_ptr<NativeAsyncPreSrOriginOwner> peer;
