@@ -5,6 +5,7 @@
 #include "bbport_overlay.h"
 #include "video_core/renderer_vulkan/p0_status.h"
 #include "video_core/renderer_vulkan/native_async_state.h"
+#include "video_core/renderer_vulkan/native_async_pre_sr_policy.h"
 #include "bbport_settings.h"
 #include "bbport_copy.h"
 #include <sys/resource.h>
@@ -286,7 +287,7 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             SDL_Delay(2);
         }
         LOG_INFO(Frontend, "Window closed by user");
-        if(BbNativeAsync::OptIn()) {
+        if(BbNativeAsync::OptIn()||BbNativeAsyncPreSr::Enabled()) {
             BbNativeAsync::RequestExit();
             const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
             while(!BbNativeAsync::ExitComplete()&&std::chrono::steady_clock::now()<deadline)SDL_Delay(2);
@@ -296,6 +297,7 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             }
             if(BbNativeAsync::ExitAbnormalEmpty())
                 std::printf("NATIVE_ASYNC_EXIT_ABNORMAL_SAFE functional=FAIL normal_peer=0 no_native_async_owners=1 no_UI_Vulkan=1 no_UI_IPC=1\n");
+            else if(BbNativeAsyncPreSr::Enabled()) std::printf("NATIVE_ASYNC_PRE_SR_EXIT_PROOF actual_source_cache_SR_GPU_lastuse_complete=1 managed_owner_joined=1 peer_retirement=OWNER_PROOF\n");
             else std::printf("NATIVE_ASYNC_EXIT_PROOF actual_snapshot_GPU_lastuse_complete=1 managed_owner_joined=1 peer_retirement=OWNER_PROOF\n");
         }
         const char* p0_mode=std::getenv("BB_NR_P0_MODE");

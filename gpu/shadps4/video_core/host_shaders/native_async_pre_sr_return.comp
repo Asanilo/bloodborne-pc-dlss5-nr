@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#version 450
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D composite32;
+layout(binding=1) uniform sampler2D actualOriginalRaw97;
+layout(binding=2,rgba16f) writeonly uniform image2D currentSrInput97;
+layout(binding=3,std430) buffer Guard {uint failed;};
+layout(push_constant) uniform Mode {uint pass;} mode;
+void main(){ivec2 q=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(q,ivec2(1280,720))))return;
+ vec4 raw=texelFetch(actualOriginalRaw97,q,0);vec4 edited=texelFetch(composite32,q,0);
+ if(mode.pass==0u){
+  if(any(isnan(edited.rgb))||any(isinf(edited.rgb))||any(greaterThan(abs(edited.rgb),vec3(65504.0)))||isnan(raw.a)||isinf(raw.a))atomicOr(failed,1u);
+ }else{
+  // One bad output pixel makes the entire image original raw, no clamp or hybrid.
+  // Flag is GPU-only; hot Host selection is eligibility, not pixel-change proof.
+  vec4 value=failed!=0u?raw:vec4(edited.rgb,raw.a);imageStore(currentSrInput97,q,value);
+ }
+}

@@ -347,6 +347,7 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
 }
 
 TemporalUpscaler::~TemporalUpscaler() {
+    native_async_pre_sr.Shutdown(scheduler);
     native_async_snapshot.RetireByTick(scheduler);
     p0_controller.Shutdown(instance, scheduler);
     if (resources_ready) scheduler.Finish();
@@ -436,6 +437,7 @@ bool TemporalUpscaler::RasterScaling() const {
 
 bool TemporalUpscaler::OnFrameStart() {
     const auto& p0_settings=BbSettings::Get();
+    native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);
     native_async_snapshot.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);
     p0_controller.Tick(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter,BbOverlay::MenuOpen());
     // bbport: BB_PRESET_FILE=<file> holding a preset number, read about once a second: switches
@@ -610,7 +612,7 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     output_view.reset();
     motion_image = VideoCore::UniqueImage(device, allocator);
     auto motion_usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
-    if (C0CaptureEnabled() || Q0CaptureEnabled() || Q1DiagnosticEnabled() || P0Enabled() || BbNativeAsync::OptIn()) {
+    if (C0CaptureEnabled() || Q0CaptureEnabled() || Q1DiagnosticEnabled() || P0Enabled() || BbNativeAsync::OptIn() || BbNativeAsyncPreSr::Enabled()) {
         motion_usage |= vk::ImageUsageFlagBits::eTransferSrc;
     }
     motion_image.Create(vk::ImageCreateInfo{
@@ -2001,6 +2003,14 @@ void TemporalUpscaler::Run() {
         if (c4_frame_processed) c4_game_bridge.EndMergeTiming(scheduler);
         if (q1_frame_processed) q1_game_bridge.EndMergeTiming(scheduler);
         if (p0_frame_processed) p0_controller.EndMergeTiming(scheduler);
+        if(native_async_pre_sr.Enabled()&&native_async_pre_sr.Supported()&&native_async_pre_sr.Source()==source_game_frame) {
+            native_async_pre_sr.MergeRecorded(scheduler,source_game_frame);
+            std::scoped_lock lock{c1_audit_mutex};
+            if(native_async_pre_sr_pending_audit)throw std::runtime_error("Async preSR cannot overwrite current-source ledger");
+            native_async_pre_sr_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC_PRE_SR",.mode=native_async_pre_sr.EffectSelected()?"cache720-current-SR1080":"raw720-original-SR1080",
+                .session=native_async_pre_sr.Session(),.execution_mode="hot",.selected_output=native_async_pre_sr.EffectSelected(),.audit_full=false,.nr_frame=native_async_pre_sr.EffectJob(),
+                .source_game_frame=source_game_frame,.merge_tick=scheduler.CurrentTick()};
+        }
         if(native_async_current) {
             if(native_sky_selected) native_async_snapshot.MergeRecorded(scheduler,source_game_frame);
             std::scoped_lock lock{c1_audit_mutex};
@@ -2962,6 +2972,16 @@ bool TemporalUpscaler::TakeC1PresentAudit(VAddr address, u64 present_frame_count
                                           u64 gpu_frame_at_prepare, u64 prepare_tick,
                                           C1PresentAudit& audit) {
     std::scoped_lock lock{c1_audit_mutex};
+    if(native_async_pre_sr_pending_audit) {
+        const auto& pending=*native_async_pre_sr_pending_audit;
+        if(gpu_frame_at_prepare!=pending.source_game_frame+1||prepare_tick<pending.merge_tick) {
+            native_async_pre_sr.RejectAssociation();native_async_pre_sr_pending_audit.reset();audit={};
+            std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_ASSOCIATION_REJECTED counted_valid=0\n");return false;
+        }
+        audit=pending;audit.buffer_address=address;audit.buffer_prepare_gpu_frame=gpu_frame_at_prepare;
+        audit.buffer_prepare_tick=prepare_tick;audit.present_frame_counter_before=present_frame_counter_before;
+        native_async_pre_sr_pending_audit.reset();return true;
+    }
     if(native_async_pending_audit) {
         const auto& pending=*native_async_pending_audit;
         if(gpu_frame_at_prepare!=pending.source_game_frame+1||prepare_tick<pending.merge_tick) {
@@ -3271,6 +3291,38 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         last_dlss_jitter_x = sign * jitter[0];
         last_dlss_jitter_y = sign * jitter[1];
         last_dlss_frame_ms = frame_ms;
+        const u64 pre_source=BbStats::gpu_frames.load(std::memory_order_relaxed);
+        const bool pre_original_reset=reset;
+        Dlss::Resource sr_color=color;
+        if(native_async_pre_sr.Enabled()) {
+            bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pre_sr_pending_audit.has_value();}
+            const bool supported=hdr&&!Scaled()&&w==1280&&h==720&&ow==1920&&oh==1080&&settings.preset==1&&settings.jitter&&!pending;
+            native_async_pre_sr.BeginSource(pre_source,supported);
+            bool pre_source_recorded=false;
+            const auto pre_projection=camera_motion.TaaDepthParameters();
+            if(supported&&camera_motion.Ready()&&!BbOverlay::MenuOpen()) {
+                const auto cc=scene_targets.CaptureCreateInfo(color.image);
+                const auto dc=scene_targets.CaptureCreateInfo(depth.image);
+                try {if(cc&&dc&&native_async_pre_sr.Armed())pre_source_recorded=native_async_pre_sr.TryCaptureOrigin(instance,scheduler,
+                    {color.image,depth.image,vk::Image(motion_image)},{*cc,*dc,motion_image.image_ci},
+                    {.source=pre_source,.sr_reset=pre_original_reset,.viewport=camera_motion.CurrentJitter(),
+                     .previous_viewport=camera_motion.PreviousJitter(),.sr_jitter={sign*jitter[0],sign*jitter[1]},
+                     .previous_sr_jitter={previous_dlss_jitter_x,previous_dlss_jitter_y}});}
+                catch(const std::exception& e){native_async_pre_sr.RejectAssociation();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_SOURCE_HOLD original_raw_SR=1 no_GPU_free=1 reason=%s\n",e.what());}
+            }
+            if(pre_source_recorded)std::printf("NATIVE_ASYNC_PRE_SR_DEPTH_SOURCE source=%llu projection_current=%.9g,%.9g,%.9g,%.9g projection_previous=%.9g,%.9g,%.9g,%.9g DepthInverted_candidate=0 convention_proof=UNVERIFIED format130_not_proof=1\n",(unsigned long long)pre_source,pre_projection[0][0],pre_projection[0][1],pre_projection[0][2],pre_projection[0][3],pre_projection[1][0],pre_projection[1][1],pre_projection[1][2],pre_projection[1][3]);
+            vk::ImageView edited{};
+            if(supported&&camera_motion.Ready()&&native_async_pre_sr.Armed()&&!BbOverlay::MenuOpen()){
+                if(pre_source_recorded)try{edited=native_async_pre_sr.RecordAdvanceAndApply(scheduler,pre_source);}
+                catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_CACHE_HOLD raw_SR=1 reason=%s\n",e.what());}
+            }
+            if(!edited)try{native_async_pre_sr.DrainUnavailable(scheduler);}catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_DISCARD_HOLD raw_SR=1 reason=%s\n",e.what());}
+            const bool selected=bool(edited)&&native_async_pre_sr.EffectSelected();
+            if(selected)sr_color={native_async_pre_sr.ReturnImage(),edited,vk::Format::eR16G16B16A16Sfloat,vk::ImageAspectFlagBits::eColor,w,h};
+            const bool changed=native_async_pre_sr.ChangeInputDomain(selected);
+            reset=BbNativeAsyncPreSr::InputDomain::AppliedReset(pre_original_reset,changed);last_dlss_reset=reset;
+            std::printf("NATIVE_ASYNC_PRE_SR_INPUT_DOMAIN session=%s source=%llu source_sr_reset_requested=%u cache_selected=%u input_domain=%s input_domain_changed=%u applied_sr_reset=%u origin=%llu job=%u age=%llu NR_Reset_does_not_force_SRreset=1 numeric_guard_pixel_result=NOT_MEASURED_HOT\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,pre_original_reset,selected,selected?"cache":"raw",changed,reset,(unsigned long long)native_async_pre_sr.OriginSource(),native_async_pre_sr.EffectJob(),selected?(unsigned long long)(pre_source-native_async_pre_sr.OriginSource()):0ull);
+        }
         // Only the normal opt-in Quality HDR route. Feature creation above, motion
         // generation, sharpening, NR, merge and Present are outside this interval.
         const u64 sr_timing_source=BbStats::gpu_frames.load(std::memory_order_relaxed);
@@ -3280,7 +3332,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             sr_timing_slot=p0_sr_timing->Begin(cmdbuf,sr_timing_source);
         }
         ok = dlss->Evaluate(cmdbuf, {
-            .color = color,
+            .color = sr_color,
             .depth = depth,
             .motion = {vk::Image(motion_image), *motion_view, vk::Format::eR16G16Sfloat,
                        vk::ImageAspectFlagBits::eColor, w, h},
@@ -3293,6 +3345,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             .sharpness = settings.sharpen ? std::min(settings.sharpness.load(), 1.0f) : 0.0f,
         });
         if (sr_timing_slot) p0_sr_timing->End(cmdbuf,scheduler,*sr_timing_slot,sr_timing_source,ok);
+        native_async_pre_sr.SrReadRecorded(scheduler,pre_source,sr_color.image,ok);
     }
     if (ok) {
         const u64 source_frame = BbStats::gpu_frames.load(std::memory_order_relaxed);
