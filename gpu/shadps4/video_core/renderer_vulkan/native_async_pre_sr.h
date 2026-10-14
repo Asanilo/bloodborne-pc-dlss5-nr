@@ -3,6 +3,7 @@
 #include "native_async_owner.h"
 #include "native_async_pre_sr_policy.h"
 #include "native_async_pre_sr_return.h"
+#include "native_async_pre_sr_diagnostic.h"
 #include "native_origin_lease.h"
 #include "native_async_pre_sr_sky.h"
 #include "native_async_pre_sr_origin_gpu.h"
@@ -36,7 +37,7 @@ public:
  bool FinalizeSparseLease(const NativeAsyncPreSrOriginIdentity& id,const std::shared_ptr<NativeAsyncPreSrOriginGpuProof>& proof,bool consumed_published_by_owner)noexcept;
  void DrainUnavailable(Scheduler&);
  void MergeRecorded(Scheduler&,uint64_t current_source);
- void SrReadRecorded(Scheduler&,uint64_t source,vk::Image image,bool success);
+ void SrReadRecorded(Scheduler&,uint64_t source,vk::Image image,bool success,bool domain_changed,bool applied_reset);
  vk::Image ReturnImage()const noexcept{return returned_image;}
  bool ChangeInputDomain(bool nr)noexcept{return input_domain.Change(nr);}
  void BeginSource(uint64_t source,bool supported)noexcept{actual_source=source;actual_supported=supported;effect_selected=false;returned_image=vk::Image{};}
@@ -73,11 +74,16 @@ private:
  void TrackUse(Scheduler&);
  void PollPeer(Scheduler&,bool supported);
  static void HoldUnknown(std::shared_ptr<Retention>);
+ const Instance* diagnostic_instance=nullptr; // borrowed renderer Instance outlives this managed controller
  std::shared_ptr<Retention> retained;
  std::shared_ptr<NativeAsyncPreSrOriginOwner> peer;
  std::unique_ptr<BbNativeAsyncPreSr::Frontend> frontend;
  std::shared_ptr<NativeSkyDiagnostic> diagnostic,edit_diagnostic;
  std::optional<NativeSkyDiagnostic::EditContext> edit_anchor;
+ struct DiagnosticOrigin {NativeAsyncPreSrOriginIdentity job;BbNativeAsync::Frame frame;uint64_t input_tick=0,helper_serial=0;};
+ std::optional<DiagnosticOrigin> once_origin;
+ std::shared_ptr<NativeAsyncPreSrDiagnostic> once_diagnostic;bool once_attempted=false;
+ static void HoldDiagnostic(std::shared_ptr<NativeAsyncPreSrDiagnostic>);
  bool snapshot_creation_attempted=false,peer_creation_attempted=false,peer_ready_observed=false;
  uint64_t maximum_native_use_tick=0;
  bool sparse_anchor=false,effect_selected=false;unsigned effect_job=0;

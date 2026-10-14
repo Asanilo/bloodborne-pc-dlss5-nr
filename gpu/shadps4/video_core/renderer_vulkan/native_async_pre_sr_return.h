@@ -11,6 +11,8 @@ public:
  explicit NativeAsyncPreSrReturn(const Instance&);
  vk::Image Record(Scheduler&,unsigned,vk::ImageView composite32,vk::ImageView raw97);
  vk::ImageView View(unsigned i)const noexcept{return *views[i];}
+ const vk::ImageCreateInfo& Info(unsigned i)const noexcept{return images[i].image_ci;}
+ vk::Buffer Guard(unsigned i)const noexcept{return flags[i]->Handle();}
  static constexpr uint64_t PackedBytes=uint64_t(1280)*720*8*5;
 private:
  vk::Device device;std::array<VideoCore::UniqueImage,5> images;

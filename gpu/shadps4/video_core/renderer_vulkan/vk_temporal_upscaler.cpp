@@ -3293,6 +3293,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         last_dlss_frame_ms = frame_ms;
         const u64 pre_source=BbStats::gpu_frames.load(std::memory_order_relaxed);
         const bool pre_original_reset=reset;
+        bool pre_domain_changed=false;
         Dlss::Resource sr_color=color;
         if(native_async_pre_sr.Enabled()) {
             bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pre_sr_pending_audit.has_value();}
@@ -3319,7 +3320,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             if(!edited)try{native_async_pre_sr.DrainUnavailable(scheduler);}catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_DISCARD_HOLD raw_SR=1 reason=%s\n",e.what());}
             const bool selected=bool(edited)&&native_async_pre_sr.EffectSelected();
             if(selected)sr_color={native_async_pre_sr.ReturnImage(),edited,vk::Format::eR16G16B16A16Sfloat,vk::ImageAspectFlagBits::eColor,w,h};
-            const bool changed=native_async_pre_sr.ChangeInputDomain(selected);
+            const bool changed=native_async_pre_sr.ChangeInputDomain(selected);pre_domain_changed=changed;
             reset=BbNativeAsyncPreSr::InputDomain::AppliedReset(pre_original_reset,changed);last_dlss_reset=reset;
             std::printf("NATIVE_ASYNC_PRE_SR_INPUT_DOMAIN session=%s source=%llu source_sr_reset_requested=%u cache_selected=%u input_domain=%s input_domain_changed=%u applied_sr_reset=%u origin=%llu job=%u age=%llu NR_Reset_does_not_force_SRreset=1 numeric_guard_pixel_result=NOT_MEASURED_HOT\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,pre_original_reset,selected,selected?"cache":"raw",changed,reset,(unsigned long long)native_async_pre_sr.OriginSource(),native_async_pre_sr.EffectJob(),selected?(unsigned long long)(pre_source-native_async_pre_sr.OriginSource()):0ull);
         }
@@ -3345,7 +3346,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             .sharpness = settings.sharpen ? std::min(settings.sharpness.load(), 1.0f) : 0.0f,
         });
         if (sr_timing_slot) p0_sr_timing->End(cmdbuf,scheduler,*sr_timing_slot,sr_timing_source,ok);
-        native_async_pre_sr.SrReadRecorded(scheduler,pre_source,sr_color.image,ok);
+        native_async_pre_sr.SrReadRecorded(scheduler,pre_source,sr_color.image,ok,pre_domain_changed,reset);
     }
     if (ok) {
         const u64 source_frame = BbStats::gpu_frames.load(std::memory_order_relaxed);

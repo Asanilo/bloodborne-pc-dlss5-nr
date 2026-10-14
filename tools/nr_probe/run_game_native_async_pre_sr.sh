@@ -3,6 +3,10 @@
 set -euo pipefail
 [[ $# == 2 ]] || { echo 'Usage: run_game_native_async_pre_sr.sh SESSION resident|skipEvaluate' >&2; exit 2; }
 SESSION=$1 MODE=$2
+ONCE=${BB_NR_NATIVE_ASYNC_PRE_SR_DIAGNOSTIC_ONCE-0}
+[[ $ONCE == 0 || $ONCE == 1 ]] || { echo "ASYNC_PRE_SR BLOCKED invalid720once" >&2; exit 2; }
+[[ $ONCE == 0 || $MODE == resident ]] || { echo "ASYNC_PRE_SR BLOCKED once resident-only" >&2; exit 2; }
+[[ ${BB_NR_NATIVE_ASYNC_DIAGNOSTIC_ONCE-0} == 0 && ${BB_NR_NATIVE_ASYNC_EDIT_DIAGNOSTIC_ONCE-0} == 0 ]] || { echo "ASYNC_PRE_SR BLOCKED legacy1080 flags must0" >&2; exit 2; }
 SCENE_FIRST=${BB_NR_NATIVE_ASYNC_SCENE_FIRST-1}
 [[ $SCENE_FIRST == 1 ]] || { echo "NATIVE_ASYNC_LAUNCH BLOCKED scene-first must be exact0|1" >&2; exit 2; }
 [[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,62}$ && ( $MODE == resident || $MODE == skipEvaluate ) ]] || exit 2
@@ -57,6 +61,7 @@ export BB_PRESENT_DUMP_TRIGGER="$RUN/present-dump-trigger" BB_PRESENT_DUMP_COUNT
 export BB_NR_NATIVE_ASYNC_SCENE_FIRST="$SCENE_FIRST"
 export BB_NR_NATIVE_ASYNC=0 BB_NR_NATIVE_ASYNC_PRE_SR=1 BB_NR_NATIVE_ASYNC_SESSION="$SESSION" BB_NR_NATIVE_ASYNC_MODE="$MODE"
 export BB_NR_NATIVE_ASYNC_RUN_DIR="$RUN" BB_NR_NATIVE_ASYNC_SCENE_ARM="$RUN/native-scene-arm"
+export BB_NR_NATIVE_ASYNC_PRE_SR_DIAGNOSTIC_ONCE="$ONCE"
 export BB_NR_NATIVE_ASYNC_EDIT_DIAGNOSTIC_ONCE="$EDIT_DIAG"
 export BB_NR_NATIVE_ASYNC_SOURCE_LIMIT=120 BB_NR_NATIVE_ASYNC_DIAGNOSTIC_ONCE="$DIAG"
 export BB_NR_NATIVE_ORIGIN_RUN_DIR="$RUN" BB_NR_NATIVE_ORIGIN_HELPER="$HELPER"
@@ -71,6 +76,7 @@ export DLSSNR_DISABLE=1 DLSSNR_AUTO_DOWNLOAD=0
   printf 'scene_first=%s\nhelper_start=%s\nhelper_start_content=%s\\n\nhelper_start_scope=resident_or_skip_only\n' "$SCENE_FIRST" "$RUN/native-helper-start" "$SESSION"
   printf 'BB_FPS=uncap\nBB_FPS_LIMIT=90\njitter=1\nrender=1280x720\noutput=1920x1080\n'
   printf 'async_pre_sr_renderer_NR_wait_ms=0\ndiagnostic_once=%s\nphase=UNVERIFIED\nruntime=NOT_RUN_AT_BUILD\n' "$DIAG"
+  printf 'async_pre_sr_diagnostic_once=%s\nasync_pre_sr_once_dir=%s/native-async-pre-sr-once\nonce_pixel_bytes=14745600\nonce_guard_bytes=4\nonce_performance_excluded=1\n' "$ONCE" "$RUN"
   printf 'edit_diagnostic_once=%s\nedit_diagnostic_performance_excluded=1\n' "$EDIT_DIAG"
   env | sort | sed -n '/^BB_NR_NATIVE_/p'
 } > "$RUN/native-launch.env"

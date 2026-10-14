@@ -61,3 +61,28 @@ Initial source-only BUILD_ONLY100653/history/4artifact rollback remains archived
 connected candidate CPU/build is not GPU pixel/phase/quality/performance acceptance.
 User fdd dynamic flicker FAIL remains unexplained; this candidate changes no strength,
 age/tolerance/caps to hide it. Root alone approves/executes a new bounded GPU stage.
+
+
+Cold720 once increment: Root sole ef268dce Native-only delta, flag
+BB_NR_NATIVE_ASYNC_PRE_SR_DIAGNOSTIC_ONCE exact0|1/default0/resident-only. Old1080
+DIAGNOSTIC/EDIT flags stay0 and launcher rejects1. After actual successful DLSS SR
+recording, bind same current retained raw97 and the exact private97 passed to SR;
+copy each1280x720/7372800B plus actual4B GPU guard, no109/origin substitution.
+RUN/native-async-pre-sr-once/{original-current720.rgba16f,actual-sr-input720.rgba16f,
+readback.json}. Actual source/immutable job/complete<=4 lineage/eight actual jitter
+scalars/reset/CI/image handles/native scheduler+timeline/copy+SRread+merge proofs
+are recorded. Guard nonzero means GPU wholeframe raw fallback, not edited pixels.
+Copy recorded after SR commands; separate actual merge callback; retained source,
+return/descriptors and staging held through actual GPU ends. Managed cold writer
+hashes original mapped bytes with SHA256, writes only once, joins before staging
+retirement/normal exit. Unknown proof remains held, failure never retries another
+source. No hot allocations/readbacks or additional Flush/model wait; writer-only
+10ms readiness polls, diagnostics excluded performance. Present is an independent
+Root join to existing unique nonreuse session/source/job/merge ledger. Writer
+metadata is not Present/quality proof. Same-source SR-only1080 A/B NOT_AVAILABLE;
+pixels/phase/quality/runtime remain NOT_AUDITED/UNVERIFIED/NOT_RUN until Root GPU.
+Initial 104421/37bc025 core144/4 rollback and full first compile failure retained.
+
+Cold writer joins/staging retires BEFORE stop teardown publishes native quiescence,
+so peer final FD inventory cannot race diagnostic file writes. Initial111323 full
+build PASS is retained; final pre-freeze review added only this stop teardown guard.

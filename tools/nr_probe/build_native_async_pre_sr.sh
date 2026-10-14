@@ -21,6 +21,7 @@ INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_pre_sr_spawn_log.h tools/
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_async_play.h gpu/shadps4/video_core/renderer_vulkan/native_origin_play_wire.h gpu/shadps4/video_core/renderer_vulkan/native_origin_play_spec.h tools/nr_probe/run_game_native_async_play.sh tools/nr_probe/build_native_async_play.sh tools/nr_probe/test_native_async_play_cpu.cpp docs/NATIVE-ASYNC-CONTINUOUS-PLAY.md)
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_policy.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr.cpp tools/nr_probe/test_native_async_pre_sr_cpu.cpp tools/nr_probe/build_native_async_pre_sr.sh tools/nr_probe/run_game_native_async_pre_sr.sh docs/NATIVE-ASYNC-PRE-SR.md)
 INPUTS+=(gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_spec.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_wire.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_frontend.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_origin_gpu.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_origin_gpu.cpp gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_origin_owner.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_origin_owner.cpp gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_sky.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_sky.cpp gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_return.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_return.cpp gpu/shadps4/video_core/host_shaders/native_async_pre_sr_return.comp)
+INPUTS+=(tools/nr_probe/test_native_async_pre_sr_resource_cpu.cpp gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_diagnostic_policy.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_diagnostic.h gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_diagnostic.cpp)
 while IFS= read -r -d '' f;do [[ ! -f "$WT/$f" ]]||INPUTS+=("$f");done < <(git -C "$WT" diff --name-only -z HEAD)
 mapfile -t INPUTS < <(printf '%s\n' "${INPUTS[@]}"|sort -u)
 manifest(){ : > "$1";for f in "${INPUTS[@]}";do sha256sum "$WT/$f" >> "$1";done;}
@@ -66,6 +67,11 @@ if [[ $cpu -eq 0 ]];then
  c++ -std=c++20 -Wall -Wextra -Werror -I"$WT/gpu/shadps4" -I"$WT/gpu/shadps4/externals/nlohmann" "$WT/tools/nr_probe/test_native_async_pre_sr_cpu.cpp" -o "$RUN/test-native-async-pre-sr" > "$RUN/pre-sr-source-cpu-build.log" 2>&1
  cpu=$?
  if [[ $cpu -eq 0 ]];then "$RUN/test-native-async-pre-sr" > "$RUN/pre-sr-source-cpu-tests.json" 2>&1;cpu=$?;fi
+fi
+if [[ $cpu -eq 0 ]];then
+ c++ -std=c++20 -Wall -Wextra -Werror -I"$WT/gpu/shadps4" -I"$WT/gpu/shadps4/externals/nlohmann" "$WT/tools/nr_probe/test_native_async_pre_sr_resource_cpu.cpp" -o "$RUN/test-native-async-pre-sr-resource" > "$RUN/pre-sr-resource-build.log" 2>&1
+ cpu=$?
+ if [[ $cpu -eq 0 ]];then "$RUN/test-native-async-pre-sr-resource" > "$RUN/pre-sr-resource-tests.json" 2>&1;cpu=$?;fi
 fi
 rc=$cpu
 if [[ $rc -eq 0 ]];then bash "$WT/tools/nr_probe/build_c0.sh" > "$RUN/build.log" 2>&1;rc=$?;fi
