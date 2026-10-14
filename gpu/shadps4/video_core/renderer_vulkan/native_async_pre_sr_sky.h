@@ -22,6 +22,8 @@ public:
  vk::ImageView FinalizeMaskedCurrent(Scheduler&,unsigned,vk::ImageView selected,const BbNativeAsync::Frame& origin,const BbNativeAsync::Frame& current);
  bool CurrentWholeEligible()const noexcept{return current_whole;}
  bool CurrentContextWritten()const noexcept{return current_context;}
+ // Exact renderer-recorded preparation identity, never GPU completion proof.
+ bool MasksPreparedFor(uint64_t source)const noexcept{return Masked()&&source&&prepared_source==source;}
  // Read-only exact-current handles, valid only for recording cold copies in the
  // same renderer command stream. Not GPU-ready/valid proof or a reusable lease.
  struct ColdCurrent {

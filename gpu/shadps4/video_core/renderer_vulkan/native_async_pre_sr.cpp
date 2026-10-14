@@ -296,7 +296,7 @@ void NativeAsyncPreSr::DrainUnavailable(Scheduler& s) {
 }
 void NativeAsyncPreSr::MergeRecorded(Scheduler& scheduler,uint64_t source) {
  if(fixed_input&&actual_fixed_input&&source==actual_source){TrackUse(scheduler);fixed_input->MergeRecorded(scheduler,source);}
- if(retained&&BbNativePreSrSkyPolicy::Enabled())TrackMasks(scheduler);
+ if(retained&&BbNativePreSrSkyPolicy::Enabled()&&retained->sky->MasksPreparedFor(source)&&retained->returns->MasksPreparedFor(source))TrackMasks(scheduler);
  if(!retained||chain.LastSource()!=source)return;
  TrackUse(scheduler);
  const auto tick=scheduler.CurrentTick();auto hold=retained;
@@ -419,7 +419,9 @@ void NativeAsyncPreSr::SrReadRecorded(Scheduler& scheduler,uint64_t source,vk::I
  if(!Enabled()||source!=actual_source)return;
  prior_fixed_input=actual_fixed_input;
  if(!actual_supported)return;
- if(retained&&BbNativePreSrSkyPolicy::Enabled()){retained->sky->ActualSrResult(source,success,scheduler);TrackMasks(scheduler);}
+ // Preserve real prepared uses even if stop/reject arrived later in THIS frame.
+ // Do not extend lastuse on future raw SR frames that recorded no mask access.
+ if(retained&&BbNativePreSrSkyPolicy::Enabled()&&retained->sky->MasksPreparedFor(source)&&retained->returns->MasksPreparedFor(source)){retained->sky->ActualSrResult(source,success,scheduler);TrackMasks(scheduler);}
  if(fixed_input&&actual_fixed_input&&image==fixed_input->Image()){TrackUse(scheduler);fixed_input->SrReadRecorded(scheduler,source,image);}
  if(retained&&chain.LastSource()==source){
   TrackUse(scheduler);const auto tick=scheduler.CurrentTick();const auto leases=retained->leases;auto hold=retained;

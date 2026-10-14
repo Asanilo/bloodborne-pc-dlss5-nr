@@ -14,6 +14,9 @@ public:
  struct MaskUse {std::atomic<uint64_t> observed{0};uint64_t last_use=0;bool unknown=false;};
  bool BeginMaskCurrent(Scheduler&,uint64_t actual_source);
  bool MaskEnabled()const noexcept{return BbNativePreSrSkyPolicy::Enabled();}
+ // BeginMaskCurrent actually recorded its clear for this source. A stop flag
+ // cannot erase that use; an unrelated later raw source must not invent a use.
+ bool MasksPreparedFor(uint64_t source)const noexcept{return MaskEnabled()&&masks_initialized&&source&&mask_source==source;}
  vk::Buffer PreviousMask()const noexcept{return masks[1-next_mask]->Handle();}
  vk::Buffer NextMask()const noexcept{return masks[next_mask]->Handle();}
  unsigned NextMaskIndex()const noexcept{return next_mask;}
