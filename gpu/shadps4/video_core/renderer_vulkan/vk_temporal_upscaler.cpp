@@ -1,3 +1,4 @@
+#include "nr_runtime_capture.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_overlay.h"
 #include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
@@ -2008,9 +2009,10 @@ void TemporalUpscaler::Run() {
             native_async_pre_sr.MergeRecorded(scheduler,source_game_frame);
             std::scoped_lock lock{c1_audit_mutex};
             if(native_async_pre_sr_pending_audit)throw std::runtime_error("Async preSR cannot overwrite current-source ledger");
+            auto output_capture=native_async_pre_sr.RuntimeCaptureFrame(source_game_frame);if(output_capture&&!output_capture->seq)output_capture.reset();
             native_async_pre_sr_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC_PRE_SR",.mode=native_async_pre_sr.EffectSelected()?"cache720-current-SR1080":"raw720-original-SR1080",
                 .session=native_async_pre_sr.Session(),.execution_mode="hot",.selected_output=native_async_pre_sr.EffectSelected(),.audit_full=false,.nr_frame=native_async_pre_sr.EffectJob(),
-                .source_game_frame=source_game_frame,.merge_tick=scheduler.CurrentTick()};
+                .source_game_frame=source_game_frame,.merge_tick=scheduler.CurrentTick(),.runtime_capture=output_capture};
         }
         if(native_async_current) {
             if(native_sky_selected) native_async_snapshot.MergeRecorded(scheduler,source_game_frame);
@@ -3303,7 +3305,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             native_async_pre_sr.PrepareCurrentMasks(scheduler,pre_source,supported);
             bool pre_source_recorded=false;
             const auto pre_projection=camera_motion.TaaDepthParameters();
-            if(supported&&camera_motion.Ready()&&!BbOverlay::MenuOpen()) {
+            if(supported&&camera_motion.Ready()&&(!BbOverlay::MenuOpen()||NativePersistentHistory::Enabled())) {
                 const auto cc=scene_targets.CaptureCreateInfo(color.image);
                 const auto dc=scene_targets.CaptureCreateInfo(depth.image);
                 try {if(cc&&dc&&native_async_pre_sr.Armed())pre_source_recorded=native_async_pre_sr.TryCaptureOrigin(instance,scheduler,
@@ -3316,7 +3318,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             }
             if(pre_source_recorded&&!BbNativeAsyncPreSrPlay::Enabled())std::printf("NATIVE_ASYNC_PRE_SR_DEPTH_SOURCE source=%llu projection_current=%.9g,%.9g,%.9g,%.9g projection_previous=%.9g,%.9g,%.9g,%.9g DepthInverted_candidate=0 convention_proof=UNVERIFIED format130_not_proof=1\n",(unsigned long long)pre_source,pre_projection[0][0],pre_projection[0][1],pre_projection[0][2],pre_projection[0][3],pre_projection[1][0],pre_projection[1][1],pre_projection[1][2],pre_projection[1][3]);
             vk::ImageView edited{};
-            if(supported&&camera_motion.Ready()&&native_async_pre_sr.Armed()&&!BbOverlay::MenuOpen()){
+            if(supported&&camera_motion.Ready()&&native_async_pre_sr.Armed()&&(!BbOverlay::MenuOpen()||NativePersistentHistory::Enabled())){
                 if(pre_source_recorded||native_async_pre_sr.PersistentPrepared(pre_source))try{edited=native_async_pre_sr.RecordAdvanceAndApply(scheduler,pre_source);}
                 catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_CACHE_HOLD raw_SR=1 reason=%s\n",e.what());}
             }
@@ -3359,6 +3361,8 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         });
         if (sr_timing_slot) p0_sr_timing->End(cmdbuf,scheduler,*sr_timing_slot,sr_timing_source,ok);
         native_async_pre_sr.SrReadRecorded(scheduler,pre_source,sr_color.image,ok,pre_domain_changed,reset);
+        if(ok)if(auto capture=native_async_pre_sr.RuntimeCaptureFrame(pre_source);capture&&capture->seq)
+            RecordRuntimeOutput(instance,scheduler,vk::Image(output_image),vk::Format::eR16G16B16A16Sfloat,ow,oh,*capture,"SR1080");
     }
     if (ok) {
         const u64 source_frame = BbStats::gpu_frames.load(std::memory_order_relaxed);

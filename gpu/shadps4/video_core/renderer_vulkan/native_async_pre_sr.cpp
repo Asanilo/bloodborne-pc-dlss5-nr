@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_async_pre_sr.h"
+#include "nr_runtime_capture.h"
 #include "native_async_pre_sr_policy.h"
 #include "native_async_pre_sr_origin_owner.h"
 #include "vk_instance.h"
@@ -80,7 +81,7 @@ void NativeAsyncPreSr::PollPeer(Scheduler& scheduler,bool supported){
  if(peer->State()==Phase::Ready)peer_ready_observed=true;
  if(BbNativeAsync::ExitRequested())peer->RequestStop(2);
  if(!supported&&retained){peer->RequestStop(3);if(BbNativeAsyncPreSrPlay::Enabled())stopping=true;}
- if(peer->State()==Phase::Failed){Quarantine();return;}
+ if(peer->State()==Phase::Failed){Quarantine();PublishRuntimeStatus();return;}
  auto job=peer->TryJob();
  if(peer->State()==Phase::Finalized&&job){
   if(FinalizeSparseLease(job->id,job->final,job->consumed_published.load(std::memory_order_acquire)))
@@ -96,7 +97,7 @@ void NativeAsyncPreSr::PollReady(const Instance& instance,Scheduler& scheduler,b
  if(!Enabled())return;
  if(retained&&retained->persistent)retained->persistent->ObserveCompletion(scheduler);
  if(once_diagnostic)once_diagnostic->RetireFinished();
- const bool once_retired=!once_diagnostic||once_diagnostic->SafeRetired();
+ const bool once_retired=(!once_diagnostic||once_diagnostic->SafeRetired())&&RuntimeOutputAllReady();
  if(!frontend){frontend=std::make_unique<BbNativeAsyncPreSr::Frontend>();std::printf("NATIVE_ASYNC_PRE_SR_FRONTEND_READY session=%s scene_arm=REQUIRED availability_only=1 no_GPU_proof=1\n",Session().c_str());}
  if(BbNativeAsync::SceneFirst::Active()&&BbNativeAsync::ExitRequested()&&!peer){
   stopping=true;if(frontend)frontend->RequestStop();
@@ -164,7 +165,7 @@ std::optional<BbNativeAsync::Frame> NativeAsyncPreSr::RecordedOrigin(const Sched
  return f;
 }
 vk::ImageView NativeAsyncPreSr::RecordAdvanceAndApply(Scheduler& scheduler,uint64_t current_source) {
- if(stopping||rejected||!retained)return {};
+ if(stopping||rejected||runtime_model_pending||!retained)return {};
  if(retained->persistent)return RecordPersistentAdvanceAndApply(scheduler,current_source);
  if(!chain.Size())return {};
  const auto& origin=chain.Origin();
@@ -265,7 +266,8 @@ vk::ImageView NativeAsyncPreSr::RecordPersistentAdvanceAndApply(Scheduler& sched
    auto final=TryRecordSparseComplete(scheduler,job->resources,job->complete,source,job->final);
    if(final.disposition!=SparseDisposition::Unavailable){
     TrackUse(scheduler);peer->FinalRecorded(job,final.disposition);
-    if(final.disposition==SparseDisposition::Captured)effect_job=unsigned(job->id.job);
+    if(final.disposition==SparseDisposition::Captured){effect_job=unsigned(job->id.job);const auto ns=uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());if(last_candidate_capture_ns){runtime_status.model_refresh_available=true;runtime_status.model_refresh_ms=double(ns-last_candidate_capture_ns)/1e6;runtime_status.model_refresh_source=source;}last_candidate_capture_ns=ns;}
+    runtime_status.last_job=job->id.job;runtime_status.candidate_origin=job->id.origin_source;runtime_status.candidate_age=source>=job->id.origin_source?source-job->id.origin_source:0;runtime_status.candidate_admitted=final.disposition==SparseDisposition::Captured;runtime_status.candidate_obsolete=final.disposition==SparseDisposition::ObsoleteDiscard;
    }
   }
   if(peer->State()==NativeAsyncPreSrOriginOwner::Phase::Ready){
@@ -277,7 +279,8 @@ vk::ImageView NativeAsyncPreSr::RecordPersistentAdvanceAndApply(Scheduler& sched
  }
  if(!visual.PreparedFor(source))return {};
  const auto view=visual.Apply(scheduler);
- returned_image=visual.Image();effect_selected=bool(view)&&visual.HasHistory();
+ returned_image=visual.Image();const auto applied=visual.AppliedControls();effect_selected=bool(view)&&visual.HasHistory()&&!applied.config.display_bypass&&applied.config.display_strength>0;
+ PublishRuntimeStatus();
  TrackUse(scheduler);
  // Selection is only a host potential: validity, contribution age and fallback
  // are per pixel on GPU. This log never claims actual changed-pixel coverage.
@@ -390,9 +393,71 @@ void NativeAsyncPreSr::Shutdown(Scheduler& scheduler) {
   });
  }
 }
+void NativeAsyncPreSr::PublishRuntimeStatus(){
+ runtime_status.current_source=actual_source;
+ runtime_status.requested_revision=runtime_request.revision;
+ if(rejected){runtime_status.model_restart_required=true;runtime_status.status=BbNR::Status::Held;runtime_status.reason="GPU/peer safety state unknown";}
+ else if(runtime_model_pending){runtime_status.status=BbNR::Status::Pending;runtime_status.reason="Draining actual GPU leases / rebuilding Helper Feature";}
+ if(retained&&retained->persistent){
+  auto& v=*retained->persistent;const auto applied=v.AppliedControls();
+  const auto model_style=runtime_status.actual_config.model_style;const auto model_intensity=runtime_status.actual_config.model_intensity;
+  runtime_status.actual_config=applied.config;runtime_status.actual_config.model_style=model_style;runtime_status.actual_config.model_intensity=model_intensity;
+  runtime_status.reset_applied_seq=applied.reset_seq;
+  const auto sample=v.LatestRuntimeSample();runtime_status.gpu_sample_available=sample.available;runtime_status.gpu_timing_available=sample.timing_available;
+  runtime_status.history_pass_ms=sample.pass_ms;runtime_status.gpu_timing_source=sample.source;runtime_status.gpu_timing_revision=sample.revision;runtime_status.gpu_timing_monotonic_ns=sample.monotonic_ns;
+  if(sample.available){runtime_status.gpu_sample_source=sample.source;runtime_status.gpu_sample_revision=sample.revision;runtime_status.changed_fraction=sample.changed_fraction;runtime_status.gpu_sample_monotonic_ns=sample.monotonic_ns;runtime_status.history_valid_rate=sample.valid_fraction;runtime_status.actual_age_frames=sample.mean_age_frames;runtime_status.actual_age_ms=sample.mean_age_ms;}
+  const auto capture=v.Capture();runtime_status.capture_busy=capture.busy;
+  const auto outputs=ReadRuntimeOutputProgress(capture.seq);
+  const bool outputs_complete=outputs.sr_complete>=capture.recorded_frames&&outputs.present_complete>=capture.recorded_frames&&outputs.presented>=capture.recorded_frames;
+  runtime_status.capture_busy|=capture.complete&&!outputs_complete&&!outputs.failed;
+  if(capture.complete&&outputs_complete)runtime_status.capture_applied_seq=capture.seq;
+  if((capture.failed||outputs.failed)&&!rejected){runtime_status.status=BbNR::Status::Failed;runtime_status.reason="Cold capture failed; original evidence preserved";}
+  if(!rejected&&!runtime_model_pending&&!capture.failed&&!outputs.failed){
+   runtime_status.status=applied.revision==runtime_request.revision?BbNR::Status::Applied:BbNR::Status::Pending;
+   runtime_status.reason=runtime_status.status==BbNR::Status::Applied?"Frame controls applied; model changes require explicit Apply":"Waiting for a reusable current-frame slot";
+  }
+  runtime_status.applied_revision=applied.revision;
+ }
+ if(!rejected&&runtime_request.model_apply_seq>runtime_status.model_applied_version&&peer&&!peer->RuntimeModelEnabled()){runtime_status.status=BbNR::Status::Failed;runtime_status.model_restart_required=true;runtime_status.reason="Model rebuild unavailable in this session; use the runtime-model Helper entry";}
+ BbNR::PublishSnapshot(runtime_status);
+}
+bool NativeAsyncPreSr::ApplyRuntimeControls(Scheduler& scheduler){
+ runtime_request=BbNR::ReadRequest();
+ if(peer)if(auto ack=peer->TryConsumeModelAck()){
+  runtime_model_params=ack->params;runtime_status.model_applied_version=ack->revision;
+  runtime_status.actual_config.model_style=ack->settings.style;runtime_status.actual_config.model_intensity=ack->settings.intensity;
+  if(retained&&retained->persistent)retained->persistent->Reset();
+  chain.Restart(true);recorded_origin.reset();
+  if(retained){for(auto& x:retained->records)x.reset();for(auto& x:retained->leases)x.reset();retained->sky->Restart();}
+  std::printf("NR_RUNTIME_MODEL_COMMITTED source=%llu revision=%llu params=%llu generation=%llu style=%u intensity=%.9g\n",(unsigned long long)actual_source,(unsigned long long)ack->revision,(unsigned long long)ack->params,(unsigned long long)ack->generation,ack->settings.style,ack->settings.intensity);
+ }
+ runtime_model_pending=runtime_request.model_apply_seq>runtime_status.model_applied_version;
+ if(runtime_model_pending){
+  if(!peer||!peer->RuntimeModelEnabled()){
+   runtime_status.status=BbNR::Status::Failed;runtime_status.reason="This session has no runtime-model Helper; settings were not applied";
+   // No resource mutation and no optimistic acknowledgment on unsupported backend.
+   runtime_model_pending=false;BbNR::PublishSnapshot(runtime_status);return true;
+  }
+  const auto target=maximum_native_use_tick;
+  if(peer->State()==NativeAsyncPreSrOriginOwner::Phase::Ready&&!pending_sparse&&(!target||(target<scheduler.CurrentTick()&&scheduler.IsFree(target)))){
+   const auto observed=scheduler.GetWorkSemaphore()->KnownGpuTick();
+   if(retained){for(const auto& l:retained->leases)if(l)l->CompleteNative(observed);if(retained->persistent)retained->persistent->ObserveCompletion(scheduler);}
+   if((!retained||retained->AllUsesReady())&&(!fixed_input||fixed_input->Ready())){
+    NativeRuntimeModel::Commit commit{.revision=runtime_request.model_apply_seq,.previous_generation=peer->ModelGeneration(),.generation=peer->ModelGeneration()+1,.previous_params=runtime_model_params,.params=runtime_model_params+1,
+     .settings={runtime_request.model_config.model_style,runtime_request.model_config.model_intensity},.finalized_jobs=peer->FinalizedJobs(),.native_target_tick=target,.native_observed_tick=observed,.packet_leases=0,.shared_job_finalized=true,.native_GPU_complete=true};
+    peer->TryRebuildModel(commit);
+   }
+  }
+  PublishRuntimeStatus();return false; // freeze all new reads until the exact model ACK
+ }
+ return true;
+}
 bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& scheduler,
  const std::array<vk::Image,3>& source,const std::array<vk::ImageCreateInfo,3>& ci,BbNativeAsync::Frame meta) {
- if(!Enabled()||!Armed()||source_count>=BbNativeAsyncPreSrPlay::SourceLimit()||stopping||rejected||!BbNativeAsync::Finite(meta))return false;
+ if(!Enabled()||!Armed())return false;
+ if(NativePersistentHistory::Enabled()&&!ApplyRuntimeControls(scheduler))return false;
+ meta.params=runtime_model_params;
+ if(source_count>=BbNativeAsyncPreSrPlay::SourceLimit()||stopping||rejected||!BbNativeAsync::Finite(meta))return false;
  // DEPTH-only GENERAL barriers on format130 require the actually enabled feature.
  if(!instance.IsSeparateDepthStencilLayoutsEnabled())return false;
  for(unsigned i=0;i<3;++i){const auto& c=ci[i];
@@ -402,6 +467,7 @@ bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& sche
  }
  if(!retained)Create(instance);
  if(retained->persistent){
+  retained->persistent->SetControls(runtime_request);
   const auto visual=visual_timeline.Observe(meta);
   if(retained->persistent->BeginCurrent(scheduler,source,visual,actual_source_dt))TrackUse(scheduler);
  }
@@ -542,6 +608,7 @@ std::optional<vk::ImageCreateInfo> NativeAsyncPreSr::ReturnInfo(uint64_t source,
  return {};
 }
 vk::ImageView NativeAsyncPreSr::RecordFixedInput(const Instance& i,Scheduler& s,uint64_t source,vk::Image input,const vk::ImageCreateInfo& ci){
+ if(runtime_model_pending)return {};
  if(!Enabled()||!Armed()||!actual_supported||source!=actual_source||!peer||stopping||rejected||BbNativeAsyncPreSrSrPolicy::InputMode()!=BbNativeAsyncPreSrSrPolicy::Input::Fixed)return {};
  if(!fixed_input){fixed_input=std::make_shared<NativeAsyncPreSrFixedInput>(i,peer->Quiescence());std::printf("NATIVE_PRE_SR_FIXED_CREATED session=%s format=97 width=1280 height=720 packed_bytes=7372800 native_only=1 origin_packet_or_shared_slot=0 armed=1\n",Session().c_str());}
  TrackUse(s);auto view=fixed_input->RecordCopy(s,source,input,ci);

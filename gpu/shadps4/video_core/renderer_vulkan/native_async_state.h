@@ -20,7 +20,7 @@ inline bool Finite(const Frame& f) noexcept {
   for(float v:a) if(!std::isfinite(v))return false;
  for(const auto& a:{f.current_projection,f.previous_projection,f.previous_view_z})
   for(float v:a)if(!std::isfinite(v))return false;
- return f.source!=0&&!f.source_edited&&f.params==1;
+ return f.source!=0&&!f.source_edited&&f.params!=0;
 }
 class Chain {
 public:
@@ -28,7 +28,7 @@ public:
  Decision Classify(const Frame& f)const noexcept {
   if(!Finite(f)||f.source<=last)return Decision::Reject;
   if(!used)return Decision::Origin;
-  if(f.sr_reset||f.source!=last+1)return Decision::Discontinuity;
+  if(f.sr_reset||f.source!=last+1||f.params!=nodes[0].params)return Decision::Discontinuity;
   return used==NodeCount?Decision::Full:Decision::Link;
  }
  bool Append(Frame& f) noexcept {
@@ -37,7 +37,7 @@ public:
  }
  bool CompleteTo(uint64_t origin,uint64_t current,uint64_t epoch_id,uint64_t history_id)const noexcept {
   if(!used||nodes[0].source!=origin||last!=current||nodes[0].epoch!=epoch_id||nodes[0].history!=history_id)return false;
-  for(unsigned i=1;i<used;++i)if(nodes[i].source!=nodes[i-1].source+1||nodes[i].previous!=nodes[i-1].source||nodes[i].sr_reset||nodes[i].epoch!=epoch_id||nodes[i].history!=history_id)return false;
+  for(unsigned i=1;i<used;++i)if(nodes[i].source!=nodes[i-1].source+1||nodes[i].previous!=nodes[i-1].source||nodes[i].sr_reset||nodes[i].epoch!=epoch_id||nodes[i].history!=history_id||nodes[i].params!=nodes[0].params)return false;
   return current>=origin&&current-origin<=MaxLinks;
  }
  void Restart(bool history_changed) noexcept {
@@ -70,6 +70,8 @@ void RequestExit() noexcept;
 bool ExitRequested() noexcept;
 void PublishExitComplete() noexcept;
 bool ExitComplete() noexcept;
+void PublishExitHeld() noexcept;
+bool ExitHeld() noexcept;
 void PublishAbnormalEmptyExitComplete() noexcept;
 bool ExitAbnormalEmpty() noexcept;
 } // namespace BbNativeAsync

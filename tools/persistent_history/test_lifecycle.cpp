@@ -25,5 +25,6 @@ int main(){
  auto reset=visual.Observe(Frame{.source=21,.sr_reset=true});assert(reset.history==gap.history+1);
  auto next=visual.Observe(Frame{.source=22});assert(next.history==reset.history);
  auto params=Frame{.source=23};params.params=2;assert(visual.Observe(params).history==reset.history+1);
+ Chain model_chain;Frame a{.source=1};assert(model_chain.Append(a));Frame b{.source=2,.params=2};assert(Finite(b));assert(model_chain.Classify(b)==Chain::Decision::Discontinuity);model_chain.Restart(true);assert(model_chain.Append(b));Frame c{.source=3,.params=2};assert(model_chain.Append(c));assert(model_chain.CompleteTo(2,3,b.epoch,b.history));Frame invalid{.source=4,.params=0};assert(!Finite(invalid));
  puts("PASS request rollover independent of visual generation; gaps/resets/params invalidate");
 }

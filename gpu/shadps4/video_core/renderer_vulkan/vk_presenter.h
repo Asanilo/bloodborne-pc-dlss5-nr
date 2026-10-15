@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #pragma once
+#include "native_persistent_history.h"
 
 #include <deque>
 #include <string>
@@ -33,6 +34,7 @@ struct Frame {
     u32 height;
     VmaAllocation allocation;
     vk::Image image;
+    vk::Format image_format{};
     vk::ImageView image_view;
     vk::Fence present_done;
     vk::Semaphore ready_semaphore;
@@ -51,6 +53,7 @@ struct Frame {
     bool p0_selection_known = false; // true only for this actual PrepareFrame, never a blank/replay guess
     u32 audit_nr_frame = 0;
     bool audit_full = true;
+    std::optional<NativePersistentHistory::CaptureFrame> runtime_capture;
     bool is_hdr{false};
     u8 id{};
 

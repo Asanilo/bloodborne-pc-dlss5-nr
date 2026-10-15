@@ -3,6 +3,7 @@
 #include "bbport_gnm_hooks.h"
 // bbport: glue between the C loader and the vendored shadPS4 video core.
 #include "bbport_overlay.h"
+#include "video_core/renderer_vulkan/nr_runtime_control.h"
 #include "video_core/renderer_vulkan/p0_status.h"
 #include "video_core/renderer_vulkan/native_async_state.h"
 #include "video_core/renderer_vulkan/native_async_pre_sr_policy.h"
@@ -276,6 +277,7 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
     const s32 width = config->width, height = config->height;
     g_window_thread = std::thread([title, width, height] {
         Common::SetCurrentThreadName("bb:window");
+        if(BbNativeAsyncPreSr::Enabled()){std::string error;if(!BbNR::InitializeConfig({},&error))std::fprintf(stderr,"NR_RUNTIME_CONFIG defaults_used=1 reason=%s\n",error.c_str());}
         auto* window = new Frontend::WindowSDL(width, height, title.c_str());
         {
             std::scoped_lock lock{g_window_mutex};
@@ -290,7 +292,11 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
         if(BbNativeAsync::OptIn()||BbNativeAsyncPreSr::Enabled()) {
             BbNativeAsync::RequestExit();
             const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
-            while(!BbNativeAsync::ExitComplete()&&std::chrono::steady_clock::now()<deadline)SDL_Delay(2);
+            bool slow_reported=false;
+            while(!BbNativeAsync::ExitComplete()&&!BbNativeAsync::ExitHeld()){
+                if(!slow_reported&&std::chrono::steady_clock::now()>=deadline){std::fprintf(stderr,"NATIVE_ASYNC_EXIT_PENDING actual_owner_completion=WAITING forced_free=0\n");slow_reported=true;}
+                SDL_Delay(2);
+            }
             if(!BbNativeAsync::ExitComplete()) {
                 std::fprintf(stderr,"NATIVE_ASYNC_EXIT_HELD renderer_proof=UNKNOWN process_exit_not_requested=1 no_UI_Vulkan=1 no_UI_IPC=1\n");
                 return; // no forced termination/cleanup: Root bounded owner must classify this abnormal
@@ -300,6 +306,7 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             else if(BbNativeAsyncPreSr::Enabled()) std::printf("NATIVE_ASYNC_PRE_SR_EXIT_PROOF actual_source_cache_SR_GPU_lastuse_complete=1 managed_owner_joined=1 peer_retirement=OWNER_PROOF\n");
             else std::printf("NATIVE_ASYNC_EXIT_PROOF actual_snapshot_GPU_lastuse_complete=1 managed_owner_joined=1 peer_retirement=OWNER_PROOF\n");
         }
+        if(BbNativeAsyncPreSr::Enabled())BbNR::ShutdownConfig();
         const char* p0_mode=std::getenv("BB_NR_P0_MODE");
         if(p0_mode && (std::strcmp(p0_mode,"resident")==0 || std::strcmp(p0_mode,"skipEvaluate")==0 || std::strcmp(p0_mode,"srOnly")==0)) {
             // This host/window thread performs no Vulkan, Helper IPC, resource teardown

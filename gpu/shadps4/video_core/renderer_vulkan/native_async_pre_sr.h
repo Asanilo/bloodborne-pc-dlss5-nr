@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_async_owner.h"
+#include "nr_runtime_control.h"
 #include "native_async_pre_sr_policy.h"
 #include "native_async_pre_sr_return.h"
 #include "native_async_pre_sr_fixed_input.h"
@@ -28,6 +29,7 @@ public:
  void TrackMasks(Scheduler&);
  bool Armed()const noexcept;
  bool PersistentPrepared(uint64_t source)const noexcept{return retained&&retained->persistent&&retained->persistent->PreparedFor(source);}
+ std::optional<NativePersistentHistory::CaptureFrame> RuntimeCaptureFrame(uint64_t source)const{return retained&&retained->persistent?retained->persistent->CaptureFrameForSource(source):std::nullopt;}
  bool EffectSelected()const noexcept{return effect_selected;}
  unsigned EffectJob()const noexcept{return effect_job;}
  vk::ImageView RecordAdvanceAndApply(Scheduler&,uint64_t current_source);
@@ -62,7 +64,7 @@ public:
  void Shutdown(Scheduler&);
  void RejectAssociation()noexcept{rejected=true;}
  void QuarantineRecorded(Scheduler&)noexcept;
- void Quarantine()noexcept{rejected=true;stopping=true;if(fixed_input)fixed_input->HoldUnknown();if(retained&&retained->returns)retained->returns->HoldMasksUnknown();if(retained&&retained->persistent)retained->persistent->HoldUnknown();if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
+ void Quarantine()noexcept{BbNativeAsync::PublishExitHeld();rejected=true;stopping=true;if(fixed_input)fixed_input->HoldUnknown();if(retained&&retained->returns)retained->returns->HoldMasksUnknown();if(retained&&retained->persistent)retained->persistent->HoldUnknown();if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
  std::string Session()const;
  uint64_t Epoch()const noexcept{return last_epoch;}
  uint64_t OriginSource()const noexcept{return chain.Size()?chain.Origin().source:0;}
@@ -91,6 +93,12 @@ private:
  };
  vk::ImageView RecordPersistentAdvanceAndApply(Scheduler&,uint64_t);
  void Create(const Instance&);
+ bool ApplyRuntimeControls(Scheduler&);
+ void PublishRuntimeStatus();
+ BbNR::Request runtime_request{};
+ BbNR::Snapshot runtime_status{};
+ bool runtime_model_pending=false;
+ uint64_t runtime_model_params=1,last_candidate_capture_ns=0;
  void TrackUse(Scheduler&);
  void PollPeer(Scheduler&,bool supported);
  static void HoldUnknown(std::shared_ptr<Retention>);

@@ -67,6 +67,7 @@ struct C1PresentAudit {
     u64 buffer_prepare_gpu_frame = 0;
     u64 buffer_prepare_tick = 0;
     u64 present_frame_counter_before = 0;
+    std::optional<NativePersistentHistory::CaptureFrame> runtime_capture;
 };
 
 /// bbport BB_FINAL_DUMP_TRIGGER: the frame as presented (after FSR and post processing) is saved

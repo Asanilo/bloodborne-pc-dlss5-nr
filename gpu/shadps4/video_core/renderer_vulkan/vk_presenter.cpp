@@ -14,6 +14,8 @@
 #include "video_core/renderer_vulkan/vk_platform.h"
 #include "bbport_game_menu.h"
 #include "bbport_overlay.h"
+#include "nr_runtime_control.h"
+#include "nr_runtime_capture.h"
 #include "bbport_timeline.h"
 #include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
@@ -222,6 +224,7 @@ void Presenter::RecreateFrame(Frame* frame, u32 width, u32 height) {
         UNREACHABLE();
     }
     frame->image = vk::Image{unsafe_image};
+    frame->image_format=format;
     SetObjectName(device, frame->image, "Frame image #{}", frame->id);
 
     const vk::ImageViewCreateInfo view_info = {
@@ -425,6 +428,7 @@ Frame* Presenter::PrepareFrame(const Libraries::VideoOut::BufferAttributeGroup& 
     frame->p0_selection_known = true;
     frame->audit_nr_frame = frame_audit.nr_frame;
     frame->audit_full = frame_audit.audit_full;
+    frame->runtime_capture=frame_audit.runtime_capture;
     expected_ratio = static_cast<float>(image_size.width) / static_cast<float>(image_size.height);
 
     // Vulkan has no sRGB variant of the 10-bit format, so an A2R10G10B10Srgb buffer reaches
@@ -695,6 +699,8 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     const vk::Image swapchain_image = swapchain.Image();
     auto& scheduler = present_scheduler;
     const auto cmdbuf = scheduler.CommandBuffer();
+    if(is_game_frame&&!is_reusing_frame&&frame->runtime_capture)
+        RecordRuntimeOutput(instance,scheduler,frame->image,frame->image_format,frame->width,frame->height,*frame->runtime_capture,"Present");
     DumpFinalFrameIfDue(instance, scheduler, cmdbuf, frame->image, frame->width, frame->height,
                         swapchain.GetSurfaceFormat().format);
 
@@ -824,6 +830,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         Scheduler::Q0SubmitOwnerScope q0_owner{&scheduler, 6};
         q0_owner.Stage(15);
         const bool presented = swapchain.Present();
+        if(is_game_frame&&!is_reusing_frame&&frame->runtime_capture)RuntimeCapturePresented(*frame->runtime_capture,presented);
         q0_owner.Stage(16);
         const auto c4_now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -846,6 +853,8 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         if (is_game_frame && !is_reusing_frame && std::getenv("BB_NR_C4_BASELINE"))
             std::printf("C4_SR_PRESENT mode=srOnly actual_game_frame=1 reused=0 cpu_monotonic_ns=%lld present_frame_number=%llu swapchain_present=%u helper_started=0 IPC=0\n",
                 (long long)c4_now_ns, (unsigned long long)BbStats::frame_number.load(), presented);
+        if(presented&&is_game_frame&&!is_reusing_frame&&frame->audit_stage=="NATIVE_ASYNC_PRE_SR"&&frame->c1_source_game_frame)
+            BbNR::NotifyPresent(frame->c1_source_game_frame,frame->c1_present_frame_number,c4_now_ns);
         if(is_game_frame&&!is_reusing_frame&&frame->audit_stage=="NATIVE_ASYNC_PRE_SR"&&frame->c1_source_game_frame)
             std::printf("NATIVE_ASYNC_PRE_SR_CURRENT_PRESENT session=%s source_game_frame=%llu present_frame_number=%llu merge_tick=%llu prepare_tick=%llu ready_tick=%llu swapchain_present=%u cpu_monotonic_ns=%lld raw_or_cache720_SR1080=1 cache_selected=%u job=%u current_NR_inference_claim=0 pixel_change=NOT_MEASURED_HOT\n",frame->audit_session.c_str(),(unsigned long long)frame->c1_source_game_frame,(unsigned long long)frame->c1_present_frame_number,(unsigned long long)frame->c1_merge_tick,(unsigned long long)frame->c1_guest_prepare_tick,(unsigned long long)frame->ready_tick,presented,(long long)c4_now_ns,frame->audit_selected_output,frame->audit_nr_frame);
         if(is_game_frame&&!is_reusing_frame&&frame->audit_stage=="NATIVE_ASYNC"&&frame->c1_source_game_frame)
