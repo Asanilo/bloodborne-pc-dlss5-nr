@@ -61,6 +61,54 @@ def checked_run(session):
  run=ROOT/'runs'/session
  if run.resolve()!=run or run.is_symlink():raise ValueError('private real run path required')
  return run
+def checked_runtime_helper(path,expected_build_sha=None):
+ helper=Path(path).resolve()
+ if not helper.is_relative_to(ROOT/'build/helper-runtime-model') or helper.name!='wine_runtime_model.exe':raise ValueError('isolated runtime model artifact required')
+ manifest_path=helper.parent/'build.json';digest=sha(manifest_path)
+ if expected_build_sha and digest!=expected_build_sha:raise ValueError('runtime Helper build manifest SHA drift')
+ manifest=json.loads(manifest_path.read_text())
+ if manifest.get('status')!='BUILD_ONLY_PASS' or manifest.get('artifact_sha256')!=sha(helper) or Path(manifest.get('artifact','')).resolve()!=helper:raise ValueError('runtime Helper build/artifact identity drift')
+ return helper,{'path':str(manifest_path),'sha256':digest,'artifact_sha256':sha(helper)}
+
+def save_inventory(root):
+ if root.is_symlink() or root.resolve()!=root or not root.is_dir():raise ValueError('private real savedata directory required')
+ inventory={}
+ for p in sorted(root.rglob('*')):
+  if p.is_symlink() or p.resolve()!=p or not(p.is_dir() or p.is_file()):raise ValueError('save symlink or special file refused')
+  if p.is_file():inventory[str(p.relative_to(root))]={'bytes':p.stat().st_size,'sha256':sha(p)}
+ if not inventory:raise ValueError('empty private continuation savedata')
+ return inventory
+
+def continuation_source(session):
+ source=checked_run(session);manifest=json.loads((source/'manifest.json').read_text());result=json.loads((source/'result.json').read_text())
+ if manifest.get('schema')!='nr-dev-session-v1' or manifest.get('session')!=session:raise ValueError('only a named new dev session can be continued')
+ if result.get('status')!='PASS_NORMAL_TEARDOWN' or result.get('returncode')!=0 or result.get('supervisor_interrupted',False) or result.get('watchdog_expired') is not False or result.get('residuals')!=[]:raise ValueError('continuation requires unambiguous normal retired session, not HOLD/resolution')
+ environment=manifest.get('environment',{})
+ if environment.get('BB_USER_DIR')!=str(source/'profile/user') or environment.get('BB_DATA_DIR')!=str(source/'profile'):raise ValueError('source must use this new session private save/profile paths')
+ from retirement import audit_session
+ proof=audit_session(source)
+ saves=source/'profile/user/savedata';inventory=save_inventory(saves);config=source/'profile/nrbridge.json'
+ if config.is_symlink() or (config.exists() and (config.resolve()!=config or not config.is_file() or config.stat().st_size>65536)):raise ValueError('private regular bounded NR config required')
+ return source,{'session':session,'source_result_sha256':sha(source/'result.json'),'source_manifest_sha256':sha(source/'manifest.json'),'retirement':proof['retirement'],'files':inventory,'nrbridge_json_sha256':sha(config) if config.exists() else None}
+
+def copy_continuation(session,profile):
+ source,proof=continuation_source(session);shutil.copytree(source/'profile/user/savedata',profile/'user/savedata')
+ if save_inventory(profile/'user/savedata')!=proof['files'] or save_inventory(source/'profile/user/savedata')!=proof['files']:raise ValueError('private save changed during continuation copy')
+ if proof['nrbridge_json_sha256']:
+  with (profile/'nrbridge.json').open('xb') as out:out.write((source/'profile/nrbridge.json').read_bytes())
+  if sha(profile/'nrbridge.json')!=proof['nrbridge_json_sha256']:raise ValueError('NR config continuation SHA mismatch')
+ return proof
+
+class SessionSchedule:
+ """Planned end requests ordinary close; only independent grace/watchdog expiry is HOLD."""
+ def __init__(self,start,seconds,watchdog_seconds,close_grace):
+  if not 1<=seconds<watchdog_seconds<=600 or not 1<=close_grace<=600:raise ValueError('require 1 <= planned seconds < watchdog <=600 and positive close grace')
+  self.planned=start+seconds;self.watchdog=start+watchdog_seconds;self.grace=close_grace;self.close_started=None
+ def close_due(self,now):return now>=self.planned
+ def note_close(self,now):
+  if self.close_started is None:self.close_started=now
+ def expired(self,now):return now>=min(self.watchdog,self.close_started+self.grace if self.close_started is not None else self.watchdog)
+
 def btrfs_fsid(path):
  # Linux BTRFS_IOC_FS_INFO = _IOR(0x94, 31, struct btrfs_ioctl_fs_info_args[1024]).
  fd=os.open(path,os.O_RDONLY)
@@ -238,11 +286,9 @@ def launch(args):
 
 def launch_supervised(args,signals):
  run=checked_run(args.session);build=ROOT/'build/native';assets=OLD/'playtest/assets/CUSA03173';seed=OLD/'integration/private-NRTest-seed';helper=ROOT/'build/helper/wine_async_presr_play.exe'
- if args.runtime_model_helper:
-  helper=Path(args.runtime_model_helper).resolve()
-  if not helper.is_relative_to(ROOT/'build/helper-runtime-model') or helper.name!='wine_runtime_model.exe':raise ValueError('isolated runtime model artifact required')
-  build_manifest=json.loads((helper.parent/'build.json').read_text())
-  if build_manifest['artifact_sha256']!=sha(helper):raise ValueError('runtime Helper build identity drift')
+ helper_build=None
+ if args.runtime_model_helper:helper,helper_build=checked_runtime_helper(args.runtime_model_helper,args.runtime_model_build_sha256)
+ if args.continue_session==args.session:raise ValueError('continuation must create a new session')
  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight()
   ngx=list(build.glob('libnvidia-ngx-dlss.so.*'))
@@ -250,10 +296,13 @@ def launch_supervised(args,signals):
   native_artifacts=[build/'bb-probe',build/'gpu/libbbgpu.so',build/'libbbport_dlss.so',ngx[0]]
   for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
-  run.mkdir(mode=0o700);signals.run=run;profile=run/'profile';profile.mkdir();shutil.copytree(seed/'savedata',profile/'user/savedata')
-  for item in json.loads((seed/'manifest.json').read_text())['files']:
-   p=profile/'user/savedata'/item['relative']
-   if p.is_symlink() or sha(p)!=item['sha256']:raise ValueError('private seed SHA mismatch')
+  run.mkdir(mode=0o700);signals.run=run;profile=run/'profile';profile.mkdir();continuation=None
+  if args.continue_session:continuation=copy_continuation(args.continue_session,profile)
+  else:
+   shutil.copytree(seed/'savedata',profile/'user/savedata')
+   for item in json.loads((seed/'manifest.json').read_text())['files']:
+    p=profile/'user/savedata'/item['relative']
+    if p.is_symlink() or sha(p)!=item['sha256']:raise ValueError('private seed SHA mismatch')
   for name in ('logs','wine-prefix','cache','config','data','state'):(profile/name).mkdir()
   (profile/'bbport.ini').write_text('upscaler=dlss\npreset=1\noutput_res=1920x1080\njitter=1\nobject_motion=1\nsharpen=0\nshow_fps=1\n');(run/'pad.txt').write_text('')
   base_keys={'PATH','HOME','USER','LOGNAME','SHELL','LANG','LANGUAGE','LC_ALL','LC_CTYPE','TZ','TERM','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','XDG_RUNTIME_DIR','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS','PULSE_SERVER','PIPEWIRE_REMOTE','SDL_AUDIODRIVER','SDL_VIDEODRIVER'}
@@ -266,11 +315,11 @@ def launch_supervised(args,signals):
    if args.sky!='persistent' or args.mode!='resident':raise ValueError('history diagnostic requires persistent resident mode')
    nr.update(BB_NATIVE_HISTORY_DIAGNOSTIC='1',BB_NATIVE_HISTORY_DIAGNOSTIC_FRAMES='3',BB_NATIVE_HISTORY_DIAGNOSTIC_AFTER_CANDIDATE=str(args.diagnostic_after))
   env.update(nr);command=['bash',str(WT/'run.sh')]
-  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'watchdog_seconds':args.seconds,'runtime_model':bool(args.runtime_model_helper)})
+  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper)})
   with (run/'game.log').open('w') as log:
    if not signals.before_spawn():return 3
    process=subprocess.Popen(command,cwd=WT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
-   atomic(run/'runner.json',{'runner':live(os.getpid()),'launcher':live(process.pid)});deadline=time.monotonic()+args.seconds;held=False;sample_at=0
+   atomic(run/'runner.json',{'runner':live(os.getpid()),'launcher':live(process.pid)});schedule=SessionSchedule(time.monotonic(),args.seconds,args.watchdog_seconds,args.close_grace);held=False;sample_at=0;planned_retry_at=0
    print(str(run),flush=True)
    while process.poll() is None:
     signals.flush()
@@ -283,7 +332,18 @@ def launch_supervised(args,signals):
       sample=sample_gpu_memory()
       with (run/'gpu-memory.jsonl').open('a') as memory:memory.write(json.dumps(sample)+'\n')
      except (OSError,subprocess.SubprocessError):pass
-    if time.monotonic()>deadline and not held:
+    now=time.monotonic()
+    if (run/'stop-request.json').exists() and schedule.close_started is None:
+     stop=json.loads((run/'stop-request.json').read_text());schedule.note_close(stop.get('monotonic_ns',time.monotonic_ns())/1e9)
+    if schedule.close_due(now) and not signals.interrupted and not signals.close_requested and now>=planned_retry_at:
+     schedule.note_close(now);planned_retry_at=now+1
+     if not (run/'planned-close.json').exists():atomic(run/'planned-close.json',{'status':'PLANNED_NORMAL_CLOSE','monotonic_ns':time.monotonic_ns(),'scope':'ordinary planned duration reached; not GPU failure or retirement proof'})
+     try:
+      if not (run/'stop-request.json').exists():control(argparse.Namespace(command='stop',session=args.session))
+      signals.close_requested=True
+     except Exception as error:
+      with (run/'planned-close-attempts.jsonl').open('a') as events:events.write(json.dumps({'monotonic_ns':time.monotonic_ns(),'error':str(error)})+'\n')
+    if schedule.expired(now) and not held:
      held=True;atomic(run/'result.json',{'status':'HOLD','reason':'watchdog expired; normal close requested; no kill or GPU completion claim'})
      if not signals.close_requested:
       signals.close_requested=True
@@ -307,9 +367,9 @@ def launch_supervised(args,signals):
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=600);p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--runtime-model-helper');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
  if a.command=='preflight':print(json.dumps(preflight(),indent=2));return 0
  if not a.session:p.error('session required')
- if not 1<=a.seconds<=600 or not 1<=a.source_limit<=216000 or not 1<=a.diagnostic_after<=1000000:p.error('finite current-stage resource budget required')
+ if not 1<=a.seconds<a.watchdog_seconds<=600 or not 1<=a.close_grace<=600 or not 1<=a.source_limit<=216000 or not 1<=a.diagnostic_after<=1000000:p.error('finite current-stage resource budget required')
  return launch(a) if a.command=='start' else control(a)
 if __name__=='__main__':raise SystemExit(main())
