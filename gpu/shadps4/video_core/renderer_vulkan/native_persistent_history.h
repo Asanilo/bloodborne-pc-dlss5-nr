@@ -28,6 +28,8 @@ public:
  bool PreparedFor(uint64_t source) const noexcept;
  void MarkUse(Scheduler&,uint64_t source);
  bool Ready() const noexcept;
+ // Explicit stop/retirement diagnostics; no wait, poll, or invented completion.
+ void ReportRetirement(const char* stage) const noexcept;
  void HoldUnknown() noexcept;
  bool HasHistory() const noexcept;
  uint64_t ImageBytes() const noexcept;

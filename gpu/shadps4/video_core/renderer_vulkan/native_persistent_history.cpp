@@ -176,9 +176,19 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
 }
 NativePersistentHistory::NativePersistentHistory(const Instance& i):impl(std::make_unique<Impl>(i)){}
 NativePersistentHistory::~NativePersistentHistory(){
+ if(!impl)return;
+ ReportRetirement("destructor");
  // A failed shutdown proof deliberately retains resources. Destruction must not
  // convert an unobserved or unknown GPU upper bound into a successful release.
- if(impl&&!Ready()){std::fprintf(stderr,"PERSISTENT_HISTORY_HOLD unknown_or_pending=1 resources_retained=1\n");(void)impl.release();}
+ if(!Ready()){
+  std::fprintf(stderr,"PERSISTENT_HISTORY_HOLD unknown_or_pending=1 resources_retained=1 destroyed=0\n");
+  (void)impl.release();return;
+ }
+ const auto bytes=ImageBytes();
+ // Print success only AFTER image views, descriptors, buffers, images, pipelines
+ // and Return are actually destroyed. Ready alone is a permission, not a release.
+ impl.reset();
+ std::printf("PERSISTENT_HISTORY_DESTROYED all_slots_complete=1 unknown=0 image_bytes=%llu destroyed=1\n",(unsigned long long)bytes);
 }
 bool NativePersistentHistory::Enabled()noexcept{const char* value=std::getenv("BB_NATIVE_PERSISTENT_HISTORY");return value&&std::strcmp(value,"1")==0;}
 bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array<vk::Image,3>& raw,const BbNativeAsync::Frame& frame,double dt){
@@ -255,6 +265,14 @@ void NativePersistentHistory::MarkUse(Scheduler& scheduler,uint64_t source){
  HoldUnknown();
 }
 bool NativePersistentHistory::Ready()const noexcept {const auto& p=*impl;if(p.unknown)return false;for(const auto& s:p.slots)if(!p.Free(s))return false;return true;}
+void NativePersistentHistory::ReportRetirement(const char* stage)const noexcept{
+ if(!impl)return;const auto& p=*impl;const char* label=stage?stage:"unspecified";
+ for(unsigned i=0;i<p.slots.size();++i){const auto& s=p.slots[i];const auto observed=s.proof->observed.load(std::memory_order_acquire);
+  std::printf("PERSISTENT_HISTORY_RETIRE stage=%s slot=%u source=%llu target_tick=%llu observed_tick=%llu unknown=%u slot_ready=%u all_ready=%u resources_destroyed=0\n",
+   label,i,(unsigned long long)s.source_id,(unsigned long long)s.proof->last,(unsigned long long)observed,
+   p.unknown||s.proof->unknown,p.Free(s),Ready());
+ }
+}
 void NativePersistentHistory::HoldUnknown()noexcept{impl->unknown=true;for(auto& s:impl->slots)s.proof->unknown=true;}
 bool NativePersistentHistory::HasHistory()const noexcept{return impl->history&&!impl->unknown;}
 void NativePersistentHistory::Reset()noexcept{impl->history=false;impl->prepared=false;impl->applied=false;}
