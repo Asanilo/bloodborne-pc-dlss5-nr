@@ -24,3 +24,16 @@ Each session has independent save copy, profile, cache, Wine prefix, generated g
 `present-metrics.json` measures actual unique nonreuse swapchain Present CPU intervals (FPS/P50/P95/P99/max); it is not pixel quality acceptance. `gpu-memory.jsonl` records PID-associated NVIDIA memory samples. Review the actual terminal wire/FD audits and player quality in addition to the runner's normal-teardown result. A runtime failure remains HOLD, not BUILD_ONLY success.
 
 `run.sh` has no `BB_OUT_DIR` knob: generated guest output is `$BB_DATA_DIR/out`, so each run builds it under its private profile. `BB_PROBE` explicitly selects `build/native/bb-probe`; its ELF rpath selects `build/native/gpu/libbbgpu.so`. The DLSS loader resolves `/proc/self/exe` to load the bridge and NGX beside that executable. The runner hashes all four native runtime products and records/checks loaded library paths on each scene/control action. `frames.csv` is a per-flip diagnostic CSV (not an authoritative nonreuse Present ledger). P95/P99 use every `NATIVE_ASYNC_PRE_SR_CURRENT_PRESENT` event, whose producer is guarded by `is_game_frame && !is_reusing_frame` and records monotonic ns; duplicates and nonmonotonic windows are rejected.
+
+Scene operation is separate from the NR model controls. The private seed has 15 files, 15,002,530 bytes, copied to `runs/SESSION/profile/user/savedata` (including `1/CUSA00207/SPRJ0005`). Source manifest identifies Iosefka Clinic; the CUSA03173 asset root and internal save title ID are intentionally those of the verified baseline. Launch adds a private backup via save_manager; it does not redirect to the formal save. Readiness must be judged on the live scene, not merely a loader line or seed existence.
+
+With the focused game window, controller Cross or keyboard Space/keypad Enter confirms menus; Enter/Escape is Options (not Cross). Continue the private Clinic save from the title menu. WASD moves, arrow keys/mouse look; Shift is Circle, E is Square, Q is Triangle; I/K/J/L are D-pad. Use explicit observation because menu count/timing can vary. The coordinator can use bounded private pad requests instead:
+
+```
+python3 native/tools/nr_dev/runner.py input dev-UNIQUE --buttons cross --hold 0.2
+python3 native/tools/nr_dev/runner.py dump dev-UNIQUE
+```
+
+`input` releases the pad in a finally block; holds are limited to five seconds and all buttons/axis ranges are validated. `dump` requests one actual completed Present into `runs/SESSION/dump`; inspect the resulting PNG and confirm a controllable Clinic character before `scene-ready`. A capture is diagnostic and should be outside the measured performance window. `BB_PRESENT_DUMP_COUNT=0` means one frame in Native's `max(1, atoi(...))`, not zero capture.
+
+After Helper startup, normal retirement additionally audits exact terminal counts/session and each input→complete→consumed immutable origin tuple, true Native/Helper completion ticks, Native zero-owned resources, Helper zero shared/export-FD ownership, targeted FD inventory, model release/shutdown and normal waitpid. The 16384 cap is the unchanged effective wire resource budget, not an inherited four-job rule. No-peer exits require the explicit current-session absent-owner/snapshot/pending-use/preparation-join proof and absence of config/arm, rather than inferring safety from zero jobs.

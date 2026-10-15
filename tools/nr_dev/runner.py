@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Isolated NR development runner. No legacy approval, ledger or launch quota imports."""
-import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time
+import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math
 from pathlib import Path
 ROOT=Path('/home/arinp/Code/nrbridge-dev');WT=ROOT/'native';OLD=Path('/home/arinp/Code/nrbridge-design/game-poc-20261011')
 GE=Path('/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64')
@@ -81,6 +81,21 @@ def current_game(run):
 
 def control(args):
  run=checked_run(args.session);game=current_game(run)
+ if args.command=='dump':
+  with (run/'present-dump-trigger').open('x') as trigger:trigger.write(args.session+'\n')
+  return
+ if args.command=='input':
+  allowed={'cross','circle','square','triangle','up','down','left','right','options','l1','r1','l2','r2','l3','r3'}
+  if not set(args.buttons)<=allowed or not math.isfinite(args.hold) or not 0<=args.hold<=5 or any(not 0<=getattr(args,k)<=255 for k in ('lx','ly','rx','ry')):raise ValueError('bounded recognized pad input required')
+  pad=run/'pad.txt'
+  if pad.is_symlink() or not pad.is_file():raise ValueError('private regular pad file required')
+  def interrupt(signum,frame):raise InterruptedError('bounded input interrupted')
+  for sig in (signal.SIGTERM,signal.SIGINT):signal.signal(sig,interrupt)
+  try:
+   pad.write_text(' '.join(args.buttons+[k+'='+str(getattr(args,k)) for k in ('lx','ly','rx','ry')]))
+   time.sleep(args.hold)
+  finally:pad.write_text('')
+  return
  if args.command=='scene-ready':atomic(run/'scene-ready.json',{'session':args.session,'game':game,'basis':'explicit coordinator/player scene observation','monotonic_ns':time.monotonic_ns()});return
  if args.command in ('start-helper','arm'):
   observed=json.loads((run/'scene-ready.json').read_text())
@@ -144,13 +159,23 @@ def launch(args):
    if (run/'async-native-launch.json').exists():
     peer=json.loads((run/'async-native-helper-exit.json').read_text()) if (run/'async-native-helper-exit.json').exists() else {}
     normal=normal and peer.get('normal_exit') is True and peer.get('wait_status')==0
+    try:
+     from retirement import audit
+     atomic(run/'retirement-audit.json',audit(run,args.session))
+    except (OSError,ValueError,KeyError,TypeError) as error:
+     normal=False;atomic(run/'retirement-audit.json',{'retirement':'NOT_PROVED','error':str(error)})
+   if not (run/'async-native-launch.json').exists():
+    nopeer=[dict(re.findall(r'(\w+)=([^\s]+)',line)) for line in text.splitlines() if line.startswith('NATIVE_ASYNC_PRE_SR_EXIT_NO_PEER ')]
+    absent=(len(nopeer)==1 and nopeer[0].get('session')==args.session and nopeer[0].get('maximum_native_use_tick')=='0' and all(nopeer[0].get(k)=='1' for k in ('actual_no_owner','actual_no_snapshot','actual_no_pending','preparation_joined','no_peer_created','no_NR_claim')))
+    normal=normal and absent and not (run/'async-config.json').exists() and not (run/'native-scene-arm').exists()
+    atomic(run/'retirement-audit.json',{'retirement':'PASS_NO_PEER_NO_SNAPSHOT_NORMAL_EXIT' if absent else 'NOT_PROVED','proof':nopeer})
    atomic(run/'result.json',{'status':'PASS_NORMAL_TEARDOWN' if normal and not held else 'HOLD','returncode':process.returncode,'native_lastuse_proof':proof,'residuals':residual,'watchdog_expired':held,'quality':'NOT_ACCEPTED','performance':'separate actual Present analysis required'})
    from metrics import measure
    atomic(run/'present-metrics.json',measure(run))
    return 0 if normal and not held else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=600);p.add_argument('--source-limit',type=int,default=36000);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=600);p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];a=p.parse_args()
  if a.command=='preflight':print(json.dumps(preflight(),indent=2));return 0
  if not a.session:p.error('session required')
  if not 1<=a.seconds<=3600 or not 1<=a.source_limit<=216000:p.error('finite current-stage resource budget required')
