@@ -66,6 +66,14 @@ void NativeAsyncPreSr::TrackUse(Scheduler& scheduler){
   auto old=q->observed_tick.load();while(old<tick&&!q->observed_tick.compare_exchange_weak(old,tick)){}
  });
 }
+void NativeAsyncPreSr::QuarantineRecorded(Scheduler& scheduler)noexcept{
+ // Freeze all reuse first. A throwing record may already have emitted commands;
+ // retain the actual upper bound even if installing a completion callback fails.
+ Quarantine();
+ const auto tick=scheduler.CurrentTick();
+ if(retained)for(const auto& lease:retained->leases)if(lease)lease->native.catchup=std::max(lease->native.catchup,tick);
+ try{TrackUse(scheduler);}catch(...){/* Unknown resources remain deliberately held. */}
+}
 void NativeAsyncPreSr::PollPeer(Scheduler& scheduler,bool supported){
  if(!peer)return;
  using Phase=NativeAsyncPreSrOriginOwner::Phase;
@@ -86,6 +94,7 @@ void NativeAsyncPreSr::PollPeer(Scheduler& scheduler,bool supported){
 }
 void NativeAsyncPreSr::PollReady(const Instance& instance,Scheduler& scheduler,bool supported) {
  if(!Enabled())return;
+ if(retained&&retained->persistent)retained->persistent->ObserveCompletion(scheduler);
  if(once_diagnostic)once_diagnostic->RetireFinished();
  const bool once_retired=!once_diagnostic||once_diagnostic->SafeRetired();
  if(!frontend){frontend=std::make_unique<BbNativeAsyncPreSr::Frontend>();std::printf("NATIVE_ASYNC_PRE_SR_FRONTEND_READY session=%s scene_arm=REQUIRED availability_only=1 no_GPU_proof=1\n",Session().c_str());}
@@ -518,7 +527,7 @@ void NativeAsyncPreSr::SrReadRecorded(Scheduler& scheduler,uint64_t source,vk::I
    TrackUse(scheduler);const auto tick=scheduler.CurrentTick();auto hold=retained;const auto leases=hold->leases;
    for(const auto& l:leases)if(l)l->sr_read=std::max(l->sr_read,tick);
    scheduler.DeferPriorityOperation([hold,leases,tick]{for(const auto& l:leases)if(l)l->CompleteNative(tick);});
-  }catch(const std::exception& e){Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_ONCE_FAILED session=%s source=%llu reason=%s retry=0 unknown_GPU_use_held=1\n",Session().c_str(),(unsigned long long)source,e.what());}
+  }catch(const std::exception& e){QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_ONCE_FAILED session=%s source=%llu reason=%s retry=0 unknown_GPU_use_held=1\n",Session().c_str(),(unsigned long long)source,e.what());}
  }
  if(actual_fixed_input)std::printf("NATIVE_PRE_SR_FIXED_SR_READ session=%s source=%llu input_image=%p copy_tick=%llu actual_SR_read_tick=%llu last_use_tick=%llu same_Native_timeline=1 actual_CPU_GPU_complete=NOT_YET_OBSERVED\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)fixed_input->CopyTick(),(unsigned long long)fixed_input->ReadTick(),(unsigned long long)fixed_input->LastUse());
  std::printf("NATIVE_ASYNC_PRE_SR_SR_READ session=%s source=%llu actual_input_image=%p native_sr_read_tick=%llu SR_success=%u cache_selected=%u request_origin=%llu candidate_job=%u scope=actual_current720_SR_input_binding_numeric_guard_GPU_wholeframe_fallback_NOT_MEASURED_HOT\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)scheduler.CurrentTick(),success,effect_selected,(unsigned long long)OriginSource(),effect_job);
@@ -534,7 +543,9 @@ std::optional<vk::ImageCreateInfo> NativeAsyncPreSr::ReturnInfo(uint64_t source,
 vk::ImageView NativeAsyncPreSr::RecordFixedInput(const Instance& i,Scheduler& s,uint64_t source,vk::Image input,const vk::ImageCreateInfo& ci){
  if(!Enabled()||!Armed()||!actual_supported||source!=actual_source||!peer||stopping||rejected||BbNativeAsyncPreSrSrPolicy::InputMode()!=BbNativeAsyncPreSrSrPolicy::Input::Fixed)return {};
  if(!fixed_input){fixed_input=std::make_shared<NativeAsyncPreSrFixedInput>(i,peer->Quiescence());std::printf("NATIVE_PRE_SR_FIXED_CREATED session=%s format=97 width=1280 height=720 packed_bytes=7372800 native_only=1 origin_packet_or_shared_slot=0 armed=1\n",Session().c_str());}
- TrackUse(s);auto view=fixed_input->RecordCopy(s,source,input,ci);actual_fixed_input=true;return view;
+ TrackUse(s);auto view=fixed_input->RecordCopy(s,source,input,ci);
+ if(PersistentPrepared(source)&&input==retained->persistent->Image())retained->persistent->MarkUse(s,source);
+ actual_fixed_input=true;return view;
 }
 }
 

@@ -437,7 +437,8 @@ bool TemporalUpscaler::RasterScaling() const {
 
 bool TemporalUpscaler::OnFrameStart() {
     const auto& p0_settings=BbSettings::Get();
-    native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);
+    try{native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);}
+    catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_POLL_HOLD reason=%s unknown_partial_use_retained=1\n",e.what());}
     native_async_snapshot.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);
     p0_controller.Tick(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter,BbOverlay::MenuOpen());
     // bbport: BB_PRESET_FILE=<file> holding a preset number, read about once a second: switches
@@ -3310,15 +3311,15 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
                     {.source=pre_source,.sr_reset=pre_original_reset,.viewport=camera_motion.CurrentJitter(),
                      .previous_viewport=camera_motion.PreviousJitter(),.sr_jitter={sign*jitter[0],sign*jitter[1]},
                      .previous_sr_jitter={previous_dlss_jitter_x,previous_dlss_jitter_y}});}
-                catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_SOURCE_HOLD original_raw_SR=1 no_GPU_free=1 reason=%s\n",e.what());}
+                catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_SOURCE_HOLD original_raw_SR=1 no_GPU_free=1 reason=%s\n",e.what());}
             }
             if(pre_source_recorded&&!BbNativeAsyncPreSrPlay::Enabled())std::printf("NATIVE_ASYNC_PRE_SR_DEPTH_SOURCE source=%llu projection_current=%.9g,%.9g,%.9g,%.9g projection_previous=%.9g,%.9g,%.9g,%.9g DepthInverted_candidate=0 convention_proof=UNVERIFIED format130_not_proof=1\n",(unsigned long long)pre_source,pre_projection[0][0],pre_projection[0][1],pre_projection[0][2],pre_projection[0][3],pre_projection[1][0],pre_projection[1][1],pre_projection[1][2],pre_projection[1][3]);
             vk::ImageView edited{};
             if(supported&&camera_motion.Ready()&&native_async_pre_sr.Armed()&&!BbOverlay::MenuOpen()){
                 if(pre_source_recorded||native_async_pre_sr.PersistentPrepared(pre_source))try{edited=native_async_pre_sr.RecordAdvanceAndApply(scheduler,pre_source);}
-                catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_CACHE_HOLD raw_SR=1 reason=%s\n",e.what());}
+                catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_CACHE_HOLD raw_SR=1 reason=%s\n",e.what());}
             }
-            if(!edited)try{native_async_pre_sr.DrainUnavailable(scheduler);}catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_DISCARD_HOLD raw_SR=1 reason=%s\n",e.what());}
+            if(!edited)try{native_async_pre_sr.DrainUnavailable(scheduler);}catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_DISCARD_HOLD raw_SR=1 reason=%s\n",e.what());}
             bool selected=bool(edited)&&native_async_pre_sr.EffectSelected();
             if(selected)sr_color={native_async_pre_sr.ReturnImage(),edited,vk::Format::eR16G16B16A16Sfloat,vk::ImageAspectFlagBits::eColor,w,h};
             if(BbNativeAsyncPreSrSrPolicy::InputMode()==BbNativeAsyncPreSrSrPolicy::Input::Fixed&&supported&&native_async_pre_sr.Armed()){
@@ -3327,7 +3328,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
                     vk::ImageView fixed{};if(ci)fixed=native_async_pre_sr.RecordFixedInput(instance,scheduler,pre_source,sr_color.image,*ci);
                     if(fixed)sr_color={native_async_pre_sr.FixedImage(),fixed,vk::Format::eR16G16B16A16Sfloat,vk::ImageAspectFlagBits::eColor,w,h};
                     else {sr_color=color;selected=false;}
-                }catch(const std::exception& e){native_async_pre_sr.Quarantine();sr_color=color;selected=false;std::fprintf(stderr,"NATIVE_PRE_SR_FIXED_HELD session=%s source=%llu raw_SR_fallback=1 no_unknown_free=1 reason=%s\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,e.what());}
+                }catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);sr_color=color;selected=false;std::fprintf(stderr,"NATIVE_PRE_SR_FIXED_HELD session=%s source=%llu raw_SR_fallback=1 no_unknown_free=1 reason=%s\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,e.what());}
             }
             const bool changed=native_async_pre_sr.ChangeInputDomain(selected);pre_domain_changed=changed;
             reset=BbNativeAsyncPreSrSrPolicy::AppliedReset(pre_original_reset,changed,native_async_pre_sr.FixedTransition());last_dlss_reset=reset;
