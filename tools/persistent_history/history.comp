@@ -145,7 +145,11 @@ void main() {
      // Filtering must not introduce a new live-set loss when RGBA16 storage
      // rounds a passing float confidence below a high user threshold. Preserve
      // the original nearest result instead; never round confidence upward.
-     float storedConfidence=unpackHalf2x16(packHalf2x16(vec2(filteredConfidence,0.))).x;
+     uint confidenceBits=packHalf2x16(vec2(filteredConfidence,0.))&65535u;
+     float storedConfidence=unpackHalf2x16(confidenceBits).x;
+     // Image-store rounding can differ from packHalf. Positive half encodings
+     // are monotonic; test the lower representable value for both RNE and RTZ.
+     if(storedConfidence>filteredConfidence&&confidenceBits>0u)storedConfidence=unpackHalf2x16(confidenceBits-1u).x;
      if(supported&&storedConfidence>0.&&storedConfidence>=p.limits.w) {e=vec4(filtered,filteredConfidence);m.zw=oldest;}
     }
    }

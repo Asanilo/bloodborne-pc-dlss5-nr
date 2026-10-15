@@ -83,7 +83,9 @@ def restricted_sample(grid,position,nearest,min_confidence=.5):
             if not tap[4] or tap[2:4]!=reference[2:4]:return reference
             for c in range(3):rgb[c]+=weight*tap[0][c]
             confidence=min(confidence,tap[1]);age=[max(a,b) for a,b in zip(age,tap[2:4])]
-    stored=struct.unpack('<e',struct.pack('<e',confidence))[0]
+    bits=struct.unpack('<H',struct.pack('<e',confidence))[0]
+    stored=struct.unpack('<e',struct.pack('<H',bits))[0]
+    if stored>confidence:stored=struct.unpack('<e',struct.pack('<H',bits-1))[0]
     if stored<=0 or stored<min_confidence:return reference
     return tuple(rgb),confidence,*age,True
 
@@ -112,7 +114,8 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(restricted_sample(grid,(-.1,.5),(0,1)),grid[1][0])
 
     def test_filtered_confidence_half_rounding_preserves_nearest(self):
-        self.assertIn('unpackHalf2x16(packHalf2x16(vec2(filteredConfidence,0.))).x',SHADER)
+        self.assertIn('packHalf2x16(vec2(filteredConfidence,0.))&65535u',SHADER)
+        self.assertIn('unpackHalf2x16(confidenceBits-1u).x',SHADER)
         self.assertIn('storedConfidence>=p.limits.w',SHADER)
         reference=((.2,.2,.2),.9501953125,5.,80.,True)
         for threshold,candidate in ((.8,.80001),(.912,.91201)):
@@ -122,10 +125,14 @@ class Boundaries(unittest.TestCase):
             other=((.4,.4,.4),candidate,5.,80.,True)
             grid=[[reference,other]]
             result=restricted_sample(grid,(.25,0),(0,0),threshold)
-            if threshold==.8:self.assertEqual(result,reference)
-            else:
-                self.assertEqual(result[1],candidate) # Do not inflate confidence to rounded half.
-                self.assertAlmostEqual(result[0][0],.25)
+            self.assertEqual(result,reference)
+            # The lower half is <= both RNE and RTZ stores. Either rounding
+            # mode must keep the original nearest when this bound misses min.
+            bits=struct.unpack('<H',struct.pack('<e',candidate))[0]
+            floor=struct.unpack('<e',struct.pack('<H',bits-(stored>candidate)))[0]
+            self.assertLess(floor,threshold)
+            nearest_half=struct.unpack('<e',struct.pack('<e',reference[1]))[0]
+            self.assertGreaterEqual(nearest_half,threshold)
             # Default .5 is exactly representable: preserve filtered result,
             # rather than unnecessarily falling back or raising confidence.
             filtered=restricted_sample(grid,(.25,0),(0,0),.5)
