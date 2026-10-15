@@ -467,7 +467,11 @@ bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& sche
  }
  if(!retained)Create(instance);
  if(retained->persistent){
-  retained->persistent->SetControls(runtime_request);
+  auto history_controls=runtime_request;
+  // Readback describes the acknowledged model, not an un-applied UI draft.
+  history_controls.config.model_style=runtime_status.actual_config.model_style;
+  history_controls.config.model_intensity=runtime_status.actual_config.model_intensity;
+  retained->persistent->SetControls(history_controls);
   const auto visual=visual_timeline.Observe(meta);
   if(retained->persistent->BeginCurrent(scheduler,source,visual,actual_source_dt))TrackUse(scheduler);
  }
