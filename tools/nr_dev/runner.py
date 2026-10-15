@@ -177,7 +177,56 @@ def control(args):
   subprocess.run(['niri','msg','action','close-window','--id',str(own[0]['id'])],check=True,timeout=5)
   atomic(run/'stop-request.json',{'game':game,'monotonic_ns':time.monotonic_ns(),'scope':'normal window close request; not retirement proof'})
 
+class SupervisorSignals:
+ """Queue in Python's signal callback; append evidence and request close only on the main loop."""
+ def __init__(self):
+  self.pending=[];self.received=0;self.interrupted=False;self.close_requested=False;self.run=None;self.old={}
+ def receive(self,signum,_frame):
+  self.received+=1;self.interrupted=True
+  self.pending.append({'event':'SUPERVISOR_SIGNAL_RECEIVED','sequence':self.received,'signal':signum,'signal_name':signal.Signals(signum).name,'monotonic_ns':time.monotonic_ns(),'runner_pid':os.getpid(),'sender':'NOT_AVAILABLE_PYTHON_SIGNAL_CALLBACK','scope':'interruption; not GPU completion or normal retirement proof'})
+ def __enter__(self):
+  self.old={sig:signal.signal(sig,self.receive) for sig in (signal.SIGTERM,signal.SIGINT)};return self
+ def append(self,event):
+  fd=os.open(self.run/'signal-events.jsonl',os.O_WRONLY|os.O_CREAT|os.O_APPEND|os.O_NOFOLLOW,0o600)
+  try:
+   with os.fdopen(fd,'a') as out:out.write(json.dumps(event)+'\n');out.flush();os.fsync(out.fileno())
+  except BaseException:raise
+ def flush(self):
+  if self.run is None:return
+  events,self.pending=self.pending,[]
+  for event in events:self.append(event)
+ def before_spawn(self):
+  self.flush()
+  if self.interrupted:
+   atomic(self.run/'result.json',{'status':'HOLD','reason':'supervisor interrupted before spawn; no process launched','supervisor_interrupted':True,'received_signals':self.received,'actual_game_starts':0,'returncode':None})
+   return False
+  return True
+ def request_close_once(self,session,request=None):
+  if not self.interrupted or self.close_requested:return
+  self.close_requested=True
+  if (self.run/'stop-request.json').exists():
+   self.append({'event':'SUPERVISOR_NORMAL_CLOSE_ALREADY_REQUESTED','monotonic_ns':time.monotonic_ns()});return
+  try:
+   (request or control)(argparse.Namespace(command='stop',session=session))
+   self.append({'event':'SUPERVISOR_NORMAL_CLOSE_REQUESTED','monotonic_ns':time.monotonic_ns(),'scope':'normal window close only; waiting actual child exit; GPU lock retained'})
+  except Exception as error:self.append({'event':'SUPERVISOR_NORMAL_CLOSE_REQUEST_FAILED','monotonic_ns':time.monotonic_ns(),'error':str(error),'scope':'no kill or forced cleanup; GPU lock retained'})
+ def __exit__(self,kind,value,tb):
+  # Handle signals delivered during final audit too; never relabel interruption PASS.
+  try:
+   self.flush()
+   if self.interrupted and self.run is not None:
+    path=self.run/'result.json';result=json.loads(path.read_text()) if path.exists() else {}
+    result.update(status='HOLD',supervisor_interrupted=True,received_signals=self.received)
+    atomic(path,result)
+  finally:
+   for sig,handler in self.old.items():signal.signal(sig,handler)
+
 def launch(args):
+ with SupervisorSignals() as signals:
+  code=launch_supervised(args,signals)
+  return 3 if signals.interrupted else code
+
+def launch_supervised(args,signals):
  run=checked_run(args.session);build=ROOT/'build/native';assets=OLD/'playtest/assets/CUSA03173';seed=OLD/'integration/private-NRTest-seed';helper=ROOT/'build/helper/wine_async_presr_play.exe'
  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight()
@@ -186,7 +235,7 @@ def launch(args):
   native_artifacts=[build/'bb-probe',build/'gpu/libbbgpu.so',build/'libbbport_dlss.so',ngx[0]]
   for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
-  run.mkdir(mode=0o700);profile=run/'profile';profile.mkdir();shutil.copytree(seed/'savedata',profile/'user/savedata')
+  run.mkdir(mode=0o700);signals.run=run;profile=run/'profile';profile.mkdir();shutil.copytree(seed/'savedata',profile/'user/savedata')
   for item in json.loads((seed/'manifest.json').read_text())['files']:
    p=profile/'user/savedata'/item['relative']
    if p.is_symlink() or sha(p)!=item['sha256']:raise ValueError('private seed SHA mismatch')
@@ -203,10 +252,15 @@ def launch(args):
   env.update(nr);command=['bash',str(WT/'run.sh')]
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'watchdog_seconds':args.seconds})
   with (run/'game.log').open('w') as log:
+   if not signals.before_spawn():return 3
    process=subprocess.Popen(command,cwd=WT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
    atomic(run/'runner.json',{'runner':live(os.getpid()),'launcher':live(process.pid)});deadline=time.monotonic()+args.seconds;held=False;sample_at=0
    print(str(run),flush=True)
    while process.poll() is None:
+    signals.flush()
+    if signals.interrupted and not signals.close_requested:
+     atomic(run/'result.json',{'status':'HOLD','reason':'supervisor interrupted; waiting actual child exit with GPU lock retained','supervisor_interrupted':True,'received_signals':signals.received})
+     signals.request_close_once(args.session)
     if time.monotonic()>=sample_at:
      sample_at=time.monotonic()+1
      try:
@@ -215,9 +269,13 @@ def launch(args):
      except (OSError,subprocess.SubprocessError):pass
     if time.monotonic()>deadline and not held:
      held=True;atomic(run/'result.json',{'status':'HOLD','reason':'watchdog expired; normal close requested; no kill or GPU completion claim'})
-     try:control(argparse.Namespace(command='stop',session=args.session))
-     except Exception as e:atomic(run/'watchdog-close-error.json',{'error':str(e)})
+     if not signals.close_requested:
+      signals.close_requested=True
+      if not (run/'stop-request.json').exists():
+       try:control(argparse.Namespace(command='stop',session=args.session))
+       except Exception as e:atomic(run/'watchdog-close-error.json',{'error':str(e)})
     time.sleep(.25)
+   signals.flush()
    text=(run/'game.log').read_text(errors='replace');residual=holders()
    from retirement import audit_session
    termination={'returncode':process.returncode,'residuals':residual,'watchdog_expired':held}
@@ -227,10 +285,10 @@ def launch(args):
    except (OSError,ValueError,KeyError,TypeError) as error:
     retirement={'retirement':'NOT_PROVED','error':str(error)};normal=False;proof=False
    atomic(run/'retirement-audit.json',retirement)
-   atomic(run/'result.json',{'status':'PASS_NORMAL_TEARDOWN' if normal and not held else 'HOLD','returncode':process.returncode,'native_lastuse_proof':proof,'residuals':residual,'watchdog_expired':held,'quality':'NOT_ACCEPTED','performance':'separate actual Present analysis required'})
+   atomic(run/'result.json',{'status':'PASS_NORMAL_TEARDOWN' if normal and not held and not signals.interrupted else 'HOLD','returncode':process.returncode,'native_lastuse_proof':proof,'residuals':residual,'watchdog_expired':held,'supervisor_interrupted':signals.interrupted,'received_signals':signals.received,'quality':'NOT_ACCEPTED','performance':'separate actual Present analysis required'})
    from metrics import measure
    atomic(run/'present-metrics.json',measure(run))
-   return 0 if normal and not held else 3
+   return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=600);p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
