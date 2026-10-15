@@ -27,11 +27,16 @@ struct State {
 State& S(){static State s;return s;}
 bool Fail(std::string* e,const char* message){if(e)*e=message;return false;}
 using J=nlohmann::json;
-J Encode(const Config& c){return J{{"version",ApiVersion},{"display_bypass",c.display_bypass},{"display_strength",c.display_strength},{"ttl_frames",c.ttl_frames},{"ttl_ms",c.ttl_ms},{"depth_tolerance",c.depth_tolerance},{"colour_tolerance",c.colour_tolerance},{"min_confidence",c.min_confidence},{"model_style",c.model_style},{"model_intensity",c.model_intensity},{"hud",c.hud}};}
+J Encode(const Config& c){return J{{"version",ApiVersion},{"reprojection",static_cast<uint32_t>(c.reprojection)},{"display_bypass",c.display_bypass},{"display_strength",c.display_strength},{"ttl_frames",c.ttl_frames},{"ttl_ms",c.ttl_ms},{"depth_tolerance",c.depth_tolerance},{"colour_tolerance",c.colour_tolerance},{"min_confidence",c.min_confidence},{"model_style",c.model_style},{"model_intensity",c.model_intensity},{"hud",c.hud}};}
 Config Decode(const J& j){
- if(!j.is_object()||j.size()!=11||!j.at("version").is_number_integer()||!j.at("ttl_frames").is_number_unsigned()||!j.at("model_style").is_number_unsigned())throw std::runtime_error("runtime config must use exact versioned typed fields");
- if(j.at("version")!=ApiVersion)throw std::runtime_error("unsupported NR runtime config version");
- Config c;c.display_bypass=j.at("display_bypass").get<bool>();c.display_strength=j.at("display_strength").get<float>();c.ttl_frames=j.at("ttl_frames").get<uint32_t>();c.ttl_ms=j.at("ttl_ms").get<float>();c.depth_tolerance=j.at("depth_tolerance").get<float>();c.colour_tolerance=j.at("colour_tolerance").get<float>();c.min_confidence=j.at("min_confidence").get<float>();c.model_style=j.at("model_style").get<uint32_t>();c.model_intensity=j.at("model_intensity").get<float>();c.hud=j.at("hud").get<bool>();return c;
+ if(!j.is_object()||!j.at("version").is_number_integer())throw std::runtime_error("runtime config must use exact versioned typed fields");
+ const auto version=j.at("version").get<int64_t>();
+ if((version!=1&&version!=ApiVersion)||j.size()!=(version==1?11:12))throw std::runtime_error("unsupported or inexact NR runtime config version");
+ for(const char* key:{"ttl_frames","model_style"})if(!j.at(key).is_number_unsigned()||j.at(key).get<uint64_t>()>UINT32_MAX)throw std::runtime_error("unsigned runtime config field required");
+ for(const char* key:{"display_bypass","hud"})if(!j.at(key).is_boolean())throw std::runtime_error("boolean runtime config field required");
+ for(const char* key:{"display_strength","ttl_ms","depth_tolerance","colour_tolerance","min_confidence","model_intensity"})if(!j.at(key).is_number())throw std::runtime_error("numeric runtime config field required");
+ if(version==2&&(!j.at("reprojection").is_number_unsigned()||j.at("reprojection").get<uint64_t>()>1))throw std::runtime_error("reprojection must be unsigned 0 or 1");
+ Config c;if(version==2)c.reprojection=static_cast<Reprojection>(j.at("reprojection").get<uint32_t>());c.display_bypass=j.at("display_bypass").get<bool>();c.display_strength=j.at("display_strength").get<float>();c.ttl_frames=j.at("ttl_frames").get<uint32_t>();c.ttl_ms=j.at("ttl_ms").get<float>();c.depth_tolerance=j.at("depth_tolerance").get<float>();c.colour_tolerance=j.at("colour_tolerance").get<float>();c.min_confidence=j.at("min_confidence").get<float>();c.model_style=j.at("model_style").get<uint32_t>();c.model_intensity=j.at("model_intensity").get<float>();c.hud=j.at("hud").get<bool>();return c;
 }
 void Worker(std::stop_token stop){auto& s=S();for(;;){
  Config c;std::string path;{
@@ -48,10 +53,11 @@ bool Validate(const Config& c,std::string* error){
  if(!range(c.display_strength,0,1))return Fail(error,"display strength must be finite in [0,1]");
  if(c.ttl_frames<1||c.ttl_frames>12||!range(c.ttl_ms,1,200))return Fail(error,"visual TTL must be 1..12 frames and 1..200ms");
  if(!range(c.depth_tolerance,.0001f,.25f)||!range(c.colour_tolerance,0,4)||!range(c.min_confidence,0,1))return Fail(error,"invalid finite confidence/depth/colour threshold");
+ if(c.reprojection!=Reprojection::Nearest&&c.reprojection!=Reprojection::ClampedCubic)return Fail(error,"unknown history reprojection mode");
  if(c.model_style>2||!range(c.model_intensity,0,2))return Fail(error,"model style must be 0..2 and intensity finite in [0,2]");
  return true;
 }
-bool RequiresVisualReset(const Config&a,const Config&b){return a.ttl_frames!=b.ttl_frames||a.ttl_ms!=b.ttl_ms||a.depth_tolerance!=b.depth_tolerance||a.colour_tolerance!=b.colour_tolerance||a.min_confidence!=b.min_confidence;}
+bool RequiresVisualReset(const Config&a,const Config&b){return a.reprojection!=b.reprojection||a.ttl_frames!=b.ttl_frames||a.ttl_ms!=b.ttl_ms||a.depth_tolerance!=b.depth_tolerance||a.colour_tolerance!=b.colour_tolerance||a.min_confidence!=b.min_confidence;}
 bool Submit(const Config& c,Actions actions,std::string* error){
  if(error)error->clear();if(!Validate(c,error))return false;auto& s=S();std::scoped_lock lock(s.mutex);
  if(actions.apply_model&&(s.snapshot.status==Status::Held||s.snapshot.model_restart_required))return Fail(error,"Model HOLD: restart isolated session; in-place Apply is unavailable");

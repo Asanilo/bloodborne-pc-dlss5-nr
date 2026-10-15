@@ -203,6 +203,10 @@ void NRControls() {
     changed|=ImGui::SliderFloat("Display strength",&c.display_strength,0.f,1.f);
     ImGui::Text("Actual display: %s / %.2f",actual.actual_config.display_bypass?"raw SR":"NR history",actual.actual_config.display_strength);
     ImGui::TextWrapped("Display comparison shares SR history. Fast toggles are not strict same-frame dual-history A/B.");
+    int reprojection=static_cast<int>(c.reprojection);
+    if(ImGui::Combo("History reprojection",&reprojection,"Nearest (Alpha/default)\0Clamped cubic (optional)\0")){c.reprojection=static_cast<BbNR::Reprojection>(reprojection);changed=true;}
+    Hint("Changing reprojection clears visual history; it does not rebuild the model.");
+    ImGui::Text("Applied reprojection: %s%s",actual.actual_config.reprojection==BbNR::Reprojection::Nearest?"Nearest":"Clamped cubic",c.reprojection!=actual.actual_config.reprojection?" (pending)":"");
     if(ImGui::TreeNode("History lifetime and confidence")) {
         int frames=int(c.ttl_frames);if(ImGui::SliderInt("Visual TTL frames",&frames,1,12)){c.ttl_frames=unsigned(frames);changed=true;}
         changed|=ImGui::SliderFloat("Visual TTL milliseconds",&c.ttl_ms,1.f,200.f);

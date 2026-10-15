@@ -4,8 +4,10 @@
 #include <array>
 #include <string>
 namespace BbNR {
-inline constexpr uint32_t ApiVersion=1;
+inline constexpr uint32_t ApiVersion=2;
+enum class Reprojection:uint32_t {Nearest=0,ClampedCubic=1};
 struct Config {
+ Reprojection reprojection=Reprojection::Nearest;
  bool display_bypass=false;
  float display_strength=1.f;
  uint32_t ttl_frames=12;
