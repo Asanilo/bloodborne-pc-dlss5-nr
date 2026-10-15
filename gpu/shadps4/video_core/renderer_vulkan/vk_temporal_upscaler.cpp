@@ -3310,12 +3310,12 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
                     {.source=pre_source,.sr_reset=pre_original_reset,.viewport=camera_motion.CurrentJitter(),
                      .previous_viewport=camera_motion.PreviousJitter(),.sr_jitter={sign*jitter[0],sign*jitter[1]},
                      .previous_sr_jitter={previous_dlss_jitter_x,previous_dlss_jitter_y}});}
-                catch(const std::exception& e){native_async_pre_sr.RejectAssociation();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_SOURCE_HOLD original_raw_SR=1 no_GPU_free=1 reason=%s\n",e.what());}
+                catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_SOURCE_HOLD original_raw_SR=1 no_GPU_free=1 reason=%s\n",e.what());}
             }
             if(pre_source_recorded&&!BbNativeAsyncPreSrPlay::Enabled())std::printf("NATIVE_ASYNC_PRE_SR_DEPTH_SOURCE source=%llu projection_current=%.9g,%.9g,%.9g,%.9g projection_previous=%.9g,%.9g,%.9g,%.9g DepthInverted_candidate=0 convention_proof=UNVERIFIED format130_not_proof=1\n",(unsigned long long)pre_source,pre_projection[0][0],pre_projection[0][1],pre_projection[0][2],pre_projection[0][3],pre_projection[1][0],pre_projection[1][1],pre_projection[1][2],pre_projection[1][3]);
             vk::ImageView edited{};
             if(supported&&camera_motion.Ready()&&native_async_pre_sr.Armed()&&!BbOverlay::MenuOpen()){
-                if(pre_source_recorded)try{edited=native_async_pre_sr.RecordAdvanceAndApply(scheduler,pre_source);}
+                if(pre_source_recorded||native_async_pre_sr.PersistentPrepared(pre_source))try{edited=native_async_pre_sr.RecordAdvanceAndApply(scheduler,pre_source);}
                 catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_CACHE_HOLD raw_SR=1 reason=%s\n",e.what());}
             }
             if(!edited)try{native_async_pre_sr.DrainUnavailable(scheduler);}catch(const std::exception& e){native_async_pre_sr.Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_DISCARD_HOLD raw_SR=1 reason=%s\n",e.what());}
@@ -3332,7 +3332,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             const bool changed=native_async_pre_sr.ChangeInputDomain(selected);pre_domain_changed=changed;
             reset=BbNativeAsyncPreSrSrPolicy::AppliedReset(pre_original_reset,changed,native_async_pre_sr.FixedTransition());last_dlss_reset=reset;
             if(BbNativeAsyncPreSrSrPolicy::ExplicitModes())std::printf("NATIVE_PRE_SR_SR_EXPERIMENT session=%s source=%llu history_mode=%s input_mode=%s original_reset=%u domain_changed=%u extra_domain_reset_requested=%u fixed_resource_transition_reset=%u applied_reset=%u actual_SR_input_image=%p fixed_bound=%u cache_content_selected=%u protected_game_resource_cut_history_reset=1 hot_pixel_change=NOT_MEASURED\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,BbNativeAsyncPreSrSrPolicy::HistoryName(),BbNativeAsyncPreSrSrPolicy::InputName(),pre_original_reset,changed,BbNativeAsyncPreSrSrPolicy::ExtraDomainReset(changed),native_async_pre_sr.FixedTransition(),reset,(void*)VkImage(sr_color.image),native_async_pre_sr.FixedThisSource(),selected);
-            std::printf("NATIVE_ASYNC_PRE_SR_INPUT_DOMAIN session=%s source=%llu source_sr_reset_requested=%u cache_selected=%u input_domain=%s input_domain_changed=%u applied_sr_reset=%u origin=%llu job=%u age=%llu NR_Reset_does_not_force_SRreset=1 numeric_guard_pixel_result=NOT_MEASURED_HOT\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,pre_original_reset,selected,selected?"cache":"raw",changed,reset,(unsigned long long)native_async_pre_sr.OriginSource(),native_async_pre_sr.EffectJob(),selected?(unsigned long long)(pre_source-native_async_pre_sr.OriginSource()):0ull);
+            std::printf("NATIVE_ASYNC_PRE_SR_INPUT_DOMAIN session=%s source=%llu source_sr_reset_requested=%u cache_selected=%u input_domain=%s input_domain_changed=%u applied_sr_reset=%u request_origin=%llu candidate_job=%u request_age=%llu NR_Reset_does_not_force_SRreset=1 numeric_guard_pixel_result=NOT_MEASURED_HOT\n",native_async_pre_sr.Session().c_str(),(unsigned long long)pre_source,pre_original_reset,selected,selected?"cache":"raw",changed,reset,(unsigned long long)native_async_pre_sr.OriginSource(),native_async_pre_sr.EffectJob(),selected?(unsigned long long)(pre_source-native_async_pre_sr.OriginSource()):0ull);
         }
         // Only the normal opt-in Quality HDR route. Feature creation above, motion
         // generation, sharpening, NR, merge and Present are outside this interval.

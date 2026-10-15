@@ -7,6 +7,8 @@
 #include "native_async_pre_sr_sr_policy.h"
 #include "native_async_pre_sr_diagnostic.h"
 #include "native_origin_lease.h"
+#include "native_persistent_history.h"
+#include "native_visual_timeline.h"
 #include "native_async_pre_sr_sky.h"
 #include "native_async_pre_sr_origin_gpu.h"
 #include "native_async_pre_sr_frontend.h"
@@ -25,6 +27,7 @@ public:
  void PrepareCurrentMasks(Scheduler&,uint64_t actual_source,bool supported);
  void TrackMasks(Scheduler&);
  bool Armed()const noexcept;
+ bool PersistentPrepared(uint64_t source)const noexcept{return retained&&retained->persistent&&retained->persistent->PreparedFor(source);}
  bool EffectSelected()const noexcept{return effect_selected;}
  unsigned EffectJob()const noexcept{return effect_job;}
  vk::ImageView RecordAdvanceAndApply(Scheduler&,uint64_t current_source);
@@ -58,7 +61,7 @@ public:
  std::optional<BbNativeAsync::Frame> RecordedOrigin(const Scheduler&)const noexcept;
  void Shutdown(Scheduler&);
  void RejectAssociation()noexcept{rejected=true;}
- void Quarantine()noexcept{rejected=true;stopping=true;if(fixed_input)fixed_input->HoldUnknown();if(retained&&retained->returns)retained->returns->HoldMasksUnknown();if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
+ void Quarantine()noexcept{rejected=true;stopping=true;if(fixed_input)fixed_input->HoldUnknown();if(retained&&retained->returns)retained->returns->HoldMasksUnknown();if(retained&&retained->persistent)retained->persistent->HoldUnknown();if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
  std::string Session()const;
  uint64_t Epoch()const noexcept{return last_epoch;}
  uint64_t OriginSource()const noexcept{return chain.Size()?chain.Origin().source:0;}
@@ -69,20 +72,23 @@ private:
   std::array<std::shared_ptr<BbNativeAsyncPreSr::SourceLease>,BbNativeAsync::NodeCount> leases{};
   std::unique_ptr<NativeAsyncPreSrSky> sky;
  std::unique_ptr<NativeAsyncPreSrReturn> returns;
+ std::unique_ptr<NativePersistentHistory> persistent;
   std::shared_ptr<NativeAsyncPreSrOriginQuiescence> quiescence;
   ~Retention(){
    if(quiescence){uint64_t actual=0;for(const auto& lease:leases)if(lease)actual=std::max(actual,lease->native.observed.load(std::memory_order_acquire));
     auto old=quiescence->observed_tick.load();while(old<actual&&!quiescence->observed_tick.compare_exchange_weak(old,actual)){}
    }
-   returns.reset();sky.reset();for(auto& x:images)x=VideoCore::UniqueImage{};
-   if(quiescence)quiescence->stopped_and_destroyed.store(true,std::memory_order_release);}
+   const bool visual_retired=!persistent||persistent->Ready();
+   persistent.reset();returns.reset();sky.reset();for(auto& x:images)x=VideoCore::UniqueImage{};
+   if(quiescence&&visual_retired)quiescence->stopped_and_destroyed.store(true,std::memory_order_release);}
   // Snapshot/converted/output/shown/context and their immutable CB/sets all
   // participated in the actual source cohort through SR/merge. The current
   // raw path has recorded ONLY mask clear, not any current image/CB use yet.
   bool PacketAndImageUsesReady()const noexcept {for(const auto& p:leases)if(p&&!p->CanReuse())return false;return true;}
-  bool AllUsesReady()const noexcept {return PacketAndImageUsesReady()&&(!returns||returns->MasksReady());}
+  bool AllUsesReady()const noexcept {return PacketAndImageUsesReady()&&(!returns||returns->MasksReady())&&(!persistent||persistent->Ready());}
 
  };
+ vk::ImageView RecordPersistentAdvanceAndApply(Scheduler&,uint64_t);
  void Create(const Instance&);
  void TrackUse(Scheduler&);
  void PollPeer(Scheduler&,bool supported);
@@ -110,6 +116,7 @@ private:
  std::shared_ptr<NativeAsyncPreSrOriginGpuProof> sparse_input_proof,sparse_final_proof;
  uint64_t last_helper_serial=0;
 
+ BbNativeAsync::VisualTimeline visual_timeline;
  BbNativeAsync::Chain chain;
  BbNativeAsyncPreSr::InputDomain input_domain;vk::Image returned_image{};uint64_t actual_source=0;bool actual_supported=false;
  bool rejected=false,stopping=false;uint64_t last_epoch=0,last_reported_ready=0;

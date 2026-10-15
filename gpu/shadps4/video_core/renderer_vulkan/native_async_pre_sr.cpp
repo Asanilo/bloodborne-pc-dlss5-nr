@@ -33,6 +33,11 @@ void NativeAsyncPreSr::Create(const Instance& instance) {
  }
  next->sky=std::make_unique<NativeAsyncPreSrSky>(instance);
  next->returns=std::make_unique<NativeAsyncPreSrReturn>(instance);
+ if(NativePersistentHistory::Enabled()){
+  if(BbNativePreSrSkyPolicy::Enabled())throw std::runtime_error("persistent history requires legacy Sky off");
+  next->persistent=std::make_unique<NativePersistentHistory>(instance);
+  std::printf("PERSISTENT_HISTORY_INIT image_bytes=%llu independent_visual_lifetime=1 immutable_origin_age4_admission=1 old_masked=0\n",(unsigned long long)next->persistent->ImageBytes());
+ }
  std::printf("NATIVE_PRE_SR_GPU_RESOURCES raw_packed_bytes=92160000 sky_packed_bytes=%llu returns_packed_bytes=36864000 history_banks=2 packets=5 candidate_depth_inverted=0 depth_convention=UNVERIFIED jitter_delta=actual_previous_minus_current_viewport_over720 CPU_readback=0 phase=UNVERIFIED\n",(unsigned long long)next->sky->ImageBytes());
  retained=std::move(next);owner=std::make_shared<BbNativeAsync::Owner>();
  std::printf("NATIVE_ASYNC_PRE_SR_INIT session=%s origin1_links4=1 native_snapshots=15 hot_CPU_readback=0 sparse_adapter=%u localnoop=%u\n",Session().c_str(),bool(peer),!peer);
@@ -150,7 +155,9 @@ std::optional<BbNativeAsync::Frame> NativeAsyncPreSr::RecordedOrigin(const Sched
  return f;
 }
 vk::ImageView NativeAsyncPreSr::RecordAdvanceAndApply(Scheduler& scheduler,uint64_t current_source) {
- if(stopping||rejected||!retained||!chain.Size())return {};
+ if(stopping||rejected||!retained)return {};
+ if(retained->persistent)return RecordPersistentAdvanceAndApply(scheduler,current_source);
+ if(!chain.Size())return {};
  const auto& origin=chain.Origin();
  if(!chain.CompleteTo(origin.source,current_source,origin.epoch,origin.history))return {};
  const unsigned index=chain.Size()-1;
@@ -228,6 +235,47 @@ vk::ImageView NativeAsyncPreSr::RecordAdvanceAndApply(Scheduler& scheduler,uint6
  return view;
 }
 
+vk::ImageView NativeAsyncPreSr::RecordPersistentAdvanceAndApply(Scheduler& scheduler,uint64_t source){
+ auto& visual=*retained->persistent;
+ // Only request packets use the bounded origin chain. The visual current above
+ // advances even while a busy request prevents retaining another packet.
+ if(chain.Size()&&chain.LastSource()==source){
+  const unsigned index=chain.Size()-1;
+  const auto record=retained->records[index];const auto lease=retained->leases[index];
+  if(!record||!lease||record->frame.source!=source)throw std::runtime_error("persistent exact request packet missing");
+  const std::array<vk::Image,3> images{vk::Image(retained->images[index*3]),vk::Image(retained->images[index*3+1]),vk::Image(retained->images[index*3+2])};
+  retained->sky->RecordConversionOnly(scheduler,index,images,record->frame);
+  lease->native.capture=std::max(lease->native.capture,index==0?scheduler.CurrentTick():0);
+  lease->native.catchup=std::max(lease->native.catchup,scheduler.CurrentTick());
+  if(index==0)recorded_origin=BbNativeAsync::RecordedOrigin{record->frame.source,record->frame.epoch,record->frame.history,record->frame.params,record->frame.copy_tick,scheduler.CurrentTick(),reinterpret_cast<uintptr_t>(&scheduler)};
+  TrackUse(scheduler);
+ }
+ if(peer){
+  auto job=peer->TryJob();
+  if(peer->State()==NativeAsyncPreSrOriginOwner::Phase::Complete&&job){
+   auto final=TryRecordSparseComplete(scheduler,job->resources,job->complete,source,job->final);
+   if(final.disposition!=SparseDisposition::Unavailable){
+    TrackUse(scheduler);peer->FinalRecorded(job,final.disposition);
+    if(final.disposition==SparseDisposition::Captured)effect_job=unsigned(job->id.job);
+   }
+  }
+  if(peer->State()==NativeAsyncPreSrOriginOwner::Phase::Ready){
+   if(auto origin=RecordedOrigin(scheduler))if(auto job=peer->TryReserve(*origin)){
+    if(TryRecordSparseInput(scheduler,job->resources,job->id,job->input)){TrackUse(scheduler);peer->InputRecorded(job);}
+    else peer->CancelReservation(job);
+   }
+  }
+ }
+ if(!visual.PreparedFor(source))return {};
+ const auto view=visual.Apply(scheduler);
+ returned_image=visual.Image();effect_selected=bool(view)&&visual.HasHistory();
+ TrackUse(scheduler);
+ // Selection is only a host potential: validity, contribution age and fallback
+ // are per pixel on GPU. This log never claims actual changed-pixel coverage.
+ std::printf("PERSISTENT_HISTORY_CURRENT source=%llu host_history_potential=%u request_origin=%llu last_candidate_job=%u phase=GPU_PIXEL_VALIDITY_NOT_READ_BACK\n",(unsigned long long)source,effect_selected,(unsigned long long)OriginSource(),effect_job);
+ return view;
+}
+
 bool NativeAsyncPreSr::TryRecordSparseInput(Scheduler& scheduler,const NativeAsyncPreSrOriginResources& resources,
  const NativeAsyncPreSrOriginIdentity& id,const std::shared_ptr<NativeAsyncPreSrOriginGpuProof>& proof) {
  if(stopping||rejected||pending_sparse||!retained||!chain.Size()||!proof||proof->native_target_tick||
@@ -260,11 +308,15 @@ NativeAsyncPreSr::SparseReturn NativeAsyncPreSr::TryRecordSparseComplete(Schedul
  const bool skip=complete.expected_skip&&!complete.output_valid&&!complete.model_valid&&!complete.evaluate_calls&&!complete.evaluate_result&&!complete.resolve_calls;
  if(!valid&&!skip)throw std::runtime_error("Native sparse normal model predicate rejected unexpected output");
  const bool current=!stopping&&!rejected&&current_source>0&&chain.CompleteTo(id.origin_source,current_source,id.origin_epoch,id.origin_history);
- if(valid&&current&&retained->sky->SparseScratchBusy())return {};
+ if(valid&&current&&!retained->persistent&&retained->sky->SparseScratchBusy())return {};
  AcquireAsyncPreSrOriginOutput(scheduler,resources,id);
  SparseReturn result;result.disposition=skip?SparseDisposition::ExpectedSkip:SparseDisposition::ObsoleteDiscard;
  auto hold=retained;const auto lease=hold->leases[0];
- if(valid&&current){result.view=hold->sky->RecordSparseCatchup(scheduler,chain.Size()-1,resources.views[3]);
+ if(valid&&current&&hold->persistent){
+  std::array<NativePersistentHistory::Link,BbNativeAsync::NodeCount> links{};
+  for(unsigned k=0;k<chain.Size();++k)links[k]={hold->records[k]->frame,hold->sky->Converted(k)};
+  if(hold->persistent->RecordCandidate(scheduler,std::span<const NativePersistentHistory::Link>(links.data(),chain.Size()),resources.views[3]))result.disposition=SparseDisposition::Captured;
+ }else if(valid&&current){result.view=hold->sky->RecordSparseCatchup(scheduler,chain.Size()-1,resources.views[3]);
   if(!result.view)throw std::runtime_error("Native sparse catchup reservation failed after output acquire");
   result.disposition=SparseDisposition::Captured;
  }
@@ -297,6 +349,9 @@ void NativeAsyncPreSr::DrainUnavailable(Scheduler& s) {
 void NativeAsyncPreSr::MergeRecorded(Scheduler& scheduler,uint64_t source) {
  if(fixed_input&&actual_fixed_input&&source==actual_source){TrackUse(scheduler);fixed_input->MergeRecorded(scheduler,source);}
  if(retained&&BbNativePreSrSkyPolicy::Enabled()&&retained->sky->MasksPreparedFor(source)&&retained->returns->MasksPreparedFor(source))TrackMasks(scheduler);
+ if(PersistentPrepared(source)&&retained->persistent->Image()){
+  retained->persistent->MarkUse(scheduler,source);TrackUse(scheduler);
+ }
  if(!retained||chain.LastSource()!=source)return;
  TrackUse(scheduler);
  const auto tick=scheduler.CurrentTick();auto hold=retained;
@@ -320,7 +375,9 @@ void NativeAsyncPreSr::Shutdown(Scheduler& scheduler) {
  if(retained){
   if(pending_sparse||rejected){HoldUnknown(std::move(retained));return;}
   auto hold=std::move(retained);
-  scheduler.DeferOperation([hold=std::move(hold)]{});
+  scheduler.DeferOperation([hold=std::move(hold)]()mutable{
+   if(!hold->AllUsesReady())HoldUnknown(std::move(hold));
+  });
  }
 }
 bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& scheduler,
@@ -334,6 +391,10 @@ bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& sche
      c.samples!=vk::SampleCountFlagBits::e1||c.mipLevels!=1||c.arrayLayers!=1||!(c.usage&vk::ImageUsageFlagBits::eTransferSrc))return false;
  }
  if(!retained)Create(instance);
+ if(retained->persistent){
+  const auto visual=visual_timeline.Observe(meta);
+  if(retained->persistent->BeginCurrent(scheduler,source,visual,actual_source_dt))TrackUse(scheduler);
+ }
  PrepareCurrentMasks(scheduler,meta.source,true);
  auto decision=chain.Classify(meta);
  if(decision==BbNativeAsync::Chain::Decision::Reject)return false;
@@ -423,13 +484,16 @@ void NativeAsyncPreSr::SrReadRecorded(Scheduler& scheduler,uint64_t source,vk::I
  // Do not extend lastuse on future raw SR frames that recorded no mask access.
  if(retained&&BbNativePreSrSkyPolicy::Enabled()&&retained->sky->MasksPreparedFor(source)&&retained->returns->MasksPreparedFor(source)){retained->sky->ActualSrResult(source,success,scheduler);TrackMasks(scheduler);}
  if(fixed_input&&actual_fixed_input&&image==fixed_input->Image()){TrackUse(scheduler);fixed_input->SrReadRecorded(scheduler,source,image);}
+ if(PersistentPrepared(source)&&image==retained->persistent->Image()){
+  retained->persistent->MarkUse(scheduler,source);TrackUse(scheduler);
+ }
  if(retained&&chain.LastSource()==source){
   TrackUse(scheduler);const auto tick=scheduler.CurrentTick();const auto leases=retained->leases;auto hold=retained;
   for(auto& lease:leases)if(lease)lease->sr_read=std::max(lease->sr_read,tick);
   scheduler.DeferPriorityOperation([hold,leases,tick]{for(auto& lease:leases)if(lease)lease->CompleteNative(tick);});
  }
  // COLD ONCE ONLY, after the actual SR Evaluate recorded its true selected image.
- if(BbNativeAsyncPreSr::DiagnosticEnabled()&&!once_attempted&&success&&effect_selected&&once_origin&&retained&&
+ if(!NativePersistentHistory::Enabled()&&BbNativeAsyncPreSr::DiagnosticEnabled()&&!once_attempted&&success&&effect_selected&&once_origin&&retained&&
   (image==returned_image||(fixed_input&&actual_fixed_input&&image==fixed_input->Image()))&&chain.LastSource()==source){
   once_attempted=true; // allocation/identity/write failures never retry another source
   try{
@@ -457,12 +521,13 @@ void NativeAsyncPreSr::SrReadRecorded(Scheduler& scheduler,uint64_t source,vk::I
   }catch(const std::exception& e){Quarantine();std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_ONCE_FAILED session=%s source=%llu reason=%s retry=0 unknown_GPU_use_held=1\n",Session().c_str(),(unsigned long long)source,e.what());}
  }
  if(actual_fixed_input)std::printf("NATIVE_PRE_SR_FIXED_SR_READ session=%s source=%llu input_image=%p copy_tick=%llu actual_SR_read_tick=%llu last_use_tick=%llu same_Native_timeline=1 actual_CPU_GPU_complete=NOT_YET_OBSERVED\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)fixed_input->CopyTick(),(unsigned long long)fixed_input->ReadTick(),(unsigned long long)fixed_input->LastUse());
- std::printf("NATIVE_ASYNC_PRE_SR_SR_READ session=%s source=%llu actual_input_image=%p native_sr_read_tick=%llu SR_success=%u cache_selected=%u actual_origin=%llu actual_job=%u scope=actual_current720_SR_input_binding_numeric_guard_GPU_wholeframe_fallback_NOT_MEASURED_HOT\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)scheduler.CurrentTick(),success,effect_selected,(unsigned long long)OriginSource(),effect_job);
+ std::printf("NATIVE_ASYNC_PRE_SR_SR_READ session=%s source=%llu actual_input_image=%p native_sr_read_tick=%llu SR_success=%u cache_selected=%u request_origin=%llu candidate_job=%u scope=actual_current720_SR_input_binding_numeric_guard_GPU_wholeframe_fallback_NOT_MEASURED_HOT\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)scheduler.CurrentTick(),success,effect_selected,(unsigned long long)OriginSource(),effect_job);
 }
 }
 
 namespace Vulkan {
 std::optional<vk::ImageCreateInfo> NativeAsyncPreSr::ReturnInfo(uint64_t source,vk::Image image)const noexcept{
+ if(PersistentPrepared(source)&&image==retained->persistent->Image())return retained->persistent->Info();
  if(retained&&chain.Size()&&chain.LastSource()==source&&image==returned_image)return retained->returns->Info(chain.Size()-1);
  return {};
 }
@@ -491,7 +556,7 @@ void NativeAsyncPreSr::PrepareCurrentMasks(Scheduler&s,uint64_t source,bool supp
 namespace Vulkan {
 void NativeAsyncPreSr::BeginSource(uint64_t source,bool supported)noexcept{
  actual_source=source;actual_supported=supported;effect_selected=false;returned_image=vk::Image{};actual_fixed_input=false;actual_source_dt=0;
- if(BbNativePreSrSkyPolicy::Enabled()&&supported){
+ if((BbNativePreSrSkyPolicy::Enabled()||NativePersistentHistory::Enabled())&&supported){
   const uint64_t now=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
   if(last_supported_source&&source==last_supported_source+1&&now>last_supported_native_ns)actual_source_dt=double(now-last_supported_native_ns)/1e9;
   last_supported_source=source;last_supported_native_ns=now;
