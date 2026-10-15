@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "native_async_state.h"
+#include "native_persistent_history.h"
+#include "native_persistent_history_shader.h"
 #include "vk_common.h"
 #include <memory>
 namespace Vulkan {
@@ -18,10 +20,19 @@ public:
   uint64_t candidate_origin=0,candidate_current=0,candidate_count=0;
   bool host_history=false,candidate_recorded=false;
  };
+ struct CandidateSnapshot {
+  NativePersistentHistory::CandidateEvidence identity;
+  BbNativeAsync::Frame origin,current;
+  // Immutable origin32, acquired actual Resolve720 NR32, origin depth32.
+  std::array<vk::Image,3> images{};
+  PersistentHistoryConstants capture_parameters;
+  unsigned bank=2;uint64_t count=0;
+ };
  explicit NativePersistentHistoryDiagnostic(const Instance&);
  ~NativePersistentHistoryDiagnostic();
  static bool Enabled() noexcept;
  bool Record(Scheduler&,const Snapshot&);
+ bool RecordCandidate(Scheduler&,const CandidateSnapshot&);
  void ObserveCompletion(Scheduler&);
  bool Ready() const noexcept;
  void HoldUnknown() noexcept;

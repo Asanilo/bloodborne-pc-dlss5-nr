@@ -59,6 +59,7 @@ struct NativePersistentHistory::Impl {
  std::unique_ptr<NativePersistentHistoryDiagnostic> diagnostic;
  vk::Image current_raw{};
  uint64_t candidate_origin=0,candidate_current=0,candidate_count=0;
+ PersistentHistoryConstants last_capture;
  vk::UniqueSampler nearest;
  vk::UniqueDescriptorSetLayout layout,conversion_layout;
  vk::UniquePipelineLayout pipeline_layout,conversion_pipeline_layout;
@@ -158,6 +159,7 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  std::copy(frame.previous_projection.begin(),frame.previous_projection.end(),c.PreviousProjection);
  std::copy(frame.previous_view_z.begin(),frame.previous_view_z.end(),c.PreviousViewZ);
  c.DeltaFrames=delta_frames;c.DeltaMs=delta_ms;c.OriginAgeFrames=origin_frames;c.OriginAgeMs=origin_ms;
+ if(diagnostic&&mode==PHCapture)last_capture=c;
  std::memcpy(buffer.mapped_data.data(),&c,sizeof c);buffer.Flush(0,sizeof c);
  const vk::BufferMemoryBarrier2 host{.srcStageMask=vk::PipelineStageFlagBits2::eHost,.srcAccessMask=vk::AccessFlagBits2::eHostWrite,
  .dstStageMask=vk::PipelineStageFlagBits2::eComputeShader,.dstAccessMask=vk::AccessFlagBits2::eUniformRead,
@@ -223,7 +225,7 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  p.active=next_bank;p.last=frame;p.prepared=true;
  return true;
 }
-bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<const Link> links,vk::ImageView nr){
+bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<const Link> links,vk::ImageView nr,vk::Image nr_image,const CandidateEvidence* evidence){
  auto& p=*impl;
  if(!p.prepared||p.applied||p.candidate_recorded||p.unknown||p.timeline!=&scheduler||!nr||links.empty()||links.size()>BbNativeAsync::NodeCount)return false;
  if(links.back().frame.source!=p.current.source)return false;
@@ -251,6 +253,14 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
  const auto to=1-p.active;const auto views=p.Converted();
  p.Pass(scheduler,PHAdopt,current_bank,to,views,p.banks[p.active].edit.View(),p.banks[p.active].meta.View(),p.current,true,0,0);
  p.active=to;p.candidate=current_bank;p.history=true;p.candidate_recorded=true;p.candidate_origin=links.front().frame.source;p.candidate_current=p.current.source;++p.candidate_count;
+ if(p.diagnostic){
+  if(!nr_image||!evidence)throw std::runtime_error("cold candidate actual image and exact identity required");
+  NativePersistentHistoryDiagnostic::CandidateSnapshot snapshot;
+  snapshot.identity=*evidence;snapshot.origin=links.front().frame;snapshot.current=p.current;
+  snapshot.images={links.front().converted[0],nr_image,links.front().converted[1]};
+  snapshot.capture_parameters=p.last_capture;snapshot.bank=current_bank;snapshot.count=p.candidate_count;
+  if(p.diagnostic->RecordCandidate(scheduler,snapshot))p.Mark(scheduler);
+ }
  std::printf("PERSISTENT_HISTORY_CANDIDATE_RECORDED source=%llu origin=%llu links=%zu candidate_bank=%u active_bank=%u status=PENDING_GPU_GUARD\n",(unsigned long long)p.current.source,(unsigned long long)links.front().frame.source,links.size(),p.candidate,p.active);
  return true;
 }

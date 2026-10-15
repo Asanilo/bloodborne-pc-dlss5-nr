@@ -4,12 +4,17 @@
 #include "video_core/texture_cache/image.h"
 #include <memory>
 #include <span>
+#include <string>
 namespace Vulkan {
 class Instance; class Scheduler;
 // Renderer-thread only. No queue submission, waits, IPC, model or CPU pixel readback.
 // Recorded visual metadata never proves GPU validity or completion.
 class NativePersistentHistory {
 public:
+ struct CandidateEvidence {
+  std::string session,resource_set;
+  uint64_t generation=0,job=0,helper_serial=0,native_input_tick=0;
+ };
  struct Link { BbNativeAsync::Frame frame; std::array<vk::Image,3> converted; };
  explicit NativePersistentHistory(const Instance&);
  ~NativePersistentHistory();
@@ -20,7 +25,8 @@ public:
                    const BbNativeAsync::Frame&,double real_dt);
  // Caller must validate exact immutable NR tuple, origin and <=4 link admission.
  // This class independently validates the full consecutive retained lineage.
- bool RecordCandidate(Scheduler&,std::span<const Link>,vk::ImageView actual_NR);
+ bool RecordCandidate(Scheduler&,std::span<const Link>,vk::ImageView actual_NR,
+                      vk::Image actual_NR_image={},const CandidateEvidence* evidence=nullptr);
  // Records whole-frame finite guard and raw-alpha half conversion through Return.
  vk::ImageView Apply(Scheduler&);
  vk::Image Image() const noexcept;
