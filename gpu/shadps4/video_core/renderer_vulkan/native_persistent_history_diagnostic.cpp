@@ -172,6 +172,7 @@ void NativePersistentHistoryDiagnostic::Impl::Write(unsigned index){
  J handles=J::array();for(auto image:s.images)handles.push_back(reinterpret_cast<uintptr_t>(VkImage(image)));
  J manifest{{"schema","persistent-history-cold-v1"},{"session",session},{"sample_index",index},{"expected_previous_captured_source",index?frames[index-1].snapshot.current.source:0},{"capture_source_gap",index?s.current.source-frames[index-1].snapshot.current.source-1:0},{"current_source",s.current.source},{"previous_source",s.current.previous},
  {"visual_generation",s.current.history},{"params_version",s.current.params},{"real_reset",s.current.sr_reset},{"current_jitter",s.current.viewport},{"previous_jitter",s.current.previous_viewport},
+ {"current_projection",s.current.current_projection},{"previous_projection",s.current.previous_projection},{"previous_view_z",s.current.previous_view_z},
  {"source_image_handles",handles},{"image_extent",{1280,720}},{"image_formats_vk",{97,97,97,109}},
  {"active_bank",s.active_bank},{"candidate_bank",s.candidate_bank},{"candidate_origin",s.candidate_origin},{"candidate_current",s.candidate_current},{"candidate_count",s.candidate_count},{"candidate_recorded_this_source",s.candidate_recorded},{"host_history_potential_only",s.host_history},
  {"bank_state_actual",state},{"return_guard_actual",guard},
