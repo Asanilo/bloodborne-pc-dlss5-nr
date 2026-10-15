@@ -47,6 +47,8 @@ bool sameSurface(float a,float b,float projectionZ) {
 vec3 guide(float bits) { uint u=floatBitsToUint(bits);vec3 q=vec3(u&127u,(u>>7)&255u,(u>>15)&255u)/vec3(127,255,255);return max(exp2(q*32.-16.)-p.thresholds.x,vec3(0)); }
 float packed(vec3 c) { vec3 q=clamp((log2(c+p.thresholds.x)+16.)/32.,0.,1.);uvec3 u=uvec3(round(q*vec3(127,255,255)));return uintBitsToFloat(0x3f800000u|u.x|(u.y<<7)|(u.z<<15)); }
 bool guideRange(vec3 c) {vec3 l=log2(c+p.thresholds.x);return finite3(c)&&all(greaterThanEqual(c,vec3(0)))&&all(greaterThanEqual(l,vec3(-16)))&&all(lessThanEqual(l,vec3(16)));}
+// Bit16 records pixel-local out-of-range edits. Every other reason is candidate-fatal.
+bool bankUsable(uint status) { return (status&~16u)==0u; }
 bool live(vec4 e,vec4 m) { return finite3(e.rgb)&&finite1(e.a)&&finite1(m.x)&&finite1(m.z)&&finite1(m.w)&&e.a>=p.limits.w&&m.z<=p.limits.x&&m.w<=p.limits.y&&m.z>=0.&&m.w>=0.; }
 void main() {
  ivec2 c=ivec2(gl_GlobalInvocationID.xy); if(any(greaterThanEqual(c,ivec2(p.dispatch.yz)))) return;
@@ -75,7 +77,7 @@ void main() {
   if(all(equal(c,ivec2(0)))&&state.invalid[src]!=0u) atomicOr(state.invalid[dst],state.invalid[src]);
   vec2 uv=(vec2(c)+.5)/vec2(p.dispatch.yz),mv=texture(motionImage,uv).xy;
   vec2 prev=uv+mv*p.motion.xy/vec2(textureSize(motionImage,0))+p.motion.zw;
-  if(finite1(mv.x)&&finite1(mv.y)&&all(greaterThanEqual(prev,vec2(0)))&&all(lessThan(prev,vec2(1)))&&state.invalid[src]==0u&&p.flags.z!=0u) {
+  if(finite1(mv.x)&&finite1(mv.y)&&all(greaterThanEqual(prev,vec2(0)))&&all(lessThan(prev,vec2(1)))&&bankUsable(state.invalid[src])&&p.flags.z!=0u) {
    ivec2 q=ivec2(prev*vec2(p.dispatch.yz));e=imageLoad(sourceEdit,q);m=imageLoad(sourceMeta,q);m.zw+=p.age.xy;
    float d=depthAt(c),expected=-1.;bool geometry=previousDepth(d,c,expected);vec3 previous=guide(m.y)*p.limits.z;
    vec3 difference=abs(log2((max(raw.rgb,vec3(0))+p.thresholds.x)/(previous+p.thresholds.x)));
@@ -85,8 +87,8 @@ void main() {
    m.xy=vec2(d,packed(raw.rgb));
   }
  } else {
-  e=imageLoad(sourceEdit,c);m=imageLoad(sourceMeta,c);ok=state.invalid[src]==0u&&live(e,m);
-  if(mode==3u&&!ok) {e=texelFetch(originOrFallbackEdit,c,0);m=texelFetch(modelOrFallbackMeta,c,0);ok=state.invalid[min(p.flags.w,3u)]==0u&&live(e,m);}
+  e=imageLoad(sourceEdit,c);m=imageLoad(sourceMeta,c);ok=bankUsable(state.invalid[src])&&live(e,m);
+  if(mode==3u&&!ok) {e=texelFetch(originOrFallbackEdit,c,0);m=texelFetch(modelOrFallbackMeta,c,0);ok=bankUsable(state.invalid[min(p.flags.w,3u)])&&live(e,m);}
  }
  if(!ok) {e=vec4(0);m=vec4(0);}
  if(p.reserved1.x>0.) {if(!ok) atomicAdd(state.rejectedPixels,1u);else {atomicAdd(state.validPixels,1u);atomicMax(state.oldestFrames,uint(ceil(m.z)));}}

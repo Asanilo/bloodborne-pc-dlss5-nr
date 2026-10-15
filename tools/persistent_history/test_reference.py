@@ -67,7 +67,7 @@ class Boundaries(unittest.TestCase):
 
     def test_source_contract(self):
         # Validate oracle assumptions against shader actually compiled, not detached constants.
-        for text in ['m.zw+=p.age.xy','m=vec4(d,packed(origin),p.age.zw)', 'state.invalid[src]==0u', 'p.flags.w','vec4(rgb,raw.a)','difference','motionImage','p.motion.zw']:
+        for text in ['m.zw+=p.age.xy','m=vec4(d,packed(origin),p.age.zw)', 'bankUsable(state.invalid[src])', 'p.flags.w','vec4(rgb,raw.a)','difference','motionImage','p.motion.zw']:
             self.assertIn(text,SHADER)
         self.assertNotIn('m.zw=vec2(0)',SHADER)
     def test_global_fault_propagation_and_cold_stats(self):
@@ -91,7 +91,27 @@ class Boundaries(unittest.TestCase):
             self.assertEqual(banks[dest],captured)
         self.assertEqual(captured,54)
         self.assertNotEqual(captured,1)
-        self.assertIn('state.invalid[src]==0u',SHADER)
+        self.assertIn('bankUsable(state.invalid[src])',SHADER)
+
+    def test_local_log_rejection_without_bank_loss(self):
+        self.assertIn('(status&~16u)==0u',SHADER)
+        self.assertIn('bankUsable(state.invalid[min(p.flags.w,3u)])',SHADER)
+        usable=lambda status: (status & ~16)==0
+        old=[capture((1,1,1),(1.5,1.5,1.5),9,144)]*3
+        fresh=[capture((1,1,1),(2,2,2),3,48),None,capture((1,1,1),(2,2,2),3,48)]
+        adopted=[new if usable(16) and new is not None else prev for new,prev in zip(fresh,old)]
+        self.assertIs(adopted[0],fresh[0]);self.assertIs(adopted[1],old[1]);self.assertIs(adopted[2],fresh[2])
+        self.assertEqual(adopted[1][1:],(9,144))
+        self.assertEqual(adopted[0][1:],(3,48))
+        allbad=[capture((1,1,1),(0,0,0),3,48)]*3
+        self.assertEqual(allbad,[None]*3)
+        self.assertEqual([new if usable(16) and new is not None else prev for new,prev in zip(allbad,old)],old)
+        self.assertEqual([new if usable(16) and new is not None else None for new in allbad],[None]*3)
+        for fatal in (1,2,4,8,32,64,128):
+            self.assertFalse(usable(fatal));self.assertFalse(usable(16|fatal))
+            rejected=[new if usable(16|fatal) and new is not None else prev for new,prev in zip(fresh,old)]
+            self.assertEqual(rejected,old)
+        self.assertIsNone(capture((1,1,1),(math.nan,2,2),3,48))
 
     def test_true_origin_age(self):
         h=capture((1,1,1),(2,2,2),4,65)

@@ -29,7 +29,12 @@ enum PersistentHistoryInvalid : uint32_t {
  PHExcessiveLogEdit=16u, PHBadModelAge=32u, PHGuideOutOfRange=64u,
  PHNonfiniteLogEdit=128u
 };
-// Invalid bits accumulate over all candidate pixels and survive every catch-up bank.
+// Reason bits accumulate over candidate pixels and survive every catch-up bank.
+// PHExcessiveLogEdit marks pixel-local rejection (confidence=0), not bank failure.
+// Every other bit remains bank-fatal. A mixed local/fatal status is fatal.
+inline constexpr bool PersistentHistoryBankUsable(uint32_t status) {
+ return (status & ~uint32_t(PHExcessiveLogEdit)) == 0u;
+}
 // invalid[4], validPixels, rejectedPixels, changedPixels, oldestFrames.
 struct PersistentHistoryState { uint32_t invalid[4], validPixels, rejectedPixels, changedPixels, oldestFrames; };
 }
