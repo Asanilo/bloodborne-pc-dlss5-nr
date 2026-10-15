@@ -132,8 +132,8 @@ void NativeAsyncPreSr::PollReady(const Instance& instance,Scheduler& scheduler,b
  if(source_count>=BbNativeAsyncPreSrPlay::SourceLimit()){stopping=true;if(peer)peer->RequestStop(4);}
  if(stopping&&once_retired&&(!fixed_input||fixed_input->Ready())&&(!retained||retained->AllUsesReady())){
   if(BbNativeAsyncPreSrPlay::Enabled()&&!play_summary_printed){
-   std::printf("NATIVE_ASYNC_PRE_SR_PLAY_SOURCE_SUMMARY session=%s admitted=%llu first_source=%llu last_source=%llu gaps=%llu source_backup=36000 scope=actual_admitted_packets_not_elapsed_or_consecutive_proof\n",Session().c_str(),
-    (unsigned long long)source_count,(unsigned long long)play_first_source,(unsigned long long)play_last_source,(unsigned long long)play_source_gaps);
+   std::printf("NATIVE_ASYNC_PRE_SR_PLAY_SOURCE_SUMMARY session=%s admitted=%llu first_source=%llu last_source=%llu gaps=%llu source_backup=%llu scope=actual_admitted_packets_not_elapsed_or_consecutive_proof\n",Session().c_str(),
+    (unsigned long long)source_count,(unsigned long long)play_first_source,(unsigned long long)play_last_source,(unsigned long long)play_source_gaps,(unsigned long long)BbNativeAsyncPreSrPlay::SourceLimit());
    play_summary_printed=true;
   }
   if(owner)owner->Stop();
@@ -324,7 +324,8 @@ NativeAsyncPreSr::SparseReturn NativeAsyncPreSr::TryRecordSparseComplete(Schedul
  if(valid&&current&&hold->persistent){
   std::array<NativePersistentHistory::Link,BbNativeAsync::NodeCount> links{};
   for(unsigned k=0;k<chain.Size();++k)links[k]={hold->records[k]->frame,hold->sky->Converted(k)};
-  if(hold->persistent->RecordCandidate(scheduler,std::span<const NativePersistentHistory::Link>(links.data(),chain.Size()),resources.views[3]))result.disposition=SparseDisposition::Captured;
+  const NativePersistentHistory::CandidateEvidence evidence{id.session,id.resource_set,id.generation,id.job,complete.helper_gpu_serial,complete.input_tick_echo};
+  if(hold->persistent->RecordCandidate(scheduler,std::span<const NativePersistentHistory::Link>(links.data(),chain.Size()),resources.views[3],resources.images[3],&evidence))result.disposition=SparseDisposition::Captured;
  }else if(valid&&current){result.view=hold->sky->RecordSparseCatchup(scheduler,chain.Size()-1,resources.views[3]);
   if(!result.view)throw std::runtime_error("Native sparse catchup reservation failed after output acquire");
   result.disposition=SparseDisposition::Captured;
