@@ -4,7 +4,8 @@
 #include <cstring>
 #include <cstdint>
 namespace BbNativeAsyncPreSrPlay {
-// Root902026b1 private continuous backup limits. The old4 route remains exact.
+// Current development uses continuous mode. Job/bucket/service limits match
+// the unchanged Helper transport capacity, not a historical launch allowance.
 inline bool Enabled()noexcept{
  const char* on=std::getenv("BB_NR_NATIVE_ASYNC_PRE_SR_PLAY");
  const char* pre=std::getenv("BB_NR_NATIVE_ASYNC_PRE_SR");
@@ -13,7 +14,14 @@ inline bool Enabled()noexcept{
   (!std::strcmp(mode,"resident")||!std::strcmp(mode,"skipEvaluate"));
 }
 inline uint64_t MaxJobs()noexcept{return Enabled()?16384u:4u;}
-inline uint64_t SourceLimit()noexcept{return Enabled()?36000u:120u;}
+inline uint64_t SourceLimit()noexcept{
+ if(!Enabled())return 120u;
+ static const uint64_t limit=[]()->uint64_t{
+  const char* value=std::getenv("BB_NR_NATIVE_ASYNC_SOURCE_LIMIT");if(!value)return 36000u;
+  char* end=nullptr;const auto parsed=std::strtoull(value,&end,10);
+  return *value&&*value!='-'&&end&&!*end&&parsed>=1&&parsed<=216000?parsed:0;
+ }();return limit;
+}
 inline unsigned ServiceSeconds()noexcept{return Enabled()?600u:300u;}
 inline unsigned BucketCount()noexcept{return Enabled()?256u:1u;}
 inline unsigned Bucket(uint64_t job)noexcept{return unsigned(job/64);}

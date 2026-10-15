@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_async_pre_sr_origin_owner.h"
+#include "native_dev_paths.h"
 #include "native_pre_sr_spawn_log.h"
 #include "native_async_pre_sr_play_wire.h"
 #include "native_async_pre_sr_policy.h"
@@ -99,7 +100,7 @@ NativeAsyncPreSrOriginOwner::~NativeAsyncPreSrOriginOwner(){if(worker.joinable()
 bool NativeAsyncPreSrOriginOwner::Enabled()const noexcept {const auto m=Env("BB_NR_NATIVE_ORIGIN_MODE");return BbNativeAsyncPreSr::Enabled()&&(m=="resident"||m=="skipEvaluate");}
 bool NativeAsyncPreSrOriginOwner::Start(const Instance&i){if(!Enabled())return false;bool expected=false;if(!started.compare_exchange_strong(expected,true))return State()!=Phase::Failed;session=Env("BB_NR_NATIVE_ASYNC_SESSION");mode=Env("BB_NR_NATIVE_ORIGIN_MODE");run=Env("BB_NR_NATIVE_ORIGIN_RUN_DIR");helper=Env("BB_NR_NATIVE_ORIGIN_HELPER");wine=Env("BB_NR_NATIVE_ORIGIN_WINE");preloader=Env("BB_NR_NATIVE_ORIGIN_PRELOADER");prefix=Env("BB_NR_NATIVE_ORIGIN_PREFIX");
  const auto abs=[](const auto&s){return !s.empty()&&s[0]=='/';};
- if(session.empty()||session.size()>63||!abs(run)||run.rfind("/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/",0)!=0||!abs(helper)||!abs(wine)||!abs(preloader)||!abs(prefix)||prefix!=run+"/profile/wine-prefix"){phase.store(Phase::Failed);empty_imports_destroyed.store(true);worker_finished.store(true);std::fprintf(stderr,"NATIVE_ORIGIN_ENV_INVALID no_spawn=1\n");return false;}phase.store(Phase::Bootstrap);worker=std::jthread([this,&i](std::stop_token s){Run(s,i);worker_finished.store(true,std::memory_order_release);});return true;}
+ if(!BbNativeAsyncPreSr::ValidDevRun(run,session)||!abs(helper)||!abs(wine)||!abs(preloader)||!abs(prefix)||prefix!=run+"/profile/wine-prefix"){phase.store(Phase::Failed);empty_imports_destroyed.store(true);worker_finished.store(true);std::fprintf(stderr,"NATIVE_ORIGIN_ENV_INVALID no_spawn=1\n");return false;}phase.store(Phase::Bootstrap);worker=std::jthread([this,&i](std::stop_token s){Run(s,i);worker_finished.store(true,std::memory_order_release);});return true;}
 std::shared_ptr<NativeAsyncPreSrOriginOwner::Job> NativeAsyncPreSrOriginOwner::TryReserve(const BbNativeAsync::Frame&f){std::unique_lock lock(mutex,std::try_to_lock);if(!lock||State()!=Phase::Ready||stop_reason.load()||finalized.load()>=BbNativeAsyncPreSrPlay::MaxJobs()||f.source<=last_recorded_origin)return {};auto next=std::make_shared<Job>();next->id={session,session+"-g0",0,finalized.load(),f.source,f.epoch,f.history,f.params};if(!next->id.Matches(f)||!registry.Valid(next->id))return {};next->origin=f;next->resources=registry;job=next;phase.store(Phase::Reserved,std::memory_order_release);return next;}
 std::shared_ptr<NativeAsyncPreSrOriginOwner::Job> NativeAsyncPreSrOriginOwner::TryJob(){std::unique_lock lock(mutex,std::try_to_lock);return lock?job:nullptr;}
 void NativeAsyncPreSrOriginOwner::CancelReservation(const std::shared_ptr<Job>&j){std::unique_lock lock(mutex,std::try_to_lock);if(lock&&job==j&&State()==Phase::Reserved){job.reset();phase.store(Phase::Ready);}}

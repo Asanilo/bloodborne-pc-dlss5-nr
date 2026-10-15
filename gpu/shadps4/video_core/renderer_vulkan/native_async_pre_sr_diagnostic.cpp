@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_async_pre_sr_diagnostic.h"
+#include "native_dev_paths.h"
 #include "vk_instance.h"
 #include "vk_scheduler.h"
 #include <nlohmann/json.hpp>
@@ -18,7 +19,7 @@ J Jitter(const BbNativeAsync::Frame& f){return {{"viewport_jitter_x",f.viewport[
 NativeAsyncPreSrDiagnostic::NativeAsyncPreSrDiagnostic(const Instance& i){
  const char* r=std::getenv("BB_NR_NATIVE_ASYNC_RUN_DIR"),*s=std::getenv("BB_NR_NATIVE_ASYNC_SESSION");
  if(!BbNativeAsyncPreSr::DiagnosticEnabled()||!r||!s)throw std::runtime_error("async preSR once resident opt-in required");
- run=r;session=s;if(run!="/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/native-async-pre-sr-game-"+session)throw std::runtime_error("async preSR once private root mismatch");
+ run=r;session=s;if(!BbNativeAsyncPreSr::ValidDevRun(run,session))throw std::runtime_error("async preSR once private root mismatch");
  for(auto& b:images)b=std::make_unique<VideoCore::Buffer>(i,0,BbNativeAsyncPreSr::DiagnosticImageBytes,VideoCore::MemoryType::HostCached,"Async preSR actual current97 once");
  guard=std::make_unique<VideoCore::Buffer>(i,0,4,VideoCore::MemoryType::HostCached,"Async preSR once actual GPU guard");
  if(BbNativeAsyncPreSr::MaskDiagnosticEnabled()){
