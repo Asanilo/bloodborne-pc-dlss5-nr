@@ -28,6 +28,8 @@ public:
  bool PreparedFor(uint64_t source) const noexcept;
  void MarkUse(Scheduler&,uint64_t source);
  bool Ready() const noexcept;
+ // Refresh only this scheduler's real completed targets; never wait or submit.
+ void ObserveCompletion(Scheduler&);
  // Explicit stop/retirement diagnostics; no wait, poll, or invented completion.
  void ReportRetirement(const char* stage) const noexcept;
  void HoldUnknown() noexcept;

@@ -265,6 +265,24 @@ void NativePersistentHistory::MarkUse(Scheduler& scheduler,uint64_t source){
  HoldUnknown();
 }
 bool NativePersistentHistory::Ready()const noexcept {const auto& p=*impl;if(p.unknown)return false;for(const auto& s:p.slots)if(!p.Free(s))return false;return true;}
+void NativePersistentHistory::ObserveCompletion(Scheduler& scheduler){
+ auto& p=*impl;if(p.unknown)return;
+ // An instance with no recorded use has no timeline to observe. A mismatch
+ // after recording is unknown, never permission to compare unrelated counters.
+ if(!p.timeline)return;
+ if(p.timeline!=&scheduler){HoldUnknown();return;}
+ for(auto& slot:p.slots){auto proof=slot.proof;
+  const auto target=proof->last;
+  // CurrentTick is still recording/future; never label it completed. IsFree
+  // refreshes the actual SAME Native timeline, not any Helper serial.
+  if(proof->unknown||!target||target>=scheduler.CurrentTick()||
+     proof->observed.load(std::memory_order_acquire)>=target)continue;
+  if(scheduler.IsFree(target)){
+   auto observed=proof->observed.load(std::memory_order_relaxed);
+   while(observed<target&&!proof->observed.compare_exchange_weak(observed,target,std::memory_order_release,std::memory_order_relaxed)){}
+  }
+ }
+}
 void NativePersistentHistory::ReportRetirement(const char* stage)const noexcept{
  if(!impl)return;const auto& p=*impl;const char* label=stage?stage:"unspecified";
  for(unsigned i=0;i<p.slots.size();++i){const auto& s=p.slots[i];const auto observed=s.proof->observed.load(std::memory_order_acquire);
