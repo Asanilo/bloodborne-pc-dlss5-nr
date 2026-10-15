@@ -42,6 +42,16 @@ bool previousDepth(float d,ivec2 c,out float expected) {
  expected=p.previousProjection.z+p.previousProjection.w/previousZ;
  return depthValid(expected);
 }
+// Confidence measures evidence inside the existing hard admission set. It is
+// independent of elapsed time, display strength and absolute motion magnitude.
+float depthResidual(float a,float b,float projectionZ) {
+ return clamp(abs(a-b)/max(2e-7,abs(projectionZ-b)*p.thresholds.y),0.,1.);
+}
+float boundedMotionSpread(vec2 a,vec2 b) {
+ if(!finite1(a.x)||!finite1(a.y)||!finite1(b.x)||!finite1(b.y))return 1.;
+ float spread=length(a-b);
+ return finite1(spread)?spread/(1.+spread):1.;
+}
 bool sameSurface(float a,float b,float projectionZ) {
  if(!depthValid(a)||!depthValid(b))return false;
  if(a>=1.||b>=1.)return a>=1.&&b>=1.;
@@ -98,8 +108,18 @@ void main() {
    float d=depthAt(c),expected=-1.;bool geometry=previousDepth(d,c,expected);vec3 previous=guide(m.y)*p.limits.z;
    vec3 difference=abs(log2((max(raw.rgb,vec3(0))+p.thresholds.x)/(previous+p.thresholds.x)));
    ok=live(e,m)&&guideRange(raw.rgb)&&finite1(d)&&finite1(p.limits.z)&&p.limits.z>0.&&geometry&&sameSurface(m.x,expected,p.previousProjection.z)&&all(lessThanEqual(difference,vec3(p.thresholds.z)));
+   float edgeResidual=0.,motionSpread=0.;
    // Local depth edge rejects even a low-frequency correction at disocclusion boundaries.
-   for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) {ivec2 n=clamp(c+ivec2(x,y),ivec2(0),ivec2(p.dispatch.yz)-1);float nd=depthAt(n);ok=ok&&sameSurface(nd,d,p.currentProjection.z);}
+   for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) {ivec2 n=clamp(c+ivec2(x,y),ivec2(0),ivec2(p.dispatch.yz)-1);float nd=depthAt(n);ok=ok&&sameSurface(nd,d,p.currentProjection.z);edgeResidual=max(edgeResidual,depthResidual(nd,d,p.currentProjection.z));
+    vec2 neighbourMotion=texelFetch(motionImage,n,0).xy;motionSpread=max(motionSpread,boundedMotionSpread(mv,neighbourMotion));}
+   if(ok) {
+    float colourResidual=p.thresholds.z>0.?max(max(difference.r,difference.g),difference.b)/p.thresholds.z:0.;
+    float residual=max(max(depthResidual(m.x,expected,p.previousProjection.z),edgeResidual),max(colourResidual,motionSpread));
+    // Half precision stores [0.5,1] exactly at the endpoints. Default min=.5
+    // preserves the old hard-gate valid set; higher thresholds select evidence.
+    float confidence=1.-.5*clamp(residual,0.,1.);
+    e.a=min(e.a,confidence);ok=live(e,m);
+   }
    m.xy=vec2(d,packed(raw.rgb));
   }
  } else {

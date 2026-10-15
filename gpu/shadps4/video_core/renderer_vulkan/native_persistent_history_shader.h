@@ -17,6 +17,8 @@ struct alignas(16) PersistentHistoryConstants {
  float MvScaleX{}, MvScaleY{}, JitterDeltaX{}, JitterDeltaY{};
  float Epsilon{1.f/512.f}, DepthTolerance{.02f}, ColourTolerance{.5f}, MaxLogEdit{4.f};
  float DeltaFrames{1.f}, DeltaMs{}, OriginAgeFrames{}, OriginAgeMs{};
+ // Capture confidence=1; advance min-combines evidence in [.5,1].
+ // Default MinConfidence=.5 preserves existing hard depth/colour admission.
  float MaxFrames{12.f}, MaxMs{200.f}, ExposureRatio{1.f}, MinConfidence{.5f};
  float CollectStats{}; // opt-in cold diagnostic counters; zero on the hot path
  float CurrentJitterX{}, CurrentJitterY{}; // current raster viewport shift, pixels

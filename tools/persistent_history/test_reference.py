@@ -56,7 +56,50 @@ def guide_roundtrip(rgb):
     values=(retrieved&127,(retrieved>>7)&255,(retrieved>>15)&255)
     return stored,tuple(max(2**(q/n*32-16)-EPS,0) for q,n in zip(values,(127,255,255)))
 
+def reprojection_confidence(prior,depth_residual=0,edge_residual=0,colour_residual=0,motion=(0,0),neighbours=((0,0),)):
+    spread=0
+    for neighbour in neighbours:
+        if not all(math.isfinite(x) for x in motion+neighbour):spread=1;break
+        distance=math.hypot(*(a-b for a,b in zip(motion,neighbour)))
+        spread=max(spread,distance/(1+distance) if math.isfinite(distance) else 1)
+    residual=max(depth_residual,edge_residual,colour_residual,spread)
+    return min(prior,1-.5*min(max(residual,0),1))
+
 class Boundaries(unittest.TestCase):
+    def test_continuous_confidence_evidence_and_default_compatibility(self):
+        self.assertIn('e.a=min(e.a,confidence);ok=live(e,m)',SHADER)
+        self.assertIn('boundedMotionSpread(mv,neighbourMotion)',SHADER)
+        self.assertIn('depthResidual(m.x,expected,p.previousProjection.z)',SHADER)
+        for residual in (0,.1,.5,.9,1):
+            for component in ('depth_residual','edge_residual','colour_residual'):
+                q=reprojection_confidence(1,**{component:residual})
+                self.assertAlmostEqual(q,1-.5*residual)
+                self.assertGreaterEqual(q,.5)
+        self.assertEqual(reprojection_confidence(.7),.7)
+        self.assertLess(reprojection_confidence(1,motion=(0,0),neighbours=((2,0),)),.9)
+        self.assertEqual(reprojection_confidence(1,motion=(1000,-800),neighbours=((1000,-800),)),1)
+        self.assertEqual(reprojection_confidence(1,motion=(3,1),neighbours=((math.nan,0),)),.5)
+        # No unconditional ageing, strength or motion-magnitude factor; uniform
+        # motion only transports the original model residual and true age.
+        h=capture((1,1,1),(1.5,1.5,1.5),3,50)
+        for residual in (0,.2,.5,1):
+            old=advance(h,(1,1,1),(1,1,1),.5,.5)
+            q=reprojection_confidence(1,colour_residual=residual)
+            new=old if q>=.5 else None
+            self.assertEqual(new,old)
+            self.assertEqual(compose((1,1,1,.37),new),compose((1,1,1,.37),old))
+            self.assertEqual(new[1:],(4,66))
+            self.assertEqual(q>=.9,residual<=.2)
+        oldq=.6
+        candidateq=.8
+        adopted=candidateq if candidateq>=.9 else (oldq if oldq>=.9 else None)
+        self.assertIsNone(adopted)
+        self.assertEqual((candidateq if candidateq>=.7 else oldq),.8)
+        # Existing disocclusion/colour/TTL guards remain hard, not softened by q.
+        self.assertIsNone(advance(h,(1,1,1),(2,1,1),.5,.5))
+        self.assertIsNone(advance(h,(1,1,1),(1,1,1),.5,.8))
+        self.assertIsNone(advance(h,(1,1,1),(1,1,1),.5,.5,dtframes=10))
+
     def test_packed_guide_normal_and_colour_precision(self):
         self.assertIn('0x3f800000u|u.x|(u.y<<7)|(u.z<<15)',SHADER)
         for rgb in [(0,0,0),(.001,.03,.1),(1,10,100),(1000,10000,30000)]:

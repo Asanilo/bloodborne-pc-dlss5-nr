@@ -1,7 +1,7 @@
 {
   "source": "tools/persistent_history/history.comp",
-  "source_sha256": "b4ab043def6b42487ed0fe93268a2d562e059abf331531032c85fbdd19ec6099",
-  "spirv_sha256": "8a646304398848954141795d8585543e4e0f42bca917aa4f54de88b39194e9a6",
+  "source_sha256": "3ee2bdead77354e2f7fa0a283e4e3266f9f3e2b066c6f1ff1b1b32fb9e56497a",
+  "spirv_sha256": "23f7567c2114749a5d37cb2392bc202f4010b2fb9bf42a33ecb0ca5144d99cf6",
   "compiler": "Glslang Version: 11:16.6.0\nESSL Version: OpenGL ES GLSL 3.20 glslang Khronos. 16.6.0\nGLSL Version: 4.60 glslang Khronos. 16.6.0\nSPIR-V Version 0x00010600, Revision 1\nGLSL.std.450 Version 100, Revision 1\nKhronos Tool ID 8\nSPIR-V Generator Version 11\nGL_KHR_vulkan_glsl version 100\nARB_GL_gl_spirv version 100\n",
   "target": "vulkan1.1",
   "validation": "spirv-val PASS"
