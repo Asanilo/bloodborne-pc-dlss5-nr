@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2024-2026 shadPS4 Emulator Project
 // SPDX-License-Identifier: GPL-2.0-or-later
 
+#include "video_core/amdgpu/pm4_register_guard.h"
 #include <chrono>
 #include <thread>
 #include <pthread.h>
@@ -41,6 +42,10 @@
 extern "C" int runtime_memory_vma_info(uintptr_t address, int* prot, int* type, uintptr_t* end);
 
 namespace AmdGpu {
+static_assert(Pm4RegisterGuard::ShStart == Regs::ShRegWordOffset);
+static_assert(Pm4RegisterGuard::ContextStart == Regs::ContextRegWordOffset);
+static_assert(Pm4RegisterGuard::UconfigStart == Regs::UconfigRegWordOffset);
+static_assert(Pm4RegisterGuard::UconfigEnd <= Regs::NumRegs);
 
 
 static const char* dcb_task_name{"DCB_TASK"};
@@ -812,7 +817,18 @@ u64 Liverpool::HashRegisterPacket(u64 checksum, const u32* words, u32 count) {
 }
 
 void Liverpool::ApplyGraphicsRegisterPacket(Regs& regs, const PM4Header* header, u64& checksum,
-                                             RegDirty* dirty) {
+                                             std::size_t available_words, RegDirty* dirty) {
+    const auto words=std::span<const u32>{reinterpret_cast<const u32*>(header),available_words};
+    const auto checked=Pm4RegisterGuard::Validate(words);
+    if(!checked){
+        std::fprintf(stderr,"Bad PM4 register packet at %p: %s opcode=%#x offset=%#x expected_words=%zu available_words=%zu raw:",
+                     static_cast<const void*>(header),Pm4RegisterGuard::Reason(checked.error),checked.opcode,checked.offset,checked.words,available_words);
+        for(std::size_t i=0;i<std::min<std::size_t>(available_words,std::min<std::size_t>(checked.words,16));++i)
+            std::fprintf(stderr," %08x",words[i]);
+        std::fprintf(stderr,"\n");std::fflush(stderr);
+        UNREACHABLE_MSG("Invalid PM4 register packet: {}",Pm4RegisterGuard::Reason(checked.error));
+        return; // no register/checksum/dirty write even if an assertion handler returns
+    }
     const u32 count = header->type3.NumWords();
     const auto* payload = reinterpret_cast<const u32*>(header + 2);
     const auto mark = [&](u32 word, u32 words) {
@@ -1249,7 +1265,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
         case 3:
             const u32 count = header->type3.NumWords();
             const PM4ItOpcode opcode = header->type3.opcode;
-            ApplyGraphicsRegisterPacket(regs, header, gfx_reg_checksum, &pipe_dirty);
+            ApplyGraphicsRegisterPacket(regs, header, gfx_reg_checksum, dcb.size(), &pipe_dirty);
             // DmaData to 0x3022C does nothing here (skipped below): no need to wait.
             if (rasterizer && !PipelinedOpcode(opcode) &&
                 !(opcode == PM4ItOpcode::DmaData &&
