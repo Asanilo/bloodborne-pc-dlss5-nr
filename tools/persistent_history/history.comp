@@ -125,7 +125,7 @@ void main() {
     // preserves the old hard-gate valid set; higher thresholds select evidence.
     float confidence=1.-.5*clamp(residual,0.,1.);
     e.a=min(e.a,confidence);ok=live(e,m);
-    if(ok) {
+    if(ok&&p.reserved2.x==1.) {
      // Nearest remains the hard admission reference. Filter only residual RGB,
      // never packed guide/depth/age/confidence, and only across proven same-origin
      // samples. Missing/invalid support falls back to that unchanged reference.

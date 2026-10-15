@@ -142,6 +142,24 @@ class Boundaries(unittest.TestCase):
         # A contributing out-of-image tap never clamps/borrows another surface.
         self.assertEqual(restricted_sample(grid,(-.1,.5),(0,1)),grid[1][0])
 
+    def test_nearest_default_and_exact_optional_cubic_selector(self):
+        self.assertIn('if(ok&&p.reserved2.x==1.)',SHADER)
+        self.assertEqual(SHADER.count('if(ok&&p.reserved2.x==1.)'),1)
+        # Selector sits after the shared Alpha nearest/confidence hard gates,
+        # not around them. Unknown/reserved selectors fail closed to nearest.
+        begin=SHADER.index('if(ok&&p.reserved2.x==1.)')
+        self.assertLess(SHADER.index('e.a=min(e.a,confidence);ok=live(e,m)'),begin)
+        self.assertLess(begin,SHADER.index('vec4 wx=cubicWeights'))
+        tap=lambda v:((v,v,v),1.,5.,80.,True)
+        grid=[[tap(float(x+y)) for x in range(6)] for y in range(6)]
+        nearest=grid[3][2]
+        for selector in (0.,-1.,2.,.999999,math.nan,math.inf):
+            result=restricted_cubic(grid,(2.25,2.5),(2,3)) if selector==1. else nearest
+            self.assertIs(result,nearest)
+        selected=restricted_cubic(grid,(2.25,2.5),(2,3))
+        self.assertNotEqual(selected[0],nearest[0])
+        self.assertEqual(selected[2:],nearest[2:])
+
     def test_cubic_support_negative_weights_clamp_and_age(self):
         self.assertIn('vec4 wx=cubicWeights(phase.x),wy=cubicWeights(phase.y)',SHADER)
         self.assertIn('clamp(filtered,centerMin,centerMax)',SHADER)
