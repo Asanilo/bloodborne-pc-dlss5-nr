@@ -22,6 +22,7 @@ struct alignas(16) PersistentHistoryConstants {
 };
 static_assert(sizeof(PersistentHistoryConstants)==176);
 static_assert(offsetof(PersistentHistoryConstants, CurrentJitterX)==100);
+static_assert(offsetof(PersistentHistoryConstants, DisplayStrength)==108);
 static_assert(offsetof(PersistentHistoryConstants, CurrentProjection)==128);
 static_assert(offsetof(PersistentHistoryConstants, PreviousProjection)==144);
 static_assert(offsetof(PersistentHistoryConstants, PreviousViewZ)==160);
