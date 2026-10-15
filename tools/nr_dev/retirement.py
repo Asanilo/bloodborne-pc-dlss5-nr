@@ -1,12 +1,46 @@
 #!/usr/bin/env python3
 """Offline terminal/tuple/GPU-FD audit extracted from the verified prior audit, no ledger imports."""
-import json,hashlib,re,argparse
+import json,hashlib,re,argparse,math
 from pathlib import Path
 def load(p):return json.loads(Path(p).read_text())
 def need(v,reason):
  if not v:raise ValueError(reason)
+def exact_typed(a,b):
+ if type(a) is not type(b):return False
+ if isinstance(a,dict):return a.keys()==b.keys() and all(exact_typed(a[k],b[k]) for k in a)
+ if isinstance(a,list):return len(a)==len(b) and all(exact_typed(x,y) for x,y in zip(a,b))
+ return a==b
+
+def audit_model_generations(run,session,total_jobs):
+ requests=list(run.glob('runtime-model-request-*.json'));acks=list(run.glob('runtime-model-ack-*.json'))
+ need(len(requests)==len(acks),'every runtime model request has actual ACK')
+ models=[];previous_generation=0;previous_params=1;previous_revision=0;previous_boundary=0;previous_serial=load(run/'async-meta-g0.json')['initial_release_GPU_serial']
+ keys={'schema','session','revision','previous_generation','generation','previous_params','params','style','intensity','finalized_jobs','native_target_tick','native_observed_tick','packet_leases','shared_job_finalized','native_GPU_complete'}
+ for generation in range(1,len(requests)+1):
+  request=load(run/f'runtime-model-request-{generation}.json');ack=load(run/f'runtime-model-ack-{generation}.json')
+  need(set(request)==keys and request['schema']=='nr-runtime-model-v1' and request['session']==session,'runtime request exact schema/session')
+  ints=keys-{'schema','session','intensity','shared_job_finalized','native_GPU_complete'}
+  need(all(type(request[k]) is int and 0<=request[k]<=2**64-1 for k in ints),'runtime model uint fields')
+  need(type(request['intensity']) is float and math.isfinite(request['intensity']) and 0<=request['intensity']<=2 and 0<=request['style']<=2,'model API finite type/range')
+  need(request['previous_generation']==previous_generation and request['generation']==generation
+       and request['previous_params']==previous_params and request['params']>previous_params
+       and request['revision']>previous_revision,'model generation/params/revision exact predecessor')
+  need(previous_boundary<=request['finalized_jobs']<=total_jobs
+       and request['packet_leases']==0 and request['shared_job_finalized'] is True
+       and request['native_GPU_complete'] is True
+       and request['native_observed_tick']>=request['native_target_tick'], 'model request actual idle/drain proof')
+  extra={'op','status','helper_gpu_serial','helper_GPU_complete','feature_create_calls','feature_release_calls'}
+  need(set(ack)==keys|extra and exact_typed({k:ack[k] for k in keys},request),'actual model ACK exact typed request')
+  need(ack['op']=='model_ack' and ack['status']=='FEATURE_REBUILT' and ack['helper_GPU_complete'] is True
+       and type(ack['helper_gpu_serial']) is int and ack['helper_gpu_serial']>previous_serial
+       and type(ack['feature_create_calls']) is int and ack['feature_create_calls']==generation+1
+       and type(ack['feature_release_calls']) is int and ack['feature_release_calls']==generation,'model actual Feature creation fence/API counts')
+  models.append({'request':request,'ack':ack})
+  previous_generation=generation;previous_params=request['params'];previous_revision=request['revision'];previous_boundary=request['finalized_jobs'];previous_serial=ack['helper_gpu_serial']
+ return models
+
 def audit_origin_jobs_and_retirement(result, run, session, out, expected_jobs=4,
-                                     continuous_max_jobs=None):
+                                     continuous_max_jobs=None, runtime_model=False):
     if continuous_max_jobs is None:
         need(type(expected_jobs) is int and expected_jobs in (4, 120), 'explicit bounded job audit scope')
     else:
@@ -19,8 +53,13 @@ def audit_origin_jobs_and_retirement(result, run, session, out, expected_jobs=4,
     release = load(run / ('async-native-released-' + session + '-g0.json'))
     retired = load(run / ('async-retired-' + session + '-g0.json'))
     audited = load(run / ('async-native-audited-' + session + '-g0.json'))
+    need(type(runtime_model) is bool,'explicit runtime model audit mode')
+    models=audit_model_generations(run,session,expected_jobs) if runtime_model else []
+    expected_features=1+len(models)
+    if not runtime_model:
+        need(not list(run.glob('runtime-model-request-*.json')) and not list(run.glob('runtime-model-ack-*.json')),'legacy model path cannot contain runtime rebuild evidence')
     need(helper['status'] == 'PASS' and helper['session'] == session and helper['normal_release'] is True
-         and helper['normal_shutdown'] is True and helper['feature_create_calls'] == helper['feature_release_calls'] == 1,
+         and helper['normal_shutdown'] is True and helper['feature_create_calls'] == helper['feature_release_calls'] == expected_features,
          'actual model normal shutdown and API create/release')
     need(reaped['normal_exit'] is True and reaped['wait_status'] == 0, 'actual private peer waitpid0')
     countkeys = ('finalized_jobs', 'captured_jobs', 'obsolete_jobs', 'skip_jobs')
@@ -45,6 +84,7 @@ def audit_origin_jobs_and_retirement(result, run, session, out, expected_jobs=4,
     jobs = []
     previous_serial = 2
     previous_origin = 0
+    prefix_native=[0];prefix_helper=[0]
     for ordinal in range(expected_jobs):
         prefix = run / 'frames' / f'bucket-{ordinal // 64:06d}'
         inp = load(prefix / f'async-input-{session}-g0-f{ordinal}.json')
@@ -59,10 +99,42 @@ def audit_origin_jobs_and_retirement(result, run, session, out, expected_jobs=4,
              and consumed['helper_gpu_serial_echo'] == complete['helper_gpu_serial']
              and consumed['native_shared_GPU_complete'] is True and consumed['native_shared_last_use_tick'] > 0,
              'actual distinct native tick and Helper fence proofs, safe consumed')
+        if runtime_model:
+            effective={'generation':0,'params':1,'style':0,'intensity':1.0}
+            for model in models:
+                if model['request']['finalized_jobs']<=ordinal:effective=model['request']
+            sidecar=load(run/f'runtime-job-model-{ordinal}.json')
+            model_ack=load(run/f'runtime-job-model-ack-{ordinal}.json')
+            need(exact_typed(sidecar,model_ack),'runtime per-job actual Helper model ACK exact typed identity')
+            expected={'schema':'nr-runtime-job-model-v1','session':session,'job':ordinal,
+                      'origin_source':inp['origin_source'],'origin_epoch':inp['origin_epoch'],
+                      'origin_history':inp['origin_history'],'model_generation':effective['generation'],
+                      'params':effective['params'],'style':effective['style'],'intensity':effective['intensity']}
+            need(exact_typed(sidecar,expected),'runtime per-job tuple and effective model generation/params/settings')
+            if effective['generation']:
+                need(complete['helper_gpu_serial']>models[effective['generation']-1]['ack']['helper_gpu_serial'],'job Evaluate follows actual generation creation fence')
+            evaluated=complete['evaluate_parameters']
+            if evaluated:
+                need(evaluated['Style']==effective['style'] and type(evaluated['Style']) is int
+                     and type(evaluated['Intensity']) is float and evaluated['Intensity']==effective['intensity'],
+                     'actual Evaluate Style/Intensity match acknowledged Feature')
+        prefix_native.append(max(prefix_native[-1],consumed['native_shared_last_use_tick']))
+        prefix_helper.append(max(prefix_helper[-1],complete['helper_gpu_serial']))
         previous_serial = complete['helper_gpu_serial']
         previous_origin = inp['origin_source']
         jobs.append({'job': ordinal, 'origin_source': inp['origin_source'],
                      'disposition': consumed['disposition'], 'gpu_times': complete['gpu_times']})
+    if runtime_model:
+        need(type(helper['feature_create_calls']) is int and type(helper['feature_release_calls']) is int,
+             'runtime Feature API count types')
+        for model in models:
+            request,ack=model['request'],model['ack'];boundary=request['finalized_jobs']
+            need(prefix_native[boundary]<=request['native_target_tick']
+                 and prefix_helper[boundary]<ack['helper_gpu_serial'],
+                 'model rebuild proof covers all prior finalized shared uses and Helper completions')
+        need(len(list(run.glob('runtime-job-model-*.json')))==2*expected_jobs,
+             'runtime model exact request/ACK sidecar count')
+        out.update(runtime_model=True,model_generations=models,feature_create_release_count=expected_features)
     out.update(jobs=jobs, terminal_counts=dict(zip(countkeys, counts)),
                retirement='PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP')
     return helper, counts, jobs
@@ -70,7 +142,8 @@ def audit_origin_jobs_and_retirement(result, run, session, out, expected_jobs=4,
 
 def audit(run,session):
  helper=load(run/'async-wine-result.json');count=helper['finalized_jobs'];out={}
- audit_origin_jobs_and_retirement({'actual_helper_starts':1},run,session,out,expected_jobs=count,continuous_max_jobs=16384)
+ manifest=load(run/'manifest.json');runtime_model=manifest.get('runtime_model',False)
+ audit_origin_jobs_and_retirement({'actual_helper_starts':1},run,session,out,expected_jobs=count,continuous_max_jobs=16384,runtime_model=runtime_model)
  return out
 
 def rows(text,event):
@@ -90,6 +163,7 @@ def audit_session(run,termination=None):
  else:
   need(len(nopeer)==1 and nopeer[0].get('session')==session and nopeer[0].get('maximum_native_use_tick')=='0' and nopeer[0].get('scope')=='native_async_only' and all(nopeer[0].get(k)=='1' for k in ('actual_no_owner','actual_no_snapshot','actual_no_pending','preparation_joined','no_peer_created','no_NR_claim')),'explicit no-peer source/cache ownership and preparation-join proof')
   need(not any((run/p).exists() for p in ('async-config.json','native-scene-arm','async-meta-g0.json','async-wine-result.json','async-native-helper-exit.json')),'no-peer exit contradicts actual peer/config/arm evidence')
+  need(not list(run.glob('runtime-model-*.json')) and not list(run.glob('runtime-job-model-*.json')),'no-peer exit contradicts model rebuild or job model evidence')
   need(not (run/'frames').exists() or not any((run/'frames').rglob('async-input-*.json')),'no-peer exit contradicts job input evidence')
   out={'retirement':'PASS_NO_PEER_NO_SNAPSHOT_NORMAL_EXIT','path':'NO_PEER_NORMAL_EXIT','nopeer':nopeer[0]}
  out.update(session=session,native_exit_proof=proof[0],quality='NOT_ACCEPTED',scope='offline recorded normal teardown evidence; current host safety remains independently checked')

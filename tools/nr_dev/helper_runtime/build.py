@@ -24,6 +24,7 @@ def main():
     host_include=[x for x in original['commands'][0] if x.startswith('-I')]
     subprocess.run(['/usr/bin/c++','-std=c++17','-O2','-Wall','-Wextra','-Werror',*host_include,'-I'+str(proto.parent),str(HERE/'test_protocol.cpp'),'-o',str(test)],check=True)
     subprocess.run([str(test)],check=True)
+    subprocess.run(['python3',str(HERE/'test_retirement.py')],check=True)
     oldcmd=original['commands'][-1]
     include=[x for x in oldcmd if x.startswith('-I')]
     command=[str(compiler),'-std=c++17','-static','-O1','-Wall','-Wextra','-Wno-missing-field-initializers','-Wno-unused-function',*include,'-I'+str(proto.parent),str(HERE/'wine_runtime_model.cpp'),'-o',str(binary)]
