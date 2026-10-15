@@ -26,20 +26,56 @@ def joined(m,text):
   if p.get('swapchain_present')!='1':reasons.append('swapchain Present absent')
   if not (0<int(m['copy_target_tick'])<=int(r['native_sr_read_tick'])<=int(p['merge_tick'])<=int(p['prepare_tick']) and int(p['ready_tick'])>=int(p['merge_tick'])):reasons.append('Native copy/SR/merge/prepare/ready tick chain invalid')
  return {'actual_final_image_SR_Present_joined':not reasons,'reasons':reasons,'SR':reads,'Present':presents,'scope':'source/image exact successful SR and unique current nonreuse Present; not host potential'}
+def effective_history(m,edit,meta,state,guard,target_edit=None,target_meta=None):
+ """Compose bank participation, independently of whether candidate pixels enter SR."""
+ def bank(e,mt,index):
+  need(0<=index<4,'invalid bank index')
+  good=(int(state[index])&~16)==0 and int(guard[0])==0
+  live=np.isfinite(e).all(-1)&np.isfinite(mt[...,[0,2,3]]).all(-1)&(e[...,3]>0)&(e[...,3]>=m.get('min_confidence',0))&(mt[...,2]>=0)&(mt[...,2]<=m.get('ttl_frames',12))&(mt[...,3]>=0)&(mt[...,3]<=m.get('ttl_ms',200))
+  # confidence has no upper bound in shader live(); do not invent a different gate.
+  return live&good,good
+ old,old_good=bank(edit,meta,int(m['active_bank']));age=meta[...,2].copy();ms=meta[...,3].copy();residual=edit[...,:3].copy();ttl_bad=(edit[...,3]>0)&old_good&(~np.isfinite(age)|~np.isfinite(ms)|(age<0)|(age>m.get('ttl_frames',12))|(ms<0)|(ms>m.get('ttl_ms',200)))
+ if not m.get('transition_active',False):return old,age,ms,residual,ttl_bad
+ need(target_edit is not None and target_meta is not None,'transition target assets missing')
+ weight=m['transition_weight'];need(type(weight) in (int,float) and np.isfinite(weight) and 0<=weight<=1,'invalid transition weight')
+ target,target_good=bank(target_edit,target_meta,int(m['candidate_bank']));ta=target_meta[...,2];tm=target_meta[...,3]
+ ttl_bad|=(target_edit[...,3]>0)&target_good&(~np.isfinite(ta)|~np.isfinite(tm)|(ta<0)|(ta>m.get('ttl_frames',12))|(tm<0)|(tm>m.get('ttl_ms',200)))
+ # Fatal target must preserve old; endpoints participate only where that bank is live.
+ if not target_good:return old,age,ms,residual,ttl_bad
+ both=old&target
+ choose_target=target&(~old|(weight>=1))
+ if weight<=0:choose_target=target&~old
+ residual=np.where(choose_target[...,None],target_edit[...,:3],residual);age=np.where(choose_target,ta,age);ms=np.where(choose_target,tm,ms)
+ if 0<weight<1:
+  residual=np.where(both[...,None],edit[...,:3]*(1-weight)+target_edit[...,:3]*weight,residual);age=np.where(both,np.maximum(meta[...,2],ta),age);ms=np.where(both,np.maximum(meta[...,3],tm),ms)
+ return old|target,age,ms,residual,ttl_bad
+
 def analyze(manifest,text):
- m=json.loads(manifest.read_text());need(m.get('schema')=='persistent-history-cold-v1','unsupported diagnostic schema');need(m['image_extent']==[1280,720] and m['image_formats_vk']==[97,97,97,109],'unexpected diagnostic image format/extent');need(m['performance_excluded'] is True,'cold observation must remain excluded from hot performance');need(0<int(m['copy_target_tick'])<=int(m['copy_observed_tick']),'actual Native copy completion missing')
- w,h=m['image_extent'];pixels=w*h;expected=[pixels*8]*3+[pixels*16,32,4];assets={x['file']:x for x in m['assets']};need(len(assets)==len(m['assets'])==6 and set(assets)==set(NAMES),'exact six unique assets required');arrays=[]
- for name,size,dtype in zip(NAMES,expected,['<f2']*3+['<f4','<u4','<u4']):
-  p=manifest.parent/name;need(not p.is_symlink() and p.resolve().parent==manifest.parent.resolve(),'asset must be a direct regular private file');need(p.is_file() and p.stat().st_size==assets[name]['bytes']==size,'asset size mismatch '+name);need(sha(p)==assets[name]['sha256'],'asset SHA mismatch '+name);a=np.fromfile(p,dtype=dtype);arrays.append(a.reshape(h,w,4) if len(arrays)<4 else a)
- raw,final,edit,meta,state,guard=arrays;need(state.tolist()==m['bank_state_actual'] and int(guard[0])==m['return_guard_actual'],'manifest state/guard differs from raw readback')
+ m=json.loads(manifest.read_text());need(m.get('schema') in ('persistent-history-cold-v1','persistent-history-cold-v2'),'unsupported diagnostic schema');need(m['image_extent']==[1280,720],'unexpected extent');need(m['performance_excluded'] is True,'cold observation must remain excluded from hot performance');need(0<int(m['copy_target_tick'])<=int(m['copy_observed_tick']),'actual Native copy completion missing')
+ w,h=m['image_extent'];pixels=w*h;spec={name:(size,dtype,channels) for name,size,dtype,channels in zip(NAMES,[pixels*8]*3+[pixels*16,32,4],['<f2']*3+['<f4','<u4','<u4'],[4,4,4,4,0,0])}
+ if m['schema']=='persistent-history-cold-v2':spec.update({'current-depth720.r32f':(pixels*4,'<f4',1),'current-motion720.rg32f':(pixels*8,'<f4',2)})
+ extended='transition_active' in m
+ formats=[97,97,97,109]+([100,103] if m['schema'].endswith('v2') else [])
+ if extended:
+  need(type(m['transition_active']) is bool,'transition flag must be boolean');need(type(m.get('transition_weight')) in (int,float) and np.isfinite(m['transition_weight']) and 0<=m['transition_weight']<=1,'invalid transition weight');spec.update({'target-edit-confidence720.rgba16f':(pixels*8,'<f2',4),'target-depth-guide-age720.rgba32f':(pixels*16,'<f4',4)});formats += [97,109]
+ need(m['image_formats_vk']==formats,'unexpected diagnostic formats')
+ assets={x['file']:x for x in m['assets']};need(len(assets)==len(m['assets']) and set(assets)==set(spec),'exact unique diagnostic assets required');arrays={}
+ for name,(size,dtype,channels) in spec.items():
+  p=manifest.parent/name;need(not p.is_symlink() and p.resolve().parent==manifest.parent.resolve(),'asset must be direct private file');need(p.is_file() and p.stat().st_size==assets[name]['bytes']==size,'asset size mismatch '+name);need(sha(p)==assets[name]['sha256'],'asset SHA mismatch '+name);a=np.fromfile(p,dtype=dtype);arrays[name]=a.reshape(h,w,channels) if channels else a
+ raw,final,edit,meta,state,guard=[arrays[name] for name in NAMES];need(state.tolist()==m['bank_state_actual'] and int(guard[0])==m['return_guard_actual'],'manifest state/guard differs from raw readback')
  rawf=raw.astype(np.float32);finalf=final.astype(np.float32);editf=edit.astype(np.float32)
  finite=np.isfinite(rawf).all(-1)&np.isfinite(finalf).all(-1);alpha=np.equal(raw.view('<u2')[...,3],final.view('<u2')[...,3]);changed_bits=np.any(raw.view('<u2')[...,:3]!=final.view('<u2')[...,:3],axis=-1);delta=finalf[...,:3]-rawf[...,:3];changed=finite&np.any(delta!=0,axis=-1)
  # meta.G is packed guide bits, not an independent scalar with numeric semantics.
- confidence=editf[...,3];age=meta[...,2];ms=meta[...,3];bank=int(m['active_bank']);need(0<=bank<4,'invalid active bank index');valid=np.isfinite(editf).all(-1)&np.isfinite(meta[...,[0,2,3]]).all(-1)&(confidence>0)&(confidence<=1)&(age>=0)&(age<=12)&(ms>=0)&(ms<=200)&((state[bank]&np.uint32(0xffffffef))==0)&(guard[0]==0)
- positive=confidence>0;ttl_bad=positive&((state[bank]&np.uint32(0xffffffef))==0)&(guard[0]==0)&(~np.isfinite(age)|~np.isfinite(ms)|(age<0)|(age>12)|(ms<0)|(ms>200));old=valid&(age>4);applied=changed&valid;old_applied=changed&old
+ target_edit=arrays.get('target-edit-confidence720.rgba16f');target_meta=arrays.get('target-depth-guide-age720.rgba32f')
+ valid,age,ms,residual,ttl_bad=effective_history(m,editf,meta,state,guard,None if target_edit is None else target_edit.astype(np.float32),target_meta)
+ old=valid&(age>4);applied=changed&valid;old_applied=changed&old
+ epsilon=np.float32(1/512);strength=np.float32(m.get('display_strength',1));
+ with np.errstate(over='ignore',invalid='ignore'):
+  reconstructed=np.where(valid[...,None],np.maximum((np.maximum(rawf[...,:3],0)+epsilon)*np.exp2(residual)-epsilon,0),rawf[...,:3]);reconstructed=rawf[...,:3]*(1-strength)+reconstructed*strength
+ reconstruction_error=np.max(np.abs(reconstructed-finalf[...,:3]),axis=-1)
  eps=1e-6;log_delta=np.log2(np.maximum(finalf[...,:3],0)+eps)-np.log2(np.maximum(rawf[...,:3],0)+eps);luma=lambda a:a[...,:3]@np.array([.2126,.7152,.0722],dtype=np.float32)
  join=joined(m,text);invalid_changed=changed&~valid;integrity=bool(finite.all() and alpha.all() and not ttl_bad.any() and not invalid_changed.any() and (guard[0]==0 or not changed_bits.any()));observed=bool(join['actual_final_image_SR_Present_joined'] and integrity)
- out={'manifest':str(manifest),'manifest_sha256':sha(manifest),'session':m['session'],'source':m['current_source'],'sample_index':m['sample_index'],'capture_source_gap':m['capture_source_gap'],'copy_target_tick':m['copy_target_tick'],'copy_observed_tick':m['copy_observed_tick'],'integrity_pass':integrity,'host_history_potential_only':m['host_history_potential_only'],'bank_state':state.tolist(),'bank_state_semantics':'bit16=local log-range rejection; other bits=fatal candidate rejection','return_guard':int(guard[0]),'pixels':pixels,'raw_final_all_finite':bool(finite.all()),'edit_all_finite':bool(np.isfinite(editf).all()),'alpha_bitwise_identical':bool(alpha.all()),'alpha_mismatch_pixels':int((~alpha).sum()),'RGB_changed_bitwise_fraction':float(changed_bits.mean()),'RGB_changed_numeric_fraction':float(changed.mean()),'RGB_changed_gt_1e_minus5_fraction':float((finite&np.any(np.abs(delta)>1e-5,axis=-1)).mean()),'changed_without_valid_history_pixels':int(invalid_changed.sum()),'RGB_max_abs_delta':stats(np.max(np.abs(delta),axis=-1)),'RGB_log2_delta':stats(log_delta[finite]),'luma_delta':stats((luma(finalf)-luma(rawf))[finite]),'valid_history_fraction':float(valid.mean()),'valid_age_over4_fraction':float(old.mean()),'actual_changed_valid_fraction':float(applied.mean()),'actual_changed_valid_age_over4_fraction':float(old_applied.mean()),'actual_changed_age_over4_fraction_of_changed':float(old_applied.sum()/changed.sum()) if changed.any() else 0.,'positive_confidence_TTL_violation_pixels':int(ttl_bad.sum()),'model_age_frames_valid':stats(age[valid]),'model_age_ms_valid':stats(ms[valid]),'join':join,'observed_SR_present_changed_fraction':float(changed.mean()) if observed else None,'observed_SR_present_changed_valid_age_over4_fraction':float(old_applied.mean()) if observed else None,'scope':'cold observed pixels; model admission age4 remains separate from active visual TTL; no dynamic quality or hot FPS acceptance'}
+ out={'manifest':str(manifest),'manifest_sha256':sha(manifest),'session':m['session'],'source':m['current_source'],'sample_index':m['sample_index'],'capture_source_gap':m['capture_source_gap'],'copy_target_tick':m['copy_target_tick'],'copy_observed_tick':m['copy_observed_tick'],'integrity_pass':integrity,'host_history_potential_only':m['host_history_potential_only'],'transition_active':m.get('transition_active',False),'transition_weight':m.get('transition_weight',1),'bank_state':state.tolist(),'bank_state_semantics':'bit16=local log-range rejection; other bits=fatal candidate rejection','reconstructed_compose_abs_error':stats(reconstruction_error),'reconstruction_scope':'float32 bank-aware log residual compose versus captured guarded half; GPU/half rounding differences descriptive, not exact bitwise proof','return_guard':int(guard[0]),'pixels':pixels,'raw_final_all_finite':bool(finite.all()),'edit_all_finite':bool(np.isfinite(editf).all()),'alpha_bitwise_identical':bool(alpha.all()),'alpha_mismatch_pixels':int((~alpha).sum()),'RGB_changed_bitwise_fraction':float(changed_bits.mean()),'RGB_changed_numeric_fraction':float(changed.mean()),'RGB_changed_gt_1e_minus5_fraction':float((finite&np.any(np.abs(delta)>1e-5,axis=-1)).mean()),'changed_without_valid_history_pixels':int(invalid_changed.sum()),'RGB_max_abs_delta':stats(np.max(np.abs(delta),axis=-1)),'RGB_log2_delta':stats(log_delta[finite]),'luma_delta':stats((luma(finalf)-luma(rawf))[finite]),'valid_history_fraction':float(valid.mean()),'valid_age_over4_fraction':float(old.mean()),'actual_changed_valid_fraction':float(applied.mean()),'actual_changed_valid_age_over4_fraction':float(old_applied.mean()),'actual_changed_age_over4_fraction_of_changed':float(old_applied.sum()/changed.sum()) if changed.any() else 0.,'positive_confidence_TTL_violation_pixels':int(ttl_bad.sum()),'model_age_frames_valid':stats(age[valid]),'model_age_ms_valid':stats(ms[valid]),'join':join,'observed_SR_present_changed_fraction':float(changed.mean()) if observed else None,'observed_SR_present_changed_valid_age_over4_fraction':float(old_applied.mean()) if observed else None,'scope':'cold observed pixels; model admission age4 remains separate from active visual TTL; no dynamic quality or hot FPS acceptance'}
  return out,(rawf,finalf,delta)
 def png(path,images):
  from PIL import Image,ImageDraw

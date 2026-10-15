@@ -28,6 +28,10 @@ def origin_neighbourhood(meta):
  return np.logical_and.reduce([np.all(p[y:y+h,x:x+w]==age,-1) for y in range(3) for x in range(3)])
 def frame(path,text,motion,readback):
  m,d=motion.load(path);need(m['schema']=='persistent-history-cold-v2','requires depth/MV v2 capture');need(m['performance_excluded'] is True,'cold samples remain performance-excluded')
+ if m.get('transition_active',False):
+  audit,_=readback.analyze(path,text);need(audit['integrity_pass'] and audit['join']['actual_final_image_SR_Present_joined'],'transition capture integrity/actualSRPresent failed')
+  summary={'source':m['current_source'],'manifest':str(path),'manifest_sha256':sha(path),'transition_active':True,'temporal_only_attribution':'SKIPPED: final combines independent banks; old active bank is not actual final','actual_present_monotonic_ns':int(audit['join']['Present'][0]['cpu_monotonic_ns']),'actual_pixel_audit':audit}
+  return m,d,summary,audit['join']
  assets={a['file']:a for a in m['assets']};need(len(assets)==len(m['assets']),'duplicate asset')
  for name,a in assets.items():
   p=path.parent/name;need(p.parent==path.parent and p.stat().st_size==a['bytes'] and sha(p)==a['sha256'],'asset size/SHA '+name)
@@ -42,6 +46,7 @@ def frame(path,text,motion,readback):
  return m,d,summary,join
 
 def pair(pm,p,m,d,motion,raw_tolerance):
+ if pm.get('transition_active',False) or m.get('transition_active',False):return {'unavailable':'transition spans independent banks; skip temporal-only attribution'}
  identity=('visual_generation','params_version','control_revision','reset_generation','reset_seq')
  if m['previous_source']!=pm['current_source'] or m['current_source']!=pm['current_source']+1:return {'unavailable':'not adjacent actual source frames'}
  if any(m.get(k)!=pm.get(k) for k in identity) or m['real_reset']:return {'unavailable':'visual/params/control/reset discontinuity'}

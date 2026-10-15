@@ -13,8 +13,10 @@ class NativePersistentHistoryDiagnostic {
 public:
  struct Snapshot {
   BbNativeAsync::Frame current;
-  // Exact original raw97, final guarded half97, active edit97, active meta109.
-  std::array<vk::Image,6> images{};
+  // Exact raw97, final97, old edit97/meta109, depth100/MV103, target edit97/meta109.
+  std::array<vk::Image,8> images{};
+  bool transition_active=false;float transition_weight=1.f;
+  uint64_t transition_start_source=0;double transition_start_ms=0;
   vk::Buffer state{},guard{};
   unsigned active_bank=0,candidate_bank=2;
   uint64_t candidate_origin=0,candidate_current=0,candidate_count=0;

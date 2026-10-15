@@ -20,11 +20,11 @@ namespace Vulkan {
 namespace {
 constexpr unsigned MaxFrames=4;
 constexpr uint64_t ManifestLimit=16384;
-constexpr std::array<uint64_t,8> Sizes{uint64_t(1280)*720*8,uint64_t(1280)*720*8,uint64_t(1280)*720*8,uint64_t(1280)*720*16,uint64_t(1280)*720*4,uint64_t(1280)*720*8,32,4};
+constexpr std::array<uint64_t,10> Sizes{uint64_t(1280)*720*8,uint64_t(1280)*720*8,uint64_t(1280)*720*8,uint64_t(1280)*720*16,uint64_t(1280)*720*4,uint64_t(1280)*720*8,uint64_t(1280)*720*8,uint64_t(1280)*720*16,32,4};
 constexpr std::array<uint64_t,3> CandidateSizes{uint64_t(1280)*720*16,uint64_t(1280)*720*16,uint64_t(1280)*720*4};
 constexpr uint64_t CandidateBytes=CandidateSizes[0]+CandidateSizes[1]+CandidateSizes[2];
-constexpr uint64_t FrameBytes=Sizes[0]+Sizes[1]+Sizes[2]+Sizes[3]+Sizes[4]+Sizes[5]+Sizes[6]+Sizes[7];
-static_assert(FrameBytes*MaxFrames+CandidateBytes+(MaxFrames+1)*ManifestLimit<256ull*1024*1024);
+constexpr uint64_t FrameBytes=Sizes[0]+Sizes[1]+Sizes[2]+Sizes[3]+Sizes[4]+Sizes[5]+Sizes[6]+Sizes[7]+Sizes[8]+Sizes[9];
+static_assert(FrameBytes*MaxFrames+CandidateBytes+(MaxFrames+1)*ManifestLimit<320ull*1024*1024);
 uint64_t Number(const char* name,uint64_t fallback,uint64_t max){
  const char* s=std::getenv(name);if(!s)return fallback;
  char* end=nullptr;errno=0;const auto v=std::strtoull(s,&end,10);
@@ -54,7 +54,7 @@ struct Proof {std::atomic<uint64_t> observed{0};std::atomic<bool> written{false}
 }
 struct NativePersistentHistoryDiagnostic::Impl {
  struct Frame {
-  std::array<std::unique_ptr<VideoCore::Buffer>,8> staging;
+  std::array<std::unique_ptr<VideoCore::Buffer>,10> staging;
   Snapshot snapshot;std::shared_ptr<Proof> proof=std::make_shared<Proof>();
  };
  std::array<Frame,MaxFrames> frames;
@@ -93,7 +93,7 @@ NativePersistentHistoryDiagnostic::Impl::Impl(const Instance& instance,uint64_t 
  // All staging is allocated before recording any readback. No render-thread
  // filesystem writes, hashing, mapping invalidation or per-frame allocation.
  if(std::filesystem::exists(directory))throw std::runtime_error("persistent diagnostic refuses existing output directory");
- for(unsigned i=0;i<limit;i++)for(unsigned j=0;j<8;j++)frames[i].staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,Sizes[j],VideoCore::MemoryType::HostCached,"Bounded persistent cold readback");
+ for(unsigned i=0;i<limit;i++)for(unsigned j=0;j<10;j++)frames[i].staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,Sizes[j],VideoCore::MemoryType::HostCached,"Bounded persistent cold readback");
  if(!ui_request)for(unsigned j=0;j<3;j++)candidate_staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,CandidateSizes[j],VideoCore::MemoryType::HostCached,"Single exact candidate cold readback");
  writer=std::jthread([this](std::stop_token token){Run(token);});
  std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_INIT frame_limit=%u frame_bytes=%llu staging_bytes=%llu disk_limit_bytes=%llu performance_excluded=1 no_GPU_wait=1\n",limit,(unsigned long long)FrameBytes,(unsigned long long)(FrameBytes*limit+(ui_request?0:CandidateBytes)),(unsigned long long)((FrameBytes+ManifestLimit)*limit+(ui_request?0:CandidateBytes+ManifestLimit)));
@@ -124,7 +124,7 @@ bool NativePersistentHistoryDiagnostic::Record(Scheduler& scheduler,const Snapsh
  // recording exception the owning history quarantine preserves these resources.
  p.recorded.store(index+1,std::memory_order_release);
  auto cmd=scheduler.CommandBuffer();
- for(unsigned j=0;j<6;j++){
+ for(unsigned j=0;j<8;j++){
   const vk::ImageMemoryBarrier2 before{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,
    .dstStageMask=vk::PipelineStageFlagBits2::eTransfer,.dstAccessMask=vk::AccessFlagBits2::eTransferRead,
    .oldLayout=vk::ImageLayout::eGeneral,.newLayout=vk::ImageLayout::eGeneral,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,
@@ -134,16 +134,16 @@ bool NativePersistentHistoryDiagnostic::Record(Scheduler& scheduler,const Snapsh
   auto after=before;after.srcStageMask=vk::PipelineStageFlagBits2::eTransfer;after.srcAccessMask=vk::AccessFlagBits2::eTransferRead;after.dstStageMask=vk::PipelineStageFlagBits2::eAllCommands;after.dstAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite;
   cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&after});
  }
- for(unsigned j=6;j<8;j++){
-  const auto source=j==6?snapshot.state:snapshot.guard;
+ for(unsigned j=8;j<10;j++){
+  const auto source=j==8?snapshot.state:snapshot.guard;
   const vk::BufferMemoryBarrier2 before{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,
    .dstStageMask=vk::PipelineStageFlagBits2::eTransfer,.dstAccessMask=vk::AccessFlagBits2::eTransferRead,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.buffer=source,.offset=0,.size=Sizes[j]};
   cmd.pipelineBarrier2({.bufferMemoryBarrierCount=1,.pBufferMemoryBarriers=&before});cmd.copyBuffer(source,frame.staging[j]->Handle(),vk::BufferCopy{0,0,Sizes[j]});
   auto after=before;after.srcStageMask=vk::PipelineStageFlagBits2::eTransfer;after.srcAccessMask=vk::AccessFlagBits2::eTransferRead;after.dstStageMask=vk::PipelineStageFlagBits2::eAllCommands;after.dstAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite;
   cmd.pipelineBarrier2({.bufferMemoryBarrierCount=1,.pBufferMemoryBarriers=&after});
  }
- std::array<vk::BufferMemoryBarrier2,8> host{};for(unsigned j=0;j<8;j++)host[j]={.srcStageMask=vk::PipelineStageFlagBits2::eTransfer,.srcAccessMask=vk::AccessFlagBits2::eTransferWrite,.dstStageMask=vk::PipelineStageFlagBits2::eHost,.dstAccessMask=vk::AccessFlagBits2::eHostRead,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.buffer=frame.staging[j]->Handle(),.offset=0,.size=Sizes[j]};
- cmd.pipelineBarrier2({.bufferMemoryBarrierCount=8,.pBufferMemoryBarriers=host.data()});
+ std::array<vk::BufferMemoryBarrier2,10> host{};for(unsigned j=0;j<10;j++)host[j]={.srcStageMask=vk::PipelineStageFlagBits2::eTransfer,.srcAccessMask=vk::AccessFlagBits2::eTransferWrite,.dstStageMask=vk::PipelineStageFlagBits2::eHost,.dstAccessMask=vk::AccessFlagBits2::eHostRead,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.buffer=frame.staging[j]->Handle(),.offset=0,.size=Sizes[j]};
+ cmd.pipelineBarrier2({.bufferMemoryBarrierCount=10,.pBufferMemoryBarriers=host.data()});
  auto proof=frame.proof;
  // Do not capture Impl: a callback may be delayed beyond a safely retired writer.
  scheduler.DeferPriorityOperation([proof]{proof->observed.store(proof->target,std::memory_order_release);});
@@ -200,27 +200,27 @@ uint64_t NativePersistentHistoryDiagnostic::StagingBytes()const noexcept{return 
 void NativePersistentHistoryDiagnostic::ReportRetirement(const char* stage)const noexcept{
  const auto& p=*impl;
  if(p.candidate_recorded.load(std::memory_order_acquire))std::printf("PERSISTENT_HISTORY_CANDIDATE_DIAGNOSTIC_RETIRE stage=%s job=%llu origin=%llu target=%llu observed=%llu writer_finished=%u write_failed=%u unknown=%u all_ready=%u\n",stage?stage:"unspecified",(unsigned long long)p.candidate.identity.job,(unsigned long long)p.candidate.origin.source,(unsigned long long)p.candidate_proof->target,(unsigned long long)p.candidate_proof->observed.load(std::memory_order_acquire),p.candidate_proof->written.load(std::memory_order_acquire),p.candidate_proof->failed.load(std::memory_order_acquire),p.unknown.load(std::memory_order_acquire),Ready());
- for(unsigned i=0;i<p.recorded.load(std::memory_order_acquire);i++){const auto& f=p.frames[i];std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_RETIRE stage=%s source=%llu target=%llu observed=%llu writer_finished=%u write_failed=%u unknown=%u all_ready=%u\n",stage?stage:"unspecified",(unsigned long long)f.snapshot.current.source,(unsigned long long)f.proof->target,(unsigned long long)f.proof->observed.load(std::memory_order_acquire),f.proof->written.load(std::memory_order_acquire),f.proof->failed.load(std::memory_order_acquire),p.unknown.load(std::memory_order_acquire),Ready());}
+ for(unsigned i=0;i<p.recorded.load(std::memory_order_acquire);i++){const auto& f=p.frames[i];std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_RETIRE stage=%s source=%llu target=%llu observed=%llu writer_finished=%u write_failed=%u unknown=%u all_ready=%u staging_bytes=%llu\n",stage?stage:"unspecified",(unsigned long long)f.snapshot.current.source,(unsigned long long)f.proof->target,(unsigned long long)f.proof->observed.load(std::memory_order_acquire),f.proof->written.load(std::memory_order_acquire),f.proof->failed.load(std::memory_order_acquire),p.unknown.load(std::memory_order_acquire),Ready(),(unsigned long long)FrameBytes);}
 }
 void NativePersistentHistoryDiagnostic::Impl::Write(unsigned index){
  using J=nlohmann::json;const auto& frame=frames[index];const auto& s=frame.snapshot;
  if(!directory_created){if(!std::filesystem::create_directory(directory))throw std::runtime_error("diagnostic output collision; no overwrite");std::filesystem::permissions(directory,std::filesystem::perms::owner_all,std::filesystem::perm_options::replace);directory_created=true;}
  const auto dir=std::filesystem::path(directory)/("frame-"+std::to_string(index)+"-source-"+std::to_string(s.current.source));
  if(!std::filesystem::create_directory(dir))throw std::runtime_error("diagnostic frame collision; no overwrite");
- const std::array<const char*,8> names{"original-current720.rgba16f","final-guarded720.rgba16f","active-edit-confidence720.rgba16f","active-depth-guide-age720.rgba32f","current-depth720.r32f","current-motion720.rg32f","bank-state.u32","return-guard.u32"};
+ const std::array<const char*,10> names{"original-current720.rgba16f","final-guarded720.rgba16f","active-edit-confidence720.rgba16f","active-depth-guide-age720.rgba32f","current-depth720.r32f","current-motion720.rg32f","target-edit-confidence720.rgba16f","target-depth-guide-age720.rgba32f","bank-state.u32","return-guard.u32"};
  J assets=J::array();
- for(unsigned j=0;j<8;j++){
+ for(unsigned j=0;j<10;j++){
   frame.staging[j]->Invalidate(0,Sizes[j]);const auto bytes=std::span<const uint8_t>(frame.staging[j]->mapped_data.data(),Sizes[j]);
   std::ofstream out(dir/names[j],std::ios::binary);out.write(reinterpret_cast<const char*>(bytes.data()),bytes.size());out.close();if(!out)throw std::runtime_error("persistent diagnostic asset write failed");
   assets.push_back({{"file",names[j]},{"bytes",Sizes[j]},{"sha256",Sha256(bytes)}});
  }
- std::array<uint32_t,8> state{};uint32_t guard=0;std::memcpy(state.data(),frame.staging[6]->mapped_data.data(),32);std::memcpy(&guard,frame.staging[7]->mapped_data.data(),4);
+ std::array<uint32_t,8> state{};uint32_t guard=0;std::memcpy(state.data(),frame.staging[8]->mapped_data.data(),32);std::memcpy(&guard,frame.staging[9]->mapped_data.data(),4);
  J handles=J::array();for(auto image:s.images)handles.push_back(reinterpret_cast<uintptr_t>(VkImage(image)));
  J manifest{{"schema","persistent-history-cold-v2"},{"session",session},{"sample_index",index},{"capture_seq",capture_seq},{"control_revision",s.control_revision},{"minimum_candidate_origin",s.minimum_candidate_origin},{"reset_generation",s.reset_generation},{"reset_seq",s.reset_seq},{"runtime_api_version",BbNR::ApiVersion},{"reprojection",static_cast<uint32_t>(s.controls.reprojection)},{"display_strength",s.controls.display_strength},{"ttl_frames",s.controls.ttl_frames},{"ttl_ms",s.controls.ttl_ms},{"depth_tolerance",s.controls.depth_tolerance},{"colour_tolerance",s.controls.colour_tolerance},{"min_confidence",s.controls.min_confidence},{"expected_previous_captured_source",index?frames[index-1].snapshot.current.source:0},{"capture_source_gap",index?s.current.source-frames[index-1].snapshot.current.source-1:0},{"current_source",s.current.source},{"previous_source",s.current.previous},
  {"visual_generation",s.current.history},{"params_version",s.current.params},{"real_reset",s.current.sr_reset},{"current_jitter",s.current.viewport},{"previous_jitter",s.current.previous_viewport},
  {"current_projection",s.current.current_projection},{"previous_projection",s.current.previous_projection},{"previous_view_z",s.current.previous_view_z},
- {"source_image_handles",handles},{"image_extent",{1280,720}},{"image_formats_vk",{97,97,97,109,100,103}},
- {"active_bank",s.active_bank},{"candidate_bank",s.candidate_bank},{"candidate_origin",s.candidate_origin},{"candidate_current",s.candidate_current},{"candidate_count",s.candidate_count},{"candidate_recorded_this_source",s.candidate_recorded},{"host_history_potential_only",s.host_history},
+ {"source_image_handles",handles},{"image_extent",{1280,720}},{"image_formats_vk",{97,97,97,109,100,103,97,109}},
+ {"transition_active",s.transition_active},{"transition_weight",s.transition_weight},{"transition_start_source",s.transition_start_source},{"transition_start_ms",s.transition_start_ms},{"active_bank",s.active_bank},{"candidate_bank",s.candidate_bank},{"candidate_origin",s.candidate_origin},{"candidate_current",s.candidate_current},{"candidate_count",s.candidate_count},{"candidate_recorded_this_source",s.candidate_recorded},{"host_history_potential_only",s.host_history},
  {"bank_state_actual",state},{"return_guard_actual",guard},
  {"edit_encoding","RGB=model log2 residual at full strength; A=per-pixel confidence"},
  {"meta_encoding","R=R32 depth; G=opaque packed guide; B=true model contribution age in real source frames; A=true model contribution age milliseconds"},

@@ -38,9 +38,11 @@ def decode(manifest,game_log,expected_manifest=None):
  need(all(np.isfinite(x.astype(np.float32)).all() for x in a),'nonfinite raw/final image cannot be visualized as valid');alpha=np.array_equal(a[0].view('<u2')[...,3],a[1].view('<u2')[...,3]);need(alpha,'raw alpha was not preserved bitwise')
  if m['schema']=='persistent-history-cold-v2':
   need(type(m.get('control_revision')) is int and m['control_revision']>=0 and type(m.get('capture_seq')) is int and m['capture_seq']>=0,'capture/control revision metadata required')
-  need(m['image_formats_vk']==[97,97,97,109,100,103] and len(m['source_image_handles'])==6,'exact v2 raw/final/edit/meta/Depth/MV image identities required')
+  need(m['image_formats_vk']==([97,97,97,109,100,103,97,109] if 'transition_active' in m else [97,97,97,109,100,103]) and len(m['source_image_handles'])==(8 if 'transition_active' in m else 6),'exact v2 raw/final/edit/meta/Depth/MV image identities required')
   sizes={RAW:1280*720*8,NR:1280*720*8,'active-edit-confidence720.rgba16f':1280*720*8,'active-depth-guide-age720.rgba32f':1280*720*16,'current-depth720.r32f':1280*720*4,'current-motion720.rg32f':1280*720*8,'bank-state.u32':32,'return-guard.u32':4}
-  need(set(assets)==set(sizes),'exact eight v2 assets required')
+  if 'transition_active' in m:
+   need(type(m['transition_active']) is bool,'typed transition metadata required');sizes.update({'target-edit-confidence720.rgba16f':1280*720*8,'target-depth-guide-age720.rgba32f':1280*720*16})
+  need(set(assets)==set(sizes),'exact v2 assets required')
   for name,size in sizes.items():need(assets[name]['bytes']==size,'exact v2 asset size mismatch '+name)
  proof=selection_join(m,game_log.read_text(errors='replace'))
  return m,a,{'manifest_sha256':digest,'manifest_expected_sha_verified':bool(expected_manifest),'assets':assets,'game_log_sha256':sha(game_log),'actual_source_join':proof,'alpha_bitwise_identical':alpha}
