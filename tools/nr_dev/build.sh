@@ -32,6 +32,6 @@ source "$STABLE/out/deps/bbport-env.sh"
 export PKG_CONFIG_PATH="$STABLE/out/deps/root/usr/lib/pkgconfig:$STABLE/out/deps/root/usr/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
 export BB_BUILD_DIR="$BUILD" BB_PGO=off BB_LTO=OFF CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL:-8}
 git -C "$WT" rev-parse HEAD > "$BUILD/source-head.txt"
-git -C "$WT" diff --binary HEAD > "$BUILD/source-diff.patch"
+git -C "$WT" diff --ignore-submodules=all --binary HEAD > "$BUILD/source-diff.patch"
 bash "$WT/build.sh" "$@" 2>&1 | tee "$BUILD/build.log"
 sha256sum "$BUILD/bb-probe" "$BUILD/gpu/libbbgpu.so" "$BUILD/libbbport_dlss.so" "$BUILD"/libnvidia-ngx-dlss.so.* > "$BUILD/artifacts.sha256"
