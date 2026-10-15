@@ -19,6 +19,7 @@ public:
   unsigned active_bank=0,candidate_bank=2;
   uint64_t candidate_origin=0,candidate_current=0,candidate_count=0;
   bool host_history=false,candidate_recorded=false;
+  uint64_t minimum_candidate_origin=0,reset_generation=0,reset_seq=0;
   uint64_t control_revision=0,capture_seq=0;BbNR::Config controls;
  };
  struct CandidateSnapshot {

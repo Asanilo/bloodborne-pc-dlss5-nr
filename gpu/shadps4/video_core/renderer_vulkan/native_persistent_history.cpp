@@ -264,12 +264,16 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  if(!p.Free(s)){p.history=false;return false;}
  p.ReadSample(s);
  if(p.pending_controls.revision!=p.applied_controls.revision||p.pending_controls.reset_seq!=p.applied_controls.reset_seq||p.pending_controls.config!=p.applied_controls.config){
+  const bool log_commit=p.pending_controls.revision!=p.applied_controls.revision||p.pending_controls.reset_seq!=p.applied_controls.reset_seq;
   const auto& a=p.applied_controls.config;const auto& b=p.pending_controls.config;
   if(a.ttl_frames!=b.ttl_frames||a.ttl_ms!=b.ttl_ms||a.depth_tolerance!=b.depth_tolerance||a.colour_tolerance!=b.colour_tolerance||a.min_confidence!=b.min_confidence||p.pending_controls.reset_seq!=p.applied_controls.reset_seq){
    p.history=false;p.reset_window.ResetAt(frame.source);
    p.clocks.clear();p.clocks.push_back({frame.source,p.clock_ms,frame.history,frame.params});
   }
   p.applied_controls=p.pending_controls;p.latest_sample.available=false;p.latest_sample.timing_available=false;
+  if(log_commit)std::printf("PERSISTENT_HISTORY_CONTROLS_COMMITTED source=%llu revision=%llu reset_seq=%llu minimum_candidate_origin=%llu reset_generation=%llu params=%llu\n",
+   (unsigned long long)frame.source,(unsigned long long)p.applied_controls.revision,(unsigned long long)p.applied_controls.reset_seq,
+   (unsigned long long)p.reset_window.minimum_origin,(unsigned long long)p.reset_window.generation,(unsigned long long)frame.params);
  }
  if(p.diagnostic&&p.diagnostic->Finished()&&p.diagnostic->Ready()){
   p.capture_status.busy=false;p.capture_status.complete=true;p.capture_status.failed=!p.diagnostic->Succeeded();p.diagnostic.reset();
@@ -339,6 +343,7 @@ vk::ImageView NativePersistentHistory::Apply(Scheduler& scheduler){
  if(p.diagnostic){
   NativePersistentHistoryDiagnostic::Snapshot snapshot;
   snapshot.current=p.current;snapshot.images={p.current_raw,p.return_image,vk::Image(p.banks[p.active].edit.image),vk::Image(p.banks[p.active].meta.image),vk::Image(p.slots[p.slot].converted[1].image),vk::Image(p.slots[p.slot].converted[2].image)};
+  snapshot.minimum_candidate_origin=p.reset_window.minimum_origin;snapshot.reset_generation=p.reset_window.generation;snapshot.reset_seq=p.applied_controls.reset_seq;
   snapshot.control_revision=p.applied_controls.revision;snapshot.controls=p.applied_controls.config;snapshot.capture_seq=p.capture_status.seq;
   snapshot.state=p.state->Handle();snapshot.guard=p.returned.Guard(p.slot);snapshot.active_bank=p.active;snapshot.candidate_bank=p.candidate;
   snapshot.candidate_origin=p.candidate_origin;snapshot.candidate_current=p.candidate_current;snapshot.candidate_count=p.candidate_count;
