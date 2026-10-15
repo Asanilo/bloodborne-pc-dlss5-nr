@@ -8,7 +8,7 @@ python3 native/tools/nr_dev/play.py
 
 游戏出现后，Space/Cross 继续到可操作场景，再回终端按 Enter 开启真实 NR。WASD/鼠标或手柄操作，正常关闭游戏窗口结束。默认使用已锁定的新模型 Helper `build/helper-runtime-model/06ac7e6b7260172d/wine_runtime_model.exe`，启动时核对其 `build.json` 与 PE SHA，并在本次 manifest 记录实际身份。
 
-- **Insert**：打开 NR 菜单。模型参数加载或调整后需要显式 **Apply**；加载配置不会自动重建模型。
+- **Delete**：打开 NR 菜单。模型参数加载或调整后需要显式 **Apply**；加载配置不会自动重建模型。
 - **F8**：即时切换 NR 旁路。两种输入共享 SR 历史；快速切换不构成独立双 SR 历史的同帧 A/B。
 - **F9**：请求同源 raw720、edited720、Depth、MV、实际 SR1080 与后处理游戏 Present 的诊断捕获。结果需等 GPU 完成并核验 source、revision、SHA；游戏 Present 是 NR overlay 之前的像素。旁路时 edited 仍可计算，但实际 SR 输入是 raw，不可把候选图称为已显示 NR。
 

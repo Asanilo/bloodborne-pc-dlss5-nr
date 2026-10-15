@@ -24,7 +24,7 @@ def main():
  signal.signal(signal.SIGTERM,stop)
  try:
   print('\n游戏使用独立私有存档'+('，续用 '+a.continue_session if a.continue_session else '（新NRTest seed）')+'。Space/Cross 继续；WASD/鼠标或手柄操作。',flush=True)
-  print('F8：显示旁路；F9：同源画面捕获；Insert：NR控制菜单。加载的模型Style/Intensity仍需显式Apply。',flush=True)
+  print('F8：显示旁路；F9：同源画面捕获；Delete：NR控制菜单。加载的模型Style/Intensity仍需显式Apply。',flush=True)
   print(f'计划 {a.seconds} 秒后请求正常关闭；独立watchdog为600秒，关闭仍需真实GPU退休。',flush=True)
   print('进入可控制的实际游戏场景后，回到本终端按 Enter 开启 NR：',flush=True)
   while child.poll() is None:

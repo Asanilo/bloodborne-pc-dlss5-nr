@@ -259,7 +259,12 @@ void NRHud() {
     ImGui::Begin("##nr_live",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoNav|ImGuiWindowFlags_NoFocusOnAppearing);
     const bool model_staged=c.model_style!=actual.actual_config.model_style||c.model_intensity!=actual.actual_config.model_intensity;
     const char* pending=actual.status==BbNR::Status::Held||actual.model_restart_required?" | restart isolated session":requested.model_apply_seq>actual.model_applied_version?" | model Apply pending":model_staged?" | model staged: Apply":actual.applied_revision<requested.revision?" | display pending":"";
-    ImGui::Text("NR actual %s %.2f | %s%s",actual.actual_config.display_bypass?"bypass":"history",actual.actual_config.display_strength,BbNR::StatusName(actual.status),pending);
+    if(actual.status==BbNR::Status::Unavailable) {
+        ImGui::TextUnformatted("NR not active (SR-only)");
+        ImGui::TextWrapped("%s",actual.reason.c_str());
+    } else {
+        ImGui::Text("NR actual %s %.2f | %s%s",actual.actual_config.display_bypass?"bypass":"history",actual.actual_config.display_strength,BbNR::StatusName(actual.status),pending);
+    }
     if(actual.timing_available)ImGui::Text("%.1f FPS | P95 %.2f P99 %.2f ms",actual.fps,actual.p95_ms,actual.p99_ms);
     else ImGui::TextUnformatted("FPS / P95 / P99: not measured");
     char refresh[48];if(actual.model_refresh_available)std::snprintf(refresh,sizeof(refresh),"refresh %.0fms",actual.model_refresh_ms);else std::snprintf(refresh,sizeof(refresh),"refresh n/a");
@@ -286,8 +291,8 @@ void Menu() {
     ImGui::SetNextWindowSize(ImVec2(620.0f * base_scale, 0.0f), ImGuiCond_Appearing);
     bool keep_open = true;
     if (!ImGui::Begin(
-            BbSettings::MenuText("Bloodborne - Graphics  (Insert / L3+R3)###bbport_settings",
-                                 "Bloodborne — настройки  (Insert / L3+R3)###bbport_settings"),
+            BbSettings::MenuText("Bloodborne - Graphics  (Delete / L3+R3)###bbport_settings",
+                                 "Bloodborne — настройки  (Delete / L3+R3)###bbport_settings"),
             &keep_open, ImGuiWindowFlags_NoCollapse)) {
         ImGui::End();
         return;
@@ -866,7 +871,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
         return;
     }
     initialized = true;
-    std::printf("Overlay: menu ready (Insert or L3+R3)\n");
+    std::printf("Overlay: menu ready (Delete or L3+R3)\n");
 }
 
 void UpdateTextInput(SDL_Window* window) {
@@ -910,8 +915,8 @@ bool HandleEvent(const SDL_Event& event) {
             return true;
         }
         if (down && !event.key.repeat &&
-            (event.key.key == SDLK_INSERT || (is_open && event.key.key == SDLK_ESCAPE))) {
-            SetOpen(event.key.key == SDLK_INSERT ? !is_open : false);
+            (event.key.key == SDLK_DELETE || (is_open && event.key.key == SDLK_ESCAPE))) {
+            SetOpen(event.key.key == SDLK_DELETE ? !is_open : false);
             return true;
         }
         if (!is_open) {

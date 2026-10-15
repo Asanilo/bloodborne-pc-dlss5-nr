@@ -123,6 +123,15 @@ void NativeAsyncPreSr::PollReady(const Instance& instance,Scheduler& scheduler,b
  }
  if(BbNativeAsync::ExitRequested()&&frontend)frontend->RequestStop();
  PollPeer(scheduler,supported);
+ // Report preparation without claiming an active edit or bypassing scene/peer checks.
+ if(NativePersistentHistory::Enabled()&&!retained&&!stopping&&!rejected){
+  runtime_status.status=BbNR::Status::Unavailable;
+  runtime_status.reason=!start_requested?
+   "After entering the game scene, press Enter in the launcher terminal to start NR":
+   !Armed()?"Starting NR: waiting for Helper readiness and scene confirmation":
+   "Starting NR: waiting for a supported game frame";
+  BbNR::PublishSnapshot(runtime_status);
+ }
  if(owner&&owner->ReadyCount()!=last_reported_ready){
   last_reported_ready=owner->ReadyCount();
   if(!BbNativeAsyncPreSrPlay::Enabled())std::printf("NATIVE_ASYNC_PRE_SR_READY_OBSERVED session=%s copies_complete=%llu latest_source=%llu proof=actual_native_copy_tick_not_Helper_serial\n",Session().c_str(),
