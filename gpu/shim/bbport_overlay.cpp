@@ -196,7 +196,10 @@ void NRControls() {
         changed|=ImGui::SliderFloat("Visual TTL milliseconds",&c.ttl_ms,1.f,200.f);
         changed|=ImGui::SliderFloat("Depth tolerance",&c.depth_tolerance,.0001f,.25f,"%.4f");
         changed|=ImGui::SliderFloat("Colour tolerance",&c.colour_tolerance,0.f,4.f);
-        changed|=ImGui::SliderFloat("Minimum confidence",&c.min_confidence,0.f,1.f);
+        ImGui::BeginDisabled();
+        ImGui::SliderFloat("Minimum confidence (reserved)",&c.min_confidence,0.f,1.f);
+        ImGui::EndDisabled();
+        Hint("Continuous regional confidence is not implemented yet. Current confidence is binary; this threshold is reserved and unavailable.");
         ImGui::TextWrapped("TTL/threshold changes request visual reset. NR late-result admission remains age <= 4.");
         ImGui::TreePop();
     }
