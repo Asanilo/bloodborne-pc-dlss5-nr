@@ -10,13 +10,34 @@ def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
 def live(pid):
  p=Path('/proc')/str(pid)
  return {'pid':pid,'start_ticks':int((p/'stat').read_text().rsplit(')',1)[1].split()[19]),'exe':str((p/'exe').resolve())}
-def holders():
+def gpu_holders():
  found=[]
  for p in Path('/proc').iterdir():
   if not p.name.isdigit() or int(p.name)==os.getpid():continue
   try:
+   devices=[]
+   for fd in (p/'fd').iterdir():
+    try:
+     target=os.readlink(fd)
+     if target.startswith(('/dev/nvidia','/dev/dri/')):devices.append(target)
+    except OSError:pass
+   if not devices:continue
+   entry=live(int(p.name));entry['gpu_devices']=sorted(set(devices));found.append(entry)
+  except (OSError,ValueError,IndexError):pass
+ return found
+def holders():
+ found=[];gpu={x['pid']:x for x in gpu_holders()}
+ for p in Path('/proc').iterdir():
+  if not p.name.isdigit() or int(p.name)==os.getpid():continue
+  try:
    exe=(p/'exe').resolve().name;cmd=(p/'cmdline').read_bytes().replace(b'\0',b' ').decode(errors='replace')
-   if exe=='bb-probe' or re.search(r'wine_(?:async|game|joint)',cmd) and ('wine' in exe or exe.endswith('.exe')):found.append(live(int(p.name)))
+   try:maps=(p/'maps').read_text()
+   except OSError:maps=''
+   project=('/nrbridge-' in cmd or 'wine_async' in cmd or 'wine_joint' in cmd or 'wine_game' in cmd)
+   mapped=('libbbgpu.so' in maps or 'nvngx.dll_dlssnr.dll' in maps)
+   wine=exe.startswith(('wine','wineserver')) or exe.endswith('.exe')
+   if exe=='bb-probe' or mapped or (project and (int(p.name) in gpu or wine)):
+    entry=live(int(p.name));entry['gpu_devices']=gpu.get(int(p.name),{}).get('gpu_devices',[]);found.append(entry)
   except (OSError,ValueError,IndexError):pass
  return found
 def preflight():
@@ -50,6 +71,12 @@ def current_game(run):
  if len(matches)!=1:raise ValueError('exact private live game identity required')
  identity=matches[0];record=run/'game-identity.json'
  if record.exists() and json.loads(record.read_text())!=identity:raise ValueError('PID/starttime mismatch')
+ maps=(Path('/proc')/str(identity['pid'])/'maps').read_text()
+ expected=ROOT/'build/native'
+ libs=sorted({line.split()[-1] for line in maps.splitlines() if re.search(r'/lib(?:bbgpu|bbport_dlss|nvidia-ngx-dlss)\.so',line)})
+ for library in libs:
+  if not Path(library).is_relative_to(expected):raise ValueError('runtime Native library outside unified build '+library)
+ atomic(run/'native-loaded-libraries.json',{'game':identity,'mapped_libraries':libs})
  atomic(record,identity);return identity
 
 def control(args):
@@ -76,7 +103,10 @@ def launch(args):
  run=checked_run(args.session);build=ROOT/'build/native';assets=OLD/'playtest/assets/CUSA03173';seed=OLD/'integration/private-NRTest-seed';helper=ROOT/'build/helper/wine_async_presr_play.exe'
  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight()
-  for p in (build/'bb-probe',build/'gpu/libbbgpu.so',build/'libbbport_dlss.so',assets/'eboot.bin',helper):
+  ngx=list(build.glob('libnvidia-ngx-dlss.so.*'))
+  if len(ngx)!=1:raise ValueError('exactly one pinned native NGX library required')
+  native_artifacts=[build/'bb-probe',build/'gpu/libbbgpu.so',build/'libbbport_dlss.so',ngx[0]]
+  for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
   run.mkdir(mode=0o700);profile=run/'profile';profile.mkdir();shutil.copytree(seed/'savedata',profile/'user/savedata')
   for item in json.loads((seed/'manifest.json').read_text())['files']:
@@ -84,12 +114,13 @@ def launch(args):
    if p.is_symlink() or sha(p)!=item['sha256']:raise ValueError('private seed SHA mismatch')
   for name in ('logs','wine-prefix','cache','config','data','state'):(profile/name).mkdir()
   (profile/'bbport.ini').write_text('upscaler=dlss\npreset=1\noutput_res=1920x1080\njitter=1\nobject_motion=1\nsharpen=0\nshow_fps=1\n');(run/'pad.txt').write_text('')
-  env={k:v for k,v in os.environ.items() if not k.startswith(('BB_','DLSSNR_','VK_','VKD3D_','DXVK_','WINE','PROTON','STEAM_COMPAT')) and k not in ('LD_PRELOAD','LD_AUDIT')}
+  base_keys={'PATH','HOME','USER','LOGNAME','SHELL','LANG','LANGUAGE','LC_ALL','LC_CTYPE','TZ','TERM','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','XDG_RUNTIME_DIR','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS','PULSE_SERVER','PIPEWIRE_REMOTE','SDL_AUDIODRIVER','SDL_VIDEODRIVER'}
+  env={k:v for k,v in os.environ.items() if k in base_keys}
   env.update(BB_GAME_DIR=str(assets),BB_DATA_DIR=str(profile),BB_CONFIG=str(profile/'bbport.ini'),BB_USER_DIR=str(profile/'user'),BB_GPU_USER_DIR=str(profile/'user'),BB_PREBUILT='1',BB_PROBE=str(build/'bb-probe'),BB_STARTUP_CHECK='0',BB_MODS_ENABLED='0',BB_UPSCALER='dlss',BB_UPSCALE_PRESET='1',BB_DLSS='1',BB_JITTER='1',BB_FPS='uncap',BB_FPS_LIMIT='90',BB_FRAME_STATS='1',BB_FRAME_LOG=str(profile/'logs/frames.csv'),BB_FULLSCREEN='0',BB_SKIP_NETWORK_CHOICE='1',BB_LANGUAGE='1',BB_PC_MODEL='0',BB_SAVE_LOG='1',BB_IME_TEXT='NRTest',BB_PAD_FILE=str(run/'pad.txt'),BB_DUMP_DIR=str(run/'dump'),BB_PRESENT_DUMP_TRIGGER=str(run/'present-dump-trigger'),BB_PRESENT_DUMP_COUNT='0',LD_LIBRARY_PATH='/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib',DLSSNR_DISABLE='1',DLSSNR_AUTO_DOWNLOAD='0',VK_LOADER_LAYERS_DISABLE='~implicit~',MANGOHUD='0',DISABLE_MANGOHUD='1')
   for name in ('config','cache','data','state'):env['XDG_'+name.upper()+'_HOME']=str(profile/name)
-  nr={'BB_NR_NATIVE_ASYNC':'0','BB_NR_NATIVE_ASYNC_PRE_SR':'1','BB_NR_NATIVE_ASYNC_SCENE_FIRST':'1','BB_NR_NATIVE_ASYNC_PRE_SR_PLAY':'1','BB_NR_NATIVE_ASYNC_PRE_SR_SKY':args.sky,'BB_NR_NATIVE_ASYNC_PRE_SR_SR_HISTORY':'game_only','BB_NR_NATIVE_ASYNC_PRE_SR_SR_INPUT':'switching','BB_NR_NATIVE_ASYNC_SESSION':args.session,'BB_NR_NATIVE_ASYNC_MODE':args.mode,'BB_NR_NATIVE_ASYNC_RUN_DIR':str(run),'BB_NR_NATIVE_ASYNC_SCENE_ARM':str(run/'native-scene-arm'),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':str(args.source_limit),'BB_NR_NATIVE_ORIGIN_RUN_DIR':str(run),'BB_NR_NATIVE_ORIGIN_HELPER':str(helper),'BB_NR_NATIVE_ORIGIN_WINE':str(GE/'files/lib/wine/x86_64-unix/wine'),'BB_NR_NATIVE_ORIGIN_PRELOADER':str(GE/'files/lib/wine/x86_64-unix/wine-preloader'),'BB_NR_NATIVE_ORIGIN_PREFIX':str(profile/'wine-prefix'),'BB_NR_NATIVE_ORIGIN_WINEDEBUG':'-all,warn+vulkan,err+vulkan','BB_NR_NATIVE_ORIGIN_MODE':args.mode}
+  nr={'BB_NR_NATIVE_ASYNC':'0','BB_NR_NATIVE_ASYNC_PRE_SR':'1','BB_NR_NATIVE_ASYNC_SCENE_FIRST':'1','BB_NR_NATIVE_ASYNC_PRE_SR_PLAY':'1','BB_NR_NATIVE_ASYNC_PRE_SR_SKY':'off','BB_NATIVE_PERSISTENT_HISTORY':'1' if args.sky=='persistent' else '0','BB_NR_NATIVE_ASYNC_PRE_SR_SR_HISTORY':'game_only','BB_NR_NATIVE_ASYNC_PRE_SR_SR_INPUT':'switching','BB_NR_NATIVE_ASYNC_SESSION':args.session,'BB_NR_NATIVE_ASYNC_MODE':args.mode,'BB_NR_NATIVE_ASYNC_RUN_DIR':str(run),'BB_NR_NATIVE_ASYNC_SCENE_ARM':str(run/'native-scene-arm'),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':str(args.source_limit),'BB_NR_NATIVE_ORIGIN_RUN_DIR':str(run),'BB_NR_NATIVE_ORIGIN_HELPER':str(helper),'BB_NR_NATIVE_ORIGIN_WINE':str(GE/'files/lib/wine/x86_64-unix/wine'),'BB_NR_NATIVE_ORIGIN_PRELOADER':str(GE/'files/lib/wine/x86_64-unix/wine-preloader'),'BB_NR_NATIVE_ORIGIN_PREFIX':str(profile/'wine-prefix'),'BB_NR_NATIVE_ORIGIN_WINEDEBUG':'-all,warn+vulkan,err+vulkan','BB_NR_NATIVE_ORIGIN_MODE':args.mode}
   env.update(nr);command=['bash',str(WT/'run.sh')]
-  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'artifacts':{str(p):sha(p) for p in (build/'bb-probe',build/'gpu/libbbgpu.so',helper)},'environment':env,'command':command,'host_safety':safety,'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'watchdog_seconds':args.seconds})
+  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'watchdog_seconds':args.seconds})
   with (run/'game.log').open('w') as log:
    process=subprocess.Popen(command,cwd=WT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
    atomic(run/'runner.json',{'runner':live(os.getpid()),'launcher':live(process.pid)});deadline=time.monotonic()+args.seconds;held=False;sample_at=0
