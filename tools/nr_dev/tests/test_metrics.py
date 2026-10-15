@@ -20,4 +20,7 @@ class WindowTests(unittest.TestCase):
  def test_memory_missing_not_zero_and_pid_match(self):
   self.write();(self.run/'game-identity.json').write_text(json.dumps({'pid':123,'start_ticks':456}));(self.run/'gpu-memory.jsonl').write_text(json.dumps({'monotonic_ns':1_020_000_000,'pid_used_MiB_csv':'456, 5000\n'})+'\n');out=m.measure(self.run)['gpu_memory'];self.assertEqual(out['status'],'NOT_MEASURED');self.assertNotIn('peak_MiB',out)
   (self.run/'gpu-memory.jsonl').write_text(json.dumps({'monotonic_ns':1_020_000_000,'pid_used_MiB_csv':'123, 2048\n'})+'\n');self.assertEqual(m.measure(self.run)['gpu_memory']['peak_MiB'],2048)
+ def test_device_total_is_independent_of_pid_compute_visibility(self):
+  self.write();records=[{'monotonic_ns':1_010_000_000,'pid_used_MiB_csv':'','device_uuid_used_total_MiB_csv':'GPU-test, 3000, 8192\n'}, {'monotonic_ns':1_020_000_000,'pid_used_MiB_csv':'','device_uuid_used_total_MiB_csv':'GPU-test, 3500, 8192\nGPU-other, 6000, 12000\n'}]
+  (self.run/'gpu-memory.jsonl').write_text(''.join(json.dumps(x)+'\n' for x in records));out=m.measure(self.run)['gpu_memory'];self.assertEqual(out['status'],'NOT_MEASURED');self.assertNotIn('peak_MiB',out);self.assertEqual(out['device_total']['status'],'MEASURED_DEVICE_TOTAL');device={x['uuid']:x for x in out['device_total']['devices']};self.assertEqual(device['GPU-test']['peak_used_MiB'],3500);self.assertEqual(device['GPU-other']['peak_used_MiB'],6000);self.assertNotIn('physical_total_MiB',out)
 if __name__=='__main__':unittest.main()

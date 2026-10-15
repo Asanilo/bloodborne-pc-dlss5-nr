@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Windowed actual nonreuse Present metrics; cold diagnostic runs are excluded by default."""
-import argparse,hashlib,json,re
+import argparse,hashlib,json,re,math
 from pathlib import Path
 def rows(text,event):
  return [dict(re.findall(r'(\w+)=([^\s]+)',line)) for line in text.splitlines() if line.startswith(event+' ')]
@@ -8,20 +8,27 @@ def percentile(a,p):
  if not a:return None
  a=sorted(a);v=(len(a)-1)*p;i=int(v);return a[i]+(a[min(i+1,len(a)-1)]-a[i])*(v-i)
 def memory(run,begin,end):
- result={'status':'NOT_MEASURED','scope':'PID-associated compute-app sampling; graphics memory may be absent; missing is not zero'}
+ result={'status':'NOT_MEASURED','scope':'PID-associated compute-app sampling; graphics memory may be absent; missing is not zero','device_total':{'status':'NOT_MEASURED','scope':'per-UUID physical device total includes other apps, driver and shared usage; never summed from PID reports'}}
  identity=run/'game-identity.json';samples=run/'gpu-memory.jsonl'
- if not identity.is_file() or not samples.is_file():return result
- game=json.loads(identity.read_text());pid=game['pid'];values=[]
+ if not samples.is_file():return result
+ game=json.loads(identity.read_text()) if identity.is_file() else {};pid=game.get('pid');values=[];devices={}
  for line in samples.read_text().splitlines():
   x=json.loads(line)
   if not begin<=int(x['monotonic_ns'])<=end:continue
   for record in x.get('pid_used_MiB_csv','').splitlines():
    fields=[v.strip() for v in record.split(',')]
-   if len(fields)==2 and fields[0]==str(pid):
+   if len(fields)==2 and pid is not None and fields[0]==str(pid):
     try:amount=float(fields[1])
     except ValueError:continue
-    if amount>=0:values.append(amount)
+    if math.isfinite(amount) and amount>=0:values.append(amount)
+  for record in x.get('device_uuid_used_total_MiB_csv','').splitlines():
+   fields=[v.strip() for v in record.split(',')]
+   if len(fields)!=3 or not fields[0].startswith('GPU-'):continue
+   try:used,total=float(fields[1]),float(fields[2])
+   except ValueError:continue
+   if all(math.isfinite(v) for v in (used,total)) and 0<=used<=total and total>0:devices.setdefault(fields[0],[]).append((used,total))
  if values:result.update(status='MEASURED_PID_COMPUTE_SAMPLE',pid=pid,game_start_ticks=game.get('start_ticks'),samples=len(values),peak_MiB=max(values),identity_limit='sampler recorded PID only; starttime is game provenance, not per-sample PID-reuse proof')
+ if devices:result['device_total'].update(status='MEASURED_DEVICE_TOTAL',devices=[{'uuid':uuid,'samples':len(records),'peak_used_MiB':max(v[0] for v in records),'total_MiB_min':min(v[1] for v in records),'total_MiB_max':max(v[1] for v in records),'peak_used_percent':max(v[0]/v[1]*100 for v in records)} for uuid,records in sorted(devices.items())],attribution='device usage is not solely NRBridge; per-UUID samples do not alone prove which device Native selected')
  return result
 
 def measure(run,after_source=None,before_source=None,after_ns=None,before_ns=None,include_cold=False):

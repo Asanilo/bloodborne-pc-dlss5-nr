@@ -1,5 +1,6 @@
 """Signal callbacks exercised offline; never start a renderer, Wine or a game."""
 import importlib.util,json,signal,tempfile,unittest
+from unittest.mock import patch
 from pathlib import Path
 spec=importlib.util.spec_from_file_location('nr_runner',Path(__file__).resolve().parents[1]/'runner.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 class SignalTests(unittest.TestCase):
@@ -20,4 +21,8 @@ class SignalTests(unittest.TestCase):
   result=json.loads((self.run/'result.json').read_text());self.assertEqual(result['status'],'HOLD');self.assertEqual(result['returncode'],0);self.assertTrue(result['supervisor_interrupted']);self.assertEqual(signal.getsignal(signal.SIGTERM),previous)
  def test_existing_normal_close_not_duplicated(self):
   s=m.SupervisorSignals();s.run=self.run;(self.run/'stop-request.json').write_text('{}');s.receive(signal.SIGTERM,None);s.flush();calls=[];s.request_close_once('test',calls.append);self.assertEqual(calls,[])
+ def test_device_sample_survives_missing_pid_query(self):
+  with patch.object(m.subprocess,'check_output',side_effect=[OSError('compute unavailable'),'GPU-test, 4000, 8192\n']) as query:
+   result=m.sample_gpu_memory()
+  self.assertEqual(result['pid_used_MiB_csv'],'');self.assertEqual(result['device_uuid_used_total_MiB_csv'],'GPU-test, 4000, 8192\n');self.assertEqual(query.call_count,2);self.assertIn('--query-gpu=uuid,memory.used,memory.total',query.call_args_list[1].args[0])
 if __name__=='__main__':unittest.main()

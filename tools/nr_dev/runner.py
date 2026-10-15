@@ -177,6 +177,16 @@ def control(args):
   subprocess.run(['niri','msg','action','close-window','--id',str(own[0]['id'])],check=True,timeout=5)
   atomic(run/'stop-request.json',{'game':game,'monotonic_ns':time.monotonic_ns(),'scope':'normal window close request; not retirement proof'})
 
+def sample_gpu_memory():
+ """Two independently observed NVML CLI views, never sum PID ownership into device usage."""
+ result={'monotonic_ns':time.monotonic_ns(),'pid_used_MiB_csv':''}
+ for field,query in (('pid_used_MiB_csv','--query-compute-apps=pid,used_gpu_memory'),('device_uuid_used_total_MiB_csv','--query-gpu=uuid,memory.used,memory.total')):
+  try:
+   result[field]=subprocess.check_output(['nvidia-smi',query,'--format=csv,noheader,nounits'],text=True,timeout=3)
+   result[field+'_observed_monotonic_ns']=time.monotonic_ns()
+  except (OSError,subprocess.SubprocessError) as error:result[field+'_status']='NOT_MEASURED: '+type(error).__name__
+ return result
+
 class SupervisorSignals:
  """Queue in Python's signal callback; append evidence and request close only on the main loop."""
  def __init__(self):
@@ -264,8 +274,8 @@ def launch_supervised(args,signals):
     if time.monotonic()>=sample_at:
      sample_at=time.monotonic()+1
      try:
-      sample=subprocess.check_output(['nvidia-smi','--query-compute-apps=pid,used_gpu_memory','--format=csv,noheader,nounits'],text=True,timeout=3)
-      with (run/'gpu-memory.jsonl').open('a') as memory:memory.write(json.dumps({'monotonic_ns':time.monotonic_ns(),'pid_used_MiB_csv':sample})+'\n')
+      sample=sample_gpu_memory()
+      with (run/'gpu-memory.jsonl').open('a') as memory:memory.write(json.dumps(sample)+'\n')
      except (OSError,subprocess.SubprocessError):pass
     if time.monotonic()>deadline and not held:
      held=True;atomic(run/'result.json',{'status':'HOLD','reason':'watchdog expired; normal close requested; no kill or GPU completion claim'})
