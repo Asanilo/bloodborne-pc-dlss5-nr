@@ -71,12 +71,33 @@ bool guideRange(vec3 c) {vec3 l=log2(c+p.thresholds.x);return finite3(c)&&all(gr
 // Bit16 records pixel-local out-of-range edits. Every other reason is candidate-fatal.
 bool bankUsable(uint status) { return (status&~16u)==0u; }
 bool live(vec4 e,vec4 m) { return finite3(e.rgb)&&finite1(e.a)&&finite1(m.x)&&finite1(m.z)&&finite1(m.w)&&e.a>0.&&e.a>=p.limits.w&&m.z<=p.limits.x&&m.w<=p.limits.y&&m.z>=0.&&m.w>=0.; }
+// Display-only transition. Neither contributor nor its immutable-origin age is
+// written back to a history bank. Stats mode reuses bindings1/2 for target;
+// binding5 remains the guarded final image consumed by its changed counter.
+bool displayHistory(ivec2 c,bool statistics,out vec4 e,out vec4 m) {
+ e=imageLoad(sourceEdit,c);m=imageLoad(sourceMeta,c);
+ bool oldValid=bankUsable(state.invalid[min(p.dispatch.w,3u)])&&live(e,m);
+ if(p.reserved2.y!=1.)return oldValid; // Strict original path, no target access.
+ vec4 targetEdit,targetMeta;
+ if(statistics){targetEdit=texelFetch(depthImage,c,0);targetMeta=texelFetch(motionImage,c,0);}
+ else {targetEdit=texelFetch(originOrFallbackEdit,c,0);targetMeta=texelFetch(modelOrFallbackMeta,c,0);}
+ bool targetValid=bankUsable(state.invalid[min(p.flags.w,3u)])&&live(targetEdit,targetMeta);
+ if(!targetValid)return oldValid;
+ if(!oldValid){e=targetEdit;m=targetMeta;return true;}
+ float w=finite1(p.reserved2.z)?clamp(p.reserved2.z,0.,1.):0.;
+ if(w==0.)return true;
+ if(w==1.){e=targetEdit;m=targetMeta;return true;}
+ e.rgb=mix(e.rgb,targetEdit.rgb,w);
+ // Report the oldest actually visible contributor, independently per age axis.
+ m.zw=max(m.zw,targetMeta.zw);
+ return true;
+}
 void main() {
  ivec2 c=ivec2(gl_GlobalInvocationID.xy);
  if(p.dispatch.x==5u) {
   uint li=gl_LocalInvocationIndex;bool inside=all(lessThan(c,ivec2(p.dispatch.yz)));
   vec4 e=vec4(0),m=vec4(0);bool valid=false;uint changed=0u;
-  if(inside){e=imageLoad(sourceEdit,c);m=imageLoad(sourceMeta,c);valid=guard.value==0u&&bankUsable(state.invalid[min(p.dispatch.w,3u)])&&live(e,m);
+  if(inside){valid=displayHistory(c,true,e,m);valid=guard.value==0u&&valid;
    vec3 shown=texelFetch(originOrFallbackEdit,c,0).rgb,raw=texelFetch(rawImage,c,0).rgb;
    changed=uint(finite3(shown)&&finite3(raw)&&any(greaterThan(abs(shown-raw),vec3(.00001))));}
   uvec2 age=valid?uvec2(round(m.z*65536.),round(m.w*256.)):uvec2(0);
@@ -165,6 +186,8 @@ void main() {
    }
    m.xy=vec2(d,packed(raw.rgb));
   }
+ } else if(mode==4u) {
+  ok=displayHistory(c,false,e,m);
  } else {
   e=imageLoad(sourceEdit,c);m=imageLoad(sourceMeta,c);ok=bankUsable(state.invalid[src])&&live(e,m);
   if(mode==3u&&!ok) {e=texelFetch(originOrFallbackEdit,c,0);m=texelFetch(modelOrFallbackMeta,c,0);ok=bankUsable(state.invalid[min(p.flags.w,3u)])&&live(e,m);}

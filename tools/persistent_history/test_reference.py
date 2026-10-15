@@ -48,6 +48,19 @@ def compose(raw,h):
     if h is None:return raw
     return tuple(max((max(v,0)+EPS)*2**e-EPS,0) for v,e in zip(raw[:3],h[0]))+(raw[3],)
 
+def transition(old,target,weight,enabled=True,old_status=0,target_status=0):
+    def usable(h,status):
+        return h is not None and status&~16==0 and all(math.isfinite(x) for x in h[0]+h[1:]) and 0<=h[1]<=MAX_FRAMES and 0<=h[2]<=MAX_MS
+    a=usable(old,old_status)
+    if not enabled:return old if a else None
+    b=usable(target,target_status)
+    if not b:return old if a else None
+    if not a:return target
+    w=min(max(weight,0),1) if math.isfinite(weight) else 0
+    if w==0:return old
+    if w==1:return target
+    return tuple(x+(y-x)*w for x,y in zip(old[0],target[0])),max(old[1],target[1]),max(old[2],target[2])
+
 def guide_roundtrip(rgb):
     quantized=[round((math.log2(c+EPS)+16)/32*n) for c,n in zip(rgb,(127,255,255))]
     bits=0x3f800000|quantized[0]|quantized[1]<<7|quantized[2]<<15
@@ -458,6 +471,32 @@ class Boundaries(unittest.TestCase):
             src=pathlib.Path(td)/'reset.cpp';binary=pathlib.Path(td)/'reset';src.write_text(code)
             subprocess.run(['c++','-std=c++20',str(src),'-o',str(binary)],check=True)
             subprocess.run([str(binary)],check=True)
+
+    def test_display_transition_independent_ages_and_fallback(self):
+        old=((1.,-1.,.5),11.,180.);target=((-1.,1.,-.5),4.,65.)
+        original=(old,target)
+        for w in (1/3,2/3):
+            h=transition(old,target,w)
+            self.assertEqual(h[1:],old[1:])
+            self.assertAlmostEqual(h[0][0],1-2*w)
+            self.assertEqual(compose((.3,.4,.5,.7),h)[3],.7)
+        self.assertEqual(transition(old,target,0),old)
+        self.assertEqual(transition(old,target,1),target)
+        self.assertEqual(transition(old,target,.5,enabled=False),old)
+        self.assertEqual(transition(old,target,.5,target_status=2),old)
+        self.assertEqual(transition(old,target,.5,old_status=2),target)
+        self.assertIsNone(transition(old,target,.5,old_status=2,target_status=2))
+        self.assertEqual(transition(old,target,.5,target_status=16)[1:],old[1:])
+        expired=(old[0],12.,200.001)
+        self.assertEqual(transition(expired,target,1/3),target)
+        self.assertEqual(transition(old,(target[0],13.,65.),2/3),old)
+        self.assertEqual(transition(old,((math.nan,0.,0.),4.,65.),.5),old)
+        self.assertEqual((old,target),original) # Display never renews/stores either bank.
+        self.assertIn('if(p.reserved2.y!=1.)return oldValid;',SHADER)
+        self.assertIn('if(statistics){targetEdit=texelFetch(depthImage,c,0);targetMeta=texelFetch(motionImage,c,0);}',SHADER)
+        self.assertIn('m.zw=max(m.zw,targetMeta.zw);',SHADER)
+        self.assertIn('ok=displayHistory(c,false,e,m);',SHADER)
+        self.assertIn('valid=displayHistory(c,true,e,m);',SHADER)
 
     def test_closed_boundaries(self):
         self.assertIsNotNone(capture((1,1,1),(2,2,2),12,200))
