@@ -21,6 +21,9 @@ class FreshContext(unittest.TestCase):
  def test_non_png_observation_rejected(self):
   (self.run/'scene.png').write_text('control data')
   self.assertRaises(ValueError,r.audit_pre_nr_absence,self.run,self.provenance)
+ def test_unknown_type3_opcode_still_requires_absent_nr(self):
+  (self.run/'game.log').write_text(self.log.replace('Unimplemented PM4 type 0','Unknown PM4 type 3 opcode 0xc1 with count 4548'))
+  self.assertIn('game.log',r.audit_pre_nr_absence(self.run,self.provenance))
  def test_control_file_rejected(self):
   (self.run/'native-helper-start').write_text('test');self.assertRaises(ValueError,r.audit_pre_nr_absence,self.run,self.provenance)
  def test_nr_marker_rejected(self):

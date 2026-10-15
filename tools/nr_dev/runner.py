@@ -51,7 +51,7 @@ def audit_pre_nr_absence(run, provenance):
  text=(run/'game.log').read_text(errors='strict')
  expected='NATIVE_ASYNC_PRE_SR_FRONTEND_READY session='+session+' scene_arm=REQUIRED availability_only=1 no_GPU_proof=1'
  nr=[line for line in text.splitlines() if re.search(r'NATIVE_ASYNC_|NATIVE_ORIGIN_|HELPER_|PERSISTENT_|ASYNC_CONFIG|INPUT_PUBLISHED',line)]
- if nr!=[expected] or not text.rstrip().endswith('STOP: GPU library assertion failed (see GPU log above)') or 'Unimplemented PM4' not in text:raise ValueError('NR touched or assertion log incomplete')
+ if nr!=[expected] or not text.rstrip().endswith('STOP: GPU library assertion failed (see GPU log above)') or not ('Unimplemented PM4' in text or re.search(r'^Unknown PM4 type 3 opcode 0x[0-9a-f]+ with count [0-9]+$',text,re.M)):raise ValueError('NR touched or assertion log incomplete')
  # Coordinator attests an observed build, not reconstructed or invented disk history.
  if provenance.get('artifacts')!=manifest.get('artifacts') or provenance.get('observed_clean_build') is not True or not provenance.get('observation'):raise ValueError('missing observed build provenance')
  head=provenance.get('source_commit','')
