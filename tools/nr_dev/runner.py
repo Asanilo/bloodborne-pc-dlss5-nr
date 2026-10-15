@@ -46,7 +46,7 @@ def audit_pre_nr_absence(run, provenance):
  env=manifest['environment'];session=run.name
  if manifest.get('session')!=session or manifest.get('schema')!='nr-dev-session-v1' or env.get('BB_NR_NATIVE_ASYNC_SCENE_FIRST')!='1' or env.get('BB_NR_NATIVE_ASYNC')!='0' or env.get('BB_NR_NATIVE_ASYNC_PRE_SR')!='1' or env.get('BB_NR_NATIVE_ASYNC_RUN_DIR')!=str(run) or env.get('BB_NR_NATIVE_ASYNC_SCENE_ARM')!=str(run/'native-scene-arm'):raise ValueError('not exact isolated scene-first context')
  if result.get('status')!='HOLD' or result.get('returncode')!=23 or result.get('watchdog_expired') is not False or result.get('supervisor_interrupted') is not False or result.get('received_signals')!=0 or result.get('residuals')!=[]:raise ValueError('not unambiguous assertion exit23')
- allowed={'manifest.json','result.json','runner.json','game-identity.json','game.log','gpu-memory.jsonl','native-loaded-libraries.json','pad.txt','present-metrics.json','retirement-audit.json','profile','hold-resolution.json','build-provenance'}
+ allowed={'manifest.json','result.json','runner.json','game-identity.json','game.log','gpu-memory.jsonl','native-loaded-libraries.json','pad.txt','present-metrics.json','retirement-audit.json','profile','hold-resolution.json','build-provenance','scene.png','scene-ready.png'}
  if any(p.name not in allowed for p in run.iterdir()):raise ValueError('unexpected control/protocol evidence; no pre-NR exception')
  text=(run/'game.log').read_text(errors='strict')
  expected='NATIVE_ASYNC_PRE_SR_FRONTEND_READY session='+session+' scene_arm=REQUIRED availability_only=1 no_GPU_proof=1'
@@ -62,7 +62,13 @@ def audit_pre_nr_absence(run, provenance):
  frontend=source('gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_frontend.h')
  native=source('gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr.cpp')
  if 'exact_token(run+"/native-helper-start")' not in frontend or 'frontend&&frontend->HelperStartRequested()' not in native or 'if(!peer&&can_start)' not in native:raise ValueError('unrecognized scene-first gate')
- return {name:sha(run/name) for name in ('manifest.json','result.json','runner.json','game-identity.json','game.log','native-loaded-libraries.json')}
+ observers=[]
+ for name in ('scene.png','scene-ready.png'):
+  image=run/name
+  if image.exists():
+   if image.is_symlink() or not image.is_file() or image.stat().st_size>32*1024*1024 or image.read_bytes()[:8]!=b'\x89PNG\r\n\x1a\n':raise ValueError('unexpected scene observation')
+   observers.append(name)
+ return {name:sha(run/name) for name in ('manifest.json','result.json','runner.json','game-identity.json','game.log','native-loaded-libraries.json',*observers)}
 
 TERMINATED_PRE_NR_HEAD='b701356f2580886380d21a4a31003e672aa7815f'
 def audit_terminated_pre_nr_freeze(run, provenance):
@@ -476,6 +482,7 @@ def launch_supervised(args,signals):
   env.update(BB_GAME_DIR=str(assets),BB_DATA_DIR=str(profile),BB_CONFIG=str(profile/'bbport.ini'),BB_USER_DIR=str(profile/'user'),BB_GPU_USER_DIR=str(profile/'user'),BB_COPY_GPU_BUFFERS='1',BB_PREBUILT='1',BB_PROBE=str(build/'bb-probe'),BB_STARTUP_CHECK='0',BB_MODS_ENABLED='0',BB_UPSCALER='dlss',BB_UPSCALE_PRESET='1',BB_DLSS='1',BB_JITTER='1',BB_FPS='uncap',BB_FPS_LIMIT='90',BB_FRAME_STATS='1',BB_FRAME_LOG=str(profile/'logs/frames.csv'),BB_FULLSCREEN='0',BB_SKIP_NETWORK_CHOICE='1',BB_LANGUAGE='1',BB_PC_MODEL='0',BB_SAVE_LOG='1',BB_IME_TEXT='NRTest',BB_PAD_FILE=str(run/'pad.txt'),BB_DUMP_DIR=str(run/'dump'),BB_PRESENT_DUMP_TRIGGER=str(run/'present-dump-trigger'),BB_PRESENT_DUMP_COUNT='0',LD_LIBRARY_PATH='/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib',DLSSNR_DISABLE='1',DLSSNR_AUTO_DOWNLOAD='0',VK_LOADER_LAYERS_DISABLE='~implicit~',MANGOHUD='0',DISABLE_MANGOHUD='1')
   for name in ('config','cache','data','state'):env['XDG_'+name.upper()+'_HOME']=str(profile/name)
   nr={'BB_NR_NATIVE_ASYNC':'0','BB_NR_NATIVE_ASYNC_PRE_SR':'1','BB_NR_NATIVE_ASYNC_SCENE_FIRST':'1','BB_NR_NATIVE_ASYNC_PRE_SR_PLAY':'1','BB_NR_NATIVE_ASYNC_PRE_SR_SKY':'off','BB_NATIVE_PERSISTENT_HISTORY':'1' if args.sky=='persistent' else '0','BB_NR_NATIVE_ASYNC_PRE_SR_SR_HISTORY':'game_only','BB_NR_NATIVE_ASYNC_PRE_SR_SR_INPUT':'switching','BB_NR_NATIVE_ASYNC_SESSION':args.session,'BB_NR_NATIVE_ASYNC_MODE':args.mode,'BB_NR_NATIVE_ASYNC_RUN_DIR':str(run),'BB_NR_NATIVE_ASYNC_SCENE_ARM':str(run/'native-scene-arm'),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':str(args.source_limit),'BB_NR_NATIVE_ORIGIN_RUN_DIR':str(run),'BB_NR_NATIVE_ORIGIN_HELPER':str(helper),'BB_NR_NATIVE_ORIGIN_WINE':str(GE/'files/lib/wine/x86_64-unix/wine'),'BB_NR_NATIVE_ORIGIN_PRELOADER':str(GE/'files/lib/wine/x86_64-unix/wine-preloader'),'BB_NR_NATIVE_ORIGIN_PREFIX':str(profile/'wine-prefix'),'BB_NR_NATIVE_ORIGIN_WINEDEBUG':'-all,warn+vulkan,err+vulkan','BB_NR_NATIVE_ORIGIN_MODE':args.mode}
+  if getattr(args,'pm4_cold_trace',False):nr['BB_NR_PM4_COLD_TRACE']='1'
   if args.runtime_model_helper:nr['BB_NR_RUNTIME_MODEL']='1'
   if args.history_diagnostic:
    if args.sky!='persistent' or args.mode!='resident':raise ValueError('history diagnostic requires persistent resident mode')
@@ -533,7 +540,7 @@ def launch_supervised(args,signals):
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
  if a.command=='preflight':
   with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);print(json.dumps(preflight(lock),indent=2))

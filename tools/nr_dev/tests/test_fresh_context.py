@@ -15,6 +15,12 @@ class FreshContext(unittest.TestCase):
  def put(self,name,value):(self.run/name).write_text(json.dumps(value))
  def test_cold_proof_never_changes_result(self):
   before=(self.run/'result.json').read_bytes();self.assertIn('game.log',r.audit_pre_nr_absence(self.run,self.provenance));self.assertEqual(before,(self.run/'result.json').read_bytes())
+ def test_scene_observation_is_bound_but_not_a_control_token(self):
+  (self.run/'scene.png').write_bytes(b'\x89PNG\r\n\x1a\nfixture')
+  self.assertEqual(r.audit_pre_nr_absence(self.run,self.provenance)['scene.png'],r.sha(self.run/'scene.png'))
+ def test_non_png_observation_rejected(self):
+  (self.run/'scene.png').write_text('control data')
+  self.assertRaises(ValueError,r.audit_pre_nr_absence,self.run,self.provenance)
  def test_control_file_rejected(self):
   (self.run/'native-helper-start').write_text('test');self.assertRaises(ValueError,r.audit_pre_nr_absence,self.run,self.provenance)
  def test_nr_marker_rejected(self):
