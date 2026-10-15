@@ -17,6 +17,9 @@ class WindowTests(unittest.TestCase):
   self.write((10,11,11));self.assertEqual(m.measure(self.run)['status'],'DUPLICATE_PRESENT_REJECTED');self.write((10,11,12),[100,300,200]);self.assertEqual(m.measure(self.run)['status'],'NONMONOTONIC_PRESENT_REJECTED')
  def test_cold_never_hot(self):
   self.write(extra='PERSISTENT_HISTORY_DIAGNOSTIC_RECORDED source=12 index=0\n');self.assertEqual(m.measure(self.run)['status'],'COLD_DIAGNOSTIC_EXCLUDED');out=m.measure(self.run,after_source=12,include_cold=True);self.assertFalse(out['hot_acceptance_eligible']);self.assertTrue(out['performance_excluded'])
+ def test_cpu_packet_trace_never_hot(self):
+  self.write();(self.run/'manifest.json').write_text(json.dumps({'session':'test','environment':{'BB_NR_PM4_COLD_TRACE':'1'}}))
+  self.assertEqual(m.measure(self.run)['status'],'COLD_DIAGNOSTIC_EXCLUDED');self.assertFalse(m.measure(self.run,include_cold=True)['hot_acceptance_eligible'])
  def test_memory_missing_not_zero_and_pid_match(self):
   self.write();(self.run/'game-identity.json').write_text(json.dumps({'pid':123,'start_ticks':456}));(self.run/'gpu-memory.jsonl').write_text(json.dumps({'monotonic_ns':1_020_000_000,'pid_used_MiB_csv':'456, 5000\n'})+'\n');out=m.measure(self.run)['gpu_memory'];self.assertEqual(out['status'],'NOT_MEASURED');self.assertNotIn('peak_MiB',out)
   (self.run/'gpu-memory.jsonl').write_text(json.dumps({'monotonic_ns':1_020_000_000,'pid_used_MiB_csv':'123, 2048\n'})+'\n');self.assertEqual(m.measure(self.run)['gpu_memory']['peak_MiB'],2048)

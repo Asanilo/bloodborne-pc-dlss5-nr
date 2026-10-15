@@ -46,7 +46,7 @@ def measure(run,after_source=None,before_source=None,after_ns=None,before_ns=Non
  if len({x['session'] for x in r})>1:return {'status':'MIXED_SESSION_REJECTED'}
  manifest=json.loads((run/'manifest.json').read_text()) if (run/'manifest.json').is_file() else {}
  if r and manifest.get('session') is not None and r[0]['session']!=manifest['session']:return {'status':'FOREIGN_SESSION_REJECTED'}
- environment=manifest.get('environment',{});cold=bool(re.search(r'^PERSISTENT_HISTORY_DIAGNOSTIC_(?:RECORDED|COMPLETE|SUMMARY) ',text,re.M)) or environment.get('BB_NATIVE_HISTORY_DIAGNOSTIC')=='1' or environment.get('BB_NR_NATIVE_ASYNC_PRE_SR_DIAGNOSTIC_ONCE')=='1' or environment.get('BB_NR_NATIVE_ASYNC_EDIT_DIAGNOSTIC_ONCE')=='1'
+ environment=manifest.get('environment',{});cold=bool(re.search(r'^PERSISTENT_HISTORY_DIAGNOSTIC_(?:RECORDED|COMPLETE|SUMMARY) ',text,re.M)) or environment.get('BB_NATIVE_HISTORY_DIAGNOSTIC')=='1' or environment.get('BB_NR_NATIVE_ASYNC_PRE_SR_DIAGNOSTIC_ONCE')=='1' or environment.get('BB_NR_NATIVE_ASYNC_EDIT_DIAGNOSTIC_ONCE')=='1' or environment.get('BB_NR_PM4_COLD_TRACE')=='1'
  # Staging allocation, readback, writer and diagnostic synchronization affect the
  # surrounding run, not just captured sources. Never silently reclassify its tail as hot.
  base={'cold_diagnostic_run':cold,'performance_excluded':cold,'hot_acceptance_eligible':not cold,'bounds_exclusive':{'after_source':after_source,'before_source':before_source,'after_monotonic_ns':after_ns,'before_monotonic_ns':before_ns},'failed_swapchain_present_rows_excluded':failed,'game_log_sha256':hashlib.sha256((run/'game.log').read_bytes()).hexdigest()}
