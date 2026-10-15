@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """CPU numerical boundary oracle; shader compilation is separate, never GPU acceptance."""
-import math,pathlib,re,unittest,struct
+import math,pathlib,re,unittest,struct,subprocess,tempfile
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 HEADER=(ROOT/'gpu/shadps4/video_core/renderer_vulkan/native_persistent_history_shader.h').read_text()
 SHADER=(ROOT/'tools/persistent_history/history.comp').read_text()
@@ -187,6 +187,16 @@ class Boundaries(unittest.TestCase):
         self.assertAlmostEqual(frames/count/65536,sum(f for v,f,_ in lanes if v)/count)
         self.assertLess(64*12*65536,2**32)
         self.assertLess(64*200*256,2**32)
+
+    def test_actual_reset_window_cpp_policy(self):
+        # Exercise the actual C++ admission policy, including a late candidate
+        # that was legal before reset and the first fresh immutable origin.
+        header=ROOT/'gpu/shadps4/video_core/renderer_vulkan/native_persistent_history_shader.h'
+        code='#include "'+str(header)+'"\n#include <cassert>\nint main(){Vulkan::PersistentHistoryResetWindow w;assert(w.Admits(95));w.ResetAt(100);assert(!w.Admits(99));assert(w.Admits(100));assert(w.generation==1);w.ResetAt(90);assert(!w.Admits(95));assert(w.Admits(100));assert(w.generation==2);w.ResetAt(121);assert(!w.Admits(120));assert(w.Admits(121));assert(w.generation==3);}'
+        with tempfile.TemporaryDirectory() as td:
+            src=pathlib.Path(td)/'reset.cpp';binary=pathlib.Path(td)/'reset';src.write_text(code)
+            subprocess.run(['c++','-std=c++20',str(src),'-o',str(binary)],check=True)
+            subprocess.run([str(binary)],check=True)
 
     def test_closed_boundaries(self):
         self.assertIsNotNone(capture((1,1,1),(2,2,2),12,200))

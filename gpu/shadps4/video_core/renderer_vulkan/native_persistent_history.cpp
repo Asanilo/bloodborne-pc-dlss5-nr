@@ -52,7 +52,7 @@ struct NativePersistentHistory::Impl {
   std::shared_ptr<Proof> proof=std::make_shared<Proof>();
   unsigned used=0; uint64_t source_id=0;
   std::unique_ptr<VideoCore::Buffer> stats;bool sampled=false,stats_pending=false;
-  std::array<unsigned,Passes> modes{};uint64_t sample_revision=0;
+  std::array<unsigned,Passes> modes{};uint64_t sample_revision=0,sample_generation=0;
  };
  struct Clock {uint64_t source;double ms;uint64_t history,params;};
  const Instance* instance=nullptr;
@@ -77,6 +77,7 @@ struct NativePersistentHistory::Impl {
  BbNativeAsync::Frame current,last;
  double clock_ms=0,current_dt_ms=0;
  unsigned slot=0,active=0,candidate=2;
+ PersistentHistoryResetWindow reset_window;
  BbNR::Request pending_controls{},applied_controls{};
  NativePersistentHistory::RuntimeSample latest_sample;
  vk::UniqueQueryPool queries;float timestamp_period=0;unsigned timestamp_bits=0;
@@ -211,7 +212,7 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
 }
 void NativePersistentHistory::Impl::ReadSample(Slot& s){
  if(!s.stats_pending||!Free(s)||s.source_id<=latest_sample.source)return;
- if(s.sample_revision!=applied_controls.revision){s.stats_pending=false;return;}
+ if(s.sample_revision!=applied_controls.revision||s.sample_generation!=reset_window.generation){s.stats_pending=false;return;}
  s.stats->Invalidate(0,GroupBytes+QueriesPerSlot*16);std::array<uint64_t,4> sums{};uint32_t max_frames=0,max_ms=0;
  const auto* data=reinterpret_cast<const uint32_t*>(s.stats->mapped_data.data());
  for(uint64_t group=0;group<GroupCount;group++){for(unsigned k=0;k<4;k++)sums[k]+=data[group*6+k];max_frames=std::max(max_frames,data[group*6+4]);max_ms=std::max(max_ms,data[group*6+5]);}
@@ -264,7 +265,10 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  p.ReadSample(s);
  if(p.pending_controls.revision!=p.applied_controls.revision||p.pending_controls.reset_seq!=p.applied_controls.reset_seq||p.pending_controls.config!=p.applied_controls.config){
   const auto& a=p.applied_controls.config;const auto& b=p.pending_controls.config;
-  if(a.ttl_frames!=b.ttl_frames||a.ttl_ms!=b.ttl_ms||a.depth_tolerance!=b.depth_tolerance||a.colour_tolerance!=b.colour_tolerance||a.min_confidence!=b.min_confidence||p.pending_controls.reset_seq!=p.applied_controls.reset_seq)p.history=false;
+  if(a.ttl_frames!=b.ttl_frames||a.ttl_ms!=b.ttl_ms||a.depth_tolerance!=b.depth_tolerance||a.colour_tolerance!=b.colour_tolerance||a.min_confidence!=b.min_confidence||p.pending_controls.reset_seq!=p.applied_controls.reset_seq){
+   p.history=false;p.reset_window.ResetAt(frame.source);
+   p.clocks.clear();p.clocks.push_back({frame.source,p.clock_ms,frame.history,frame.params});
+  }
   p.applied_controls=p.pending_controls;p.latest_sample.available=false;p.latest_sample.timing_available=false;
  }
  if(p.diagnostic&&p.diagnostic->Finished()&&p.diagnostic->Ready()){
@@ -281,7 +285,7 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  frame.history==p.last.history&&frame.params==p.last.params&&!frame.sr_reset;
  if(!continuous)p.history=false;
  p.slot=next;s.used=0;s.source_id=frame.source;s.borrowed.clear();p.current=frame;p.current_raw=raw[0];
- s.sampled=p.applied_controls.config.hud&&frame.source%30==0;s.stats_pending=false;s.sample_revision=p.applied_controls.revision;
+ s.sampled=p.applied_controls.config.hud&&frame.source%30==0;s.stats_pending=false;s.sample_revision=p.applied_controls.revision;s.sample_generation=p.reset_window.generation;
  auto cmd=scheduler.CommandBuffer();if(s.sampled&&p.queries)cmd.resetQueryPool(*p.queries,p.slot*QueriesPerSlot,QueriesPerSlot);if(!p.initialized)p.Init(cmd);p.Convert(scheduler,raw);
  const auto views=p.Converted();const unsigned next_bank=1-p.active;
  p.Pass(scheduler,PHAdvance,p.active,next_bank,views,p.banks[p.active].edit.View(),p.banks[p.active].meta.View(),frame,p.history,1,float(p.current_dt_ms));
@@ -292,6 +296,7 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
  auto& p=*impl;
  if(!p.prepared||p.applied||p.candidate_recorded||p.unknown||p.timeline!=&scheduler||!nr||links.empty()||links.size()>BbNativeAsync::NodeCount)return false;
  if(links.back().frame.source!=p.current.source)return false;
+ if(!p.reset_window.Admits(links.front().frame.source))return false;
  if(p.current.source<links.front().frame.source||p.current.source-links.front().frame.source>BbNativeAsync::MaxLinks)return false;
  double origin_time=0,latest_time=0;if(!p.Time(links.front().frame.source,origin_time)||!p.Time(p.current.source,latest_time))return false;
  if(latest_time-origin_time>200.)return false;
@@ -395,7 +400,12 @@ void NativePersistentHistory::ReportRetirement(const char* stage)const noexcept{
 }
 void NativePersistentHistory::HoldUnknown()noexcept{impl->unknown=true;impl->latest_sample.available=false;impl->latest_sample.timing_available=false;if(impl->diagnostic)impl->diagnostic->HoldUnknown();for(auto& s:impl->slots)s.proof->unknown=true;}
 bool NativePersistentHistory::HasHistory()const noexcept{return impl->history&&!impl->unknown;}
-void NativePersistentHistory::Reset()noexcept{impl->history=false;impl->prepared=false;impl->applied=false;impl->latest_sample.available=false;impl->latest_sample.timing_available=false;}
+void NativePersistentHistory::Reset()noexcept{
+ auto& p=*impl;p.history=false;p.prepared=false;p.applied=false;
+ p.reset_window.ResetAt(p.last.source==UINT64_MAX?UINT64_MAX:p.last.source+1);
+ p.clocks.clear();p.latest_sample.available=false;p.latest_sample.timing_available=false;
+ // Slots, descriptors, CBs, last-use proofs and unknown state remain untouched.
+}
 uint64_t NativePersistentHistory::ImageBytes()const noexcept{
  // 4*(RGBA16 edit + RGBA32 metadata), 2 independent current conversion sets,
  // one queue-ordered RGBA32 compose, and Return's five original-alpha half slots.

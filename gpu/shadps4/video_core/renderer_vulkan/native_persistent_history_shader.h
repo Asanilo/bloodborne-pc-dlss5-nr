@@ -2,6 +2,12 @@
 #include <cstdint>
 #include <cstddef>
 namespace Vulkan {
+// Logical admission floor only. It never changes an origin identity or GPU lease.
+struct PersistentHistoryResetWindow {
+ uint64_t minimum_origin=0,generation=0;
+ void ResetAt(uint64_t source) noexcept {if(source>minimum_origin)minimum_origin=source;++generation;}
+ bool Admits(uint64_t immutable_origin)const noexcept{return immutable_origin>=minimum_origin;}
+};
 enum PersistentHistoryMode : uint32_t { PHClear=0, PHCapture=1, PHAdvance=2, PHAdopt=3, PHCompose=4, PHStats=5 };
 // std140, 11 complete 16-byte rows. Motion maps current UV to previous UV:
 // previousUV = currentUV + motion * MvScale / motionExtent + jitterDelta.
