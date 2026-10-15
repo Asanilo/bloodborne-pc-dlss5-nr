@@ -26,6 +26,19 @@ python3 native/tools/nr_dev/play.py --continue-session SESSION
 
 早期Alpha的主协调已在 `dev-player-01` 获得用户反馈“明显改善，操作流畅”，并核验正常退出。 用户后续补充：仍有轻微鬼影、闪烁及大幅度动作时的闪烁，整体稳定性尚可；这些是尚未解决的画质问题，不能将当前试玩通过解读为无伪影或全场景完成。120秒自动动态窗口：新版60.30 FPS/P95 25.31ms/P99 26.78ms；d9视觉算法隔离参考66.49 FPS/P95 22.19ms/P99 23.58ms。场景为Clinic转镜和小范围移动，未覆盖完整战斗与全游戏。冷诊断不计入热性能。更完整的现行安全和资源边界见开发根 `CURRENT.md`。
 
+## 当前画质实验与回退
+
+完整后续规划见 [NRBRIDGE_PLAN](../../docs/NRBRIDGE_PLAN.md)。当前 `build/native` 是受限三次残差重建实验版（实际build源码 `ede2f24`），不是已通过玩家画质验收的稳定升级。20项Shader/CPU边界与锐度测试、冷GPU像素/年龄检查通过；120秒同存档同输入模式热窗口为54.91FPS/P95 25.81/P99 27.19ms，固定Alpha57.63FPS/P95 24.81/P99 26.38ms。两者正常退休；候选较慢约4.7%，仍有重复重投影细节损失，鬼影/大动作闪烁及候选亮度跳变不宣称解决。冷组不是跨run严格同帧A/B。
+
+可用相同私人存档显式比较（每次正常退出后再启动另一版本）：
+
+```bash
+python3 native/tools/nr_dev/play.py --continue-session dev-runtime-controls-01
+python3 native/tools/nr_dev/play.py --continue-session dev-runtime-controls-01 --native-build /home/arinp/Code/nrbridge-dev/build/baselines/e08eacfed42b162a54f0d370f8ecdb28bf40f725
+```
+
+第一条是候选，第二条是已验证Alpha。两条都复制同一个私人存档与默认NR配置，不写回来源；不要用F8替代独立Alpha比较。固定源码标签 `nrbridge-alpha-runtime-20261015`；真实对照数据在开发根 `comparisons/stability-20261015/results.json`。
+
 ## 本阶段验证边界
 
 - `dev-runtime-life-01` 提供了本阶段资源生命周期的实际运行证据；原 watchdog **HOLD 保留**，不改写为正常退出或玩家验收通过。资源作用范围的独立证据不等于完整运行 PASS。
