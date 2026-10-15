@@ -35,6 +35,8 @@ void main() {
   if(ok) {e=vec4(log2((edited+p.thresholds.x)/(origin+p.thresholds.x)),1);m=vec4(d,packed(origin),p.age.zw);ok=live(e,m)&&all(lessThanEqual(abs(e.rgb),vec3(p.thresholds.w)));}
   if(!ok) atomicOr(state.invalid[dst],1u);
  } else if(mode==2u) {
+  // Preserve candidate-wide numerical rejection through every catch-up bank.
+  if(all(equal(c,ivec2(0)))&&state.invalid[src]!=0u) atomicOr(state.invalid[dst],1u);
   vec2 uv=(vec2(c)+.5)/vec2(p.dispatch.yz),mv=texture(motionImage,uv).xy;
   vec2 prev=uv+mv*p.motion.xy/vec2(textureSize(motionImage,0))+p.motion.zw;
   if(finite1(mv.x)&&finite1(mv.y)&&all(greaterThanEqual(prev,vec2(0)))&&all(lessThan(prev,vec2(1)))&&state.invalid[src]==0u&&p.flags.z!=0u) {
@@ -50,7 +52,8 @@ void main() {
   e=imageLoad(sourceEdit,c);m=imageLoad(sourceMeta,c);ok=state.invalid[src]==0u&&live(e,m);
   if(mode==3u&&!ok) {e=texelFetch(originOrFallbackEdit,c,0);m=texelFetch(modelOrFallbackMeta,c,0);ok=state.invalid[min(p.flags.w,3u)]==0u&&live(e,m);}
  }
- if(!ok) {e=vec4(0);m=vec4(0);atomicAdd(state.rejectedPixels,1u);} else {atomicAdd(state.validPixels,1u);atomicMax(state.oldestFrames,uint(ceil(m.z)));}
- if(mode==4u) {vec3 rgb=ok?max((max(raw.rgb,vec3(0))+p.thresholds.x)*exp2(e.rgb)-p.thresholds.x,vec3(0)):raw.rgb;imageStore(outputImage,c,vec4(rgb,raw.a));if(ok&&any(greaterThan(abs(rgb-raw.rgb),vec3(.00001))))atomicAdd(state.changedPixels,1u);}
+ if(!ok) {e=vec4(0);m=vec4(0);}
+ if(p.reserved1.x>0.) {if(!ok) atomicAdd(state.rejectedPixels,1u);else {atomicAdd(state.validPixels,1u);atomicMax(state.oldestFrames,uint(ceil(m.z)));}}
+ if(mode==4u) {vec3 rgb=ok?max((max(raw.rgb,vec3(0))+p.thresholds.x)*exp2(e.rgb)-p.thresholds.x,vec3(0)):raw.rgb;imageStore(outputImage,c,vec4(rgb,raw.a));if(p.reserved1.x>0.&&ok&&any(greaterThan(abs(rgb-raw.rgb),vec3(.00001))))atomicAdd(state.changedPixels,1u);}
  else {imageStore(destEdit,c,e);imageStore(destMeta,c,m);}
 }

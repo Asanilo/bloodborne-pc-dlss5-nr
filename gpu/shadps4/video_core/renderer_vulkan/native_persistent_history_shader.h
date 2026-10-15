@@ -12,7 +12,8 @@ struct alignas(16) PersistentHistoryConstants {
  float Epsilon{1.f/512.f}, DepthTolerance{.02f}, ColourTolerance{.5f}, MaxLogEdit{4.f};
  float DeltaFrames{1.f}, DeltaMs{}, OriginAgeFrames{}, OriginAgeMs{};
  float MaxFrames{12.f}, MaxMs{200.f}, ExposureRatio{1.f}, MinConfidence{.5f};
- float Reserved1[8]{};
+ float CollectStats{}; // opt-in cold diagnostic counters; zero on the hot path
+ float Reserved1[7]{};
 };
 static_assert(sizeof(PersistentHistoryConstants)==128);
 // invalid[4], validPixels, rejectedPixels, changedPixels, oldestFrames.

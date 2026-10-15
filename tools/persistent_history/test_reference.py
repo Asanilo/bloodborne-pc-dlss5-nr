@@ -52,6 +52,12 @@ class Boundaries(unittest.TestCase):
         for text in ['m.zw+=p.age.xy','m=vec4(d,packed(origin),p.age.zw)', 'state.invalid[src]==0u', 'p.flags.w','vec4(rgb,raw.a)','difference','motionImage','p.motion.zw']:
             self.assertIn(text,SHADER)
         self.assertNotIn('m.zw=vec2(0)',SHADER)
+    def test_global_fault_propagation_and_cold_stats(self):
+        self.assertIn("state.invalid[src]!=0u) atomicOr(state.invalid[dst],1u)",SHADER)
+        self.assertIn("if(p.reserved1.x>0.)",SHADER)
+        self.assertIn("if(p.reserved1.x>0.&&ok",SHADER)
+        self.assertIn("float CollectStats{}",HEADER)
+
     def test_true_origin_age(self):
         h=capture((1,1,1),(2,2,2),4,65)
         self.assertEqual(advance(h,(1,1,1),(1,1,1),.5,.5)[1:],(5,81))
