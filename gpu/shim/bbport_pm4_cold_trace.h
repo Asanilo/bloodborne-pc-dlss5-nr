@@ -39,7 +39,7 @@ public:
 inline void Dump(const char* phase,uintptr_t guest,std::span<const uint32_t> copied,Framing at_submit,uint64_t submit_digest){
  if(!Enabled())return;auto& s=Records();std::lock_guard lock(s.mutex);if(s.dumps>=4)return;++s.dumps;
  const auto now=Validate(copied);const auto digest=Digest(copied);
- std::fprintf(stderr,"PM4_COLD_TRACE phase=%s dump=%u guest=%#llx copied=%#llx bytes=%zu submit_framing_ok=%u submit_bad_offset=%zu submit_bad_word=%08x current_framing_ok=%u current_bad_offset=%zu snapshot_digest_same=%u digest_scope=FNV64_diagnostic_not_SHA no_repair=1\n",phase,s.dumps,(unsigned long long)guest,(unsigned long long)reinterpret_cast<uintptr_t>(copied.data()),copied.size_bytes(),at_submit.valid,at_submit.offset,at_submit.word,now.valid,now.offset,digest==submit_digest);
+ std::fprintf(stderr,"PM4_COLD_TRACE phase=%s dump=%u guest=%#llx copied=%#llx bytes=%zu submit_framing_ok=%u submit_bad_offset=%zu submit_bad_word=%08x current_framing_ok=%u current_bad_offset=%zu snapshot_digest_same=%u digest_scope=FNV64_diagnostic_not_SHA framing_scope=packet_lengths_only_not_opcode_validity no_repair=1\n",phase,s.dumps,(unsigned long long)guest,(unsigned long long)reinterpret_cast<uintptr_t>(copied.data()),copied.size_bytes(),at_submit.valid,at_submit.offset,at_submit.word,now.valid,now.offset,digest==submit_digest);
  for(uint64_t seq=s.sequence>64?s.sequence-63:1;seq<=s.sequence;seq++){
   const auto& r=s.ring[(seq-1)%64];const uintptr_t end=guest+copied.size_bytes();
   if(r.address>=end||r.address+uint64_t(r.requested)*4<=guest)continue;

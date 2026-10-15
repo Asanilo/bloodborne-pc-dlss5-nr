@@ -2019,6 +2019,8 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             default:
+                if(copy&&copy->cold_trace)BbPm4Cold::Dump("decode_unknown_opcode",reinterpret_cast<uintptr_t>(copy->guest_dcb),{copy->data.data(),copy->dcb_dwords},{copy->cold_framing_valid,copy->cold_bad_offset,copy->cold_bad_word,"recorded_at_submit"},copy->cold_digest);
+                ReportBadPacket(base_addr, dcb_dwords, dcb.data(), seq, dcb_depth);
                 UNREACHABLE_MSG("Unknown PM4 type 3 opcode {:#x} with count {}",
                                 static_cast<u32>(opcode), count);
             }
