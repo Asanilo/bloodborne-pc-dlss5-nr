@@ -61,11 +61,13 @@ def transition(old,target,weight,enabled=True,old_status=0,target_status=0):
     if w==1:return target
     return tuple(x+(y-x)*w for x,y in zip(old[0],target[0])),max(old[1],target[1]),max(old[2],target[2])
 
-def edge_support_reference(center_depth,center_mv,source_age,neighbour,offset):
+def edge_support_reference(center_depth,center_mv,source_age,neighbour,offset,extent=(1280,720),motion_extent=(1280,720),jitter=(0.,0.),position=(640.,360.)):
     # Neighbour carries its independently mapped old sample and current raw.
     depth,mv,olddepth,raw,oldraw,history=neighbour
     if not surface(depth,center_depth):return False
-    delta=tuple(o+b-a for o,a,b in zip(offset,center_mv,mv))
+    delta=tuple(o+(b-a)*size/msize for o,a,b,size,msize in zip(offset,center_mv,mv,extent,motion_extent))
+    previous=tuple((pos+o+.5)/size+v/msize+j for pos,o,size,v,msize,j in zip(position,offset,extent,mv,motion_extent,jitter))
+    if not all(math.isfinite(x) and 0<=x<1 for x in previous):return False
     along=sum(a*b for a,b in zip(delta,offset));across=delta[0]*offset[1]-delta[1]*offset[0]
     if not all(math.isfinite(x) for x in delta) or not .5<=along<=1.5 or abs(across)>.5:return False
     if history is None or history[1:]!=source_age:return False
@@ -531,6 +533,21 @@ class Boundaries(unittest.TestCase):
         # Interior never enters the support branch or receives its confidence cap.
         self.assertEqual(count([n()]*4),4)
         self.assertIn('along<.5||along>1.5||abs(across)>.5',SHADER)
+
+    def test_edge_support_coordinate_finite_and_extent_scaling(self):
+        z=PROJECTION[2]+PROJECTION[3]/10;raw=(.2,.3,.4);h=((.25,-.5,1.),4.,64.)
+        def n(mv):return z,mv,z,raw,raw,h
+        args=(z,(0.,0.),h[1:])
+        for mv in ((math.nan,0.),(math.inf,0.),(-math.inf,0.),(1e308,0.)):
+            self.assertFalse(edge_support_reference(*args,n(mv),(1,0)))
+        for jitter in ((math.nan,0.),(math.inf,0.),(-math.inf,0.),(1e308,0.)):
+            self.assertFalse(edge_support_reference(*args,n((0.,0.)),(1,0),jitter=jitter))
+        # Half-resolution MV units: .3 source pixels is .6 dispatch pixels.
+        self.assertTrue(edge_support_reference(*args,n((.3,0.)),(1,0)))
+        self.assertFalse(edge_support_reference(*args,n((.3,0.)),(1,0),motion_extent=(640,360)))
+        self.assertTrue(edge_support_reference(*args,n((.25,0.)),(1,0),motion_extent=(640,360)))
+        self.assertIn('p.motion.xy*vec2(p.dispatch.yz)/vec2(textureSize(motionImage,0))',SHADER)
+        self.assertIn('if(!finite1(prev.x)||!finite1(prev.y)||any(lessThan(prev,vec2(0)))',SHADER)
 
     def test_closed_boundaries(self):
         self.assertIsNotNone(capture((1,1,1),(2,2,2),12,200))

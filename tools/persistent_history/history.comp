@@ -80,12 +80,12 @@ bool edgeSupport(ivec2 c,ivec2 offset,float centerDepth,vec2 centerMotion,vec2 s
  if(!sameSurface(nd,centerDepth,p.currentProjection.z)||!previousDepth(nd,n,expected))return false;
  vec2 nmv=texelFetch(motionImage,n,0).xy;
  if(!finite1(nmv.x)||!finite1(nmv.y))return false;
- vec2 deltaPrev=vec2(offset)+(nmv-centerMotion)*p.motion.xy;
+ vec2 deltaPrev=vec2(offset)+(nmv-centerMotion)*p.motion.xy*vec2(p.dispatch.yz)/vec2(textureSize(motionImage,0));
  float along=dot(deltaPrev,vec2(offset));
  float across=deltaPrev.x*float(offset.y)-deltaPrev.y*float(offset.x);
  if(!finite1(along)||!finite1(across)||along<.5||along>1.5||abs(across)>.5)return false;
  vec2 prev=(vec2(n)+.5)/vec2(p.dispatch.yz)+nmv*p.motion.xy/vec2(textureSize(motionImage,0))+p.motion.zw;
- if(any(lessThan(prev,vec2(0)))||any(greaterThanEqual(prev,vec2(1))))return false;
+ if(!finite1(prev.x)||!finite1(prev.y)||any(lessThan(prev,vec2(0)))||any(greaterThanEqual(prev,vec2(1))))return false;
  ivec2 q=ivec2(prev*vec2(p.dispatch.yz));vec4 ne=imageLoad(sourceEdit,q),meta=imageLoad(sourceMeta,q);
  if(!all(equal(meta.zw,sourceAge)))return false;
  meta.zw+=p.age.xy;
