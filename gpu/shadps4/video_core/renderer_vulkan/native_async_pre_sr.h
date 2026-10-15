@@ -25,6 +25,11 @@ public:
  bool TryCaptureOrigin(const Instance&,Scheduler&,const std::array<vk::Image,3>&,
              const std::array<vk::ImageCreateInfo,3>&,BbNativeAsync::Frame);
  void PollReady(const Instance&,Scheduler&,bool supported);
+ // Renderer owner only: never submit guessed/future ticks or an empty no-peer pump.
+ bool NeedsExitSubmit(uint64_t current_tick)noexcept{
+  if(maximum_native_use_tick>current_tick){Quarantine();return false;}
+  return !rejected&&maximum_native_use_tick!=0&&maximum_native_use_tick==current_tick;
+ }
  void PrepareCurrentMasks(Scheduler&,uint64_t actual_source,bool supported);
  void TrackMasks(Scheduler&);
  bool Armed()const noexcept;

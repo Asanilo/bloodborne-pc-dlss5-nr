@@ -43,6 +43,8 @@ public:
     explicit Rasterizer(const Instance& instance, Scheduler& scheduler, Runtime& runtime,
                         AmdGpu::Liverpool* liverpool);
     ~Rasterizer();
+    // UI-safe asynchronous mailbox; at most one queued/executing owner command.
+    void RequestNativeExitPump() noexcept;
 
     [[nodiscard]] Runtime& GetRuntime() noexcept {
         return runtime;
@@ -432,6 +434,7 @@ private:
     VideoCore::BufferCache buffer_cache;
     VideoCore::TextureCache texture_cache;
     AmdGpu::Liverpool* liverpool;
+    std::atomic<bool> native_exit_pump_pending{false};
     Core::MemoryManager* memory;
     boost::icl::interval_set<VAddr> mapped_ranges;
     Common::SharedFirstMutex mapped_ranges_mutex;

@@ -102,6 +102,8 @@ public:
 
     /// Start of a frame in the command stream (display pass).
     bool OnFrameStart();
+    // GPU command owner only; no source/frame advancement or UI Vulkan.
+    void PumpNativeExitOwner() noexcept;
     bool RasterScaling() const;
     /// bbport: LOD bias for scene materials, log2(render / output) while a reduced scene is
     /// upscaled (0 at native size, for TAA and without an upscaler).

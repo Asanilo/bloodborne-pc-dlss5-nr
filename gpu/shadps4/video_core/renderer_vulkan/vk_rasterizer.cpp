@@ -2074,6 +2074,28 @@ void Rasterizer::DispatchIndirectRecord(const ComputePipeline* pipeline, VAddr a
     scheduler.KickRecording();
 }
 
+void Rasterizer::RequestNativeExitPump() noexcept {
+    if (!BbNativeAsyncPreSr::Enabled() || !BbNativeAsync::ExitRequested() ||
+        BbNativeAsync::ExitComplete() || BbNativeAsync::ExitHeld()) return;
+    bool expected=false;
+    if (!native_exit_pump_pending.compare_exchange_strong(expected,true)) return;
+    if (!liverpool || !upscaler) {
+        std::fprintf(stderr,"NATIVE_ASYNC_EXIT_OWNER_HOLD reason=owner_sender_unavailable no_UI_Vulkan=1\n");
+        BbNativeAsync::PublishExitHeld();native_exit_pump_pending.store(false);return;
+    }
+    try {
+        // ProcessCommands drains the draw pipe before invoking this callback, so
+        // the same scheduler cannot be concurrently recorded by the draw worker.
+        liverpool->SendCommand<false>([this] {
+            upscaler->PumpNativeExitOwner();
+            native_exit_pump_pending.store(false,std::memory_order_release);
+        });
+    } catch (...) {
+        std::fprintf(stderr,"NATIVE_ASYNC_EXIT_OWNER_HOLD reason=owner_enqueue_failed no_UI_Vulkan=1\n");
+        BbNativeAsync::PublishExitHeld();native_exit_pump_pending.store(false);
+    }
+}
+
 u64 Rasterizer::Flush() {
     BB_SECTION(Flush);
     DrainDrawPipe();

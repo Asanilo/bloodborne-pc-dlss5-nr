@@ -436,6 +436,30 @@ bool TemporalUpscaler::RasterScaling() const {
     return !scaled_session && scene_targets.Reduced() && !done_this_frame;
 }
 
+void TemporalUpscaler::PumpNativeExitOwner() noexcept {
+    if (!BbNativeAsyncPreSr::Enabled() || !BbNativeAsync::ExitRequested() ||
+        BbNativeAsync::ExitComplete() || BbNativeAsync::ExitHeld()) return;
+    try {
+        // Exit priority forbids late Helper tokens from creating a peer. Do not run
+        // OnFrameStart: it mutates scene/source/jitter and can admit new work.
+        native_async_pre_sr.PollReady(instance, scheduler, false);
+        if (BbNativeAsync::ExitComplete() || BbNativeAsync::ExitHeld()) return;
+        if (native_async_pre_sr.NeedsExitSubmit(scheduler.CurrentTick())) {
+            scheduler.EndRendering();
+            scheduler.Flush(); // only an actual recorded NR upper-bound tick
+        }
+        if (BbNativeAsync::ExitComplete() || BbNativeAsync::ExitHeld()) return;
+        scheduler.PopPendingOperations();
+        native_async_pre_sr.PollReady(instance, scheduler, false);
+    } catch (const std::exception& error) {
+        native_async_pre_sr.QuarantineRecorded(scheduler);
+        std::fprintf(stderr,"NATIVE_ASYNC_EXIT_OWNER_HOLD reason=%s no_forced_completion=1\n",error.what());
+    } catch (...) {
+        native_async_pre_sr.QuarantineRecorded(scheduler);
+        std::fprintf(stderr,"NATIVE_ASYNC_EXIT_OWNER_HOLD reason=unknown_owner_exception no_forced_completion=1\n");
+    }
+}
+
 bool TemporalUpscaler::OnFrameStart() {
     const auto& p0_settings=BbSettings::Get();
     try{native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);}

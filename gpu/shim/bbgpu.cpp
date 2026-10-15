@@ -293,7 +293,13 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             BbNativeAsync::RequestExit();
             const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
             bool slow_reported=false;
+            auto next_owner_pump=std::chrono::steady_clock::now();
             while(!BbNativeAsync::ExitComplete()&&!BbNativeAsync::ExitHeld()){
+                if(BbNativeAsyncPreSr::Enabled()&&std::chrono::steady_clock::now()>=next_owner_pump){
+                    next_owner_pump=std::chrono::steady_clock::now()+std::chrono::milliseconds(20);
+                    if(auto* rasterizer=Core::Memory::Instance()->GetRasterizer())rasterizer->RequestNativeExitPump();
+                    else {std::fprintf(stderr,"NATIVE_ASYNC_EXIT_OWNER_HOLD reason=rasterizer_unavailable no_UI_Vulkan=1\n");BbNativeAsync::PublishExitHeld();}
+                }
                 if(!slow_reported&&std::chrono::steady_clock::now()>=deadline){std::fprintf(stderr,"NATIVE_ASYNC_EXIT_PENDING actual_owner_completion=WAITING forced_free=0\n");slow_reported=true;}
                 SDL_Delay(2);
             }
