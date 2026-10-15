@@ -71,7 +71,7 @@ def audit_terminated_pre_nr_freeze(run, provenance):
  manifest=json.loads((run/'manifest.json').read_text());result=json.loads((run/'result.json').read_text());env=manifest.get('environment',{})
  if manifest.get('schema')!='nr-dev-session-v1' or manifest.get('session')!=run.name or env.get('BB_NR_NATIVE_ASYNC_SCENE_FIRST')!='1' or env.get('BB_NR_NATIVE_ASYNC')!='0' or env.get('BB_NR_NATIVE_ASYNC_PRE_SR')!='1' or env.get('BB_NR_NATIVE_ASYNC_RUN_DIR')!=str(run) or env.get('BB_NR_NATIVE_ASYNC_SCENE_ARM')!=str(run/'native-scene-arm'):raise ValueError('not exact scene-first environment')
  if result.get('status')!='HOLD' or result.get('returncode')!=137 or result.get('watchdog_expired') is not True or result.get('supervisor_interrupted') is not False or result.get('received_signals')!=0 or result.get('residuals')!=[] or result.get('native_lastuse_proof') is not False:raise ValueError('not exact abnormal terminated HOLD')
- allowed={'manifest.json','result.json','runner.json','game-identity.json','game.log','native-loaded-libraries.json','pad.txt','present-metrics.json','retirement-audit.json','profile','build-provenance','authorized-abnormal-termination.json','exit-thread-stacks-user.txt','exit-thread-stacks-privileged.txt','exit-thread-stacks.txt','frozen-registers.txt','read-frozen-registers.gdb','native-helper-start','planned-close.json','stop-request.json','scene-ready.json','scene-ready.png','scene.png','gpu-memory.jsonl','hold-resolution.json','post-exit-host-observation.json'}
+ allowed={'manifest.json','result.json','runner.json','game-identity.json','game.log','native-loaded-libraries.json','pad.txt','present-metrics.json','retirement-audit.json','profile','build-provenance','authorized-abnormal-termination.json','exit-thread-stacks-user.txt','exit-thread-stacks-privileged.txt','exit-thread-stacks.txt','frozen-registers.txt','read-frozen-registers.gdb','native-helper-start','planned-close.json','stop-request.json','scene-ready.json','scene-ready.png','scene.png','gpu-memory.jsonl','hold-resolution.json','post-exit-host-observation.json','post-termination-kernel.jsonl'}
  if any(p.name not in allowed or p.is_symlink() for p in run.iterdir()):raise ValueError('unexpected artifact, arm, config, frames or NR ownership evidence')
  build=manifest.get('native_build_provenance',{});files=build.get('files',{})
  if build.get('source_commit')!=TERMINATED_PRE_NR_HEAD or set(files)!={'source-head.txt','source-diff.patch','artifacts.sha256'}:raise ValueError('unreviewed source provenance')
@@ -148,6 +148,11 @@ def verify_fresh_context_resolution(run, resolution, lock):
  if not path.is_file() or sha(path)!=observation.get('sha256'):raise ValueError('host observation missing')
  host=json.loads(path.read_text());age=time.monotonic_ns()-host.get('monotonic_ns',0)
  if host.get('boot_id')!=boot or age<0 or host.get('project_holders')!=[] or host.get('driver_errors')!=[] or host.get('unresolved_driver_hang') is not False or host.get('covered_session')!=run.name or host.get('covers_run_start_through_observation') is not True:raise ValueError('signed post-exit driver coverage required')
+
+ if resolution['kind']=='terminated-pre-nr-freeze':
+  saved_journal=run/'post-termination-kernel.jsonl'
+  if not saved_journal.is_file() or saved_journal.is_symlink() or sha(saved_journal)!=host.get('kernel_journal_sha256'):raise ValueError('post-termination kernel evidence changed')
+  check_kernel_journal(saved_journal.read_text(),boot)
 
  # Read current-boot kernel records on every admission; unavailable/empty/malformed output fails closed.
  journal=subprocess.check_output(['journalctl','-k','-b','0','--no-pager','--output=json'],text=True,stderr=subprocess.PIPE,timeout=20)
