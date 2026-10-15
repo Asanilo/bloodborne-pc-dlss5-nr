@@ -70,7 +70,13 @@ def main():
  elif args.config_sha256:p.error('--config-sha256 requires --config')
  captures=[]
  for item in args.output_capture:
-  captures.extend(sorted(item.rglob('output.json')) if item.is_dir() else [item])
+  if item.is_dir():
+   matches=[]
+   for candidate in sorted(item.rglob('output.json')):
+    identity=json.loads(candidate.read_text())
+    if (identity.get('capture_seq'),identity.get('source'),identity.get('control_revision'))==(m.get('capture_seq'),m['current_source'],m.get('control_revision')):matches.append(candidate)
+   need(matches,'no output manifests match this capture/source/revision in '+str(item));captures.extend(matches)
+  else:captures.append(item)
  captured=[];keys=set();text=args.game_log.read_text(errors='replace')
  for path in captures:
   image,detail=output_capture(path,args.readback,m,text,args.exposure_ev);key=detail['stage'];need(key not in keys,'duplicate source/stage output capture');keys.add(key);captured.append((image,detail))
