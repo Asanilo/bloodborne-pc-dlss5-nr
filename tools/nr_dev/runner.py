@@ -40,7 +40,56 @@ def holders():
     entry=live(int(p.name));entry['gpu_devices']=gpu.get(int(p.name),{}).get('gpu_devices',[]);found.append(entry)
   except (OSError,ValueError,IndexError):pass
  return found
-def preflight():
+def audit_pre_nr_absence(run, provenance):
+ """Cold proof of no NR entry; explicitly NOT GPU retirement or save continuity."""
+ manifest=json.loads((run/'manifest.json').read_text());result=json.loads((run/'result.json').read_text())
+ env=manifest['environment'];session=run.name
+ if manifest.get('session')!=session or manifest.get('schema')!='nr-dev-session-v1' or env.get('BB_NR_NATIVE_ASYNC_SCENE_FIRST')!='1' or env.get('BB_NR_NATIVE_ASYNC')!='0' or env.get('BB_NR_NATIVE_ASYNC_PRE_SR')!='1' or env.get('BB_NR_NATIVE_ASYNC_RUN_DIR')!=str(run) or env.get('BB_NR_NATIVE_ASYNC_SCENE_ARM')!=str(run/'native-scene-arm'):raise ValueError('not exact isolated scene-first context')
+ if result.get('status')!='HOLD' or result.get('returncode')!=23 or result.get('watchdog_expired') is not False or result.get('supervisor_interrupted') is not False or result.get('received_signals')!=0 or result.get('residuals')!=[]:raise ValueError('not unambiguous assertion exit23')
+ allowed={'manifest.json','result.json','runner.json','game-identity.json','game.log','gpu-memory.jsonl','native-loaded-libraries.json','pad.txt','present-metrics.json','retirement-audit.json','profile','hold-resolution.json','build-provenance'}
+ if any(p.name not in allowed for p in run.iterdir()):raise ValueError('unexpected control/protocol evidence; no pre-NR exception')
+ text=(run/'game.log').read_text(errors='strict')
+ expected='NATIVE_ASYNC_PRE_SR_FRONTEND_READY session='+session+' scene_arm=REQUIRED availability_only=1 no_GPU_proof=1'
+ nr=[line for line in text.splitlines() if re.search(r'NATIVE_ASYNC_|NATIVE_ORIGIN_|HELPER_|PERSISTENT_|ASYNC_CONFIG|INPUT_PUBLISHED',line)]
+ if nr!=[expected] or not text.rstrip().endswith('STOP: GPU library assertion failed (see GPU log above)') or 'Unimplemented PM4' not in text:raise ValueError('NR touched or assertion log incomplete')
+ # Coordinator attests an observed build, not reconstructed or invented disk history.
+ if provenance.get('artifacts')!=manifest.get('artifacts') or provenance.get('observed_clean_build') is not True or not provenance.get('observation'):raise ValueError('missing observed build provenance')
+ head=provenance.get('source_commit','')
+ if not re.fullmatch('[0-9a-f]{7,40}',head):raise ValueError('source commit required')
+ def source(path):return subprocess.check_output(['git','show',head+':'+path],cwd=WT,text=True)
+ assertion=source('gpu/shim/common/assert.cpp')
+ if not re.search(r'std::fflush\(stdout\).*std::_Exit\(23\)',assertion,re.S):raise ValueError('assertion stdout flush not established')
+ frontend=source('gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_frontend.h')
+ native=source('gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr.cpp')
+ if 'exact_token(run+"/native-helper-start")' not in frontend or 'frontend&&frontend->HelperStartRequested()' not in native or 'if(!peer&&can_start)' not in native:raise ValueError('unrecognized scene-first gate')
+ return {name:sha(run/name) for name in ('manifest.json','result.json','runner.json','game-identity.json','game.log','native-loaded-libraries.json')}
+
+def verify_fresh_context_resolution(run, resolution, lock):
+ if lock is None:raise ValueError('fresh-context exception requires held GPU lock')
+ if Path(os.readlink('/proc/self/fd/'+str(lock.fileno())))!=Path('/tmp/nrbridge-poc-gpu.lock'):raise ValueError('wrong GPU lock')
+ # Reacquiring on the supplied open file description is safe; verify exclusion independently.
+ fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ with open('/tmp/nrbridge-poc-gpu.lock','a') as probe:
+  try:fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)
+  except BlockingIOError:pass
+  else:raise ValueError('GPU lock not exclusive')
+ if resolution.get('kind')!='pre-nr-absence' or resolution.get('scope')!='fresh-context-only' or resolution.get('normal_retirement_proved') is not False:raise ValueError('wrong resolution scope')
+ evidence=audit_pre_nr_absence(run,resolution.get('build_observation',{}))
+ if resolution.get('evidence_sha256')!=evidence:raise ValueError('pre-NR evidence changed')
+ boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+ manifest=json.loads((run/'manifest.json').read_text())
+ if resolution.get('boot_id')!=boot or manifest['host_safety']['boot_id']!=boot:raise ValueError('same boot required')
+ for identity in [json.loads((run/'game-identity.json').read_text()),*json.loads((run/'runner.json').read_text()).values()]:
+  try:current=live(identity['pid'])
+  except FileNotFoundError:continue
+  if current['start_ticks']==identity['start_ticks']:raise ValueError('original process still live')
+ if holders():raise ValueError('project GPU holder remains')
+ observation=resolution.get('host_observation',{});path=Path(observation.get('path',''))
+ if not path.is_file() or sha(path)!=observation.get('sha256'):raise ValueError('host observation missing')
+ host=json.loads(path.read_text());age=time.monotonic_ns()-host.get('monotonic_ns',0)
+ if host.get('boot_id')!=boot or not 0<=age<=60_000_000_000 or host.get('project_holders')!=[] or host.get('driver_errors')!=[] or host.get('unresolved_driver_hang') is not False or host.get('covered_session')!=run.name or host.get('covers_run_start_through_observation') is not True:raise ValueError('fresh post-exit driver coverage required')
+
+def preflight(lock=None):
  h=holders()
  if h:raise ValueError('live Native/Helper GPU holders: '+json.dumps(h))
  for result in (ROOT/'runs').glob('*/result.json'):
@@ -48,7 +97,9 @@ def preflight():
    resolution=result.parent/'hold-resolution.json'
    if not resolution.is_file():raise ValueError('unresolved new-context HOLD '+str(result))
    resolved=json.loads(resolution.read_text())
-   if resolved.get('original_result_sha256')!=sha(result) or resolved.get('normal_retirement_proved') is not True or not resolved.get('evidence'):raise ValueError('unproved HOLD resolution '+str(resolution))
+   if resolved.get('original_result_sha256')!=sha(result):raise ValueError('HOLD result changed')
+   if resolved.get('kind')=='pre-nr-absence':verify_fresh_context_resolution(result.parent,resolved,lock)
+   elif resolved.get('normal_retirement_proved') is not True or not resolved.get('evidence'):raise ValueError('unproved HOLD resolution '+str(resolution))
  for pin in json.loads((ROOT/'inputs/runtime-pins.json').read_text())['pins']:
   if sha(Path(pin['path']))!=pin['sha256']:raise ValueError('runtime pin drift '+pin['path'])
  safety=json.loads((ROOT/'inputs/host-safety.json').read_text())
@@ -290,13 +341,17 @@ def launch_supervised(args,signals):
  if args.runtime_model_helper:helper,helper_build=checked_runtime_helper(args.runtime_model_helper,args.runtime_model_build_sha256)
  if args.continue_session==args.session:raise ValueError('continuation must create a new session')
  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
-  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight()
+  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight(lock)
   ngx=list(build.glob('libnvidia-ngx-dlss.so.*'))
   if len(ngx)!=1:raise ValueError('exactly one pinned native NGX library required')
   native_artifacts=[build/'bb-probe',build/'gpu/libbbgpu.so',build/'libbbport_dlss.so',ngx[0]]
   for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
-  run.mkdir(mode=0o700);signals.run=run;profile=run/'profile';profile.mkdir();continuation=None
+  run.mkdir(mode=0o700);signals.run=run
+  provenance=run/'build-provenance';provenance.mkdir()
+  for name in ('source-head.txt','source-diff.patch','artifacts.sha256'):
+   shutil.copyfile(build/name,provenance/name)
+  profile=run/'profile';profile.mkdir();continuation=None
   if args.continue_session:continuation=copy_continuation(args.continue_session,profile)
   else:
    shutil.copytree(seed/'savedata',profile/'user/savedata')
@@ -307,7 +362,7 @@ def launch_supervised(args,signals):
   (profile/'bbport.ini').write_text('upscaler=dlss\npreset=1\noutput_res=1920x1080\njitter=1\nobject_motion=1\nsharpen=0\nshow_fps=1\n');(run/'pad.txt').write_text('')
   base_keys={'PATH','HOME','USER','LOGNAME','SHELL','LANG','LANGUAGE','LC_ALL','LC_CTYPE','TZ','TERM','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','XDG_RUNTIME_DIR','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS','PULSE_SERVER','PIPEWIRE_REMOTE','SDL_AUDIODRIVER','SDL_VIDEODRIVER'}
   env={k:v for k,v in os.environ.items() if k in base_keys}
-  env.update(BB_GAME_DIR=str(assets),BB_DATA_DIR=str(profile),BB_CONFIG=str(profile/'bbport.ini'),BB_USER_DIR=str(profile/'user'),BB_GPU_USER_DIR=str(profile/'user'),BB_PREBUILT='1',BB_PROBE=str(build/'bb-probe'),BB_STARTUP_CHECK='0',BB_MODS_ENABLED='0',BB_UPSCALER='dlss',BB_UPSCALE_PRESET='1',BB_DLSS='1',BB_JITTER='1',BB_FPS='uncap',BB_FPS_LIMIT='90',BB_FRAME_STATS='1',BB_FRAME_LOG=str(profile/'logs/frames.csv'),BB_FULLSCREEN='0',BB_SKIP_NETWORK_CHOICE='1',BB_LANGUAGE='1',BB_PC_MODEL='0',BB_SAVE_LOG='1',BB_IME_TEXT='NRTest',BB_PAD_FILE=str(run/'pad.txt'),BB_DUMP_DIR=str(run/'dump'),BB_PRESENT_DUMP_TRIGGER=str(run/'present-dump-trigger'),BB_PRESENT_DUMP_COUNT='0',LD_LIBRARY_PATH='/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib',DLSSNR_DISABLE='1',DLSSNR_AUTO_DOWNLOAD='0',VK_LOADER_LAYERS_DISABLE='~implicit~',MANGOHUD='0',DISABLE_MANGOHUD='1')
+  env.update(BB_GAME_DIR=str(assets),BB_DATA_DIR=str(profile),BB_CONFIG=str(profile/'bbport.ini'),BB_USER_DIR=str(profile/'user'),BB_GPU_USER_DIR=str(profile/'user'),BB_COPY_GPU_BUFFERS='1',BB_PREBUILT='1',BB_PROBE=str(build/'bb-probe'),BB_STARTUP_CHECK='0',BB_MODS_ENABLED='0',BB_UPSCALER='dlss',BB_UPSCALE_PRESET='1',BB_DLSS='1',BB_JITTER='1',BB_FPS='uncap',BB_FPS_LIMIT='90',BB_FRAME_STATS='1',BB_FRAME_LOG=str(profile/'logs/frames.csv'),BB_FULLSCREEN='0',BB_SKIP_NETWORK_CHOICE='1',BB_LANGUAGE='1',BB_PC_MODEL='0',BB_SAVE_LOG='1',BB_IME_TEXT='NRTest',BB_PAD_FILE=str(run/'pad.txt'),BB_DUMP_DIR=str(run/'dump'),BB_PRESENT_DUMP_TRIGGER=str(run/'present-dump-trigger'),BB_PRESENT_DUMP_COUNT='0',LD_LIBRARY_PATH='/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib',DLSSNR_DISABLE='1',DLSSNR_AUTO_DOWNLOAD='0',VK_LOADER_LAYERS_DISABLE='~implicit~',MANGOHUD='0',DISABLE_MANGOHUD='1')
   for name in ('config','cache','data','state'):env['XDG_'+name.upper()+'_HOME']=str(profile/name)
   nr={'BB_NR_NATIVE_ASYNC':'0','BB_NR_NATIVE_ASYNC_PRE_SR':'1','BB_NR_NATIVE_ASYNC_SCENE_FIRST':'1','BB_NR_NATIVE_ASYNC_PRE_SR_PLAY':'1','BB_NR_NATIVE_ASYNC_PRE_SR_SKY':'off','BB_NATIVE_PERSISTENT_HISTORY':'1' if args.sky=='persistent' else '0','BB_NR_NATIVE_ASYNC_PRE_SR_SR_HISTORY':'game_only','BB_NR_NATIVE_ASYNC_PRE_SR_SR_INPUT':'switching','BB_NR_NATIVE_ASYNC_SESSION':args.session,'BB_NR_NATIVE_ASYNC_MODE':args.mode,'BB_NR_NATIVE_ASYNC_RUN_DIR':str(run),'BB_NR_NATIVE_ASYNC_SCENE_ARM':str(run/'native-scene-arm'),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':str(args.source_limit),'BB_NR_NATIVE_ORIGIN_RUN_DIR':str(run),'BB_NR_NATIVE_ORIGIN_HELPER':str(helper),'BB_NR_NATIVE_ORIGIN_WINE':str(GE/'files/lib/wine/x86_64-unix/wine'),'BB_NR_NATIVE_ORIGIN_PRELOADER':str(GE/'files/lib/wine/x86_64-unix/wine-preloader'),'BB_NR_NATIVE_ORIGIN_PREFIX':str(profile/'wine-prefix'),'BB_NR_NATIVE_ORIGIN_WINEDEBUG':'-all,warn+vulkan,err+vulkan','BB_NR_NATIVE_ORIGIN_MODE':args.mode}
   if args.runtime_model_helper:nr['BB_NR_RUNTIME_MODEL']='1'
