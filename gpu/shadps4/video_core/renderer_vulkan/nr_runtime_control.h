@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include <cstdint>
+#include <array>
 #include <string>
 namespace BbNR {
 inline constexpr uint32_t ApiVersion=1;
@@ -27,9 +28,18 @@ struct Snapshot {
  uint64_t current_source=0,candidate_origin=0,candidate_age=0,last_job=0;
  bool candidate_admitted=false,candidate_obsolete=false;
  bool capture_busy=false;
+ // Set by renderer/owner when this Helper cannot safely retry in place.
+ bool model_restart_required=false;
+ // Independent completed Native GPU dispatch sample, never Present CPU timing.
+ bool gpu_timing_available=false;
+ std::array<double,6> history_pass_ms{}; // Clear, Capture, Advance, Adopt, Compose, Stats
+ uint64_t gpu_timing_source=0,gpu_timing_revision=0,gpu_timing_monotonic_ns=0;
+ bool model_refresh_available=false;
+ double model_refresh_ms=0; // actual Native candidate-capture interval, not Helper estimate
+ uint64_t model_refresh_source=0;
  bool gpu_sample_available=false;
- uint64_t gpu_sample_source=0,gpu_sample_monotonic_ns=0;
- float history_valid_rate=0,actual_age_frames=0,actual_age_ms=0;
+ uint64_t gpu_sample_source=0,gpu_sample_monotonic_ns=0,gpu_sample_revision=0;
+ float history_valid_rate=0,changed_fraction=0,actual_age_frames=0,actual_age_ms=0;
  uint64_t present_samples=0;
  double fps=0,p95_ms=0,p99_ms=0;
  bool timing_available=false;

@@ -54,6 +54,7 @@ bool Validate(const Config& c,std::string* error){
 bool RequiresVisualReset(const Config&a,const Config&b){return a.ttl_frames!=b.ttl_frames||a.ttl_ms!=b.ttl_ms||a.depth_tolerance!=b.depth_tolerance||a.colour_tolerance!=b.colour_tolerance||a.min_confidence!=b.min_confidence;}
 bool Submit(const Config& c,Actions actions,std::string* error){
  if(error)error->clear();if(!Validate(c,error))return false;auto& s=S();std::scoped_lock lock(s.mutex);
+ if(actions.apply_model&&(s.snapshot.status==Status::Held||s.snapshot.model_restart_required))return Fail(error,"Model HOLD: restart isolated session; in-place Apply is unavailable");
  const auto same_model=[](const Config&a,const Config&b){return a.model_style==b.model_style&&a.model_intensity==b.model_intensity;};
  // Coalesce repeated explicit clicks on the same in-flight target. A failed
  // request may be explicitly retried with a fresh sequence, never auto-retried.
@@ -77,7 +78,14 @@ bool InitializeConfig(const std::string& input,std::string* error){
  {std::scoped_lock lock(s.mutex);s.path=path;s.dirty=false;s.request.config=c;++s.request.revision;++s.request.reset_seq;if(!loaded)s.snapshot.reason="Invalid config: exact defaults restored; "+why;}
  s.worker=std::jthread(Worker);if(!loaded&&error)*error=why;return loaded;
 }
-bool PublishSnapshot(const Snapshot& snapshot,std::string* error){auto& s=S();std::scoped_lock lock(s.mutex);if(snapshot.version!=ApiVersion||snapshot.applied_revision>s.request.revision||snapshot.model_applied_version>s.request.model_apply_seq||snapshot.reset_applied_seq>s.request.reset_seq||snapshot.capture_applied_seq>s.request.capture_seq)return Fail(error,"renderer acknowledged an unrequested revision/sequence");s.snapshot=snapshot;return true;}
+bool PublishSnapshot(const Snapshot& snapshot,std::string* error){
+ if(snapshot.gpu_timing_available){
+  if(!snapshot.gpu_timing_source||!snapshot.gpu_timing_monotonic_ns)return Fail(error,"GPU timing requires actual sample source/time");
+  for(double ms:snapshot.history_pass_ms)if(!std::isfinite(ms)||ms<0)return Fail(error,"GPU dispatch timing must be finite and nonnegative");
+ }
+ if(snapshot.gpu_sample_available&&(!snapshot.gpu_sample_source||!std::isfinite(snapshot.history_valid_rate)||snapshot.history_valid_rate<0||snapshot.history_valid_rate>1||!std::isfinite(snapshot.changed_fraction)||snapshot.changed_fraction<0||snapshot.changed_fraction>1))return Fail(error,"GPU counters require actual source and finite fractions");
+ if(snapshot.model_refresh_available&&(!snapshot.model_refresh_source||!std::isfinite(snapshot.model_refresh_ms)||snapshot.model_refresh_ms<=0))return Fail(error,"Model refresh requires measured candidate source/positive interval");
+ auto& s=S();std::scoped_lock lock(s.mutex);if(snapshot.version!=ApiVersion||snapshot.applied_revision>s.request.revision||snapshot.model_applied_version>s.request.model_apply_seq||snapshot.reset_applied_seq>s.request.reset_seq||snapshot.capture_applied_seq>s.request.capture_seq)return Fail(error,"renderer acknowledged an unrequested revision/sequence");s.snapshot=snapshot;return true;}
 Snapshot ReadSnapshot(){auto& s=S();std::scoped_lock lock(s.mutex);auto out=s.snapshot;out.requested_revision=s.request.revision;out.present_samples=s.count;if(s.count>=2){std::vector<double> intervals;const size_t first=(s.next+256-s.count)%256;for(size_t k=1;k<s.count;k++)intervals.push_back(double(s.presents[(first+k)%256].ns-s.presents[(first+k-1)%256].ns)/1e6);double sum=0;for(double x:intervals)sum+=x;out.fps=1000*intervals.size()/sum;out.p95_ms=Percentile(intervals,.95);out.p99_ms=Percentile(intervals,.99);out.timing_available=true;}return out;}
 void NotifyPresent(uint64_t source,uint64_t number,uint64_t ns){if(!source||!number||!ns)return;auto&s=S();std::scoped_lock lock(s.mutex);if(s.count){auto prev=s.presents[(s.next+255)%256];if(source<=prev.source||number<=prev.number||ns<=prev.ns)return;}s.presents[s.next]={source,number,ns};s.next=(s.next+1)%256;s.count=std::min(s.count+1,size_t(256));}
 const char* StatusName(Status s){switch(s){case Status::Unavailable:return "Unavailable";case Status::Pending:return "Pending";case Status::Applied:return "Applied";case Status::Failed:return "Failed";case Status::Held:return "HOLD";}return "Unknown";}

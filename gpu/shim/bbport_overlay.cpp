@@ -161,6 +161,26 @@ void Hint(const char* text) {
     }
 }
 
+void NRGpuSamples(const BbNR::Snapshot& actual,bool compact) {
+    const uint64_t now=uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+    if(actual.gpu_sample_available) {
+        ImGui::Text("GPU counters source %llu rev %llu: valid %.1f%% changed %.1f%%",(unsigned long long)actual.gpu_sample_source,(unsigned long long)actual.gpu_sample_revision,actual.history_valid_rate*100,actual.changed_fraction*100);
+        ImGui::Text("Model contribution age %.1ff / %.1fms",actual.actual_age_frames,actual.actual_age_ms);
+        if(actual.gpu_sample_monotonic_ns&&now>=actual.gpu_sample_monotonic_ns)ImGui::Text("Counter sample timestamp age %.1fms",double(now-actual.gpu_sample_monotonic_ns)/1e6);
+        else ImGui::TextUnformatted("Counter sample observation age: unavailable");
+    } else ImGui::TextUnformatted("GPU history counters: not sampled");
+    if(actual.gpu_timing_available) {
+        ImGui::Text("GPU dispatch sample source %llu rev %llu",(unsigned long long)actual.gpu_timing_source,(unsigned long long)actual.gpu_timing_revision);
+        if(now>=actual.gpu_timing_monotonic_ns)ImGui::Text("Timing sample timestamp age %.1fms",double(now-actual.gpu_timing_monotonic_ns)/1e6);
+        else ImGui::TextUnformatted("Timing sample observation age: unavailable");
+        if(compact){ImGui::Text("GPU Clear/Capture/Advance %.2f / %.2f / %.2f ms",actual.history_pass_ms[0],actual.history_pass_ms[1],actual.history_pass_ms[2]);ImGui::Text("GPU Adopt/Compose/Stats %.2f / %.2f / %.2f ms",actual.history_pass_ms[3],actual.history_pass_ms[4],actual.history_pass_ms[5]);}
+        else {static const char* names[]={"Clear","Capture","Advance","Adopt","Compose","Stats"};for(unsigned i=0;i<6;i++)ImGui::Text("Native GPU %-7s %.3f ms",names[i],actual.history_pass_ms[i]);}
+        ImGui::TextDisabled("History dispatches only; excludes Helper, conversion, Return and SR");
+    } else ImGui::TextUnformatted("GPU dispatch timing: not measured (independent of Present FPS)");
+    if(actual.model_refresh_available)ImGui::Text("Actual candidate refresh %.1fms (source %llu)",actual.model_refresh_ms,(unsigned long long)actual.model_refresh_source);
+    else ImGui::TextUnformatted("Actual candidate refresh interval: not measured");
+}
+
 void NRControls() {
     if (!ImGui::CollapsingHeader("NRBridge live controls",ImGuiTreeNodeFlags_DefaultOpen)) return;
     auto request=BbNR::ReadRequest();auto c=request.config;const auto actual=BbNR::ReadSnapshot();
@@ -185,9 +205,10 @@ void NRControls() {
         changed|=ImGui::SliderFloat("Model intensity",&c.model_intensity,0.f,2.f);
         ImGui::Text("Model Apply request %llu / applied %llu",(unsigned long long)request.model_apply_seq,(unsigned long long)actual.model_applied_version);
         ImGui::Text("Actual model style %u / intensity %.2f",actual.actual_config.model_style,actual.actual_config.model_intensity);
-        ImGui::BeginDisabled(request.model_apply_seq!=actual.model_applied_version&&actual.status!=BbNR::Status::Failed);
+        ImGui::BeginDisabled(actual.status==BbNR::Status::Held||actual.model_restart_required||(request.model_apply_seq!=actual.model_applied_version&&actual.status!=BbNR::Status::Failed));
         if(ImGui::Button("Apply model (safe feature rebuild)")) {BbNR::Submit(c,{.apply_model=true},&error);changed=false;}
         ImGui::EndDisabled();
+        if(actual.status==BbNR::Status::Held||actual.model_restart_required)ImGui::TextWrapped("Model HOLD: restart isolated session. Apply is disabled; no Release API return-success claim.");
         ImGui::TextWrapped("Dragging stages values only. Apply requests a safe model feature rebuild; failure keeps pending/failed status visible.");
         ImGui::TreePop();
     }
@@ -204,8 +225,7 @@ void NRControls() {
     ImGui::TextDisabled("AntiPop/Fingerprint advanced controls: unavailable (not exposed)");
     if(!error.empty())ImGui::TextWrapped("Request rejected: %s",error.c_str());
     ImGui::Text("Source %llu | origin %llu | age %llu | job %llu%s%s",(unsigned long long)actual.current_source,(unsigned long long)actual.candidate_origin,(unsigned long long)actual.candidate_age,(unsigned long long)actual.last_job,actual.candidate_admitted?" admitted":"",actual.candidate_obsolete?" obsolete":"");
-    if(actual.gpu_sample_available)ImGui::Text("GPU sample source %llu: valid %.1f%% / model age %.1ff %.1fms",(unsigned long long)actual.gpu_sample_source,actual.history_valid_rate*100,actual.actual_age_frames,actual.actual_age_ms);
-    else ImGui::TextUnformatted("GPU history valid rate / actual model age: not sampled");
+    NRGpuSamples(actual,false);
     if(actual.timing_available)ImGui::Text("Actual nonreuse %.1f FPS | P95 %.2fms P99 %.2fms (%llu Presents)",actual.fps,actual.p95_ms,actual.p99_ms,(unsigned long long)actual.present_samples);
     else ImGui::TextUnformatted("Actual nonreuse Present timing: not measured");
 }
@@ -221,8 +241,8 @@ void NRHud() {
     if(actual.applied_revision<requested.revision)ImGui::Text("Display/config pending; requested %s %.2f",c.display_bypass?"bypass":"history",c.display_strength);
     if(requested.model_apply_seq>actual.model_applied_version)ImGui::Text("Model %s | apply requested %llu / actual %llu",actual.status==BbNR::Status::Failed?"FAILED - explicit retry":"PENDING",(unsigned long long)requested.model_apply_seq,(unsigned long long)actual.model_applied_version);
     if(actual.timing_available)ImGui::Text("Real Presents %.1f FPS | P95 %.2f P99 %.2f ms",actual.fps,actual.p95_ms,actual.p99_ms);
-    if(actual.gpu_sample_available)ImGui::Text("GPU sample #%llu: valid %.1f%% age %.1ff/%.1fms",(unsigned long long)actual.gpu_sample_source,100.f*actual.history_valid_rate,actual.actual_age_frames,actual.actual_age_ms);
-    else ImGui::TextUnformatted("GPU history sample: unavailable");
+    if(actual.status==BbNR::Status::Held||actual.model_restart_required)ImGui::TextUnformatted("Model HOLD: restart isolated session");
+    NRGpuSamples(actual,true);
     ImGui::End();
 }
 
