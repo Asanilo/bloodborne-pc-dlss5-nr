@@ -125,6 +125,39 @@ def checked_run(session):
  run=ROOT/'runs'/session
  if run.resolve()!=run or run.is_symlink():raise ValueError('private real run path required')
  return run
+def checked_native_build(directory):
+ """Only the mutable dev build or a clean commit-addressed four-artifact baseline."""
+ build=Path(directory).absolute()
+ if build.resolve()!=build or build.is_symlink():raise ValueError('Native build must use a real canonical directory')
+ baseline=build.parent==ROOT/'build/baselines' and re.fullmatch('[0-9a-f]{40}',build.name)
+ if build!=ROOT/'build/native' and not baseline:raise ValueError('Native build must be build/native or build/baselines/<full commit>')
+ def regular(relative):
+  path=build/relative
+  if path.resolve()!=path or not path.is_file() or path.is_symlink():raise ValueError('regular in-tree build input required: '+str(path))
+  return path
+ provenance={name:regular(name) for name in ('source-head.txt','source-diff.patch','artifacts.sha256')}
+ head=provenance['source-head.txt'].read_text().strip()
+ if not re.fullmatch('[0-9a-f]{40}',head):raise ValueError('full Native source commit required')
+ if baseline and (head!=build.name or provenance['source-diff.patch'].stat().st_size):raise ValueError('baseline must match clean source commit')
+ ngx=list(build.glob('libnvidia-ngx-dlss.so.*'))
+ if len(ngx)!=1:raise ValueError('one pinned Native NGX library required')
+ relatives=['bb-probe','gpu/libbbgpu.so','libbbport_dlss.so',ngx[0].name]
+ artifacts=[regular(name) for name in relatives];recorded={}
+ for line in provenance['artifacts.sha256'].read_text().splitlines():
+  match=re.fullmatch(r'([0-9a-f]{64})  (.+)',line)
+  if not match:raise ValueError('invalid Native artifacts manifest')
+  digest,name=match.groups();path=Path(name)
+  # Original build/native paths remain valid provenance after a read-only snapshot.
+  if path.is_absolute():
+   if path.is_relative_to(build):relative=str(path.relative_to(build))
+   elif baseline and path.is_relative_to(ROOT/'build/native'):relative=str(path.relative_to(ROOT/'build/native'))
+   else:raise ValueError('unexpected artifact source path')
+  else:relative=name
+  if relative not in relatives or relative in recorded:raise ValueError('unexpected/duplicate Native artifact')
+  recorded[relative]=digest
+ if set(recorded)!=set(relatives) or any(sha(build/name)!=recorded[name] for name in relatives):raise ValueError('Native artifact SHA mismatch')
+ return build,artifacts,{'source_commit':head,'files':{name:sha(path) for name,path in provenance.items()}}
+
 def checked_runtime_helper(path,expected_build_sha=None):
  helper=Path(path).resolve()
  if not helper.is_relative_to(ROOT/'build/helper-runtime-model') or helper.name!='wine_runtime_model.exe':raise ValueError('isolated runtime model artifact required')
@@ -240,6 +273,9 @@ def verify_native_mappings(maps,artifacts,pid=None):
 
 def current_game(run):
  m=json.loads((run/'manifest.json').read_text());matches=[]
+ if 'native_build' in m:
+  build,artifacts,provenance=checked_native_build(m['native_build'])
+  if m.get('native_build_provenance')!=provenance or m['native_executable']!=str(build/'bb-probe') or any(m['artifacts'].get(str(p))!=sha(p) for p in artifacts):raise ValueError('session Native build provenance drift')
  for p in Path('/proc').iterdir():
   if not p.name.isdigit():continue
   try:
@@ -349,15 +385,12 @@ def launch(args):
  return 3 if signals.interrupted else code
 
 def launch_supervised(args,signals):
- run=checked_run(args.session);build=ROOT/'build/native';assets=OLD/'playtest/assets/CUSA03173';seed=OLD/'integration/private-NRTest-seed';helper=ROOT/'build/helper/wine_async_presr_play.exe'
+ run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=OLD/'playtest/assets/CUSA03173';seed=OLD/'integration/private-NRTest-seed';helper=ROOT/'build/helper/wine_async_presr_play.exe'
  helper_build=None
  if args.runtime_model_helper:helper,helper_build=checked_runtime_helper(args.runtime_model_helper,args.runtime_model_build_sha256)
  if args.continue_session==args.session:raise ValueError('continuation must create a new session')
  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight(lock)
-  ngx=list(build.glob('libnvidia-ngx-dlss.so.*'))
-  if len(ngx)!=1:raise ValueError('exactly one pinned native NGX library required')
-  native_artifacts=[build/'bb-probe',build/'gpu/libbbgpu.so',build/'libbbport_dlss.so',ngx[0]]
   for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
   run.mkdir(mode=0o700);signals.run=run
@@ -383,7 +416,7 @@ def launch_supervised(args,signals):
    if args.sky!='persistent' or args.mode!='resident':raise ValueError('history diagnostic requires persistent resident mode')
    nr.update(BB_NATIVE_HISTORY_DIAGNOSTIC='1',BB_NATIVE_HISTORY_DIAGNOSTIC_FRAMES='3',BB_NATIVE_HISTORY_DIAGNOSTIC_AFTER_CANDIDATE=str(args.diagnostic_after))
   env.update(nr);command=['bash',str(WT/'run.sh')]
-  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper)})
+  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper)})
   with (run/'game.log').open('w') as log:
    if not signals.before_spawn():return 3
    process=subprocess.Popen(command,cwd=WT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
@@ -435,7 +468,7 @@ def launch_supervised(args,signals):
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
  if a.command=='preflight':
   with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);print(json.dumps(preflight(lock),indent=2))
