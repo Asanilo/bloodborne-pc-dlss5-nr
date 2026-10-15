@@ -26,18 +26,24 @@ python3 native/tools/nr_dev/play.py --continue-session SESSION
 
 早期Alpha的主协调已在 `dev-player-01` 获得用户反馈“明显改善，操作流畅”，并核验正常退出。 用户后续补充：仍有轻微鬼影、闪烁及大幅度动作时的闪烁，整体稳定性尚可；这些是尚未解决的画质问题，不能将当前试玩通过解读为无伪影或全场景完成。120秒自动动态窗口：新版60.30 FPS/P95 25.31ms/P99 26.78ms；d9视觉算法隔离参考66.49 FPS/P95 22.19ms/P99 23.58ms。场景为Clinic转镜和小范围移动，未覆盖完整战斗与全游戏。冷诊断不计入热性能。更完整的现行安全和资源边界见开发根 `CURRENT.md`。
 
-## 当前画质实验与回退
+## 重投影选项与固定Alpha对照
 
-完整后续规划见 [NRBRIDGE_PLAN](../../docs/NRBRIDGE_PLAN.md)。当前 `build/native` 是受限三次残差重建实验版（实际build源码 `ede2f24`），不是已通过玩家画质验收的稳定升级。20项Shader/CPU边界与锐度测试、冷GPU像素/年龄检查通过；120秒同存档同输入模式热窗口为54.91FPS/P95 25.81/P99 27.19ms，固定Alpha57.63FPS/P95 24.81/P99 26.38ms。两者正常退休；候选较慢约4.7%，仍有重复重投影细节损失，鬼影/大动作闪烁及候选亮度跳变不宣称解决。冷组不是跨run严格同帧A/B。
+完整后续规划见 [NRBRIDGE_PLAN](../../docs/NRBRIDGE_PLAN.md)。Delete打开菜单后，在 **History reprojection** 选择：
 
-可用相同私人存档显式比较（每次正常退出后再启动另一版本）：
+- **Nearest (Alpha/default)**：默认，保留Alpha的最近邻历史采样。
+- **Clamped cubic (optional)**：带同表面/同来源验证与限幅的三次重建，减少亚像素采样跳变；仍可能损失细节，且有GPU成本。玩家反馈体感变化不大，因此不替换默认方式。
+
+切换在安全帧边界生效，清空视觉历史，保留Helper/物理资源；不需要模型Apply。菜单显示实际Applied模式及pending状态。配置格式v2记录reprojection=0/1；旧v1配置保留其他参数并加载为Nearest，不主动改写旧文件。恢复默认也恢复Nearest。两种immutable Shader pipeline在初始化时分别编译，Nearest不包含cubic采样分支。
+
+此前固定cubic候选的120秒同存档同输入模式热窗口为54.91FPS/P95 25.81/P99 27.19ms，固定Alpha57.63FPS/P95 24.81/P99 26.38ms；这约4.7%的代价是当时两份binary的观测，不作为当前菜单版本的重新测量。两者正常退休；鬼影、大动作闪烁和候选亮度跳变仍未宣称解决。F8共享SR历史，不替代独立Alpha比较。
+
+固定Alpha的源码和实际binary仍可单独运行：
 
 ```bash
-python3 native/tools/nr_dev/play.py --continue-session dev-runtime-controls-01
 python3 native/tools/nr_dev/play.py --continue-session dev-runtime-controls-01 --native-build /home/arinp/Code/nrbridge-dev/build/baselines/e08eacfed42b162a54f0d370f8ecdb28bf40f725
 ```
 
-第一条是候选，第二条是已验证Alpha。两条都复制同一个私人存档与默认NR配置，不写回来源；不要用F8替代独立Alpha比较。固定源码标签 `nrbridge-alpha-runtime-20261015`；真实对照数据在开发根 `comparisons/stability-20261015/results.json`。
+固定源码标签 `nrbridge-alpha-runtime-20261015`；历史对照数据在开发根 `comparisons/stability-20261015/results.json`。此命令使用旧v1默认配置的同一私人存档来源；旧Alpha不支持新v2配置。
 
 ## 本阶段验证边界
 
