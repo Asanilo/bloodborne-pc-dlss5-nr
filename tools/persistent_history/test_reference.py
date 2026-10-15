@@ -71,10 +71,27 @@ class Boundaries(unittest.TestCase):
             self.assertIn(text,SHADER)
         self.assertNotIn('m.zw=vec2(0)',SHADER)
     def test_global_fault_propagation_and_cold_stats(self):
-        self.assertIn("state.invalid[src]!=0u) atomicOr(state.invalid[dst],1u)",SHADER)
+        self.assertIn("state.invalid[src]!=0u) atomicOr(state.invalid[dst],state.invalid[src])",SHADER)
         self.assertIn("if(p.reserved1.x>0.)",SHADER)
         self.assertIn("if(p.reserved1.x>0.&&ok",SHADER)
         self.assertIn("float CollectStats{}",HEADER)
+
+    def test_invalid_reason_bits_and_complete_propagation(self):
+        names=['PHBadRaw','PHNonfiniteNr','PHNegativeNr','PHBadDepth','PHExcessiveLogEdit','PHBadModelAge','PHGuideOutOfRange','PHNonfiniteLogEdit']
+        bits=[int(re.search(name+r'=(\d+)u',HEADER).group(1)) for name in names]
+        self.assertEqual(bits,[1<<i for i in range(8)])
+        self.assertIn('atomicOr(state.invalid[dst],reason)',SHADER)
+        self.assertIn('atomicOr(state.invalid[dst],state.invalid[src])',SHADER)
+        # Simultaneous faults on different pixels union across every ping-pong bank.
+        captured=bits[1]|bits[2]|bits[4]|bits[5]
+        banks=[0,0,captured,0]
+        for source,dest in [(2,3),(3,2),(2,3),(3,2)]:
+            banks[dest]=0
+            banks[dest]|=banks[source]
+            self.assertEqual(banks[dest],captured)
+        self.assertEqual(captured,54)
+        self.assertNotEqual(captured,1)
+        self.assertIn('state.invalid[src]==0u',SHADER)
 
     def test_true_origin_age(self):
         h=capture((1,1,1),(2,2,2),4,65)

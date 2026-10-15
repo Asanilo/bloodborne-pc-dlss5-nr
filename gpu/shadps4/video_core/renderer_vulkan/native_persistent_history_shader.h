@@ -24,6 +24,12 @@ static_assert(offsetof(PersistentHistoryConstants, CurrentJitterX)==100);
 static_assert(offsetof(PersistentHistoryConstants, CurrentProjection)==128);
 static_assert(offsetof(PersistentHistoryConstants, PreviousProjection)==144);
 static_assert(offsetof(PersistentHistoryConstants, PreviousViewZ)==160);
+enum PersistentHistoryInvalid : uint32_t {
+ PHBadRaw=1u, PHNonfiniteNr=2u, PHNegativeNr=4u, PHBadDepth=8u,
+ PHExcessiveLogEdit=16u, PHBadModelAge=32u, PHGuideOutOfRange=64u,
+ PHNonfiniteLogEdit=128u
+};
+// Invalid bits accumulate over all candidate pixels and survive every catch-up bank.
 // invalid[4], validPixels, rejectedPixels, changedPixels, oldestFrames.
 struct PersistentHistoryState { uint32_t invalid[4], validPixels, rejectedPixels, changedPixels, oldestFrames; };
 }

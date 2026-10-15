@@ -56,12 +56,23 @@ void main() {
  if(mode==1u) {
   vec3 origin=texelFetch(originOrFallbackEdit,c,0).rgb, edited=texelFetch(modelOrFallbackMeta,c,0).rgb;
   float d=depthAt(c);
-  ok=guideRange(origin)&&finite3(edited)&&depthValid(d)&&p.flags.y==0u&&all(greaterThanEqual(origin,vec3(0)))&&all(greaterThanEqual(edited,vec3(0)));
-  if(ok) {e=vec4(log2((edited+p.thresholds.x)/(origin+p.thresholds.x)),1);m=vec4(d,packed(origin),p.age.zw);ok=live(e,m)&&all(lessThanEqual(abs(e.rgb),vec3(p.thresholds.w)));}
-  if(!ok) atomicOr(state.invalid[dst],1u);
+  uint reason=0u;
+  if(!finite3(origin)||any(lessThan(origin,vec3(0))))reason|=1u; // raw invalid
+  if(!finite3(edited))reason|=2u; // NR nonfinite
+  if(any(lessThan(edited,vec3(0))))reason|=4u; // NR negative
+  if(!depthValid(d)||p.flags.y!=0u)reason|=8u; // invalid/unsupported depth
+  if(!finite1(p.age.z)||!finite1(p.age.w)||p.age.z<0.||p.age.w<0.||p.age.z>p.limits.x||p.age.w>p.limits.y)reason|=32u;
+  if(!guideRange(origin))reason|=64u; // origin outside packed-guide range
+  if((reason&79u)==0u) {
+   e=vec4(log2((edited+p.thresholds.x)/(origin+p.thresholds.x)),1);m=vec4(d,packed(origin),p.age.zw);
+   if(!finite3(e.rgb))reason|=128u; // derived ratio nonfinite
+   if(any(greaterThan(abs(e.rgb),vec3(p.thresholds.w))))reason|=16u;
+  }
+  ok=reason==0u;
+  if(!ok) atomicOr(state.invalid[dst],reason);
  } else if(mode==2u) {
   // Preserve candidate-wide numerical rejection through every catch-up bank.
-  if(all(equal(c,ivec2(0)))&&state.invalid[src]!=0u) atomicOr(state.invalid[dst],1u);
+  if(all(equal(c,ivec2(0)))&&state.invalid[src]!=0u) atomicOr(state.invalid[dst],state.invalid[src]);
   vec2 uv=(vec2(c)+.5)/vec2(p.dispatch.yz),mv=texture(motionImage,uv).xy;
   vec2 prev=uv+mv*p.motion.xy/vec2(textureSize(motionImage,0))+p.motion.zw;
   if(finite1(mv.x)&&finite1(mv.y)&&all(greaterThanEqual(prev,vec2(0)))&&all(lessThan(prev,vec2(1)))&&state.invalid[src]==0u&&p.flags.z!=0u) {
