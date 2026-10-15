@@ -87,7 +87,20 @@ def verify_fresh_context_resolution(run, resolution, lock):
  observation=resolution.get('host_observation',{});path=Path(observation.get('path',''))
  if not path.is_file() or sha(path)!=observation.get('sha256'):raise ValueError('host observation missing')
  host=json.loads(path.read_text());age=time.monotonic_ns()-host.get('monotonic_ns',0)
- if host.get('boot_id')!=boot or not 0<=age<=60_000_000_000 or host.get('project_holders')!=[] or host.get('driver_errors')!=[] or host.get('unresolved_driver_hang') is not False or host.get('covered_session')!=run.name or host.get('covers_run_start_through_observation') is not True:raise ValueError('fresh post-exit driver coverage required')
+ if host.get('boot_id')!=boot or age<0 or host.get('project_holders')!=[] or host.get('driver_errors')!=[] or host.get('unresolved_driver_hang') is not False or host.get('covered_session')!=run.name or host.get('covers_run_start_through_observation') is not True:raise ValueError('signed post-exit driver coverage required')
+
+ # Read current-boot kernel records on every admission; unavailable/empty/malformed output fails closed.
+ journal=subprocess.check_output(['journalctl','-k','-b','0','--no-pager','--output=json'],text=True,stderr=subprocess.PIPE,timeout=20)
+ check_kernel_journal(journal,boot)
+
+def check_kernel_journal(journal,boot):
+ records=[json.loads(line) for line in journal.splitlines() if line.strip()]
+ if not records:raise ValueError('current boot kernel journal unavailable')
+ for record in records:
+  if record.get('_BOOT_ID','').replace('-','')!=boot.replace('-',''):raise ValueError('kernel journal boot mismatch')
+  message=record.get('MESSAGE','')
+  if not isinstance(message,str):raise ValueError('unreadable kernel journal message')
+  if re.search(r'NVRM:.*(?:Xid|fallen off|GPU.*(?:error|timeout))|GPU HANG|GPU reset|amdgpu.*(?:timeout|fault|reset)|i915.*(?:hang|reset)|nouveau.*(?:fault|timeout)',message,re.I):raise ValueError('current boot GPU driver error: '+message)
 
 def preflight(lock=None):
  h=holders()
@@ -423,7 +436,10 @@ def launch_supervised(args,signals):
 
 def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
- if a.command=='preflight':print(json.dumps(preflight(),indent=2));return 0
+ if a.command=='preflight':
+  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
+   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);print(json.dumps(preflight(lock),indent=2))
+  return 0
  if not a.session:p.error('session required')
  if not 1<=a.seconds<a.watchdog_seconds<=600 or not 1<=a.close_grace<=600 or not 1<=a.source_limit<=216000 or not 1<=a.diagnostic_after<=1000000:p.error('finite current-stage resource budget required')
  return launch(a) if a.command=='start' else control(a)

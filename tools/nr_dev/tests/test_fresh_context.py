@@ -24,4 +24,25 @@ class FreshContext(unittest.TestCase):
  def test_lock_required(self):self.assertRaises(ValueError,r.verify_fresh_context_resolution,self.run,{},None)
  def test_build_observation_cannot_change_artifacts(self):
   self.provenance['artifacts']={};self.assertRaises(ValueError,r.audit_pre_nr_absence,self.run,self.provenance)
+class CurrentHost(unittest.TestCase):
+ def verify(self,message='kernel boot safe',journal_error=None):
+  with tempfile.TemporaryDirectory() as temp:
+   run=Path(temp);boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+   (run/'manifest.json').write_text(json.dumps({'host_safety':{'boot_id':boot}}))
+   (run/'game-identity.json').write_text(json.dumps({'pid':42,'start_ticks':1}))
+   (run/'runner.json').write_text('{}')
+   host=run/'observation.json';host.write_text(json.dumps({'boot_id':boot,'monotonic_ns':1,'project_holders':[],'driver_errors':[],'unresolved_driver_hang':False,'covered_session':run.name,'covers_run_start_through_observation':True}))
+   resolution={'kind':'pre-nr-absence','scope':'fresh-context-only','normal_retirement_proved':False,'evidence_sha256':{},'boot_id':boot,'host_observation':{'path':str(host),'sha256':r.sha(host)}}
+   class Lock:
+    def fileno(self):return 12345
+   journal=json.dumps({'_BOOT_ID':boot.replace('-',''),'MESSAGE':message})
+   with patch.object(r,'audit_pre_nr_absence',return_value={}),patch.object(r.os,'readlink',return_value='/tmp/nrbridge-poc-gpu.lock'),patch.object(r.fcntl,'flock',side_effect=[None,BlockingIOError()]),patch.object(r,'live',side_effect=FileNotFoundError()),patch.object(r,'holders',return_value=[]),patch.object(r.subprocess,'check_output',side_effect=journal_error,return_value=journal) as query:
+    r.verify_fresh_context_resolution(run,resolution,Lock())
+    self.assertEqual(query.call_args.args[0][:4],['journalctl','-k','-b','0'])
+ def test_old_immutable_observation_current_safe(self):self.verify()
+ def test_current_xid_rejected(self):
+  with self.assertRaises(ValueError):self.verify('NVRM: Xid (PCI:0000:01:00): 31')
+ def test_journal_failure_rejected(self):
+  with self.assertRaises(r.subprocess.CalledProcessError):self.verify(journal_error=r.subprocess.CalledProcessError(1,'journalctl'))
+ def test_empty_journal_rejected(self):self.assertRaises(ValueError,r.check_kernel_journal,'','boot')
 if __name__=='__main__':unittest.main()
