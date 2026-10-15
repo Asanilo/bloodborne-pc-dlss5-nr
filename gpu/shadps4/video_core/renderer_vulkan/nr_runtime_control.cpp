@@ -75,7 +75,7 @@ bool InitializeConfig(const std::string& input,std::string* error){
  Config c;bool loaded=true;std::string why;
  try{if(std::filesystem::is_symlink(path))throw std::runtime_error("symlink config refused");if(std::filesystem::exists(path)){std::ifstream f(path);J j;f>>j;c=Decode(j);if(!Validate(c,&why))throw std::runtime_error(why);}}
  catch(const std::exception&e){c=Config{};loaded=false;why=e.what();}
- {std::scoped_lock lock(s.mutex);s.path=path;s.dirty=false;s.request.config=c;++s.request.revision;++s.request.reset_seq;if(!loaded)s.snapshot.reason="Invalid config: exact defaults restored; "+why;}
+ {std::scoped_lock lock(s.mutex);s.path=path;s.dirty=false;s.request.config=c;++s.request.revision;++s.request.reset_seq;if(!loaded)s.snapshot.reason="Invalid config: exact defaults restored; "+why;else if(c.model_style!=Config{}.model_style||c.model_intensity!=Config{}.model_intensity)s.snapshot.reason="Loaded model settings staged: explicit Apply required; no automatic rebuild";}
  s.worker=std::jthread(Worker);if(!loaded&&error)*error=why;return loaded;
 }
 bool PublishSnapshot(const Snapshot& snapshot,std::string* error){

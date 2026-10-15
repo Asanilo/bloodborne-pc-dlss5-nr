@@ -185,7 +185,7 @@ void NRControls() {
     if (!ImGui::CollapsingHeader("NRBridge live controls",ImGuiTreeNodeFlags_DefaultOpen)) return;
     auto request=BbNR::ReadRequest();auto c=request.config;const auto actual=BbNR::ReadSnapshot();
     static std::string error;bool changed=false;
-    ImGui::Text("%s | requested %llu / applied %llu",BbNR::StatusName(actual.status),(unsigned long long)request.revision,(unsigned long long)actual.applied_revision);
+    ImGui::Text("%s | config %s",BbNR::StatusName(actual.status),actual.applied_revision<request.revision?"pending":"applied");
     ImGui::TextWrapped("%s",actual.reason.c_str());
     changed|=ImGui::Checkbox("Display bypass (F8)",&c.display_bypass);
     changed|=ImGui::SliderFloat("Display strength",&c.display_strength,0.f,1.f);
@@ -205,10 +205,14 @@ void NRControls() {
         changed|=ImGui::SliderFloat("Model intensity",&c.model_intensity,0.f,2.f);
         ImGui::Text("Model Apply request %llu / applied %llu",(unsigned long long)request.model_apply_seq,(unsigned long long)actual.model_applied_version);
         ImGui::Text("Actual model style %u / intensity %.2f",actual.actual_config.model_style,actual.actual_config.model_intensity);
+        if(c.model_style!=actual.actual_config.model_style||c.model_intensity!=actual.actual_config.model_intensity) {
+            if(request.model_apply_seq>actual.model_applied_version)ImGui::TextUnformatted("Model Apply pending; actual parameters above remain in use.");
+            else ImGui::TextUnformatted("Staged model settings: explicit Apply required (also after loading a profile).");
+        }
         ImGui::BeginDisabled(actual.status==BbNR::Status::Held||actual.model_restart_required||(request.model_apply_seq!=actual.model_applied_version&&actual.status!=BbNR::Status::Failed));
         if(ImGui::Button("Apply model (safe feature rebuild)")) {BbNR::Submit(c,{.apply_model=true},&error);changed=false;}
         ImGui::EndDisabled();
-        if(actual.status==BbNR::Status::Held||actual.model_restart_required)ImGui::TextWrapped("Model HOLD: restart isolated session. Apply is disabled; no Release API return-success claim.");
+        if(actual.status==BbNR::Status::Held||actual.model_restart_required)ImGui::TextWrapped("Model HOLD: restart isolated session. Apply is disabled.");
         ImGui::TextWrapped("Dragging stages values only. Apply requests a safe model feature rebuild; failure keeps pending/failed status visible.");
         ImGui::TreePop();
     }
@@ -222,27 +226,31 @@ void NRControls() {
     ImGui::Text("Capture request %llu / completed %llu%s",(unsigned long long)request.capture_seq,(unsigned long long)actual.capture_applied_seq,actual.capture_busy?" (busy)":"");
     if(ImGui::Button("Restore exact NR defaults"))BbNR::Submit(BbNR::Config{},{.reset=true},&error);
     Hint("Restores requested defaults. Model changes still require explicit Apply; actual state is shown above.");
-    ImGui::TextDisabled("AntiPop/Fingerprint advanced controls: unavailable (not exposed)");
     if(!error.empty())ImGui::TextWrapped("Request rejected: %s",error.c_str());
+    if(ImGui::TreeNode("Detailed NR diagnostics")) {
     ImGui::Text("Source %llu | origin %llu | age %llu | job %llu%s%s",(unsigned long long)actual.current_source,(unsigned long long)actual.candidate_origin,(unsigned long long)actual.candidate_age,(unsigned long long)actual.last_job,actual.candidate_admitted?" admitted":"",actual.candidate_obsolete?" obsolete":"");
-    NRGpuSamples(actual,false);
-    if(actual.timing_available)ImGui::Text("Actual nonreuse %.1f FPS | P95 %.2fms P99 %.2fms (%llu Presents)",actual.fps,actual.p95_ms,actual.p99_ms,(unsigned long long)actual.present_samples);
-    else ImGui::TextUnformatted("Actual nonreuse Present timing: not measured");
+        ImGui::Text("Control requested %llu / actual %llu",(unsigned long long)request.revision,(unsigned long long)actual.applied_revision);
+        NRGpuSamples(actual,false);
+        if(actual.timing_available)ImGui::Text("Actual nonreuse %.1f FPS | P95 %.2fms P99 %.2fms (%llu Presents)",actual.fps,actual.p95_ms,actual.p99_ms,(unsigned long long)actual.present_samples);
+        else ImGui::TextUnformatted("Actual nonreuse Present timing: not measured");
+        ImGui::TreePop();
+    }
 }
 
 void NRHud() {
-    const auto c=BbNR::ReadRequest().config;if(!c.hud)return;
-    const auto actual=BbNR::ReadSnapshot();
-    ImGui::SetNextWindowPos(ImVec2(12.f*base_scale,12.f*base_scale),ImGuiCond_Always);
+    const auto requested=BbNR::ReadRequest();const auto& c=requested.config;if(!c.hud)return;
+    const auto actual=BbNR::ReadSnapshot();const auto* viewport=ImGui::GetMainViewport();const float pad=12.f*base_scale;
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+viewport->WorkSize.x-pad,viewport->WorkPos.y+pad),ImGuiCond_Always,ImVec2(1.f,0.f));
     ImGui::SetNextWindowBgAlpha(.65f);
     ImGui::Begin("##nr_live",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoNav|ImGuiWindowFlags_NoFocusOnAppearing);
-    ImGui::Text("NR %s | actual %s %.2f | applied/requested %llu/%llu",BbNR::StatusName(actual.status),actual.actual_config.display_bypass?"bypass":"history",actual.actual_config.display_strength,(unsigned long long)actual.applied_revision,(unsigned long long)actual.requested_revision);
-    const auto requested=BbNR::ReadRequest();
-    if(actual.applied_revision<requested.revision)ImGui::Text("Display/config pending; requested %s %.2f",c.display_bypass?"bypass":"history",c.display_strength);
-    if(requested.model_apply_seq>actual.model_applied_version)ImGui::Text("Model %s | apply requested %llu / actual %llu",actual.status==BbNR::Status::Failed?"FAILED - explicit retry":"PENDING",(unsigned long long)requested.model_apply_seq,(unsigned long long)actual.model_applied_version);
-    if(actual.timing_available)ImGui::Text("Real Presents %.1f FPS | P95 %.2f P99 %.2f ms",actual.fps,actual.p95_ms,actual.p99_ms);
-    if(actual.status==BbNR::Status::Held||actual.model_restart_required)ImGui::TextUnformatted("Model HOLD: restart isolated session");
-    NRGpuSamples(actual,true);
+    const bool model_staged=c.model_style!=actual.actual_config.model_style||c.model_intensity!=actual.actual_config.model_intensity;
+    const char* pending=actual.status==BbNR::Status::Held||actual.model_restart_required?" | restart isolated session":requested.model_apply_seq>actual.model_applied_version?" | model Apply pending":model_staged?" | model staged: Apply":actual.applied_revision<requested.revision?" | display pending":"";
+    ImGui::Text("NR actual %s %.2f | %s%s",actual.actual_config.display_bypass?"bypass":"history",actual.actual_config.display_strength,BbNR::StatusName(actual.status),pending);
+    if(actual.timing_available)ImGui::Text("%.1f FPS | P95 %.2f P99 %.2f ms",actual.fps,actual.p95_ms,actual.p99_ms);
+    else ImGui::TextUnformatted("FPS / P95 / P99: not measured");
+    char refresh[48];if(actual.model_refresh_available)std::snprintf(refresh,sizeof(refresh),"refresh %.0fms",actual.model_refresh_ms);else std::snprintf(refresh,sizeof(refresh),"refresh n/a");
+    if(actual.gpu_sample_available)ImGui::Text("Valid %.1f%% | age %.1ff %.0fms | %s",actual.history_valid_rate*100,actual.actual_age_frames,actual.actual_age_ms,refresh);
+    else ImGui::Text("Valid / contribution age: not sampled | %s",refresh);
     ImGui::End();
 }
 
@@ -1014,7 +1022,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
         Menu();
     }
     if(!menu_open) NRHud();
-    if (BbSettings::Get().show_fps && !menu_open) {
+    if (BbSettings::Get().show_fps && !menu_open && !BbNR::ReadRequest().config.hud) {
         FpsCounter();
     }
     if (prompt_active && !menu_open) {
