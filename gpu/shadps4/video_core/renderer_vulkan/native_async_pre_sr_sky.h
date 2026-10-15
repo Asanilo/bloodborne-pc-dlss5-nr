@@ -15,6 +15,8 @@ public:
  explicit NativeAsyncPreSrSky(const Instance&);
  vk::ImageView Record(Scheduler&,unsigned index,const std::array<vk::Image,3>&,
                       bool capture,const BbNativeAsync::Frame&,bool actual_cache_eligible=false);
+ // Only source conversion; no capture/reprojection/Apply or legacy bank writes.
+ void RecordConversionOnly(Scheduler&,unsigned,const std::array<vk::Image,3>&,const BbNativeAsync::Frame&);
  void SetCurrentMasks(vk::Buffer previous,unsigned next)noexcept{previous_mask=previous;shown_next=next;}
  bool Masked()const noexcept{return BbNativePreSrSkyPolicy::Enabled();}
  void PrepareShownCurrent(uint64_t source,double real_dt);
@@ -62,7 +64,7 @@ private:
   std::array<vk::DescriptorSet,6> sets{};vk::DescriptorSet conversion{};
  };
  Image Make(vk::Format,unsigned,unsigned);
- void InitImages(vk::CommandBuffer);
+ void InitImages(vk::CommandBuffer,bool conversion_only=false);
  void Barrier(vk::CommandBuffer);
  void Pass(vk::CommandBuffer,Packet&,unsigned,const DlssNrCacheConstants&,bool,
            const std::array<Image*,12>&,const std::array<Image*,7>&,Image* context_now=nullptr,Image* context_prev=nullptr);
@@ -86,6 +88,6 @@ private:
  vk::UniquePipelineLayout pipeline_layout,conversion_pipeline_layout;
  vk::UniquePipeline pipeline,conversion_pipeline;
  vk::UniqueDescriptorPool pool;
- bool initialized=false;unsigned next_index=0;
+ bool initialized=false,converted_initialized=false;unsigned next_index=0;
 };
 }

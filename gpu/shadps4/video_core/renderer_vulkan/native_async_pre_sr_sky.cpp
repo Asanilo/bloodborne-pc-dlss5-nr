@@ -62,10 +62,12 @@ NativeAsyncPreSrSky::NativeAsyncPreSrSky(const Instance& i):device(i.GetDevice()
 
 }
 void NativeAsyncPreSrSky::Barrier(vk::CommandBuffer cmd){const vk::MemoryBarrier2 b{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eAllCommands,.dstAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite};cmd.pipelineBarrier2({.memoryBarrierCount=1,.pMemoryBarriers=&b});}
-void NativeAsyncPreSrSky::InitImages(vk::CommandBuffer cmd){
+void NativeAsyncPreSrSky::InitImages(vk::CommandBuffer cmd,bool conversion_only){
  vk::ClearColorValue zero{};for(unsigned k=0;k<4;k++)zero.uint32[k]=0;
  const auto init=[&](Image& x){const vk::ImageMemoryBarrier2 b{.dstStageMask=vk::PipelineStageFlagBits2::eTransfer,.dstAccessMask=vk::AccessFlagBits2::eTransferWrite,.oldLayout=vk::ImageLayout::eUndefined,.newLayout=vk::ImageLayout::eGeneral,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=vk::Image(x.image),.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}};cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&b});cmd.clearColorImage(vk::Image(x.image),vk::ImageLayout::eGeneral,zero,vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor,0,1,0,1});};
- for(auto& b:banks){init(b.edit);init(b.guide);init(b.l1guide);for(auto& l:b.levels)init(l);}for(auto& p:packets){for(auto& x:p.converted)init(x);init(p.output);}for(auto& p:replay_packets)init(p.output);init(dummy);init(exposure);init(stats);if(Masked()){init(raw_edit);for(unsigned k=0;k<2;++k){init(shown_edit[k]);init(shown_guide[k]);init(shown_context[k]);}}Barrier(cmd);initialized=true;
+ if(!converted_initialized){for(auto& p:packets)for(auto& x:p.converted)init(x);converted_initialized=true;}
+ if(conversion_only){Barrier(cmd);return;}
+ for(auto& b:banks){init(b.edit);init(b.guide);init(b.l1guide);for(auto& l:b.levels)init(l);}for(auto& p:packets)init(p.output);for(auto& p:replay_packets)init(p.output);init(dummy);init(exposure);init(stats);if(Masked()){init(raw_edit);for(unsigned k=0;k<2;++k){init(shown_edit[k]);init(shown_guide[k]);init(shown_context[k]);}}Barrier(cmd);initialized=true;
 }
 DlssNrCacheConstants NativeAsyncPreSrSky::Base(unsigned m)const {DlssNrCacheConstants c{};c.Mode=m;c.Width=1280;c.Height=720;c.DepthWidth=c.MotionWidth=1280;c.DepthHeight=c.MotionHeight=720;c.MvScaleX=c.MvScaleY=1;c.Epsilon=1.f/512;c.DepthTolerance=.1f;c.ColourTolerance=.5f;c.HighDecay=.97f;c.RefreshBlend=c.LowGain=c.HighGain=1;c.Bilateral=1;c.ExposurePreMul=1;c.MaxLumaEdit=1.5f;return c;}
 void NativeAsyncPreSrSky::Pass(vk::CommandBuffer cmd,Packet& p,unsigned slot,const DlssNrCacheConstants& c,bool whole,const std::array<Image*,12>& reads,const std::array<Image*,7>& writes,Image* context_now,Image* context_prev){
@@ -79,13 +81,20 @@ void NativeAsyncPreSrSky::Pass(vk::CommandBuffer cmd,Packet& p,unsigned slot,con
  for(unsigned k=0;k<binding_count;k++)ds[k]={.dstSet=p.sets[slot],.dstBinding=k,.descriptorCount=1,.descriptorType=k==23?vk::DescriptorType::eStorageBuffer:k==0?vk::DescriptorType::eUniformBuffer:k<=12?vk::DescriptorType::eSampledImage:k<=19?vk::DescriptorType::eStorageImage:k==20?vk::DescriptorType::eSampler:vk::DescriptorType::eSampledImage,.pImageInfo=k&&k!=23?&ii[k-1]:nullptr,.pBufferInfo=k==0?&bi:k==23?&mask_info:nullptr};
  device.updateDescriptorSets(std::span<const vk::WriteDescriptorSet>(ds.data(),binding_count),{});cmd.bindPipeline(vk::PipelineBindPoint::eCompute,*pipeline);cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,*pipeline_layout,0,p.sets[slot],{});cmd.dispatch((c.Width+7)/8,(c.Height+7)/8,1);Barrier(cmd);
 }
-vk::ImageView NativeAsyncPreSrSky::Record(Scheduler& scheduler,unsigned index,const std::array<vk::Image,3>& source,bool capture,const BbNativeAsync::Frame& frame,bool actual_cache_eligible){
- if(index!=next_index||index>=packets.size()||capture!=(index==0))throw std::runtime_error("Native Sky actual consecutive lineage required");
- auto cmd=scheduler.CommandBuffer();if(!initialized)InitImages(cmd);auto& p=packets[index];p.frame=frame;
+void NativeAsyncPreSrSky::RecordConversionOnly(Scheduler& scheduler,unsigned index,const std::array<vk::Image,3>& source,const BbNativeAsync::Frame& frame){
+ if(index!=next_index||index>=packets.size())throw std::runtime_error("Native Sky actual consecutive lineage required");
+ auto cmd=scheduler.CommandBuffer();if(!converted_initialized)InitImages(cmd,true);auto& p=packets[index];p.frame=frame;
  for(unsigned k=0;k<3;k++){p.source_views[k]=device.createImageViewUnique({.image=source[k],.viewType=vk::ImageViewType::e2D,.format=k==0?vk::Format::eR16G16B16A16Sfloat:k==1?vk::Format::eD32SfloatS8Uint:vk::Format::eR16G16Sfloat,.subresourceRange={k==1?vk::ImageAspectFlagBits::eDepth:vk::ImageAspectFlagBits::eColor,0,1,0,1}}).value;}
  std::array<vk::DescriptorImageInfo,6> ci{};std::array<vk::WriteDescriptorSet,6> cw{};
  for(unsigned k=0;k<6;k++){ci[k]={.sampler=k<3?*nearest:vk::Sampler{},.imageView=k<3?*p.source_views[k]:*p.converted[k-3].view,.imageLayout=vk::ImageLayout::eGeneral};cw[k]={.dstSet=p.conversion,.dstBinding=k,.descriptorCount=1,.descriptorType=k<3?vk::DescriptorType::eCombinedImageSampler:vk::DescriptorType::eStorageImage,.pImageInfo=&ci[k]};}
  Barrier(cmd);device.updateDescriptorSets(cw,{});cmd.bindPipeline(vk::PipelineBindPoint::eCompute,*conversion_pipeline);cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,*conversion_pipeline_layout,0,p.conversion,{});cmd.dispatch(160,90,1);Barrier(cmd);
+ next_index++;
+}
+vk::ImageView NativeAsyncPreSrSky::Record(Scheduler& scheduler,unsigned index,const std::array<vk::Image,3>& source,bool capture,const BbNativeAsync::Frame& frame,bool actual_cache_eligible){
+ if(capture!=(index==0))throw std::runtime_error("Native Sky capture origin mismatch");
+ if(!initialized)InitImages(scheduler.CommandBuffer());
+ RecordConversionOnly(scheduler,index,source,frame);
+ auto cmd=scheduler.CommandBuffer();auto& p=packets[index];
  auto& prev=banks[index%2];auto& next=banks[(index+1)%2];auto& color=p.converted[0];auto& depth=p.converted[1];auto& mv=p.converted[2];
  // Controlled noop origin: edited source is exactly the same converted immutable SR.
  std::array<Image*,12> reads{&prev.edit,&prev.guide,&color,&depth,&mv,&color,&dummy,&dummy,&dummy,&dummy,&exposure,&dummy};
@@ -93,7 +102,7 @@ vk::ImageView NativeAsyncPreSrSky::Record(Scheduler& scheduler,unsigned index,co
  for(unsigned j=1;j<3;j++){auto d=Base(3);d.Width=next.levels[j].image.image_ci.extent.width;d.Height=next.levels[j].image.image_ci.extent.height;d.SourceWidth=next.levels[j-1].image.image_ci.extent.width;d.SourceHeight=next.levels[j-1].image.image_ci.extent.height;reads[5]=&next.levels[j-1];Pass(cmd,p,j,d,true,reads,{&next.levels[j],&dummy,&p.output,&dummy,&dummy,&stats,&dummy});}
  reads={&next.edit,&next.guide,&color,&depth,&mv,&next.levels[0],&next.l1guide,&next.levels[1],&next.levels[2],&dummy,&exposure,&dummy};auto apply=Base(4);if(Masked()){apply.LowTemporal=.95f;apply.Temporal=0;apply.CrossfadeOn=0;}Pass(cmd,p,3,apply,true,reads,{&p.output,&dummy,&dummy,Masked()?&raw_edit:&dummy,&dummy,&stats,&dummy});
  if(Masked()){last_apply_source=frame.source;last_apply_replay=false;if(actual_cache_eligible)CopyCurrentGuide(cmd,(index+1)%2,frame.source);}
- next_index++;return *p.output.view;
+ return *p.output.view;
 }
 
 std::array<vk::Image,3> NativeAsyncPreSrSky::ConvertedOrigin()const noexcept {return {vk::Image(packets[0].converted[0].image),vk::Image(packets[0].converted[1].image),vk::Image(packets[0].converted[2].image)};}
