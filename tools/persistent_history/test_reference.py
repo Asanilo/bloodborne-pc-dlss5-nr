@@ -65,7 +65,77 @@ def reprojection_confidence(prior,depth_residual=0,edge_residual=0,colour_residu
     residual=max(depth_residual,edge_residual,colour_residual,spread)
     return min(prior,1-.5*min(max(residual,0),1))
 
+def restricted_sample(grid,position,nearest):
+    """Tap tuple: (logResidualRGB, confidence, ageFrames, ageMs, eligible).
+    Eligibility represents unchanged per-tap numerical/depth/colour/live gates.
+    """
+    x,y=position;bx,by=math.floor(x),math.floor(y);fx,fy=x-bx,y-by
+    reference=grid[nearest[1]][nearest[0]]
+    if not reference[4]:return None
+    rgb=[0.,0.,0.];confidence=1.;age=list(reference[2:4])
+    for dy in range(2):
+        for dx in range(2):
+            weight=(fx if dx else 1-fx)*(fy if dy else 1-fy)
+            if weight<=0:continue
+            tx,ty=bx+dx,by+dy
+            if not 0<=ty<len(grid) or not 0<=tx<len(grid[0]):return reference
+            tap=grid[ty][tx]
+            if not tap[4] or tap[2:4]!=reference[2:4]:return reference
+            for c in range(3):rgb[c]+=weight*tap[0][c]
+            confidence=min(confidence,tap[1]);age=[max(a,b) for a,b in zip(age,tap[2:4])]
+    return tuple(rgb),confidence,*age,True
+
 class Boundaries(unittest.TestCase):
+    def test_restricted_bilinear_same_origin_and_hard_reference(self):
+        self.assertIn('vec2 texel=prev*vec2(p.dispatch.yz)-.5',SHADER)
+        self.assertIn('if(weight<=0.)continue',SHADER)
+        self.assertIn('all(equal(tm.zw,sourceAge))',SHADER)
+        self.assertIn('oldest=max(oldest,tm.zw)',SHADER)
+        self.assertNotIn('texture(sourceEdit',SHADER)
+        tap=lambda v,q=1,f=5,ms=87,ok=True:((v,v,v),q,f,ms,ok)
+        grid=[[tap(0),tap(1,.8)],[tap(2,.7),tap(3,.6)]]
+        out=restricted_sample(grid,(.25,.5),(0,1))
+        self.assertEqual(out[0],(1.25,)*3);self.assertEqual(out[1],.6)
+        self.assertEqual(out[2:4],(5,87))
+        # Independent candidate/fallback origins must not be averaged, including
+        # same frame-age but different time-age and tiny exact identity mismatch.
+        for bad in (tap(3,ok=False),tap(3,f=4),tap(3,ms=87.00001)):
+            changed=[grid[0], [grid[1][0],bad]]
+            self.assertEqual(restricted_sample(changed,(.25,.5),(0,1)),grid[1][0])
+        invalid=[[tap(0,ok=False),tap(1)],[tap(2),tap(3)]]
+        self.assertIsNone(restricted_sample(invalid,(.25,.25),(0,0)))
+        # At an exact texel center outside zero-weight taps have no effect.
+        self.assertEqual(restricted_sample([[tap(2)]],(0.,0.),(0,0)),tap(2))
+        # A contributing out-of-image tap never clamps/borrows another surface.
+        self.assertEqual(restricted_sample(grid,(-.1,.5),(0,1)),grid[1][0])
+
+    def test_subpixel_continuity_and_repeated_filter_sharpness_cost(self):
+        tap=lambda v:((v,v,v),1.,3.,50.,True)
+        grid=[[tap(0),tap(1)]]
+        phases=[.49,.5,.51]
+        linear=[restricted_sample(grid,(x,0),(int(math.floor(x+.5)),0))[0][0] for x in phases]
+        nearest=[grid[0][int(math.floor(x+.5))][0][0] for x in phases]
+        self.assertAlmostEqual(max(linear)-min(linear),.02)
+        self.assertEqual(max(nearest)-min(nearest),1.)
+        # Repeated subpixel warps are NOT sharpness preserving. +/- .25 has
+        # zero net displacement, yet bilinear redistributes a log-edit impulse.
+        signal=[0.]*65;signal[32]=1.;nearest_signal=signal[:]
+        def warp(values,phase):
+            result=[]
+            for x in range(len(values)):
+                pos=x+phase;lo=math.floor(pos);f=pos-lo
+                result.append((1-f)*values[lo%len(values)]+f*values[(lo+1)%len(values)])
+            return result
+        def nearest_warp(values,phase):
+            return [values[math.floor(x+phase+.5)%len(values)] for x in range(len(values))]
+        for _ in range(16):
+            signal=warp(warp(signal,.25),-.25)
+            nearest_signal=nearest_warp(nearest_warp(nearest_signal,.25),-.25)
+        self.assertLess(max(signal),.2)
+        self.assertEqual(max(nearest_signal),1.)
+        self.assertAlmostEqual(sum(signal),1.)
+        # No test or claim that bilinear indefinitely preserves source detail.
+
     def test_continuous_confidence_evidence_and_default_compatibility(self):
         self.assertIn('e.a=min(e.a,confidence);ok=live(e,m)',SHADER)
         self.assertIn('boundedMotionSpread(mv,neighbourMotion)',SHADER)
