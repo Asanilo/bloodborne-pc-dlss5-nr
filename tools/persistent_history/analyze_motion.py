@@ -91,7 +91,28 @@ def pair(pm, p, m, d):
     gates = {'geometry': geometry, 'reprojected_depth': same_surface(meta[..., 0], expected, pp[2], m['depth_tolerance']), 'current_3x3_depth': edge, 'colour': colour}
     current_origin = m['current_source']-d['meta'][..., 2]
     previous_origin = pm['current_source']-meta[..., 2]
+    regions = {}
+    for ry in range(3):
+        for rx in range(3):
+            sl = np.s_[ry*h//3:(ry+1)*h//3, rx*w//3:(rx+1)*w//3]
+            base = eligible[sl]
+            n = int(base.sum())
+            current_valid = d['edit'][sl][..., 3] > 0
+            ages = d['meta'][sl][..., 2:4][current_valid]
+            motion_lengths = np.linalg.norm(mv[sl], axis=-1)
+            finite_motion = motion_lengths[np.isfinite(motion_lengths)]
+            regions[f'row{ry}_col{rx}'] = {
+                'bounds_xyxy': [rx*w//3, ry*h//3, (rx+1)*w//3, (ry+1)*h//3],
+                'eligible_prior_pixels': n,
+                'current_valid_fraction': float(current_valid.mean()),
+                'age_frames_min_max': [float(ages[:,0].min()), float(ages[:,0].max())] if ages.size else None,
+                'age_ms_min_max': [float(ages[:,1].min()), float(ages[:,1].max())] if ages.size else None,
+                'MV_length_pixels_p50_p95': np.percentile(finite_motion, [50,95]).tolist() if finite_motion.size else None,
+                'potential_rejection_fraction_of_eligible': {k: float((base & ~v[sl]).sum()/n) if n else None for k,v in gates.items()},
+                'depth_colour_reject_overlap_pixels': int((base & ~gates['reprojected_depth'][sl] & ~gates['colour'][sl]).sum()),
+            }
     return {
+        'regions_3x3': regions,
         'eligible_prior_pixels': count,
         'motion_outside_or_nonfinite_fraction': float((~inside).mean()),
         'potential_rejection_fraction_of_eligible': {k: float((eligible & ~v).sum()/count) if count else None for k,v in gates.items()},
