@@ -12,10 +12,14 @@ struct Frame {
  bool sr_reset=false, source_edited=false;
  uint64_t params=1;
  std::array<float,2> viewport{},previous_viewport{},sr_jitter{},previous_sr_jitter{};
+ // Native-only camera metadata; immutable wire tuple is unchanged.
+ std::array<float,4> current_projection{},previous_projection{},previous_view_z{};
 };
 inline bool Finite(const Frame& f) noexcept {
  for(const auto& a:{f.viewport,f.previous_viewport,f.sr_jitter,f.previous_sr_jitter})
   for(float v:a) if(!std::isfinite(v))return false;
+ for(const auto& a:{f.current_projection,f.previous_projection,f.previous_view_z})
+  for(float v:a)if(!std::isfinite(v))return false;
  return f.source!=0&&!f.source_edited&&f.params==1;
 }
 class Chain {
