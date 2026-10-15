@@ -1,4 +1,5 @@
 #version 450
+layout(constant_id=0) const uint EnableCubic=0u;
 layout(local_size_x=8,local_size_y=8) in;
 layout(binding=0) uniform sampler2D rawImage;
 layout(binding=1) uniform sampler2D depthImage;
@@ -125,7 +126,7 @@ void main() {
     // preserves the old hard-gate valid set; higher thresholds select evidence.
     float confidence=1.-.5*clamp(residual,0.,1.);
     e.a=min(e.a,confidence);ok=live(e,m);
-    if(ok&&p.reserved2.x==1.) {
+    if(ok&&EnableCubic==1u&&p.reserved2.x==1.) {
      // Nearest remains the hard admission reference. Filter only residual RGB,
      // never packed guide/depth/age/confidence, and only across proven same-origin
      // samples. Missing/invalid support falls back to that unchanged reference.
