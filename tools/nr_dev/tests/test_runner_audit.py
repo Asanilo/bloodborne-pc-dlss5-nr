@@ -1,5 +1,6 @@
 """Offline parser/proof regressions; no process, GPU, Wine or game launch."""
 import hashlib,importlib.util,json,os,tempfile,unittest
+from unittest.mock import patch
 from pathlib import Path
 HERE=Path(__file__).resolve().parents[1]
 def module(name):
@@ -39,6 +40,18 @@ class AuditTests(unittest.TestCase):
   out=runner.verify_native_mappings(mem+mem+mapped,artifacts);self.assertEqual(len(out),3);self.assertEqual(out[0]['source'],str(ngx));self.assertTrue(out[0]['memfd']);self.assertIn('not asserted',out[0]['identity_scope'])
   with self.assertRaises(ValueError):runner.verify_native_mappings(mem.replace(str(ngx),'/elsewhere/'+ngx.name),artifacts)
   with self.assertRaises(ValueError):runner.verify_native_mappings(mapped.replace(str(st.st_ino)+' ',str(st.st_ino+1)+' '),artifacts)
+ def test_btrfs_device_requires_superblock_fsid_and_inode(self):
+  source=self.root/'libbbport_dlss.so';source.write_bytes(b'library');st=source.stat()
+  minor=os.minor(st.st_dev)+1
+  fields=['1000-2000','r-xp','00000000',f'00:{minor:x}',str(st.st_ino),str(source)]
+  mount=f'40 1 0:{minor} /@ / rw - btrfs /dev/test rw,subvolid=256\n'
+  with patch.object(Path,'read_text',return_value=mount),patch.object(runner,'btrfs_fsid',return_value='same-fsid'):
+   self.assertIn('Btrfs',runner.mapped_file_identity(str(source),fields)['device_proof'])
+  with patch.object(Path,'read_text',return_value=mount),patch.object(runner,'btrfs_fsid',side_effect=['source-fsid','other-fsid']):
+   with self.assertRaises(ValueError):runner.mapped_file_identity(str(source),fields)
+  fields[3]=f'00:{minor+1:x}'
+  with patch.object(Path,'read_text',return_value=mount):
+   with self.assertRaises(ValueError):runner.mapped_file_identity(str(source),fields)
  def test_source_drift_rejected(self):
   ngx=self.root/'libnvidia-ngx-dlss.so.1';ngx.write_bytes(b'changed')
   with self.assertRaises(ValueError):runner.verify_native_mappings('',{str(ngx):'0'*64})

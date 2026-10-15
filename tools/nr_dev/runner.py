@@ -61,7 +61,41 @@ def checked_run(session):
  run=ROOT/'runs'/session
  if run.resolve()!=run or run.is_symlink():raise ValueError('private real run path required')
  return run
-def verify_native_mappings(maps,artifacts):
+def btrfs_fsid(path):
+ # Linux BTRFS_IOC_FS_INFO = _IOR(0x94, 31, struct btrfs_ioctl_fs_info_args[1024]).
+ fd=os.open(path,os.O_RDONLY)
+ try:
+  data=bytearray(1024);fcntl.ioctl(fd,0x8400941f,data,True)
+  fsid=bytes(data[16:32])
+  if not any(fsid):raise ValueError('empty Btrfs filesystem identity')
+  return fsid.hex()
+ finally:os.close(fd)
+def mapped_file_identity(source,fields,pid=None):
+ st=Path(source).stat();major,minor=(int(v,16) for v in fields[3].split(':'))
+ if st.st_ino!=int(fields[4]):raise ValueError('mapped inode mismatch '+source)
+ if (os.major(st.st_dev),os.minor(st.st_dev))==(major,minor):return {'device_proof':'direct stat device and inode'}
+ if pid is not None:
+  try:
+   backing=(Path('/proc')/str(pid)/'map_files'/fields[0]).stat()
+   if (backing.st_dev,backing.st_ino)==(st.st_dev,st.st_ino):return {'device_proof':'actual map_files backing stat device and inode'}
+   raise ValueError('actual map_files backing mismatch '+source)
+  except PermissionError:pass
+ # Btrfs maps uses the superblock device while stat may expose a subvolume's
+ # anonymous st_dev. Accept only exact mountinfo superblock device + inode and
+ # same FS_INFO fsid for source and its most-specific Btrfs mount, never just inode.
+ mounts=(Path('/proc')/str(pid or 'self')/'mountinfo').read_text().splitlines();candidates=[]
+ def decode(text):return re.sub(r'\\([0-7]{3})',lambda m:chr(int(m[1],8)),text)
+ for line in mounts:
+  before,after=line.split(' - ',1);left=before.split();right=after.split();mount=decode(left[4])
+  if Path(source).is_relative_to(mount):candidates.append((len(mount),left,right,mount))
+ if not candidates:raise ValueError('no source mount identity '+source)
+ _,left,right,mount=max(candidates)
+ if right[0]!='btrfs' or tuple(int(v) for v in left[2].split(':'))!=(major,minor):raise ValueError('mapped device is not source Btrfs superblock '+source)
+ fsid=btrfs_fsid(source)
+ if fsid!=btrfs_fsid(mount):raise ValueError('Btrfs filesystem identity mismatch '+source)
+ return {'device_proof':'Btrfs mountinfo superblock device + source inode + equal FS_INFO fsid','superblock_device':left[2],'stat_device':str(os.major(st.st_dev))+':'+str(os.minor(st.st_dev)),'mount':mount,'mount_root':decode(left[3]),'filesystem_id':fsid}
+
+def verify_native_mappings(maps,artifacts,pid=None):
  """NGX's loader uses source-named deleted memfds; this checks provenance, not equal backing bytes.
 
  vk_dlss dlopens the bridge from /proc/self/exe's directory and Configure receives
@@ -83,13 +117,13 @@ def verify_native_mappings(maps,artifacts):
   deleted=source.endswith(' (deleted)')
   if deleted:source=source[:-len(' (deleted)')]
   if source not in expected:raise ValueError('unapproved Native mapped source '+pathname)
+  device_proof={}
   if memfd:
    if not Path(source).name.startswith('libnvidia-ngx-dlss.so.') or not deleted:raise ValueError('unexpected Native memfd '+pathname)
   else:
    if deleted:raise ValueError('deleted ordinary runtime library '+pathname)
-   st=Path(source).stat();major,minor=(int(v,16) for v in fields[3].split(':'))
-   if (st.st_ino,os.major(st.st_dev),os.minor(st.st_dev))!=(int(fields[4]),major,minor):raise ValueError('mapped inode/device mismatch '+source)
-  out.append({'range':fields[0],'permissions':fields[1],'offset':fields[2],'device':fields[3],'inode':int(fields[4]),'pathname':pathname,'source':source,'source_sha256':expected[source],'identity_scope':'exact pinned loader source provenance; memfd backing bytes not asserted' if memfd else 'mapped device/inode and pinned source SHA','memfd':memfd})
+   device_proof=mapped_file_identity(source,fields,pid)
+  out.append({'range':fields[0],'permissions':fields[1],'offset':fields[2],'device':fields[3],'inode':int(fields[4]),'pathname':pathname,'source':source,'source_sha256':expected[source],'identity_scope':'exact pinned loader source provenance; memfd backing bytes not asserted' if memfd else 'mapped device/inode and pinned source SHA','memfd':memfd,'mapped_file_identity':device_proof})
  return out
 
 def current_game(run):
@@ -103,7 +137,7 @@ def current_game(run):
  identity=matches[0];record=run/'game-identity.json'
  if record.exists() and json.loads(record.read_text())!=identity:raise ValueError('PID/starttime mismatch')
  maps=(Path('/proc')/str(identity['pid'])/'maps').read_text()
- libs=verify_native_mappings(maps,m['artifacts'])
+ libs=verify_native_mappings(maps,m['artifacts'],identity['pid'])
  atomic(run/'native-loaded-libraries.json',{'game':identity,'mapped_libraries':libs})
  atomic(record,identity);return identity
 
