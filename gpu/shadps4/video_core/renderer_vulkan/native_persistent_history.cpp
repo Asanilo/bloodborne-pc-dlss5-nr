@@ -71,7 +71,7 @@ struct NativePersistentHistory::Impl {
  vk::UniqueSampler nearest;
  vk::UniqueDescriptorSetLayout layout,conversion_layout;
  vk::UniquePipelineLayout pipeline_layout,conversion_pipeline_layout;
- vk::UniquePipeline pipeline,conversion_pipeline;
+ vk::UniquePipeline pipeline,cubic_pipeline,conversion_pipeline;
  vk::UniqueDescriptorPool pool;
  std::deque<Clock> clocks;
  BbNativeAsync::Frame current,last;
@@ -131,8 +131,14 @@ NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.Ge
  conversion_layout=device.createDescriptorSetLayoutUnique({.bindingCount=6,.pBindings=conv.data()}).value;
  pipeline_layout=device.createPipelineLayoutUnique({.setLayoutCount=1,.pSetLayouts=&*layout}).value;
  conversion_pipeline_layout=device.createPipelineLayoutUnique({.setLayoutCount=1,.pSetLayouts=&*conversion_layout}).value;
- const auto create=[&](std::span<const u32> code,vk::PipelineLayout pl){auto module=CompileSPV(code,device);auto p=device.createComputePipelineUnique({}, {.stage={.stage=vk::ShaderStageFlagBits::eCompute,.module=module,.pName="main"},.layout=pl});device.destroyShaderModule(module);return std::move(p.value);};
- pipeline=create(NativePersistentHistorySpv,*pipeline_layout);conversion_pipeline=create(NATIVE_SKY_CONVERT_COMP,*conversion_pipeline_layout);
+ const auto create=[&](std::span<const u32> code,vk::PipelineLayout pl,const vk::SpecializationInfo* specialization=nullptr){auto module=CompileSPV(code,device);auto p=device.createComputePipelineUnique({}, {.stage={.stage=vk::ShaderStageFlagBits::eCompute,.module=module,.pName="main",.pSpecializationInfo=specialization},.layout=pl});device.destroyShaderModule(module);return std::move(p.value);};
+ // Compile both immutable variants during initialization. Nearest specialization
+ // removes cubic sampling; a disabled option must not keep its register cost.
+ const uint32_t enable_cubic=1;const vk::SpecializationMapEntry entry{0,0,sizeof(enable_cubic)};
+ const vk::SpecializationInfo cubic_spec{1,&entry,sizeof(enable_cubic),&enable_cubic};
+ pipeline=create(NativePersistentHistorySpv,*pipeline_layout);
+ cubic_pipeline=create(NativePersistentHistorySpv,*pipeline_layout,&cubic_spec);
+ conversion_pipeline=create(NATIVE_SKY_CONVERT_COMP,*conversion_pipeline_layout);
  constexpr unsigned count=Passes*2;
  const std::array<vk::DescriptorPoolSize,4> sizes{{{vk::DescriptorType::eCombinedImageSampler,count*5+6},{vk::DescriptorType::eStorageImage,count*5+6},{vk::DescriptorType::eStorageBuffer,count*3},{vk::DescriptorType::eUniformBuffer,count}}};
  pool=device.createDescriptorPoolUnique({.maxSets=count+2,.poolSizeCount=4,.pPoolSizes=sizes.data()}).value;
@@ -205,7 +211,8 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  .pImageInfo=k<10?&ii[k]:nullptr,.pBufferInfo=k==10?&si:k==11?&bi:k==12?&guard:k==13?&stats:nullptr};
  Barrier(cmd);
  if(mode!=PHCompose&&mode!=PHStats){cmd.fillBuffer(state->Handle(),to*4,4,0);Barrier(cmd);}
- device.updateDescriptorSets(writes,{});cmd.bindPipeline(vk::PipelineBindPoint::eCompute,*pipeline);
+ device.updateDescriptorSets(writes,{});
+ cmd.bindPipeline(vk::PipelineBindPoint::eCompute,mode==PHAdvance&&control.reprojection==BbNR::Reprojection::ClampedCubic?*cubic_pipeline:*pipeline);
  cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,*pipeline_layout,0,s.sets[n],{});
  s.modes[n]=mode;if(s.sampled&&queries)cmd.writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe,*queries,slot*QueriesPerSlot+n*2);
  cmd.dispatch(160,90,1);
