@@ -65,7 +65,7 @@ def reprojection_confidence(prior,depth_residual=0,edge_residual=0,colour_residu
     residual=max(depth_residual,edge_residual,colour_residual,spread)
     return min(prior,1-.5*min(max(residual,0),1))
 
-def restricted_sample(grid,position,nearest):
+def restricted_sample(grid,position,nearest,min_confidence=.5):
     """Tap tuple: (logResidualRGB, confidence, ageFrames, ageMs, eligible).
     Eligibility represents unchanged per-tap numerical/depth/colour/live gates.
     """
@@ -83,6 +83,8 @@ def restricted_sample(grid,position,nearest):
             if not tap[4] or tap[2:4]!=reference[2:4]:return reference
             for c in range(3):rgb[c]+=weight*tap[0][c]
             confidence=min(confidence,tap[1]);age=[max(a,b) for a,b in zip(age,tap[2:4])]
+    stored=struct.unpack('<e',struct.pack('<e',confidence))[0]
+    if stored<=0 or stored<min_confidence:return reference
     return tuple(rgb),confidence,*age,True
 
 class Boundaries(unittest.TestCase):
@@ -108,6 +110,29 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(restricted_sample([[tap(2)]],(0.,0.),(0,0)),tap(2))
         # A contributing out-of-image tap never clamps/borrows another surface.
         self.assertEqual(restricted_sample(grid,(-.1,.5),(0,1)),grid[1][0])
+
+    def test_filtered_confidence_half_rounding_preserves_nearest(self):
+        self.assertIn('unpackHalf2x16(packHalf2x16(vec2(filteredConfidence,0.))).x',SHADER)
+        self.assertIn('storedConfidence>=p.limits.w',SHADER)
+        reference=((.2,.2,.2),.9501953125,5.,80.,True)
+        for threshold,candidate in ((.8,.80001),(.912,.91201)):
+            self.assertGreater(candidate,threshold)
+            stored=struct.unpack('<e',struct.pack('<e',candidate))[0]
+            self.assertLess(stored,threshold) if threshold==.8 else self.assertGreater(stored,threshold)
+            other=((.4,.4,.4),candidate,5.,80.,True)
+            grid=[[reference,other]]
+            result=restricted_sample(grid,(.25,0),(0,0),threshold)
+            if threshold==.8:self.assertEqual(result,reference)
+            else:
+                self.assertEqual(result[1],candidate) # Do not inflate confidence to rounded half.
+                self.assertAlmostEqual(result[0][0],.25)
+            # Default .5 is exactly representable: preserve filtered result,
+            # rather than unnecessarily falling back or raising confidence.
+            filtered=restricted_sample(grid,(.25,0),(0,0),.5)
+            self.assertAlmostEqual(filtered[0][0],.25)
+            self.assertEqual(filtered[1],candidate)
+        exactly_half=((.4,.4,.4),.5,5.,80.,True)
+        self.assertEqual(restricted_sample([[reference,exactly_half]],(.25,0),(0,0),.5)[1],.5)
 
     def test_subpixel_continuity_and_repeated_filter_sharpness_cost(self):
         tap=lambda v:((v,v,v),1.,3.,50.,True)
