@@ -22,15 +22,17 @@ python3 native/tools/nr_dev/play.py --continue-session SESSION
 
 它将该 session 的 `profile/user/savedata` 和 `nrbridge.json` 校验后复制到全新 run，保留原件；不复制 Wine prefix、缓存或正式存档。HOLD（即使另有 fresh-context resolution）不能作为续玩来源。私有进度在 `runs/SESSION/profile/user/savedata`。
 
-主协调已在 `dev-player-01` 获得用户反馈“明显改善，操作流畅”，并核验正常退出。 用户后续补充：仍有轻微鬼影、闪烁及大幅度动作时的闪烁，整体稳定性尚可；这些是尚未解决的画质问题，不能将当前试玩通过解读为无伪影或全场景完成。120秒自动动态窗口：新版60.30 FPS/P95 25.31ms/P99 26.78ms；d9视觉算法隔离参考66.49 FPS/P95 22.19ms/P99 23.58ms。场景为Clinic转镜和小范围移动，未覆盖完整战斗与全游戏。冷诊断不计入热性能。更完整的现行安全和资源边界见开发根 `CURRENT.md`。
+早期Alpha的主协调已在 `dev-player-01` 获得用户反馈“明显改善，操作流畅”，并核验正常退出。 用户后续补充：仍有轻微鬼影、闪烁及大幅度动作时的闪烁，整体稳定性尚可；这些是尚未解决的画质问题，不能将当前试玩通过解读为无伪影或全场景完成。120秒自动动态窗口：新版60.30 FPS/P95 25.31ms/P99 26.78ms；d9视觉算法隔离参考66.49 FPS/P95 22.19ms/P99 23.58ms。场景为Clinic转镜和小范围移动，未覆盖完整战斗与全游戏。冷诊断不计入热性能。更完整的现行安全和资源边界见开发根 `CURRENT.md`。
 
 ## 本阶段验证边界
 
 - `dev-runtime-life-01` 提供了本阶段资源生命周期的实际运行证据；原 watchdog **HOLD 保留**，不改写为正常退出或玩家验收通过。资源作用范围的独立证据不等于完整运行 PASS。
 - `dev-runtime-nr-02` 完成 **1841 个真实 job：1821 captured、20 obsolete**，已验证正常退出；同源诊断 capture 实际完成。此项证明该次模型传输、候选处理与退出链实际运行，不代替画质或性能验收。
-- 新的连续区域 confidence 与 Style 参数真实 NR Feature 重建仍由主协调者验证，**待验证**。菜单可见或 CPU 测试通过不等于 GPU 行为已验收。
+- `dev-runtime-controls-01` 正常退出，2715个真实NR job全部结清。3次重建验证Natural、Cinematic及恢复Default，参数身份1→4；Feature创建/释放各4次。连续confidence约千种真实值；强度0.501及修改后的TTL/深度/颜色/minConfidence均通过同源GPU读回与Compose重构（最多1 half ULP）。细节见该run的runtime-model-validation、runtime-controls-offline-check及runtime-thresholds-offline-check；不是主观消鬼影证明。
+- `dev-runtime-hot-01` 无图像捕获，正常退休1374个真实job（1372 captured/2 obsolete）。纯SR静止70.54 FPS/P95 14.64/P99 15.68ms；NR静止57.59 FPS/P95 24.26/P99 25.48ms；120秒NR动态58.34 FPS/P95 24.25/P99 25.80ms，零source缺口、最大28.63ms。整卡峰值3995MiB/8188MiB（含其他应用）。尚未达到稳定60FPS，也未证明默认鬼影/闪烁已改善。
+- `dev-runtime-nr-01` 曾在Helper和NR资源创建前因加载期PM4坏包退出23，原HOLD保持；追加说明仅允许经锁内当前宿主检查后的独立新上下文，不声称整个旧GPU上下文正常退役。新增包语义校验可提前停止错误寄存器写入，源数据损坏根因仍未证明解决。
 
-下面保留的旧试玩反馈及性能数字仅对应其标明的旧 session/场景，不是当前 runtime/config 版本的性能或玩家 PASS。本轮源码尚未推送。
+上面的旧试玩反馈及早期Alpha性能数字仅对应其标明的旧 session/场景，不是当前 runtime/config 版本的性能或玩家 PASS。本轮源码尚未推送。
 
 ## 开发与诊断
 

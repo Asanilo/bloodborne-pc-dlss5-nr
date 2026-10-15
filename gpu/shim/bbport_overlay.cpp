@@ -241,7 +241,7 @@ void NRControls() {
 void NRHud() {
     const auto requested=BbNR::ReadRequest();const auto& c=requested.config;if(!c.hud)return;
     const auto actual=BbNR::ReadSnapshot();const auto* viewport=ImGui::GetMainViewport();const float pad=12.f*base_scale;
-    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+viewport->WorkSize.x-pad,viewport->WorkPos.y+pad),ImGuiCond_Always,ImVec2(1.f,0.f));
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+viewport->WorkSize.x-pad,viewport->WorkPos.y+viewport->WorkSize.y-pad),ImGuiCond_Always,ImVec2(1.f,1.f));
     ImGui::SetNextWindowBgAlpha(.65f);
     ImGui::Begin("##nr_live",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoNav|ImGuiWindowFlags_NoFocusOnAppearing);
     const bool model_staged=c.model_style!=actual.actual_config.model_style||c.model_intensity!=actual.actual_config.model_intensity;
