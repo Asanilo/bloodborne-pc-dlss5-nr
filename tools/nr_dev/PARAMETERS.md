@@ -1,0 +1,34 @@
+# Runtime parameter ownership
+
+Evidence checked 2026-10-15: local OptiScaler HEAD `eaada4c2667a26947f6b934008870025e3e1cfb5`; read-only `git ls-remote sky refs/heads/main` resolves current Skynizz main to `6bfc4389c25054ef6747df6e6b1b470e9541c4da` (local sky/main is stale `591fd305…`). Current upstream Menu.cpp/Config.h read at that exact SHA. Requested `docs/dlssnr/edit-cache.md` returns 404; actual upstream path is `OptiScaler/dlssnr/design/edit-cache.md`.
+
+| Parameter | Exact NGX key/type | Config default | Model UI range | New-cycle owner |
+|---|---|---:|---|---|
+| Style | `DLSSNR.Style`, uint32 | 0 | 0 Default, 1 Natural, 2 Cinematic | Helper Feature rebuild, explicit commit + actual ACK |
+| Intensity | `DLSSNR.Intensity`, float32 | 1 | [0,2] | Helper Feature rebuild, explicit commit + actual ACK |
+| Preset | `DLSSNR.Hint.Render.Preset`, uint32 | 0 | 0..3 | Creation-only, not exposed initially |
+| Local structure | `DLSSNR.LocalStructureStrength`, float32 | 1 | [0,2] | Creation-only, portable but not exposed initially |
+| Local tone | `DLSSNR.LocalToneStrength`, float32 | 1 | [0,2] | Creation-only, portable but not exposed initially |
+| Skin structure | `DLSSNR.SkinStructureStrength`, float32 | -1 | [-1,2] | Creation-only; preserve existing fixture's explicit 1 initially |
+| Auto skin mask | `DLSSNR.UseAutoMask`, uint32 | true | bool | Creation-only; not exposed initially |
+
+Style labels are community interpretations, not NVIDIA-provided profile names. Intensity is model-internal strength, distinct from Native post-model edit strength. Local `DlssNr_Proxy.cpp:SetCreationParameters` explicitly says evaluation-time writes are ignored. Local Vulkan `DlssNrFeature_Vk.cpp` releases/rebuilds features when the creation tuple changes. f527 currently hard-codes preset0/intensity1/style0/localStructure1/localTone1/skinStructure1/autoMask1.
+
+| Category | Parameters/features | Treatment |
+|---|---|---|
+| Native frame boundary | Enabled; edit strength; confidence/depth/colour thresholds; TTL bounded by 12 frames/200ms; debug/diagnostics | Snapshot current controls at frame boundary. Threshold/identity changes invalidate logical history; retain physical leases until real completion. No model rebuild needed. |
+| Helper Feature rebuild | Style, Intensity; optionally preset and structure/tone/skin/mask later | Drain shared job and Native packet leases, release/create actual Feature, wait real creation fence, exact generation+params ACK, then admit new origins. Never acknowledge from UI alone. |
+| Portable but unimplemented | r2 low/high-frequency decomposition, coverage-weighted pyramid, bilateral apply; Masked regional low temporal/context/anti-pop; fingerprint/surface-fill; model-resolution/JBU; colour transfer/exposure controls | Each needs matching Vulkan resources, numerical tests, identity/age semantics and actual GPU validation. Upstream menu availability is not local implementation. |
+| Unsuitable for direct cross-process pre-SR reuse | D3D12 CacheAsync queue/fence proof; multipass recursive model editing; HoldFrame/replaying old completed frame; still-hold/age-neutral/age half-life bypassing finite contribution TTL | Do not map upstream checkbox names onto false Native completion or extended age. Model runs on immutable raw720; Native owns current edit history and SR1080. |
+
+Upstream cache defaults include interval3, adaptive=true/threshold.10, depthTolerance.10, colourTolerance.50, highDecay1, refreshBlend1, low/high gains1, bilateral=true, stabilize.5, despeckle=true, crossfade=true, softRefresh=true, temporal.5, lowTemporal.95, fingerprint/context=true, tolerance.25, surfaceFill=true, aging=false, ageNeutral=false, antiPop=true/rate.75, async=false. These are evidence for selective mathematical inheritance, not automatic overrides of the new current controls or safety conditions.
+
+Runtime model changes use a distinct versioned protocol. Native stops reservation before publishing a rebuild request; the request carries the current session, exact previous/new model generation and params identity, UI commit revision, real Native completion bound, zero packet leases and finalized-job count. Helper accepts only while idle with its own GPU fence proven safe and matching finalized count, releases only its Feature, creates the replacement with explicit Style/Intensity (including zero), waits its actual creation fence and returns an exact ACK. Native commits params and resets logical visual history only after that ACK. Physical shared-image generation remains independent. Failure stays quarantined; it never resumes under unacknowledged parameters.
+
+Sources: [upstream pinned Menu](https://github.com/Skynizz/optiscaler-dlss5/blob/6bfc4389c25054ef6747df6e6b1b470e9541c4da/OptiScaler/dlssnr/DlssNr_Menu.cpp), [Config](https://github.com/Skynizz/optiscaler-dlss5/blob/6bfc4389c25054ef6747df6e6b1b470e9541c4da/OptiScaler/Config.h), [edit-cache](https://github.com/Skynizz/optiscaler-dlss5/blob/6bfc4389c25054ef6747df6e6b1b470e9541c4da/OptiScaler/dlssnr/design/edit-cache.md).
+
+Implementation interface: `native_runtime_model.h` owns the strict shared protocol. Origin owner `TryRebuildModel(Commit)` is nonblocking and only reserves idle/drained model work; its worker performs file I/O and verifies Helper's ACK. `TryConsumeModelAck()` returns the committed tuple once at a render frame boundary. `ModelGeneration()`, `ModelParams()` and `FinalizedJobs()` expose actual owner identity. Set `BB_NR_RUNTIME_MODEL=1` only with the new Helper PE. Per-job `runtime-job-model-N.json` and `runtime-job-model-ack-N.json` bind the original job/origin tuple to exact params/model generation/Style/Intensity in both directions, while preserving the original input/complete wire. The renderer must stop sparse reservation while draining, wait real Native packet-lease completion, and supply that proof to `Commit`; the owner cannot invent renderer lifetime proof.
+
+`Frame.params` is the acknowledged model-configuration identity here, initially1. Native-only display/tolerance controls have their own frame-control revision; changing them does not fabricate an acknowledged model identity. Rebuild increments model generation exactly once, advances params, and preserves the separate fixed shared-image resource generation0.
+
+Build without Wine/GPU: `python3 tools/nr_dev/helper_runtime/build.py`. This verifies frozen f527 dependency hashes, runs the exact shared-protocol CPU boundary tests and writes a distinct content-addressed PE under `nrbridge-dev/build/helper-runtime-model/<source-hash>/wine_runtime_model.exe`. It never overwrites the previously validated Helper. Build PASS is not runtime model-rebuild acceptance.

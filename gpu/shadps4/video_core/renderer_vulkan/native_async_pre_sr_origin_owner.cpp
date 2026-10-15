@@ -98,10 +98,22 @@ std::string Hex(const uint8_t*p){static constexpr char h[]="0123456789abcdef";st
 }
 NativeAsyncPreSrOriginOwner::~NativeAsyncPreSrOriginOwner(){if(worker.joinable()){worker.request_stop();worker.join();}}
 bool NativeAsyncPreSrOriginOwner::Enabled()const noexcept {const auto m=Env("BB_NR_NATIVE_ORIGIN_MODE");return BbNativeAsyncPreSr::Enabled()&&(m=="resident"||m=="skipEvaluate");}
-bool NativeAsyncPreSrOriginOwner::Start(const Instance&i){if(!Enabled())return false;bool expected=false;if(!started.compare_exchange_strong(expected,true))return State()!=Phase::Failed;session=Env("BB_NR_NATIVE_ASYNC_SESSION");mode=Env("BB_NR_NATIVE_ORIGIN_MODE");run=Env("BB_NR_NATIVE_ORIGIN_RUN_DIR");helper=Env("BB_NR_NATIVE_ORIGIN_HELPER");wine=Env("BB_NR_NATIVE_ORIGIN_WINE");preloader=Env("BB_NR_NATIVE_ORIGIN_PRELOADER");prefix=Env("BB_NR_NATIVE_ORIGIN_PREFIX");
+bool NativeAsyncPreSrOriginOwner::TryRebuildModel(const NativeRuntimeModel::Commit& c){
+ std::unique_lock lock(mutex,std::try_to_lock);
+ if(!lock||!runtime_model||State()!=Phase::Ready||job||stop_reason.load()||!NativeRuntimeModel::Valid(c)||c.previous_generation!=model_generation.load()||c.previous_params!=model_params.load()||c.revision<=model_revision.load()||c.finalized_jobs!=finalized.load())return false;
+ // This cannot prove renderer packet leases by itself. Require its real bound to
+ // cover every shared use already recorded by the owner before accepting proof.
+ if(c.native_target_tick<quiescence->last_use_tick.load()||c.native_observed_tick<quiescence->observed_tick.load())return false;
+ model_request=c;model_ack.reset();phase.store(Phase::ModelRequested,std::memory_order_release);return true;
+}
+std::optional<NativeRuntimeModel::Commit> NativeAsyncPreSrOriginOwner::TryConsumeModelAck(){
+ std::unique_lock lock(mutex,std::try_to_lock);if(!lock||State()!=Phase::ModelAcked||!model_ack)return {};
+ auto result=model_ack;model_ack.reset();model_request.reset();phase.store(Phase::Ready,std::memory_order_release);return result;
+}
+bool NativeAsyncPreSrOriginOwner::Start(const Instance&i){if(!Enabled())return false;bool expected=false;if(!started.compare_exchange_strong(expected,true))return State()!=Phase::Failed;runtime_model=Env("BB_NR_RUNTIME_MODEL")=="1";session=Env("BB_NR_NATIVE_ASYNC_SESSION");mode=Env("BB_NR_NATIVE_ORIGIN_MODE");run=Env("BB_NR_NATIVE_ORIGIN_RUN_DIR");helper=Env("BB_NR_NATIVE_ORIGIN_HELPER");wine=Env("BB_NR_NATIVE_ORIGIN_WINE");preloader=Env("BB_NR_NATIVE_ORIGIN_PRELOADER");prefix=Env("BB_NR_NATIVE_ORIGIN_PREFIX");
  const auto abs=[](const auto&s){return !s.empty()&&s[0]=='/';};
  if(!BbNativeAsyncPreSr::ValidDevRun(run,session)||!abs(helper)||!abs(wine)||!abs(preloader)||!abs(prefix)||prefix!=run+"/profile/wine-prefix"){phase.store(Phase::Failed);empty_imports_destroyed.store(true);worker_finished.store(true);std::fprintf(stderr,"NATIVE_ORIGIN_ENV_INVALID no_spawn=1\n");return false;}phase.store(Phase::Bootstrap);worker=std::jthread([this,&i](std::stop_token s){Run(s,i);worker_finished.store(true,std::memory_order_release);});return true;}
-std::shared_ptr<NativeAsyncPreSrOriginOwner::Job> NativeAsyncPreSrOriginOwner::TryReserve(const BbNativeAsync::Frame&f){std::unique_lock lock(mutex,std::try_to_lock);if(!lock||State()!=Phase::Ready||stop_reason.load()||finalized.load()>=BbNativeAsyncPreSrPlay::MaxJobs()||f.source<=last_recorded_origin)return {};auto next=std::make_shared<Job>();next->id={session,session+"-g0",0,finalized.load(),f.source,f.epoch,f.history,f.params};if(!next->id.Matches(f)||!registry.Valid(next->id))return {};next->origin=f;next->resources=registry;job=next;phase.store(Phase::Reserved,std::memory_order_release);return next;}
+std::shared_ptr<NativeAsyncPreSrOriginOwner::Job> NativeAsyncPreSrOriginOwner::TryReserve(const BbNativeAsync::Frame&f){std::unique_lock lock(mutex,std::try_to_lock);if(!lock||State()!=Phase::Ready||stop_reason.load()||finalized.load()>=BbNativeAsyncPreSrPlay::MaxJobs()||f.source<=last_recorded_origin||(runtime_model&&f.params!=model_params.load()))return {};auto next=std::make_shared<Job>();next->id={session,session+"-g0",0,finalized.load(),f.source,f.epoch,f.history,f.params};if(!next->id.Matches(f)||!registry.Valid(next->id))return {};next->origin=f;next->resources=registry;job=next;phase.store(Phase::Reserved,std::memory_order_release);return next;}
 std::shared_ptr<NativeAsyncPreSrOriginOwner::Job> NativeAsyncPreSrOriginOwner::TryJob(){std::unique_lock lock(mutex,std::try_to_lock);return lock?job:nullptr;}
 void NativeAsyncPreSrOriginOwner::CancelReservation(const std::shared_ptr<Job>&j){std::unique_lock lock(mutex,std::try_to_lock);if(lock&&job==j&&State()==Phase::Reserved){job.reset();phase.store(Phase::Ready);}}
 void NativeAsyncPreSrOriginOwner::InputRecorded(const std::shared_ptr<Job>&j){std::scoped_lock lock(mutex);if(job!=j||State()!=Phase::Reserved||!j->input->native_target_tick||j->id.origin_source<=last_recorded_origin)throw std::runtime_error("async input reservation mismatch");last_recorded_origin=j->id.origin_source;phase.store(Phase::InputRecorded,std::memory_order_release);}
@@ -174,12 +186,24 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   registry.actual_import_fd_retired=true;phase.store(Phase::Ready,std::memory_order_release);std::printf("NATIVE_ORIGIN_READY session=%s actual_imports=4 FD_retired=1 scene_arm=REQUIRED model_phase=UNVERIFIED\n",session.c_str());W::Counts counts;uint64_t last_helper_serial=W::u(meta,"initial_release_GPU_serial");
   const auto terminal=[&](const char*op,const char*status,bool gpu){auto x=common;x.update(counts.fields());x.update(J{{"op",op},{"status",status},{"completed_GPU",gpu},{"output_valid",false},{"model_valid",false}});return x;};
   while(true){check();const auto state=State();if(counts.finalized==BbNativeAsyncPreSrPlay::MaxJobs())RequestStop(4);
-   if(stop_reason.load()&&state==Phase::Ready){std::scoped_lock lock(mutex);if(State()==Phase::Ready&&!job){phase.store(Phase::StopRequested);break;}}
+   if(stop_reason.load()&&(state==Phase::Ready||state==Phase::ModelAcked)){std::scoped_lock lock(mutex);if((State()==Phase::Ready||State()==Phase::ModelAcked)&&!job){phase.store(Phase::StopRequested);break;}}
+   if(state==Phase::ModelRequested){
+    NativeRuntimeModel::Commit commit;{std::scoped_lock lock(mutex);W::need(model_request.has_value()&&!job,"runtime model reserved idle state");commit=*model_request;}
+    auto request=NativeRuntimeModel::Request<J>(session,commit);request=W::parse(request.dump());
+    Atomic(run+"/"+NativeRuntimeModel::RequestName(commit.generation),request.dump()+"\n");
+    auto ack=wait(run+"/"+NativeRuntimeModel::AckName(commit.generation),std::chrono::seconds(120));
+    NativeRuntimeModel::CheckAck(ack,request,last_helper_serial);last_helper_serial=NativeRuntimeModel::U(ack,"helper_gpu_serial");
+    {std::scoped_lock lock(mutex);W::need(State()==Phase::ModelRequested&&model_request&&model_request->revision==commit.revision,"runtime model active commit identity");model_settings=commit.settings;model_generation.store(commit.generation);model_params.store(commit.params);model_revision.store(commit.revision);model_ack=commit;phase.store(Phase::ModelAcked,std::memory_order_release);}
+    std::printf("NATIVE_RUNTIME_MODEL_ACK revision=%llu generation=%llu params=%llu style=%u intensity=%.9g actual_helper_GPU_serial=%llu render_commit=PENDING\n",(unsigned long long)commit.revision,(unsigned long long)commit.generation,(unsigned long long)commit.params,commit.settings.style,commit.settings.intensity,(unsigned long long)last_helper_serial);
+    continue;
+   }
    auto current=TryJob();
    if(state==Phase::InputRecorded&&current&&current->input->native_GPU_complete.load(std::memory_order_acquire)){
     imported_native_used=true;auto x=common;x.update(J{{"job",current->id.job},{"origin_source",current->id.origin_source},{"origin_epoch",current->id.origin_epoch},{"origin_history",current->id.origin_history},{"op","input"},{"status","ORIGIN_INPUT_READY"},{"native_input_tick",current->input->native_target_tick},{"native_input_GPU_complete",true},{"source_reset",current->origin.sr_reset},{"model_reset",1u},
      {"source_jitter_metadata",{{"viewport_jitter_x",current->origin.viewport[0]},{"viewport_jitter_y",current->origin.viewport[1]},{"previous_viewport_jitter_x",current->origin.previous_viewport[0]},{"previous_viewport_jitter_y",current->origin.previous_viewport[1]},{"sr_jitter_x",current->origin.sr_jitter[0]},{"sr_jitter_y",current->origin.sr_jitter[1]},{"previous_sr_jitter_x",current->origin.previous_sr_jitter[0]},{"previous_sr_jitter_y",current->origin.previous_sr_jitter[1]}}}});
-    x=W::parse(x.dump());W::input(x,common,counts.finalized);Atomic(W::job_path(run,"input",session,counts.finalized),x.dump()+"\n");std::printf("NATIVE_ORIGIN_INPUT_PUBLISHED session=%s job=%llu origin=%llu native_input_tick=%llu native_monotonic_ns=%llu scope=after_successful_atomic_publish clock=native_steady helper_serial=NOT_YET_AVAILABLE\n",
+    x=W::parse(x.dump());W::input(x,common,counts.finalized);
+    if(runtime_model){auto identity=NativeRuntimeModel::JobModel(session,W::job_fields(x),model_generation.load(),current->id.params_version,model_settings);identity=W::parse(identity.dump());Atomic(run+"/"+NativeRuntimeModel::JobName(counts.finalized),identity.dump()+"\n");}
+    Atomic(W::job_path(run,"input",session,counts.finalized),x.dump()+"\n");std::printf("NATIVE_ORIGIN_INPUT_PUBLISHED session=%s job=%llu origin=%llu native_input_tick=%llu native_monotonic_ns=%llu scope=after_successful_atomic_publish clock=native_steady helper_serial=NOT_YET_AVAILABLE\n",
      session.c_str(),(unsigned long long)current->id.job,(unsigned long long)current->id.origin_source,
      (unsigned long long)current->input->native_target_tick,
      (unsigned long long)std::chrono::duration_cast<std::chrono::nanoseconds>(Clock::now().time_since_epoch()).count());
@@ -188,8 +212,9 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
     for(auto k:{"job","origin_source","origin_epoch","origin_history","op","status","native_input_tick_echo","helper_gpu_serial","helper_GPU_complete","output_valid","model_valid","evaluate_calls","evaluate_result","resolve_calls","model_reset","evaluate_parameters","gpu_times"})keys.insert(k);
     W::exact(e,keys);W::common_check(e,common);
     W::need(W::job_fields(e)==W::job_fields(x)&&W::s(e,"op")=="complete"&&W::s(e,"status")=="ORIGIN_NR_COMPLETE"&&W::u(e,"native_input_tick_echo")==current->input->native_target_tick&&W::u(e,"helper_gpu_serial")>last_helper_serial&&W::b(e,"helper_GPU_complete")&&W::u(e,"model_reset")==1&&e["gpu_times"].is_object(),"exact actual completion");
+    if(runtime_model){auto identity=wait(run+"/"+NativeRuntimeModel::JobName(counts.finalized,true),std::chrono::seconds(30));NativeRuntimeModel::CheckJob(identity,session,W::job_fields(x),model_generation.load(),current->id.params_version,model_settings);}
     const bool negative=mode=="skipEvaluate";W::need(W::b(e,"output_valid")==!negative&&W::b(e,"model_valid")==!negative&&W::u(e,"evaluate_calls")==unsigned(!negative)&&W::u(e,"evaluate_result")==unsigned(!negative)&&W::u(e,"resolve_calls")==unsigned(!negative),"mode-specific real model predicate");
-    J params=negative?J::object():J{{"model_extent",{1280u,720u}},{"guide_extent",{1280u,720u}},{"color_format",109u},{"raw_format",97u},{"DepthInverted",0u},{"Reset",1u},{"Intensity",1.0},{"Style",0u},{"LocalStructure",1.0},{"LocalTone",1.0},{"SkinStructure",1.0},{"AutoMask",1u},{"MVecScale",{1.0,1.0}},{"jitter_setter","NONE"}};
+    J params=negative?J::object():J{{"model_extent",{1280u,720u}},{"guide_extent",{1280u,720u}},{"color_format",109u},{"raw_format",97u},{"DepthInverted",0u},{"Reset",1u},{"Intensity",runtime_model?double(model_settings.intensity):1.0},{"Style",runtime_model?model_settings.style:0u},{"LocalStructure",1.0},{"LocalTone",1.0},{"SkinStructure",1.0},{"AutoMask",1u},{"MVecScale",{1.0,1.0}},{"jitter_setter","NONE"}};
     W::need(W::same_typed(e["evaluate_parameters"],W::parse(J{{"p",params}}.dump())["p"]),"actual fixed Evaluate arguments");last_helper_serial=W::u(e,"helper_gpu_serial");
     current->complete={current->id,current->input->native_target_tick,last_helper_serial,true,true,!negative,!negative,negative,W::u(e,"evaluate_calls"),W::u(e,"evaluate_result"),W::u(e,"resolve_calls"),1};
     std::printf("NATIVE_ORIGIN_COMPLETE_VERIFIED session=%s job=%llu origin=%llu native_input_tick=%llu helper_serial=%llu native_monotonic_ns=%llu scope=after_strict_complete_validation_before_phase_publish clock=native_steady helper_serial_domain=source_identifier_only\n",
@@ -282,7 +307,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
     W::u(result,"control_epoch")==1&&W::s(result,"terminal_reason")==reason&&
     W::b(result,"completed_GPU")&&!W::b(result,"output_valid")&&!W::b(result,"model_valid")&&
     W::b(result,"normal_release")&&W::b(result,"normal_shutdown")&&
-    W::u(result,"feature_create_calls")==1&&W::u(result,"feature_release_calls")==1&&
+    W::u(result,"feature_create_calls")==model_generation.load()+1&&W::u(result,"feature_release_calls")==model_generation.load()+1&&
     W::u(result,"evaluate_calls_total")==(mode=="resident"?counts.finalized:0)&&
     W::u(result,"resolve_calls_total")==(mode=="resident"?counts.finalized:0)&&
     W::s(result,"NR_phase")=="UNVERIFIED"&&

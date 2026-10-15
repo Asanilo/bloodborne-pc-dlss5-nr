@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "native_async_pre_sr.h"
+#include "native_runtime_model.h"
+#include <optional>
 #include <mutex>
 #include <thread>
 namespace Vulkan {
 class NativeAsyncPreSrOriginOwner {
 public:
  enum class Phase {Disabled,Bootstrap,Ready,Reserved,InputRecorded,WaitingComplete,Complete,
-                    FinalRecorded,Finalized,StopRequested,AwaitNativeRelease,Retired,Failed};
+                    FinalRecorded,Finalized,ModelRequested,ModelAcked,StopRequested,AwaitNativeRelease,Retired,Failed};
  struct Job {
   NativeAsyncPreSrOriginIdentity id;BbNativeAsync::Frame origin;NativeAsyncPreSrOriginResources resources;
   std::shared_ptr<NativeAsyncPreSrOriginGpuProof> input=std::make_shared<NativeAsyncPreSrOriginGpuProof>();
@@ -17,6 +19,12 @@ public:
   std::atomic<bool> consumed_published{false};
  };
  NativeAsyncPreSrOriginOwner()=default;~NativeAsyncPreSrOriginOwner();
+ bool TryRebuildModel(const NativeRuntimeModel::Commit&); // caller supplies actual drain proof; never waits
+ std::optional<NativeRuntimeModel::Commit> TryConsumeModelAck(); // actual Helper ACK only; render frame boundary
+ uint64_t ModelGeneration()const noexcept{return model_generation.load(std::memory_order_acquire);}
+ uint64_t ModelParams()const noexcept{return model_params.load(std::memory_order_acquire);}
+ uint64_t FinalizedJobs()const noexcept{return finalized.load(std::memory_order_acquire);}
+ bool RuntimeModelEnabled()const noexcept{return runtime_model;}
  bool Start(const Instance&); // one managed owner; never records Scheduler commands
  bool Enabled()const noexcept;
  Phase State()const noexcept{return phase.load(std::memory_order_acquire);}
@@ -48,5 +56,10 @@ private:
  // even when completed CONSUMED leaves records[0] alive. Cancel before GPU input
  // leaves this unchanged; no automatic retry after an issued/failed job.
  uint64_t last_recorded_origin=0;
+ bool runtime_model=false;
+ std::optional<NativeRuntimeModel::Commit> model_request,model_ack;
+ std::atomic<uint64_t> model_generation{0},model_params{1},model_revision{0};
+ NativeRuntimeModel::Settings model_settings; // protected by mutex, stable while any job is reserved
+
 };
 }
