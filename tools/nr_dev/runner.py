@@ -23,7 +23,11 @@ def preflight():
  h=holders()
  if h:raise ValueError('live Native/Helper GPU holders: '+json.dumps(h))
  for result in (ROOT/'runs').glob('*/result.json'):
-  if json.loads(result.read_text()).get('status')=='HOLD':raise ValueError('unresolved new-context HOLD '+str(result))
+  if json.loads(result.read_text()).get('status')=='HOLD':
+   resolution=result.parent/'hold-resolution.json'
+   if not resolution.is_file():raise ValueError('unresolved new-context HOLD '+str(result))
+   resolved=json.loads(resolution.read_text())
+   if resolved.get('original_result_sha256')!=sha(result) or resolved.get('normal_retirement_proved') is not True or not resolved.get('evidence'):raise ValueError('unproved HOLD resolution '+str(resolution))
  for pin in json.loads((ROOT/'inputs/runtime-pins.json').read_text())['pins']:
   if sha(Path(pin['path']))!=pin['sha256']:raise ValueError('runtime pin drift '+pin['path'])
  safety=json.loads((ROOT/'inputs/host-safety.json').read_text())

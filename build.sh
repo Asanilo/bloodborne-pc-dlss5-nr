@@ -44,7 +44,7 @@ cmake -S gpu -B "$BUILD"/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO
     -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$BUILD/pgo" >/dev/null
 echo "GPU library: PGO $pgo, LTO ${BB_LTO:-ON}"
 # A failed GPU build must stop here: an older libbbgpu.so would otherwise be used silently.
-if ! ninja -C "$BUILD"/gpu bbgpu > "$BUILD"/gpu-build.log 2>&1; then
+if ! ninja -j "${BB_BUILD_JOBS:-8}" -C "$BUILD"/gpu bbgpu > "$BUILD"/gpu-build.log 2>&1; then
     grep -v '^\[' "$BUILD"/gpu-build.log | tail -40 >&2
     echo 'GPU library build failed (full log: "$BUILD"/gpu-build.log)' >&2; exit 1
 fi
@@ -54,7 +54,7 @@ fi
 if [[ -n ${DLSS_SDK_ROOT:-} ]]; then
     cmake -S gpu/dlss_bridge -B "$BUILD"/dlss-bridge -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DDLSS_SDK_ROOT="$DLSS_SDK_ROOT" >/dev/null
-    ninja -C "$BUILD"/dlss-bridge >/dev/null
+    ninja -j "${BB_BUILD_JOBS:-8}" -C "$BUILD"/dlss-bridge >/dev/null
     rm -f "$BUILD"/libnvidia-ngx-dlss.so.*
     cp "$BUILD"/dlss-bridge/libbbport_dlss.so "$DLSS_SDK_ROOT"/lib/Linux_x86_64/rel/libnvidia-ngx-dlss.so.* "$BUILD"/
     cp "$DLSS_SDK_ROOT/LICENSE.txt" "$BUILD"/NVIDIA-DLSS-LICENSE.txt
