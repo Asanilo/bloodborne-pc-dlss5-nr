@@ -14,14 +14,15 @@ def memory(run,begin,end):
  game=json.loads(identity.read_text()) if identity.is_file() else {};pid=game.get('pid');values=[];devices={}
  for line in samples.read_text().splitlines():
   x=json.loads(line)
-  if not begin<=int(x['monotonic_ns'])<=end:continue
-  for record in x.get('pid_used_MiB_csv','').splitlines():
+  pid_in_window=begin<=int(x.get('pid_used_MiB_csv_observed_monotonic_ns',x['monotonic_ns']))<=end
+  device_in_window=begin<=int(x.get('device_uuid_used_total_MiB_csv_observed_monotonic_ns',x['monotonic_ns']))<=end
+  for record in (x.get('pid_used_MiB_csv','') if pid_in_window else '').splitlines():
    fields=[v.strip() for v in record.split(',')]
    if len(fields)==2 and pid is not None and fields[0]==str(pid):
     try:amount=float(fields[1])
     except ValueError:continue
     if math.isfinite(amount) and amount>=0:values.append(amount)
-  for record in x.get('device_uuid_used_total_MiB_csv','').splitlines():
+  for record in (x.get('device_uuid_used_total_MiB_csv','') if device_in_window else '').splitlines():
    fields=[v.strip() for v in record.split(',')]
    if len(fields)!=3 or not fields[0].startswith('GPU-'):continue
    try:used,total=float(fields[1]),float(fields[2])
