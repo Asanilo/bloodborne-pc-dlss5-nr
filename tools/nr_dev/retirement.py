@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline terminal/tuple/GPU-FD audit extracted from the verified prior audit, no ledger imports."""
-import json
+import json,hashlib,re,argparse
 from pathlib import Path
 def load(p):return json.loads(Path(p).read_text())
 def need(v,reason):
@@ -72,3 +72,35 @@ def audit(run,session):
  helper=load(run/'async-wine-result.json');count=helper['finalized_jobs'];out={}
  audit_origin_jobs_and_retirement({'actual_helper_starts':1},run,session,out,expected_jobs=count,continuous_max_jobs=16384)
  return out
+
+def rows(text,event):
+ return [dict(re.findall(r'(\w+)=([^\s]+)',line)) for line in text.splitlines() if line.startswith(event+' ')]
+def audit_session(run,termination=None):
+ run=Path(run);manifest=load(run/'manifest.json');session=manifest['session']
+ result=termination if termination is not None else load(run/'result.json')
+ need(result.get('returncode')==0 and result.get('residuals')==[] and result.get('watchdog_expired') is False,'normal actual process exit, no recorded residual or watchdog expiry')
+ text=(run/'game.log').read_text(errors='replace')
+ need(not re.search(r'NATIVE_\S*(?:HOLD|QUARANTINE|ASSOCIATION_REJECTED)|functional=FAIL',text),'no failed native resource/association proof')
+ proof=rows(text,'NATIVE_ASYNC_PRE_SR_EXIT_PROOF')
+ need(len(proof)==1 and proof[0].get('actual_source_cache_SR_GPU_lastuse_complete')=='1' and proof[0].get('managed_owner_joined')=='1' and proof[0].get('peer_retirement')=='OWNER_PROOF','exact PreSR last-use and joined-owner exit proof')
+ nopeer=rows(text,'NATIVE_ASYNC_PRE_SR_EXIT_NO_PEER')
+ if (run/'async-native-launch.json').exists():
+  need(not nopeer,'peer launch contradicts no-peer proof')
+  out=audit(run,session);out['path']='PEER_NORMAL_RETIREMENT'
+ else:
+  need(len(nopeer)==1 and nopeer[0].get('session')==session and nopeer[0].get('maximum_native_use_tick')=='0' and nopeer[0].get('scope')=='native_async_only' and all(nopeer[0].get(k)=='1' for k in ('actual_no_owner','actual_no_snapshot','actual_no_pending','preparation_joined','no_peer_created','no_NR_claim')),'explicit no-peer source/cache ownership and preparation-join proof')
+  need(not any((run/p).exists() for p in ('async-config.json','native-scene-arm','async-meta-g0.json','async-wine-result.json','async-native-helper-exit.json')),'no-peer exit contradicts actual peer/config/arm evidence')
+  need(not (run/'frames').exists() or not any((run/'frames').rglob('async-input-*.json')),'no-peer exit contradicts job input evidence')
+  out={'retirement':'PASS_NO_PEER_NO_SNAPSHOT_NORMAL_EXIT','path':'NO_PEER_NORMAL_EXIT','nopeer':nopeer[0]}
+ out.update(session=session,native_exit_proof=proof[0],quality='NOT_ACCEPTED',scope='offline recorded normal teardown evidence; current host safety remains independently checked')
+ for name in ('game.log','manifest.json','result.json'):
+  if (run/name).is_file():out[name+'_sha256']=hashlib.sha256((run/name).read_bytes()).hexdigest()
+ return out
+
+def main():
+ parser=argparse.ArgumentParser(description='Read-only session retirement audit; prints evidence and never changes prior result or writes resolution.')
+ parser.add_argument('--run',type=Path,required=True);args=parser.parse_args()
+ try:out=audit_session(args.run);code=0
+ except (OSError,ValueError,KeyError,TypeError) as error:out={'retirement':'NOT_PROVED','error':str(error)};code=3
+ print(json.dumps(out,indent=2));return code
+if __name__=='__main__':raise SystemExit(main())

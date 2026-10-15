@@ -61,6 +61,37 @@ def checked_run(session):
  run=ROOT/'runs'/session
  if run.resolve()!=run or run.is_symlink():raise ValueError('private real run path required')
  return run
+def verify_native_mappings(maps,artifacts):
+ """NGX's loader uses source-named deleted memfds; this checks provenance, not equal backing bytes.
+
+ vk_dlss dlopens the bridge from /proc/self/exe's directory and Configure receives
+ that same directory. The pinned bridge/SDK internally loads NGX into memfds.
+ A source-named memfd may contain unpacked/patched bytes, so no original-byte
+ backing hash is asserted. Only the complete absolute embedded source is accepted.
+ """
+ expected={str(Path(p)):h for p,h in artifacts.items() if re.search(r'/lib(?:bbgpu|bbport_dlss|nvidia-ngx-dlss)\.so',p)}
+ for path,digest in artifacts.items():
+  if sha(Path(path))!=digest:raise ValueError('launch artifact drift '+path)
+ out=[]
+ for line in maps.splitlines():
+  fields=line.split(None,5)
+  if len(fields)!=6:continue
+  pathname=fields[5]
+  if not re.search(r'/lib(?:bbgpu|bbport_dlss|nvidia-ngx-dlss)\.so',pathname):continue
+  memfd=pathname.startswith('/memfd:')
+  source=pathname[len('/memfd:'):] if memfd else pathname
+  deleted=source.endswith(' (deleted)')
+  if deleted:source=source[:-len(' (deleted)')]
+  if source not in expected:raise ValueError('unapproved Native mapped source '+pathname)
+  if memfd:
+   if not Path(source).name.startswith('libnvidia-ngx-dlss.so.') or not deleted:raise ValueError('unexpected Native memfd '+pathname)
+  else:
+   if deleted:raise ValueError('deleted ordinary runtime library '+pathname)
+   st=Path(source).stat();major,minor=(int(v,16) for v in fields[3].split(':'))
+   if (st.st_ino,os.major(st.st_dev),os.minor(st.st_dev))!=(int(fields[4]),major,minor):raise ValueError('mapped inode/device mismatch '+source)
+  out.append({'range':fields[0],'permissions':fields[1],'offset':fields[2],'device':fields[3],'inode':int(fields[4]),'pathname':pathname,'source':source,'source_sha256':expected[source],'identity_scope':'exact pinned loader source provenance; memfd backing bytes not asserted' if memfd else 'mapped device/inode and pinned source SHA','memfd':memfd})
+ return out
+
 def current_game(run):
  m=json.loads((run/'manifest.json').read_text());matches=[]
  for p in Path('/proc').iterdir():
@@ -72,10 +103,7 @@ def current_game(run):
  identity=matches[0];record=run/'game-identity.json'
  if record.exists() and json.loads(record.read_text())!=identity:raise ValueError('PID/starttime mismatch')
  maps=(Path('/proc')/str(identity['pid'])/'maps').read_text()
- expected=ROOT/'build/native'
- libs=sorted({line.split()[-1] for line in maps.splitlines() if re.search(r'/lib(?:bbgpu|bbport_dlss|nvidia-ngx-dlss)\.so',line)})
- for library in libs:
-  if not Path(library).is_relative_to(expected):raise ValueError('runtime Native library outside unified build '+library)
+ libs=verify_native_mappings(maps,m['artifacts'])
  atomic(run/'native-loaded-libraries.json',{'game':identity,'mapped_libraries':libs})
  atomic(record,identity);return identity
 
@@ -153,22 +181,14 @@ def launch(args):
      except Exception as e:atomic(run/'watchdog-close-error.json',{'error':str(e)})
     time.sleep(.25)
    text=(run/'game.log').read_text(errors='replace');residual=holders()
-   proof='NATIVE_ASYNC_EXIT_PROOF actual_snapshot_GPU_lastuse_complete=1 managed_owner_joined=1' in text
-   bad=bool(re.search(r'NATIVE_(?:ASYNC_HOLD|ORIGIN_HOLD|ORIGIN_QUARANTINE|ASYNC_EXIT_HELD)|functional=FAIL',text))
-   normal=process.returncode==0 and proof and not bad and not residual
-   if (run/'async-native-launch.json').exists():
-    peer=json.loads((run/'async-native-helper-exit.json').read_text()) if (run/'async-native-helper-exit.json').exists() else {}
-    normal=normal and peer.get('normal_exit') is True and peer.get('wait_status')==0
-    try:
-     from retirement import audit
-     atomic(run/'retirement-audit.json',audit(run,args.session))
-    except (OSError,ValueError,KeyError,TypeError) as error:
-     normal=False;atomic(run/'retirement-audit.json',{'retirement':'NOT_PROVED','error':str(error)})
-   if not (run/'async-native-launch.json').exists():
-    nopeer=[dict(re.findall(r'(\w+)=([^\s]+)',line)) for line in text.splitlines() if line.startswith('NATIVE_ASYNC_PRE_SR_EXIT_NO_PEER ')]
-    absent=(len(nopeer)==1 and nopeer[0].get('session')==args.session and nopeer[0].get('maximum_native_use_tick')=='0' and all(nopeer[0].get(k)=='1' for k in ('actual_no_owner','actual_no_snapshot','actual_no_pending','preparation_joined','no_peer_created','no_NR_claim')))
-    normal=normal and absent and not (run/'async-config.json').exists() and not (run/'native-scene-arm').exists()
-    atomic(run/'retirement-audit.json',{'retirement':'PASS_NO_PEER_NO_SNAPSHOT_NORMAL_EXIT' if absent else 'NOT_PROVED','proof':nopeer})
+   from retirement import audit_session
+   termination={'returncode':process.returncode,'residuals':residual,'watchdog_expired':held}
+   try:
+    retirement=audit_session(run,termination)
+    normal=True;proof=True
+   except (OSError,ValueError,KeyError,TypeError) as error:
+    retirement={'retirement':'NOT_PROVED','error':str(error)};normal=False;proof=False
+   atomic(run/'retirement-audit.json',retirement)
    atomic(run/'result.json',{'status':'PASS_NORMAL_TEARDOWN' if normal and not held else 'HOLD','returncode':process.returncode,'native_lastuse_proof':proof,'residuals':residual,'watchdog_expired':held,'quality':'NOT_ACCEPTED','performance':'separate actual Present analysis required'})
    from metrics import measure
    atomic(run/'present-metrics.json',measure(run))
