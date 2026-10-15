@@ -224,7 +224,7 @@ class SupervisorSignals:
 def launch(args):
  with SupervisorSignals() as signals:
   code=launch_supervised(args,signals)
-  return 3 if signals.interrupted else code
+ return 3 if signals.interrupted else code
 
 def launch_supervised(args,signals):
  run=checked_run(args.session);build=ROOT/'build/native';assets=OLD/'playtest/assets/CUSA03173';seed=OLD/'integration/private-NRTest-seed';helper=ROOT/'build/helper/wine_async_presr_play.exe'
