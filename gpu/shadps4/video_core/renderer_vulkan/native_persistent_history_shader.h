@@ -3,7 +3,7 @@
 #include <cstddef>
 namespace Vulkan {
 enum PersistentHistoryMode : uint32_t { PHClear=0, PHCapture=1, PHAdvance=2, PHAdopt=3, PHCompose=4 };
-// std140, 8 complete 16-byte rows. Motion maps current UV to previous UV:
+// std140, 11 complete 16-byte rows. Motion maps current UV to previous UV:
 // previousUV = currentUV + motion * MvScale / motionExtent + jitterDelta.
 struct alignas(16) PersistentHistoryConstants {
  uint32_t Mode{}, Width{}, Height{}, SourceState{};
@@ -13,9 +13,17 @@ struct alignas(16) PersistentHistoryConstants {
  float DeltaFrames{1.f}, DeltaMs{}, OriginAgeFrames{}, OriginAgeMs{};
  float MaxFrames{12.f}, MaxMs{200.f}, ExposureRatio{1.f}, MinConfidence{.5f};
  float CollectStats{}; // opt-in cold diagnostic counters; zero on the hot path
- float Reserved1[7]{};
+ float CurrentJitterX{}, CurrentJitterY{}; // current raster viewport shift, pixels
+ float Reserved1[5]{};
+ float CurrentProjection[4]{}; // CameraMotion::TaaDepthParameters()[0]
+ float PreviousProjection[4]{}; // [1]
+ float PreviousViewZ[4]{}; // [2], previous view * current inverse view Z row
 };
-static_assert(sizeof(PersistentHistoryConstants)==128);
+static_assert(sizeof(PersistentHistoryConstants)==176);
+static_assert(offsetof(PersistentHistoryConstants, CurrentJitterX)==100);
+static_assert(offsetof(PersistentHistoryConstants, CurrentProjection)==128);
+static_assert(offsetof(PersistentHistoryConstants, PreviousProjection)==144);
+static_assert(offsetof(PersistentHistoryConstants, PreviousViewZ)==160);
 // invalid[4], validPixels, rejectedPixels, changedPixels, oldestFrames.
 struct PersistentHistoryState { uint32_t invalid[4], validPixels, rejectedPixels, changedPixels, oldestFrames; };
 }

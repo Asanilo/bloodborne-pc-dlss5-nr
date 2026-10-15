@@ -16,13 +16,31 @@ def capture(raw,edited,frames,ms):
     if any(abs(v)>parameter('MaxLogEdit') for v in edit):return None
     return edit,frames,ms
 
+PROJECTION=(1.,1.,1.001,-.1)
+def expected_previous(depth,uv=(.5,.5),projection=PROJECTION,previous=PROJECTION,transform=(0,0,1,0)):
+    if not all(math.isfinite(x) for x in projection+previous+transform):return None
+    if any(abs(v[0])<=1e-8 or abs(v[1])<=1e-8 or v[2]<1 or v[3]>=0 for v in (projection,previous)):return None
+    if not math.isfinite(depth) or not 0<=depth<=1:return None
+    if depth==1:return 1
+    z=projection[3]/(depth-projection[2])
+    view=((uv[0]*2-1)*z/projection[0],(uv[1]*2-1)*z/projection[1],z,1)
+    prevz=sum(a*b for a,b in zip(transform,view))
+    if prevz<=0:return None
+    result=previous[2]+previous[3]/prevz
+    return result if 0<=result<=1 and math.isfinite(result) else None
+
+def surface(a,b,projection_z=PROJECTION[2]):
+    if b is None or not all(math.isfinite(x) and 0<=x<=1 for x in (a,b)):return False
+    if a==1 or b==1:return a==1 and b==1
+    return abs(a-b)<=max(2e-7,abs(projection_z-b)*DEPTH)
+
 def advance(history,oldraw,raw,olddepth,depth,dtframes=1,dtms=16,exposure=1,mv=(0,0),uv=(.5,.5),edge=False):
     if history is None:return None
     e,frames,ms=history;frames+=dtframes;ms+=dtms
     if frames>MAX_FRAMES or ms>MAX_MS:return None
     if edge or not all(math.isfinite(v) for v in raw+mv+(depth,exposure)):return None
     if any(v<0 or v>=1 for v in (uv[0]+mv[0],uv[1]+mv[1])):return None
-    if abs(depth-olddepth)>DEPTH*max(abs(depth),.001):return None
+    if not surface(olddepth,expected_previous(depth)):return None
     if exposure<=0 or any(abs(math.log2((a+EPS)/(b*exposure+EPS)))>COLOUR for a,b in zip(raw,oldraw)):return None
     return e,frames,ms
 
@@ -81,6 +99,31 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(out[3],.37)
         self.assertNotEqual(out[:3],(2,2,2))
         self.assertTrue(all(math.isfinite(v) for v in out))
+    def test_camera_depth_transform_far_disocclusion_and_sky(self):
+        self.assertIn('previousZ=dot(p.previousViewZ,view)',SHADER)
+        self.assertIn('abs(projectionZ-b)*p.thresholds.y',SHADER)
+        self.assertIn('p.reserved1.yz',SHADER)
+        # Current surface at view-Z10 was at view-Z15 in previous camera.
+        current=PROJECTION[2]+PROJECTION[3]/10
+        previous=PROJECTION[2]+PROJECTION[3]/15
+        expected=expected_previous(current,transform=(0,0,1,5))
+        self.assertAlmostEqual(expected,previous)
+        self.assertTrue(surface(previous,expected))
+        self.assertFalse(surface(current,expected))
+        # Device Z difference .0005 passed old .02 rule despite 2x view distance.
+        near=PROJECTION[2]+PROJECTION[3]/50
+        far=PROJECTION[2]+PROJECTION[3]/100
+        self.assertLess(abs(near-far),.02*far)
+        self.assertFalse(surface(near,far))
+        self.assertTrue(surface(1,expected_previous(1)))
+        self.assertFalse(surface(.999999,1))
+        self.assertFalse(surface(1,.999999))
+        self.assertIsNone(expected_previous(.5,projection=(0,0,0,0)))
+        self.assertIsNone(expected_previous(.5,transform=(0,0,1,-100)))
+        self.assertIsNone(expected_previous(math.nan))
+        # Same-camera neighbourhood edge uses the same distance-scaled test.
+        self.assertFalse(surface(near,far))
+
     def test_closed_boundaries(self):
         self.assertIsNotNone(capture((1,1,1),(2,2,2),12,200))
         self.assertIsNone(capture((1,1,1),(2,2,2),12,200.001))

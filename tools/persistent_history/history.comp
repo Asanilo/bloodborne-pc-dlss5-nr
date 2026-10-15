@@ -13,12 +13,37 @@ layout(rgba32f,binding=9) writeonly uniform image2D outputImage;
 layout(std430,binding=10) buffer State { uint invalid[4]; uint validPixels; uint rejectedPixels; uint changedPixels; uint oldestFrames; } state;
 layout(std140,binding=11) uniform Params {
  uvec4 dispatch; uvec4 flags; vec4 motion; vec4 thresholds; vec4 age; vec4 limits; vec4 reserved1; vec4 reserved2;
+ vec4 currentProjection; vec4 previousProjection; vec4 previousViewZ;
 } p;
 // Guide RGB log2 domain [-16,+16] stored in 7/8/8 mantissa bits.
 // Fixed exponent avoids NaN canonicalization and subnormal flushing in float image storage.
 bool finite1(float x) { return !isnan(x)&&!isinf(x); }
 bool finite3(vec3 x) { return !any(isnan(x))&&!any(isinf(x)); }
-float depthAt(ivec2 c) { float d=texelFetch(depthImage,c,0).x; return p.flags.y!=0?1.-d:d; }
+float depthAt(ivec2 c) { return texelFetch(depthImage,c,0).x; }
+bool projectionValid(vec4 v) { return finite3(v.xyz)&&finite1(v.w)&&abs(v.x)>1e-8&&abs(v.y)>1e-8&&v.z>=1.&&v.w<0.; }
+bool depthValid(float d) { return finite1(d)&&d>=0.&&d<=1.; }
+// Same convention as camera_motion.comp and taa.comp: depth = zs + zo / viewZ.
+// Reconstruct in the unjittered current camera, compare in the previous camera.
+bool previousDepth(float d,ivec2 c,out float expected) {
+ expected=-1.;
+ if(p.flags.y!=0u||!depthValid(d)||!projectionValid(p.currentProjection)||!projectionValid(p.previousProjection)||!finite3(p.previousViewZ.xyz)||!finite1(p.previousViewZ.w)) return false;
+ if(d>=1.) {expected=1.;return true;}
+ float denominator=d-p.currentProjection.z;
+ if(denominator>=0.)return false;
+ float z=p.currentProjection.w/denominator;
+ vec2 ndc=((vec2(c)+.5-p.reserved1.yz)/vec2(p.dispatch.yz))*2.-1.;
+ vec4 view=vec4(ndc*z/p.currentProjection.xy,z,1.);
+ float previousZ=dot(p.previousViewZ,view);
+ if(!finite1(z)||z<=0.||!finite1(previousZ)||previousZ<=0.)return false;
+ expected=p.previousProjection.z+p.previousProjection.w/previousZ;
+ return depthValid(expected);
+}
+bool sameSurface(float a,float b,float projectionZ) {
+ if(!depthValid(a)||!depthValid(b))return false;
+ if(a>=1.||b>=1.)return a>=1.&&b>=1.;
+ // Device-Z tolerance scales with inverse distance, never with device Z itself.
+ return abs(a-b)<=max(2e-7,abs(projectionZ-b)*p.thresholds.y);
+}
 vec3 guide(float bits) { uint u=floatBitsToUint(bits);vec3 q=vec3(u&127u,(u>>7)&255u,(u>>15)&255u)/vec3(127,255,255);return max(exp2(q*32.-16.)-p.thresholds.x,vec3(0)); }
 float packed(vec3 c) { vec3 q=clamp((log2(c+p.thresholds.x)+16.)/32.,0.,1.);uvec3 u=uvec3(round(q*vec3(127,255,255)));return uintBitsToFloat(0x3f800000u|u.x|(u.y<<7)|(u.z<<15)); }
 bool guideRange(vec3 c) {vec3 l=log2(c+p.thresholds.x);return finite3(c)&&all(greaterThanEqual(c,vec3(0)))&&all(greaterThanEqual(l,vec3(-16)))&&all(lessThanEqual(l,vec3(16)));}
@@ -31,7 +56,7 @@ void main() {
  if(mode==1u) {
   vec3 origin=texelFetch(originOrFallbackEdit,c,0).rgb, edited=texelFetch(modelOrFallbackMeta,c,0).rgb;
   float d=depthAt(c);
-  ok=guideRange(origin)&&finite3(edited)&&finite1(d)&&all(greaterThanEqual(origin,vec3(0)))&&all(greaterThanEqual(edited,vec3(0)));
+  ok=guideRange(origin)&&finite3(edited)&&depthValid(d)&&p.flags.y==0u&&all(greaterThanEqual(origin,vec3(0)))&&all(greaterThanEqual(edited,vec3(0)));
   if(ok) {e=vec4(log2((edited+p.thresholds.x)/(origin+p.thresholds.x)),1);m=vec4(d,packed(origin),p.age.zw);ok=live(e,m)&&all(lessThanEqual(abs(e.rgb),vec3(p.thresholds.w)));}
   if(!ok) atomicOr(state.invalid[dst],1u);
  } else if(mode==2u) {
@@ -41,11 +66,11 @@ void main() {
   vec2 prev=uv+mv*p.motion.xy/vec2(textureSize(motionImage,0))+p.motion.zw;
   if(finite1(mv.x)&&finite1(mv.y)&&all(greaterThanEqual(prev,vec2(0)))&&all(lessThan(prev,vec2(1)))&&state.invalid[src]==0u&&p.flags.z!=0u) {
    ivec2 q=ivec2(prev*vec2(p.dispatch.yz));e=imageLoad(sourceEdit,q);m=imageLoad(sourceMeta,q);m.zw+=p.age.xy;
-   float d=depthAt(c);vec3 previous=guide(m.y)*p.limits.z;
+   float d=depthAt(c),expected=-1.;bool geometry=previousDepth(d,c,expected);vec3 previous=guide(m.y)*p.limits.z;
    vec3 difference=abs(log2((max(raw.rgb,vec3(0))+p.thresholds.x)/(previous+p.thresholds.x)));
-   ok=live(e,m)&&guideRange(raw.rgb)&&finite1(d)&&finite1(p.limits.z)&&p.limits.z>0.&&abs(d-m.x)<=p.thresholds.y*max(abs(d),.001)&&all(lessThanEqual(difference,vec3(p.thresholds.z)));
+   ok=live(e,m)&&guideRange(raw.rgb)&&finite1(d)&&finite1(p.limits.z)&&p.limits.z>0.&&geometry&&sameSurface(m.x,expected,p.previousProjection.z)&&all(lessThanEqual(difference,vec3(p.thresholds.z)));
    // Local depth edge rejects even a low-frequency correction at disocclusion boundaries.
-   for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) {ivec2 n=clamp(c+ivec2(x,y),ivec2(0),ivec2(p.dispatch.yz)-1);float nd=depthAt(n);ok=ok&&finite1(nd)&&abs(nd-d)<=p.thresholds.y*max(abs(d),.001);}
+   for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) {ivec2 n=clamp(c+ivec2(x,y),ivec2(0),ivec2(p.dispatch.yz)-1);float nd=depthAt(n);ok=ok&&sameSurface(nd,d,p.currentProjection.z);}
    m.xy=vec2(d,packed(raw.rgb));
   }
  } else {
