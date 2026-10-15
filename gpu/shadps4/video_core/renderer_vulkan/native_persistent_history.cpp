@@ -80,6 +80,7 @@ struct NativePersistentHistory::Impl {
  PersistentHistoryResetWindow reset_window;
  BbNR::Request pending_controls{},applied_controls{};
  NativePersistentHistory::RuntimeSample latest_sample;
+ unsigned runtime_samples_logged=0;
  vk::UniqueQueryPool queries;float timestamp_period=0;unsigned timestamp_bits=0;
  bool initialized=false,prepared=false,applied=false,history=false,unknown=false,candidate_recorded=false;
  vk::Image return_image{};
@@ -222,6 +223,15 @@ void NativePersistentHistory::Impl::ReadSample(Slot& s){
  result.max_age_frames=float(max_frames)/65536.f;result.max_age_ms=float(max_ms)/256.f;
  if(queries){const auto* times=reinterpret_cast<const uint64_t*>(s.stats->mapped_data.data()+GroupBytes);bool all=true;const uint64_t mask=timestamp_bits>=64?UINT64_MAX:((uint64_t(1)<<timestamp_bits)-1);
   for(unsigned n=0;n<s.used;n++){if(!times[n*4+1]||!times[n*4+3]){all=false;continue;}const auto delta=(times[n*4+2]-times[n*4])&mask;result.pass_ms[s.modes[n]]+=double(delta)*timestamp_period/1e6;}result.timing_available=all;
+ }
+ // Already completed, sparse readback; no extra GPU query, wait or pixel copy.
+ // Bound session output independently of gameplay duration. Zero pass time can
+ // mean that pass was absent from this source, not that it is globally free.
+ if(runtime_samples_logged<2048){
+  std::printf("NR_HISTORY_GPU_SAMPLE source=%llu revision=%llu target_tick=%llu observed_tick=%llu monotonic_ns=%llu timing_available=%u clear_ms=%.6f capture_ms=%.6f advance_ms=%.6f adopt_ms=%.6f compose_ms=%.6f stats_ms=%.6f valid=%.6f edited_buffer_changed=%.6f mean_age_frames=%.4f mean_age_ms=%.4f scope=history_dispatch_only\n",
+   (unsigned long long)result.source,(unsigned long long)result.revision,(unsigned long long)result.target_tick,(unsigned long long)result.observed_tick,(unsigned long long)result.monotonic_ns,unsigned(result.timing_available),
+   result.pass_ms[0],result.pass_ms[1],result.pass_ms[2],result.pass_ms[3],result.pass_ms[4],result.pass_ms[5],double(result.valid_fraction),double(result.changed_fraction),double(result.mean_age_frames),double(result.mean_age_ms));
+  if(++runtime_samples_logged==2048)std::printf("NR_HISTORY_GPU_SAMPLE_LIMIT samples=2048 subsequent_samples=HUD_ONLY\n");
  }
  latest_sample=result;s.stats_pending=false;
 }
