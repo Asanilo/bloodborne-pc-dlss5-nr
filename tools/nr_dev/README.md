@@ -1,4 +1,16 @@
-# Isolated development entry
+# 私有试玩与开发入口
+
+从 `/home/arinp/Code/nrbridge-dev` 启动：
+
+```bash
+python3 native/tools/nr_dev/play.py
+```
+
+游戏出现后，Space/Cross 继续到可操作场景，再回终端按 Enter 开启真实 NR。WASD/鼠标或手柄操作，正常关闭游戏窗口结束。每次是独立 NRTest 存档；正式存档不会被使用或修改。当前受控试玩最多600秒（含准备），这是现有 Helper 服务容量；可用新session再次启动。私有进度保留在 `runs/SESSION/profile/user/savedata`，目前新session不会自动继承上一试玩进度。
+
+主协调已在 `dev-player-01` 获得用户反馈“明显改善，操作流畅”，并核验正常退出。120秒自动动态窗口：新版60.30 FPS/P95 25.31ms/P99 26.78ms；d9视觉算法隔离参考66.49 FPS/P95 22.19ms/P99 23.58ms。场景为Clinic转镜和小范围移动，未覆盖完整战斗与全游戏。冷诊断不计入热性能。更完整的现行安全和资源边界见开发根 `CURRENT.md`。
+
+## 开发与诊断
 
 Build: `bash native/tools/nr_dev/build.sh`. Outputs live under `nrbridge-dev/build/native`; incremental rebuilds reuse that one directory. The source dependency copies under inputs are private and made once. SDK/sysroot versions remain the stable locked versions. No old build ancestor or execution ledger is imported.
 
