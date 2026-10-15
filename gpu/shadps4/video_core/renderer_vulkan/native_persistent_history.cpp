@@ -3,6 +3,7 @@
 #include "native_persistent_history_diagnostic.h"
 #include "native_async_pre_sr_return.h"
 #include "native_persistent_history_shader.h"
+#include "native_visual_transition.h"
 #include "native_persistent_history_spv.h"
 #include "video_core/host_shaders/native_sky_convert_comp.h"
 #include "vk_instance.h"
@@ -22,6 +23,7 @@
 namespace Vulkan {
 namespace {
 constexpr unsigned Width=1280,Height=720,Passes=10;
+static_assert(RequiredTransitionPasses(true,BbNativeAsync::NodeCount,true)<=Passes);
 constexpr uint64_t GroupCount=(Width/8)*(Height/8),GroupBytes=GroupCount*6*4;
 constexpr unsigned QueriesPerSlot=Passes*2;
 struct HistoryImage {
@@ -78,6 +80,7 @@ struct NativePersistentHistory::Impl {
  double clock_ms=0,current_dt_ms=0;
  unsigned slot=0,active=0,candidate=2;
  PersistentHistoryResetWindow reset_window;
+ VisualTransition transition;
  BbNR::Request pending_controls{},applied_controls{};
  NativePersistentHistory::RuntimeSample latest_sample;
  unsigned runtime_samples_logged=0;
@@ -90,6 +93,7 @@ struct NativePersistentHistory::Impl {
  void Init(vk::CommandBuffer);
  void Mark(Scheduler&);
  void ReadSample(Slot&);
+ void FinishTransition(Scheduler&);
  bool Free(const Slot& s)const noexcept{return !s.proof->unknown&&(!s.proof->last||s.proof->observed.load(std::memory_order_acquire)>=s.proof->last);}
  bool Time(uint64_t,double&)const;
  std::array<vk::ImageView,3> Converted()const;
@@ -177,6 +181,9 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  PersistentHistoryConstants c{};c.Mode=mode;c.Width=Width;c.Height=Height;c.SourceState=from;c.DestState=to;c.FallbackState=active;
  const auto& control=applied_controls.config;
  c.ReprojectionMode=float(static_cast<uint32_t>(control.reprojection));
+ if(transition.active&&(mode==PHCompose||mode==PHStats)){
+  c.TransitionEnabled=1.f;c.TransitionWeight=transition.Weight(current.source,clock_ms);c.FallbackState=candidate;
+ }
  c.DisplayStrength=control.display_strength;c.MaxFrames=float(control.ttl_frames);c.MaxMs=control.ttl_ms;
  c.DepthTolerance=control.depth_tolerance;c.ColourTolerance=control.colour_tolerance;c.MinConfidence=control.min_confidence;
  c.HistoryValid=valid?1:0;c.MvScaleX=c.MvScaleY=1;
@@ -196,6 +203,8 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  // No descriptor in this slot is rewritten twice between actual completions.
  std::array<vk::DescriptorImageInfo,10> ii{};
  for(unsigned k=0;k<3;k++)ii[k]={.sampler=*nearest,.imageView=current_views[k],.imageLayout=vk::ImageLayout::eGeneral};
+ // Stats reuses guide slots for target edit/meta; binding5 remains guarded output.
+ if(mode==PHStats&&transition.active){ii[1].imageView=banks[candidate].edit.View();ii[2].imageView=banks[candidate].meta.View();}
  ii[3]={.imageView=banks[from].edit.View(),.imageLayout=vk::ImageLayout::eGeneral};
  ii[4]={.imageView=banks[from].meta.View(),.imageLayout=vk::ImageLayout::eGeneral};
  ii[5]={.sampler=*nearest,.imageView=extra0,.imageLayout=vk::ImageLayout::eGeneral};
@@ -218,6 +227,15 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  cmd.dispatch(160,90,1);
  if(s.sampled&&queries)cmd.writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe,*queries,slot*QueriesPerSlot+n*2+1);
  Barrier(cmd);Mark(scheduler);
+}
+void NativePersistentHistory::Impl::FinishTransition(Scheduler& scheduler){
+ if(!transition.active)return;
+ const unsigned to=1-active;
+ Pass(scheduler,PHAdopt,candidate,to,Converted(),banks[active].edit.View(),banks[active].meta.View(),current,true,0,0);
+ active=to;history=true;
+ std::printf("PERSISTENT_HISTORY_TRANSITION_FINISH source=%llu origin=%llu target_bank=%u active_bank=%u start_source=%llu scope=GPU_conditional_target_or_old_fallback\n",
+  (unsigned long long)current.source,(unsigned long long)candidate_origin,candidate,active,(unsigned long long)transition.source);
+ transition.Clear();
 }
 void NativePersistentHistory::Impl::ReadSample(Slot& s){
  if(!s.stats_pending||!Free(s)||s.source_id<=latest_sample.source)return;
@@ -273,19 +291,19 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  auto& p=*impl;p.prepared=false;p.applied=false;p.candidate_recorded=false;
  if(p.unknown||!Enabled())return false;
  if(p.timeline&&p.timeline!=&scheduler){HoldUnknown();return false;}p.timeline=&scheduler;
- if(!BbNativeAsync::Finite(frame)||!std::isfinite(dt)||dt<=0||!raw[0]||!raw[1]||!raw[2]){p.history=false;return false;}
- if(!p.clocks.empty()&&frame.source<=p.clocks.back().source){p.history=false;return false;}
+ if(!BbNativeAsync::Finite(frame)||!std::isfinite(dt)||dt<=0||!raw[0]||!raw[1]||!raw[2]){p.history=false;p.transition.Clear();return false;}
+ if(!p.clocks.empty()&&frame.source<=p.clocks.back().source){p.history=false;p.transition.Clear();return false;}
  p.current_dt_ms=dt*1000.;p.clock_ms+=p.current_dt_ms;p.clocks.push_back({frame.source,p.clock_ms,frame.history,frame.params});while(p.clocks.size()>16)p.clocks.pop_front();
  const unsigned next=1-p.slot;
  // IsFree refreshes this exact Native timeline; it never compares Helper serials.
  auto& s=p.slots[next];if(s.proof->last&&scheduler.IsFree(s.proof->last))s.proof->observed.store(s.proof->last,std::memory_order_release);
- if(!p.Free(s)){p.history=false;return false;}
+ if(!p.Free(s)){p.history=false;p.transition.Clear();return false;}
  p.ReadSample(s);
  if(p.pending_controls.revision!=p.applied_controls.revision||p.pending_controls.reset_seq!=p.applied_controls.reset_seq||p.pending_controls.config!=p.applied_controls.config){
   const bool log_commit=p.pending_controls.revision!=p.applied_controls.revision||p.pending_controls.reset_seq!=p.applied_controls.reset_seq;
   const auto& a=p.applied_controls.config;const auto& b=p.pending_controls.config;
   if(BbNR::RequiresVisualReset(a,b)||p.pending_controls.reset_seq!=p.applied_controls.reset_seq){
-   p.history=false;p.reset_window.ResetAt(frame.source);
+   p.history=false;p.transition.Clear();p.reset_window.ResetAt(frame.source);
    p.clocks.clear();p.clocks.push_back({frame.source,p.clock_ms,frame.history,frame.params});
   }
   p.applied_controls=p.pending_controls;p.latest_sample.available=false;p.latest_sample.timing_available=false;
@@ -305,13 +323,19 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  // consecutive source lineage govern the independent active lifetime.
  const bool continuous=p.history&&p.last.source&&frame.source==p.last.source+1&&frame.previous==p.last.source&&
  frame.history==p.last.history&&frame.params==p.last.params&&!frame.sr_reset;
- if(!continuous)p.history=false;
+ if(!continuous){p.history=false;p.transition.Clear();}
  p.slot=next;s.used=0;s.source_id=frame.source;s.borrowed.clear();p.current=frame;p.current_raw=raw[0];
  s.sampled=p.applied_controls.config.hud&&frame.source%30==0;s.stats_pending=false;s.sample_revision=p.applied_controls.revision;s.sample_generation=p.reset_window.generation;
  auto cmd=scheduler.CommandBuffer();if(s.sampled&&p.queries)cmd.resetQueryPool(*p.queries,p.slot*QueriesPerSlot,QueriesPerSlot);if(!p.initialized)p.Init(cmd);p.Convert(scheduler,raw);
  const auto views=p.Converted();const unsigned next_bank=1-p.active;
  p.Pass(scheduler,PHAdvance,p.active,next_bank,views,p.banks[p.active].edit.View(),p.banks[p.active].meta.View(),frame,p.history,1,float(p.current_dt_ms));
  p.active=next_bank;p.last=frame;p.prepared=true;
+ if(p.transition.active){
+  const unsigned next_target=5-p.candidate;
+  p.Pass(scheduler,PHAdvance,p.candidate,next_target,views,p.banks[p.candidate].edit.View(),p.banks[p.candidate].meta.View(),frame,true,1,float(p.current_dt_ms));
+  p.candidate=next_target;p.candidate_current=frame.source;
+  if(p.transition.Due(frame.source,p.clock_ms))p.FinishTransition(scheduler);
+ }
  return true;
 }
 bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<const Link> links,vk::ImageView nr,vk::Image nr_image,const CandidateEvidence* evidence){
@@ -329,6 +353,12 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
   if(k&&(f.source!=links[k-1].frame.source+1||f.previous!=links[k-1].frame.source||f.sr_reset))return false;
  }
  auto& s=p.slots[p.slot];
+ if(!std::isfinite(p.clock_ms)||!p.current.source)return false;
+ // Validate the whole incoming candidate before touching an in-flight transition.
+ // Reserve Compose and sampled Stats too; early arrival and expiry share ONE finalize.
+ const unsigned required=unsigned(links.size())+unsigned(p.transition.active)+1u+unsigned(s.sampled);
+ if(s.used+required>Passes)return false;
+ if(p.transition.active)p.FinishTransition(scheduler);
  // Preserve all imported image views until this slot's real last SR/merge use.
  // The caller separately owns the NR view and converted origin packet leases.
  double previous_time=origin_time;unsigned current_bank=2;
@@ -338,11 +368,12 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
   p.Pass(scheduler,k?PHAdvance:PHCapture,current_bank,to,views,views[0],nr,link.frame,k!=0,k?1.f:0.f,k?float(ms-previous_time):0.f);
   current_bank=to;previous_time=ms;
  }
- // Destination is the spare ACTIVE bank. The old ACTIVE and both candidate
- // banks remain untouched while every pixel checks the complete candidate flag.
- const auto to=1-p.active;const auto views=p.Converted();
- p.Pass(scheduler,PHAdopt,current_bank,to,views,p.banks[p.active].edit.View(),p.banks[p.active].meta.View(),p.current,true,0,0);
- p.active=to;p.candidate=current_bank;p.history=true;p.candidate_recorded=true;p.candidate_origin=links.front().frame.source;p.candidate_current=p.current.source;++p.candidate_count;
+ // The origin was admitted at <=age4 above. Keep its visual target independent
+ // of old active until the short display transition ends; GPU guards decide per pixel.
+ p.candidate=current_bank;p.history=true;p.candidate_recorded=true;p.candidate_origin=links.front().frame.source;p.candidate_current=p.current.source;++p.candidate_count;
+ if(!p.transition.Begin(p.current.source,p.clock_ms))throw std::runtime_error("invalid visual transition clock after candidate recording");
+ std::printf("PERSISTENT_HISTORY_TRANSITION_BEGIN source=%llu origin=%llu target_bank=%u active_bank=%u weight=%.6f scope=GPU_guard_pending_no_age_refresh\n",
+  (unsigned long long)p.current.source,(unsigned long long)p.candidate_origin,p.candidate,p.active,p.transition.Weight(p.current.source,p.clock_ms));
  if(p.diagnostic){
   if(!nr_image||!evidence)throw std::runtime_error("cold candidate actual image and exact identity required");
   NativePersistentHistoryDiagnostic::CandidateSnapshot snapshot;
@@ -356,11 +387,14 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
 }
 vk::ImageView NativePersistentHistory::Apply(Scheduler& scheduler){
  auto& p=*impl;if(!p.prepared||p.applied||p.unknown||p.timeline!=&scheduler)return {};
- const auto views=p.Converted();p.Pass(scheduler,PHCompose,p.active,1-p.active,views,p.banks[p.active].edit.View(),p.banks[p.active].meta.View(),p.current,p.history,0,0);
+ const auto views=p.Converted();const unsigned display_target=p.transition.active?p.candidate:p.active;
+ p.Pass(scheduler,PHCompose,p.active,1-p.active,views,p.banks[display_target].edit.View(),p.banks[display_target].meta.View(),p.current,p.history,0,0);
  p.return_image=p.returned.Record(scheduler,p.slot,p.output.View(),*p.slots[p.slot].source[0],p.history,false);p.Mark(scheduler);p.applied=true;
  if(p.diagnostic){
   NativePersistentHistoryDiagnostic::Snapshot snapshot;
-  snapshot.current=p.current;snapshot.images={p.current_raw,p.return_image,vk::Image(p.banks[p.active].edit.image),vk::Image(p.banks[p.active].meta.image),vk::Image(p.slots[p.slot].converted[1].image),vk::Image(p.slots[p.slot].converted[2].image)};
+  snapshot.current=p.current;snapshot.images={p.current_raw,p.return_image,vk::Image(p.banks[p.active].edit.image),vk::Image(p.banks[p.active].meta.image),vk::Image(p.slots[p.slot].converted[1].image),vk::Image(p.slots[p.slot].converted[2].image),vk::Image(p.banks[p.candidate].edit.image),vk::Image(p.banks[p.candidate].meta.image)};
+  snapshot.transition_active=p.transition.active;snapshot.transition_weight=p.transition.Weight(p.current.source,p.clock_ms);
+  snapshot.transition_start_source=p.transition.source;snapshot.transition_start_ms=p.transition.ms;
   snapshot.minimum_candidate_origin=p.reset_window.minimum_origin;snapshot.reset_generation=p.reset_window.generation;snapshot.reset_seq=p.applied_controls.reset_seq;
   snapshot.control_revision=p.applied_controls.revision;snapshot.controls=p.applied_controls.config;snapshot.capture_seq=p.capture_status.seq;
   snapshot.state=p.state->Handle();snapshot.guard=p.returned.Guard(p.slot);snapshot.active_bank=p.active;snapshot.candidate_bank=p.candidate;
@@ -424,7 +458,7 @@ void NativePersistentHistory::ReportRetirement(const char* stage)const noexcept{
 void NativePersistentHistory::HoldUnknown()noexcept{impl->unknown=true;impl->latest_sample.available=false;impl->latest_sample.timing_available=false;if(impl->diagnostic)impl->diagnostic->HoldUnknown();for(auto& s:impl->slots)s.proof->unknown=true;}
 bool NativePersistentHistory::HasHistory()const noexcept{return impl->history&&!impl->unknown;}
 void NativePersistentHistory::Reset()noexcept{
- auto& p=*impl;p.history=false;p.prepared=false;p.applied=false;
+ auto& p=*impl;p.history=false;p.prepared=false;p.applied=false;p.transition.Clear();
  p.reset_window.ResetAt(p.last.source==UINT64_MAX?UINT64_MAX:p.last.source+1);
  p.clocks.clear();p.latest_sample.available=false;p.latest_sample.timing_available=false;
  // Slots, descriptors, CBs, last-use proofs and unknown state remain untouched.

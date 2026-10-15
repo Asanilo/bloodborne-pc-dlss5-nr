@@ -24,7 +24,7 @@ struct alignas(16) PersistentHistoryConstants {
  float CurrentJitterX{}, CurrentJitterY{}; // current raster viewport shift, pixels
  float DisplayStrength{1.f}; // compose-only; never stored into the history banks
  float ReprojectionMode{}; // reserved2.x: 0 nearest (default), 1 clamped cubic
- float Reserved1[3]{};
+ float TransitionEnabled{},TransitionWeight{1.f},Reserved1{}; // reserved2.y/z: display-only independent target
  float CurrentProjection[4]{}; // CameraMotion::TaaDepthParameters()[0]
  float PreviousProjection[4]{}; // [1]
  float PreviousViewZ[4]{}; // [2], previous view * current inverse view Z row
@@ -33,6 +33,8 @@ static_assert(sizeof(PersistentHistoryConstants)==176);
 static_assert(offsetof(PersistentHistoryConstants, CurrentJitterX)==100);
 static_assert(offsetof(PersistentHistoryConstants, DisplayStrength)==108);
 static_assert(offsetof(PersistentHistoryConstants, ReprojectionMode)==112);
+static_assert(offsetof(PersistentHistoryConstants, TransitionEnabled)==116);
+static_assert(offsetof(PersistentHistoryConstants, TransitionWeight)==120);
 static_assert(offsetof(PersistentHistoryConstants, CurrentProjection)==128);
 static_assert(offsetof(PersistentHistoryConstants, PreviousProjection)==144);
 static_assert(offsetof(PersistentHistoryConstants, PreviousViewZ)==160);
