@@ -2,7 +2,7 @@
 #include <cstdint>
 #include <cstddef>
 namespace Vulkan {
-enum PersistentHistoryMode : uint32_t { PHClear=0, PHCapture=1, PHAdvance=2, PHAdopt=3, PHCompose=4 };
+enum PersistentHistoryMode : uint32_t { PHClear=0, PHCapture=1, PHAdvance=2, PHAdopt=3, PHCompose=4, PHStats=5 };
 // std140, 11 complete 16-byte rows. Motion maps current UV to previous UV:
 // previousUV = currentUV + motion * MvScale / motionExtent + jitterDelta.
 struct alignas(16) PersistentHistoryConstants {
@@ -14,7 +14,8 @@ struct alignas(16) PersistentHistoryConstants {
  float MaxFrames{12.f}, MaxMs{200.f}, ExposureRatio{1.f}, MinConfidence{.5f};
  float CollectStats{}; // opt-in cold diagnostic counters; zero on the hot path
  float CurrentJitterX{}, CurrentJitterY{}; // current raster viewport shift, pixels
- float Reserved1[5]{};
+ float DisplayStrength{1.f}; // compose-only; never stored into the history banks
+ float Reserved1[4]{};
  float CurrentProjection[4]{}; // CameraMotion::TaaDepthParameters()[0]
  float PreviousProjection[4]{}; // [1]
  float PreviousViewZ[4]{}; // [2], previous view * current inverse view Z row

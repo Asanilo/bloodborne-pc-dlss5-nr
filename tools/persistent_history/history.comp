@@ -11,6 +11,10 @@ layout(rgba16f,binding=7) writeonly uniform image2D destEdit;
 layout(rgba32f,binding=8) writeonly uniform image2D destMeta;
 layout(rgba32f,binding=9) writeonly uniform image2D outputImage;
 layout(std430,binding=10) buffer State { uint invalid[4]; uint validPixels; uint rejectedPixels; uint changedPixels; uint oldestFrames; } state;
+layout(std430,binding=12) readonly buffer ReturnGuard {uint value;} guard;
+layout(std430,binding=13) writeonly buffer GroupStats {uint data[];} groups;
+shared uvec4 statsSum[64];
+shared uvec2 statsMax[64];
 layout(std140,binding=11) uniform Params {
  uvec4 dispatch; uvec4 flags; vec4 motion; vec4 thresholds; vec4 age; vec4 limits; vec4 reserved1; vec4 reserved2;
  vec4 currentProjection; vec4 previousProjection; vec4 previousViewZ;
@@ -49,9 +53,21 @@ float packed(vec3 c) { vec3 q=clamp((log2(c+p.thresholds.x)+16.)/32.,0.,1.);uvec
 bool guideRange(vec3 c) {vec3 l=log2(c+p.thresholds.x);return finite3(c)&&all(greaterThanEqual(c,vec3(0)))&&all(greaterThanEqual(l,vec3(-16)))&&all(lessThanEqual(l,vec3(16)));}
 // Bit16 records pixel-local out-of-range edits. Every other reason is candidate-fatal.
 bool bankUsable(uint status) { return (status&~16u)==0u; }
-bool live(vec4 e,vec4 m) { return finite3(e.rgb)&&finite1(e.a)&&finite1(m.x)&&finite1(m.z)&&finite1(m.w)&&e.a>=p.limits.w&&m.z<=p.limits.x&&m.w<=p.limits.y&&m.z>=0.&&m.w>=0.; }
+bool live(vec4 e,vec4 m) { return finite3(e.rgb)&&finite1(e.a)&&finite1(m.x)&&finite1(m.z)&&finite1(m.w)&&e.a>0.&&e.a>=p.limits.w&&m.z<=p.limits.x&&m.w<=p.limits.y&&m.z>=0.&&m.w>=0.; }
 void main() {
- ivec2 c=ivec2(gl_GlobalInvocationID.xy); if(any(greaterThanEqual(c,ivec2(p.dispatch.yz)))) return;
+ ivec2 c=ivec2(gl_GlobalInvocationID.xy);
+ if(p.dispatch.x==5u) {
+  uint li=gl_LocalInvocationIndex;bool inside=all(lessThan(c,ivec2(p.dispatch.yz)));
+  vec4 e=vec4(0),m=vec4(0);bool valid=false;uint changed=0u;
+  if(inside){e=imageLoad(sourceEdit,c);m=imageLoad(sourceMeta,c);valid=guard.value==0u&&bankUsable(state.invalid[min(p.dispatch.w,3u)])&&live(e,m);
+   vec3 shown=texelFetch(originOrFallbackEdit,c,0).rgb,raw=texelFetch(rawImage,c,0).rgb;
+   changed=uint(finite3(shown)&&finite3(raw)&&any(greaterThan(abs(shown-raw),vec3(.00001))));}
+  uvec2 age=valid?uvec2(round(m.z*65536.),round(m.w*256.)):uvec2(0);
+  statsSum[li]=uvec4(uint(valid),changed,age);statsMax[li]=age;barrier();
+  for(uint n=32u;n>0u;n/=2u){if(li<n){statsSum[li]+=statsSum[li+n];statsMax[li]=max(statsMax[li],statsMax[li+n]);}barrier();}
+  if(li==0u){uint b=(gl_WorkGroupID.y*gl_NumWorkGroups.x+gl_WorkGroupID.x)*6u;for(uint k=0u;k<4u;k++)groups.data[b+k]=statsSum[0][k];groups.data[b+4u]=statsMax[0].x;groups.data[b+5u]=statsMax[0].y;}return;
+ }
+ if(any(greaterThanEqual(c,ivec2(p.dispatch.yz)))) return;
  uint mode=p.dispatch.x; uint src=min(p.dispatch.w,3u), dst=min(p.flags.x,3u);
  if(mode==0u) { if(all(equal(c,ivec2(0)))) {state.invalid[dst]=0u;state.validPixels=0u;state.rejectedPixels=0u;state.changedPixels=0u;state.oldestFrames=0u;} return; }
  vec4 raw=texelFetch(rawImage,c,0),e=vec4(0),m=vec4(0); bool ok=false;
@@ -92,6 +108,6 @@ void main() {
  }
  if(!ok) {e=vec4(0);m=vec4(0);}
  if(p.reserved1.x>0.) {if(!ok) atomicAdd(state.rejectedPixels,1u);else {atomicAdd(state.validPixels,1u);atomicMax(state.oldestFrames,uint(ceil(m.z)));}}
- if(mode==4u) {vec3 rgb=ok?max((max(raw.rgb,vec3(0))+p.thresholds.x)*exp2(e.rgb)-p.thresholds.x,vec3(0)):raw.rgb;imageStore(outputImage,c,vec4(rgb,raw.a));if(p.reserved1.x>0.&&ok&&any(greaterThan(abs(rgb-raw.rgb),vec3(.00001))))atomicAdd(state.changedPixels,1u);}
+ if(mode==4u) {vec3 rgb=ok?max((max(raw.rgb,vec3(0))+p.thresholds.x)*exp2(e.rgb)-p.thresholds.x,vec3(0)):raw.rgb;if(p.reserved1.w!=1.)rgb=mix(raw.rgb,rgb,p.reserved1.w);imageStore(outputImage,c,vec4(rgb,raw.a));if(p.reserved1.x>0.&&ok&&any(greaterThan(abs(rgb-raw.rgb),vec3(.00001))))atomicAdd(state.changedPixels,1u);}
  else {imageStore(destEdit,c,e);imageStore(destMeta,c,m);}
 }

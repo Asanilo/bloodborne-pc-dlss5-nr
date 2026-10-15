@@ -161,6 +161,33 @@ class Boundaries(unittest.TestCase):
         # Same-camera neighbourhood edge uses the same distance-scaled test.
         self.assertFalse(surface(near,far))
 
+    def test_runtime_strength_is_display_only_and_default_exact(self):
+        raw=(.25,.5,1.)
+        edited=(.5,.25,2.)
+        history=tuple(math.log2((e+EPS)/(r+EPS)) for r,e in zip(raw,edited))
+        def display(strength):
+            full=tuple(max((r+EPS)*2**e-EPS,0) for r,e in zip(raw,history))
+            return tuple(r+(v-r)*strength for r,v in zip(raw,full))
+        self.assertEqual(display(0),raw)
+        for a,b in zip(display(1),edited):self.assertAlmostEqual(a,b)
+        self.assertEqual(history,tuple(math.log2((e+EPS)/(r+EPS)) for r,e in zip(raw,edited)))
+        shader=pathlib.Path(__file__).parents[0].joinpath('history.comp').read_text()
+        self.assertIn('if(p.reserved1.w!=1.)rgb=mix(raw.rgb,rgb,p.reserved1.w)',shader)
+        self.assertIn('e.a>0.&&e.a>=p.limits.w',shader)  # confidence=0 remains invalid even at user threshold0
+
+    def test_gpu_group_summary_fixed_point_bounds(self):
+        # 64-lane reduction and CPU aggregate preserve counts and bounded ages.
+        lanes=[(i%3!=0, float(i%13),float(i%201)) for i in range(64)]
+        partial=[(int(v),round(f*65536) if v else 0,round(ms*256) if v else 0) for v,f,ms in lanes]
+        while len(partial)>1:
+            n=len(partial)//2
+            partial=[tuple(a+b for a,b in zip(partial[i],partial[i+n])) for i in range(n)]
+        count,frames,ms=partial[0]
+        self.assertEqual(count,sum(v for v,_,_ in lanes))
+        self.assertAlmostEqual(frames/count/65536,sum(f for v,f,_ in lanes if v)/count)
+        self.assertLess(64*12*65536,2**32)
+        self.assertLess(64*200*256,2**32)
+
     def test_closed_boundaries(self):
         self.assertIsNotNone(capture((1,1,1),(2,2,2),12,200))
         self.assertIsNone(capture((1,1,1),(2,2,2),12,200.001))

@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 #include "native_async_state.h"
+#include "nr_runtime_control.h"
 #include "video_core/texture_cache/image.h"
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 namespace Vulkan {
@@ -19,6 +21,19 @@ public:
  explicit NativePersistentHistory(const Instance&);
  ~NativePersistentHistory();
  static bool Enabled() noexcept;
+ bool SetControls(const BbNR::Request&); // staged; committed at a real record boundary
+ BbNR::Request AppliedControls() const;
+ struct RuntimeSample {
+  bool available=false,timing_available=false;uint64_t source=0,revision=0,target_tick=0,observed_tick=0,monotonic_ns=0;
+  float valid_fraction=0,changed_fraction=0,mean_age_frames=0,mean_age_ms=0,max_age_frames=0,max_age_ms=0;
+  std::array<double,6> pass_ms{}; // mode-indexed GPU dispatch timestamps, sums for repeated modes
+ };
+ RuntimeSample LatestRuntimeSample() const;
+ struct CaptureStatus {uint64_t seq=0,first_source=0,last_source=0,revision=0;unsigned recorded_frames=0,last_index=0;bool busy=false,complete=false,failed=false;std::string directory;};
+ CaptureStatus Capture() const;
+ bool CaptureFor(uint64_t source) const noexcept;
+ struct CaptureFrame {uint64_t seq=0,source=0,revision=0;unsigned index=0;std::string directory;};
+ std::optional<CaptureFrame> CaptureFrameForSource(uint64_t source) const;
  // False means raw fallback. No descriptor/constant/source view is rewritten
  // until the SAME scheduler timeline has completed this slot's actual last use.
  bool BeginCurrent(Scheduler&,const std::array<vk::Image,3>& raw,
