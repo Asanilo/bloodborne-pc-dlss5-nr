@@ -6,6 +6,8 @@
 python3 native/tools/nr_dev/play.py
 ```
 
+可选 `--native-build /home/arinp/Code/nrbridge-dev/build/baselines/<完整提交SHA>` 使用已校验的固定 Alpha；默认仍为 `build/native`。入口预校验四产物与构建来源，Helper 独立选择不变。
+
 游戏出现后，Space/Cross 继续到可操作场景，再回终端按 Enter 开启真实 NR。WASD/鼠标或手柄操作，正常关闭游戏窗口结束。默认使用已锁定的新模型 Helper `build/helper-runtime-model/06ac7e6b7260172d/wine_runtime_model.exe`，启动时核对其 `build.json` 与 PE SHA，并在本次 manifest 记录实际身份。
 
 - **Delete**：打开 NR 菜单。模型参数加载或调整后需要显式 **Apply**；加载配置不会自动重建模型。

@@ -9,15 +9,18 @@ DEFAULT_HELPER_BUILD_SHA='e7ab371cfb5d4f2fd799336065bdb69953106c3c731498a09f7609
 
 def main():
  p=argparse.ArgumentParser(description='私有 NR 试玩入口；不使用正式存档。进入可控制场景后，在本终端按 Enter 开启 NR。')
+ p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>')
  p.add_argument('--session',default='play-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
  p.add_argument('--seconds',type=int,default=480,help='计划正常关闭时间（含准备时间；小于600秒）');p.add_argument('--continue-session',help='仅续用已正常退休的新dev session私有存档和NR配置')
  a=p.parse_args()
  if not 1<=a.seconds<600:p.error('planned seconds must be 1..599; independent watchdog remains600')
+ if a.native_build:runner.checked_native_build(a.native_build)
  runner.checked_runtime_helper(DEFAULT_HELPER,DEFAULT_HELPER_BUILD_SHA)
  if a.continue_session:runner.continuation_source(a.continue_session)
  run=runner.checked_run(a.session)
  if run.exists():p.error('session already exists; use a fresh name')
  command=[sys.executable,str(Path(__file__).with_name('runner.py')),'start',a.session,'--mode','resident','--sky','persistent','--seconds',str(a.seconds),'--watchdog-seconds','600','--runtime-model-helper',str(DEFAULT_HELPER),'--runtime-model-build-sha256',DEFAULT_HELPER_BUILD_SHA]
+ if a.native_build:command+=['--native-build',a.native_build]
  if a.continue_session:command+=['--continue-session',a.continue_session]
  child=subprocess.Popen(command,start_new_session=True)
  def stop(signum,frame):raise KeyboardInterrupt
