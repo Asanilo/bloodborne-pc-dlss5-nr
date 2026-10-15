@@ -2,6 +2,7 @@
 #include "video_core/renderer_vulkan/p0_status.h"
 #include "bbport_overlay.h"
 #include "video_core/renderer_vulkan/nr_runtime_control.h"
+#include "video_core/renderer_vulkan/native_async_pre_sr_policy.h"
 
 #include <algorithm>
 #include <atomic>
@@ -161,6 +162,16 @@ void Hint(const char* text) {
     }
 }
 
+// Match the renderer's real private opt-in; never expose these controls to P0 or sky-off.
+bool PersistentNRControlsEnabled() {
+    const char* persistent = std::getenv("BB_NATIVE_PERSISTENT_HISTORY");
+    return BbNativeAsyncPreSr::Enabled() && persistent && std::string_view(persistent) == "1";
+}
+
+bool PersistentNRHudEnabled() {
+    return PersistentNRControlsEnabled() && BbNR::ReadRequest().config.hud;
+}
+
 void NRGpuSamples(const BbNR::Snapshot& actual,bool compact) {
     const uint64_t now=uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
     if(actual.gpu_sample_available) {
@@ -182,6 +193,7 @@ void NRGpuSamples(const BbNR::Snapshot& actual,bool compact) {
 }
 
 void NRControls() {
+    if (!PersistentNRControlsEnabled()) return;
     if (!ImGui::CollapsingHeader("NRBridge live controls",ImGuiTreeNodeFlags_DefaultOpen)) return;
     auto request=BbNR::ReadRequest();auto c=request.config;const auto actual=BbNR::ReadSnapshot();
     static std::string error;bool changed=false;
@@ -239,6 +251,7 @@ void NRControls() {
 }
 
 void NRHud() {
+    if (!PersistentNRControlsEnabled()) return;
     const auto requested=BbNR::ReadRequest();const auto& c=requested.config;if(!c.hud)return;
     const auto actual=BbNR::ReadSnapshot();const auto* viewport=ImGui::GetMainViewport();const float pad=12.f*base_scale;
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+viewport->WorkSize.x-pad,viewport->WorkPos.y+viewport->WorkSize.y-pad),ImGuiCond_Always,ImVec2(1.f,1.f));
@@ -890,7 +903,7 @@ bool HandleEvent(const SDL_Event& event) {
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
         const bool down = event.type == SDL_EVENT_KEY_DOWN;
-        if(down&&!event.key.repeat&&(event.key.key==SDLK_F8||event.key.key==SDLK_F9)) {
+        if(PersistentNRControlsEnabled()&&down&&!event.key.repeat&&(event.key.key==SDLK_F8||event.key.key==SDLK_F9)) {
             const auto request=BbNR::ReadRequest();auto c=request.config;
             if(event.key.key==SDLK_F8){c.display_bypass=!c.display_bypass;BbNR::Submit(c);}
             else {const auto status=BbNR::ReadSnapshot();if(!status.capture_busy&&request.capture_seq==status.capture_applied_seq)BbNR::Submit(c,{.capture=true});}
@@ -976,7 +989,7 @@ bool HandleEvent(const SDL_Event& event) {
 }
 
 bool Visible() {
-    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps || BbNR::ReadRequest().config.hud);
+    return initialized && (menu_open || prompt_active || BbSettings::Get().show_fps || PersistentNRHudEnabled());
 }
 
 bool MenuOpen() {
@@ -1023,7 +1036,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
         Menu();
     }
     if(!menu_open) NRHud();
-    if (BbSettings::Get().show_fps && !menu_open && !BbNR::ReadRequest().config.hud) {
+    if (BbSettings::Get().show_fps && !menu_open && !PersistentNRHudEnabled()) {
         FpsCounter();
     }
     if (prompt_active && !menu_open) {
