@@ -61,6 +61,16 @@ def transition(old,target,weight,enabled=True,old_status=0,target_status=0):
     if w==1:return target
     return tuple(x+(y-x)*w for x,y in zip(old[0],target[0])),max(old[1],target[1]),max(old[2],target[2])
 
+def edge_support_reference(center_depth,center_mv,source_age,neighbour,offset):
+    # Neighbour carries its independently mapped old sample and current raw.
+    depth,mv,olddepth,raw,oldraw,history=neighbour
+    if not surface(depth,center_depth):return False
+    delta=tuple(o+b-a for o,a,b in zip(offset,center_mv,mv))
+    along=sum(a*b for a,b in zip(delta,offset));across=delta[0]*offset[1]-delta[1]*offset[0]
+    if not all(math.isfinite(x) for x in delta) or not .5<=along<=1.5 or abs(across)>.5:return False
+    if history is None or history[1:]!=source_age:return False
+    return advance(history,oldraw,raw,olddepth,depth,mv=(0,0)) is not None
+
 def guide_roundtrip(rgb):
     quantized=[round((math.log2(c+EPS)+16)/32*n) for c,n in zip(rgb,(127,255,255))]
     bits=0x3f800000|quantized[0]|quantized[1]<<7|quantized[2]<<15
@@ -497,6 +507,30 @@ class Boundaries(unittest.TestCase):
         self.assertIn('m.zw=max(m.zw,targetMeta.zw);',SHADER)
         self.assertIn('ok=displayHistory(c,false,e,m);',SHADER)
         self.assertIn('valid=displayHistory(c,true,e,m);',SHADER)
+
+    def test_surface_local_edge_independent_correspondence(self):
+        z=PROJECTION[2]+PROJECTION[3]/10
+        far=PROJECTION[2]+PROJECTION[3]/30
+        h=((.25,-.5,1.),4.,64.);raw=(.2,.3,.4);mv=(100.,-75.)
+        def n(depth=z,motion=mv,olddepth=z,history=h):return depth,motion,olddepth,raw,raw,history
+        offsets=((-1,0),(1,0),(0,-1),(0,1))
+        def count(ns):return sum(edge_support_reference(z,mv,h[1:],v,o) for v,o in zip(ns,offsets))
+        one_sided=[n(),n(depth=far),n(),n()]
+        self.assertEqual(count(one_sided),3) # Uniform large absolute MV is allowed.
+        self.assertLess(count([n(olddepth=far),n(depth=far),n(),n()]),3) # Disocclusion.
+        self.assertLess(count([n(motion=(98.,-75.)),n(depth=far),n(),n()]),3)
+        self.assertEqual(count([n(depth=far),n(depth=far),n(),n()]),2) # Thin line rejected.
+        self.assertFalse(edge_support_reference(z,mv,h[1:],n(depth=far),offsets[0])) # Identical colour is insufficient.
+        self.assertFalse(edge_support_reference(z,mv,h[1:],n(history=(h[0],3.,64.)),offsets[0]))
+        self.assertEqual(h,((.25,-.5,1.),4.,64.))
+        self.assertEqual(advance(h,raw,raw,z,z)[1:],(5.,80.))
+        self.assertIn('if(ok&&!interior)',SHADER)
+        self.assertIn('ok=ok&&(interior||supportedEdge);',SHADER)
+        self.assertIn('supportedEdge=supports>=3u;',SHADER)
+        self.assertIn('if(supportedEdge){e.a=min(e.a,.5);ok=ok&&live(e,m);}',SHADER)
+        # Interior never enters the support branch or receives its confidence cap.
+        self.assertEqual(count([n()]*4),4)
+        self.assertIn('along<.5||along>1.5||abs(across)>.5',SHADER)
 
     def test_closed_boundaries(self):
         self.assertIsNotNone(capture((1,1,1),(2,2,2),12,200))

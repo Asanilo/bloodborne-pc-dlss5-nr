@@ -71,6 +71,28 @@ bool guideRange(vec3 c) {vec3 l=log2(c+p.thresholds.x);return finite3(c)&&all(gr
 // Bit16 records pixel-local out-of-range edits. Every other reason is candidate-fatal.
 bool bankUsable(uint status) { return (status&~16u)==0u; }
 bool live(vec4 e,vec4 m) { return finite3(e.rgb)&&finite1(e.a)&&finite1(m.x)&&finite1(m.z)&&finite1(m.w)&&e.a>0.&&e.a>=p.limits.w&&m.z<=p.limits.x&&m.w<=p.limits.y&&m.z>=0.&&m.w>=0.; }
+// Extra evidence for a previously rejected edge, not proof of object identity.
+// Each cardinal support must survive its own temporal correspondence checks.
+bool edgeSupport(ivec2 c,ivec2 offset,float centerDepth,vec2 centerMotion,vec2 sourceAge) {
+ ivec2 n=c+offset;
+ if(any(lessThan(n,ivec2(0)))||any(greaterThanEqual(n,ivec2(p.dispatch.yz))))return false;
+ float nd=depthAt(n),expected=-1.;
+ if(!sameSurface(nd,centerDepth,p.currentProjection.z)||!previousDepth(nd,n,expected))return false;
+ vec2 nmv=texelFetch(motionImage,n,0).xy;
+ if(!finite1(nmv.x)||!finite1(nmv.y))return false;
+ vec2 deltaPrev=vec2(offset)+(nmv-centerMotion)*p.motion.xy;
+ float along=dot(deltaPrev,vec2(offset));
+ float across=deltaPrev.x*float(offset.y)-deltaPrev.y*float(offset.x);
+ if(!finite1(along)||!finite1(across)||along<.5||along>1.5||abs(across)>.5)return false;
+ vec2 prev=(vec2(n)+.5)/vec2(p.dispatch.yz)+nmv*p.motion.xy/vec2(textureSize(motionImage,0))+p.motion.zw;
+ if(any(lessThan(prev,vec2(0)))||any(greaterThanEqual(prev,vec2(1))))return false;
+ ivec2 q=ivec2(prev*vec2(p.dispatch.yz));vec4 ne=imageLoad(sourceEdit,q),meta=imageLoad(sourceMeta,q);
+ if(!all(equal(meta.zw,sourceAge)))return false;
+ meta.zw+=p.age.xy;
+ vec3 nr=texelFetch(rawImage,n,0).rgb;
+ vec3 difference=abs(log2((max(nr,vec3(0))+p.thresholds.x)/(guide(meta.y)*p.limits.z+p.thresholds.x)));
+ return live(ne,meta)&&guideRange(nr)&&sameSurface(meta.x,expected,p.previousProjection.z)&&all(lessThanEqual(difference,vec3(p.thresholds.z)));
+}
 // Display-only transition. Neither contributor nor its immutable-origin age is
 // written back to a history bank. Stats mode reuses bindings1/2 for target;
 // binding5 remains the guarded final image consumed by its changed counter.
@@ -137,9 +159,23 @@ void main() {
    vec3 difference=abs(log2((max(raw.rgb,vec3(0))+p.thresholds.x)/(previous+p.thresholds.x)));
    ok=live(e,m)&&guideRange(raw.rgb)&&finite1(d)&&finite1(p.limits.z)&&p.limits.z>0.&&geometry&&sameSurface(m.x,expected,p.previousProjection.z)&&all(lessThanEqual(difference,vec3(p.thresholds.z)));
    float edgeResidual=0.,motionSpread=0.;
-   // Local depth edge rejects even a low-frequency correction at disocclusion boundaries.
-   for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) {ivec2 n=clamp(c+ivec2(x,y),ivec2(0),ivec2(p.dispatch.yz)-1);float nd=depthAt(n);ok=ok&&sameSurface(nd,d,p.currentProjection.z);edgeResidual=max(edgeResidual,depthResidual(nd,d,p.currentProjection.z));
-    vec2 neighbourMotion=texelFetch(motionImage,n,0).xy;motionSpread=max(motionSpread,boundedMotionSpread(mv,neighbourMotion));}
+   bool interior=true;
+   float surfaceEdgeResidual=0.,surfaceMotionSpread=0.;
+   // Keep the original full-neighbourhood arithmetic for interior pixels.
+   for(int y=-1;y<=1;y++) for(int x=-1;x<=1;x++) {ivec2 n=clamp(c+ivec2(x,y),ivec2(0),ivec2(p.dispatch.yz)-1);float nd=depthAt(n);bool same=sameSurface(nd,d,p.currentProjection.z);interior=interior&&same;edgeResidual=max(edgeResidual,depthResidual(nd,d,p.currentProjection.z));
+    vec2 neighbourMotion=texelFetch(motionImage,n,0).xy;motionSpread=max(motionSpread,boundedMotionSpread(mv,neighbourMotion));
+    if(same){surfaceEdgeResidual=max(surfaceEdgeResidual,depthResidual(nd,d,p.currentProjection.z));surfaceMotionSpread=max(surfaceMotionSpread,boundedMotionSpread(mv,neighbourMotion));}}
+   bool supportedEdge=false;
+   if(ok&&!interior){
+    uint supports=0u;
+    supports+=uint(edgeSupport(c,ivec2(-1,0),d,mv,sourceAge));
+    supports+=uint(edgeSupport(c,ivec2(1,0),d,mv,sourceAge));
+    supports+=uint(edgeSupport(c,ivec2(0,-1),d,mv,sourceAge));
+    supports+=uint(edgeSupport(c,ivec2(0,1),d,mv,sourceAge));
+    supportedEdge=supports>=3u;
+    edgeResidual=surfaceEdgeResidual;motionSpread=surfaceMotionSpread;
+   }
+   ok=ok&&(interior||supportedEdge);
    if(ok) {
     float colourResidual=p.thresholds.z>0.?max(max(difference.r,difference.g),difference.b)/p.thresholds.z:0.;
     float residual=max(max(depthResidual(m.x,expected,p.previousProjection.z),edgeResidual),max(colourResidual,motionSpread));
@@ -184,6 +220,8 @@ void main() {
      if(supported&&storedConfidence>0.&&storedConfidence>=p.limits.w) {e=vec4(clamp(filtered,centerMin,centerMax),filteredConfidence);m.zw=oldest;}
     }
    }
+   // Edge evidence is weaker: exact half .5 caps only confidence, never RGB.
+   if(supportedEdge){e.a=min(e.a,.5);ok=ok&&live(e,m);}
    m.xy=vec2(d,packed(raw.rgb));
   }
  } else if(mode==4u) {
