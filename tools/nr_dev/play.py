@@ -43,7 +43,9 @@ def main():
    if time.monotonic()>deadline:raise RuntimeError('Helper readiness timeout; requesting normal close')
    time.sleep(.1)
   runner.control(argparse.Namespace(command='arm',session=a.session))
-  print('NR 已开启。请正常关闭游戏窗口结束；记录和私有存档保留于 '+str(run),flush=True)
+  try:runner.control(argparse.Namespace(command='focus',session=a.session))
+  except Exception as error:print('NR已开启；自动切回游戏窗口失败，请手动切回：'+str(error),file=sys.stderr,flush=True)
+  print('NR 已开启。请保持游戏窗口在前台；正常关闭窗口结束，记录和私有存档保留于 '+str(run),flush=True)
   return child.wait()
  except (KeyboardInterrupt,EOFError,Exception) as error:
   print('结束试玩准备／监督：'+str(error),file=sys.stderr,flush=True)

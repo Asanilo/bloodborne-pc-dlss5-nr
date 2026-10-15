@@ -26,6 +26,35 @@ python3 native/tools/nr_dev/play.py --continue-session SESSION
 
 早期Alpha的主协调已在 `dev-player-01` 获得用户反馈“明显改善，操作流畅”，并核验正常退出。 用户后续补充：仍有轻微鬼影、闪烁及大幅度动作时的闪烁，整体稳定性尚可；这些是尚未解决的画质问题，不能将当前试玩通过解读为无伪影或全场景完成。120秒自动动态窗口：新版60.30 FPS/P95 25.31ms/P99 26.78ms；d9视觉算法隔离参考66.49 FPS/P95 22.19ms/P99 23.58ms。场景为Clinic转镜和小范围移动，未覆盖完整战斗与全游戏。冷诊断不计入热性能。更完整的现行安全和资源边界见开发根 `CURRENT.md`。
 
+## 2026-10-16 稳定性候选（待本版玩家反馈）
+
+当前实际Native构建为 `c8fb9df`，本地标签 `nrbridge-stability-candidate-20261016`。新增独立old/target区域候选过渡和完整时域支持的保守边缘保留；保留真实贡献年龄、四bank、原TTL与完整NR强度。Nearest/Cubic菜单只切换采样方法，**选择Nearest不会撤销这两项新算法**；完整旧行为通过下面的固定baseline启动。
+
+```bash
+# 新版：与本轮对照相同的私有Clinic进度/默认配置
+python3 native/tools/nr_dev/play.py --continue-session dev-reprojection-switch-01
+# 固定Nearest旧版：相同私有来源，独立进程及SR历史
+python3 native/tools/nr_dev/play.py --continue-session dev-reprojection-switch-01 --native-build /home/arinp/Code/nrbridge-dev/build/baselines/9fcd4ccd443c1bb9ec133c31c539dedbf7a6e004
+```
+
+进入实际场景后在终端按Enter，入口核验Helper readiness并开启NR后，会核对窗口PID并切回私人游戏。Delete菜单、F8旁路、F9捕获和Restore defaults保持可用；恢复默认不会撤销新算法。游戏在后台可能被限到约1FPS，性能比较要保持前台。
+
+相同存档、起始场景、预热和120秒动态脚本的一轮独立对照：
+
+| 版本 | FPS | P95 / P99 ms | 最长帧 ms | 整卡峰值 MiB |
+|---|---:|---:|---:|---:|
+| SR-only | 69.35 | 15.85 / 16.62 | 30.30 | 2875 |
+| 固定Nearest旧版 | 58.15 | 24.72 / 26.43 | 117.35 | 4232 |
+| 新区域过渡＋边缘支持 | 57.86 | 24.49 / 26.19 | 28.62 | 4104 |
+
+三轮均正常退休，焦点每秒采样均为前台；两轮NR零source缺口，SR-only一次缺口已保留在耗时内。新旧NR平均帧率差约−0.5%，单轮最长帧/显存差异不能证明优化。显存是整卡用量，含其他应用；没有输入延迟测量。新旧NR分别1187/1189个真实job结清，Feature创建/释放各1次。
+
+两次新算法冷采集共18帧通过finite/alpha/TTL及实际SR/Present关联。独立重构最终half误差最多1 ULP；真实1/3候选过渡有52万像素参与双方混合；完整边缘验证有实际GPU像素保留证据。过渡old-only/fatal fallback没有被该组动态样本直接覆盖；CPU/Shader及源码审查覆盖不冒充该项GPU观测。鬼影/闪烁改善程度仍待新一轮玩家判断，不是稳定发布。
+
+开发根 `comparisons/stability-20261016/results.json` 汇集原run和派生证据；`next-view/compare720.png` 是同源raw/NR720共享EV4映射，`next-view/actual-Present1080.png` 是实际后处理1080画面。独立SR-only截图在 `runs/dev-stability-sronly-hot-01/scene.png`，包含HUD、不同采样时刻，不能称严格同帧双SR历史A/B。
+
+已知加载问题仍OPEN：旧基线与新版本都曾pre-NR PM4断言退出；guest巨大float不收敛卡死的生产者尚未定位。原HOLD与诊断保留。无新帧退出owner推进已通过no-peer和真实NR正常退休，但不是异常输入根因修复。此次后续前台加载连续成功并不证明这些问题消失。正式存档不写入，失败profile不可续玩。
+
 ## 重投影选项与固定Alpha对照
 
 完整后续规划见 [NRBRIDGE_PLAN](../../docs/NRBRIDGE_PLAN.md)。Delete打开菜单后，在 **History reprojection** 选择：

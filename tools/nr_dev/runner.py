@@ -387,12 +387,14 @@ def control(args):
    ready=json.loads((run/('async-fd-retired-'+args.session+'-g0.json')).read_text())
    if not(ready.get('session')==args.session and ready.get('status')=='FD_RETIRED' and ready.get('completed_GPU') is True and ready.get('export_raw_fd_owned')==0):raise ValueError('actual GPU import and FD retirement readiness required')
   with (run/name).open('x') as f:f.write(args.session+'\n')
- if args.command=='stop':
+ if args.command in ('stop','focus'):
   windows=json.loads(subprocess.check_output(['niri','msg','--json','windows'],text=True,timeout=5))
   own=[w for w in windows if w.get('app_id')=='bb-probe' and w.get('title')=='Bloodborne™']
   if len(own)!=1:raise ValueError('unique private game window required')
   prop=subprocess.check_output(['xprop','-name',own[0]['title'],'_NET_WM_PID','WM_CLASS'],text=True,timeout=5)
   if not re.search(r'_NET_WM_PID\(CARDINAL\) = '+str(game['pid'])+r'\b',prop):raise ValueError('window PID mismatch')
+  if args.command=='focus':
+   subprocess.run(['niri','msg','action','focus-window','--id',str(own[0]['id'])],check=True,timeout=5);return
   subprocess.run(['niri','msg','action','close-window','--id',str(own[0]['id'])],check=True,timeout=5)
   atomic(run/'stop-request.json',{'game':game,'monotonic_ns':time.monotonic_ns(),'scope':'normal window close request; not retirement proof'})
 
@@ -540,7 +542,7 @@ def launch_supervised(args,signals):
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
  if a.command=='preflight':
   with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);print(json.dumps(preflight(lock),indent=2))
