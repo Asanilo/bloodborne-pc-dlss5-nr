@@ -48,12 +48,19 @@ bool Validate(const Config& c,std::string* error){
  if(!range(c.display_strength,0,1))return Fail(error,"display strength must be finite in [0,1]");
  if(c.ttl_frames<1||c.ttl_frames>12||!range(c.ttl_ms,1,200))return Fail(error,"visual TTL must be 1..12 frames and 1..200ms");
  if(!range(c.depth_tolerance,.0001f,.25f)||!range(c.colour_tolerance,0,4)||!range(c.min_confidence,0,1))return Fail(error,"invalid finite confidence/depth/colour threshold");
- if(c.model_style>3||!range(c.model_intensity,0,2))return Fail(error,"model style must be 0..3 and intensity finite in [0,2]");
+ if(c.model_style>2||!range(c.model_intensity,0,2))return Fail(error,"model style must be 0..2 and intensity finite in [0,2]");
  return true;
 }
 bool RequiresVisualReset(const Config&a,const Config&b){return a.ttl_frames!=b.ttl_frames||a.ttl_ms!=b.ttl_ms||a.depth_tolerance!=b.depth_tolerance||a.colour_tolerance!=b.colour_tolerance||a.min_confidence!=b.min_confidence;}
 bool Submit(const Config& c,Actions actions,std::string* error){
  if(error)error->clear();if(!Validate(c,error))return false;auto& s=S();std::scoped_lock lock(s.mutex);
+ const auto same_model=[](const Config&a,const Config&b){return a.model_style==b.model_style&&a.model_intensity==b.model_intensity;};
+ // Coalesce repeated explicit clicks on the same in-flight target. A failed
+ // request may be explicitly retried with a fresh sequence, never auto-retried.
+ if(actions.apply_model&&s.snapshot.status!=Status::Failed){
+  const bool pending=s.request.model_apply_seq>s.snapshot.model_applied_version;
+  if((pending&&same_model(c,s.request.model_config))||(!pending&&s.snapshot.status==Status::Applied&&same_model(c,s.snapshot.actual_config)))actions.apply_model=false;
+ }
  const bool changed=!(c==s.request.config);if(!changed&&!actions.reset&&!actions.capture&&!actions.apply_model)return true;
  if(RequiresVisualReset(s.request.config,c)||actions.reset)++s.request.reset_seq;
  if(actions.capture)++s.request.capture_seq;if(actions.apply_model){++s.request.model_apply_seq;s.request.model_config=c;}

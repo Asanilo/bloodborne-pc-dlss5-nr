@@ -181,7 +181,7 @@ void NRControls() {
         ImGui::TreePop();
     }
     if(ImGui::TreeNode("Model parameters (explicit Apply)")) {
-        int style=int(c.model_style);if(ImGui::SliderInt("Model style (numeric, experimental)",&style,0,3)){c.model_style=unsigned(style);changed=true;}
+        int style=int(c.model_style);if(ImGui::Combo("Model style",&style,"Default\0Natural\0Cinematic\0")){c.model_style=unsigned(style);changed=true;}
         changed|=ImGui::SliderFloat("Model intensity",&c.model_intensity,0.f,2.f);
         ImGui::Text("Model Apply request %llu / applied %llu",(unsigned long long)request.model_apply_seq,(unsigned long long)actual.model_applied_version);
         ImGui::Text("Actual model style %u / intensity %.2f",actual.actual_config.model_style,actual.actual_config.model_intensity);
@@ -216,7 +216,10 @@ void NRHud() {
     ImGui::SetNextWindowPos(ImVec2(12.f*base_scale,12.f*base_scale),ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(.65f);
     ImGui::Begin("##nr_live",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoNav|ImGuiWindowFlags_NoFocusOnAppearing);
-    ImGui::Text("NR %s | actual %s %.2f | rev %llu/%llu",BbNR::StatusName(actual.status),actual.actual_config.display_bypass?"bypass":"history",actual.actual_config.display_strength,(unsigned long long)actual.applied_revision,(unsigned long long)actual.requested_revision);
+    ImGui::Text("NR %s | actual %s %.2f | applied/requested %llu/%llu",BbNR::StatusName(actual.status),actual.actual_config.display_bypass?"bypass":"history",actual.actual_config.display_strength,(unsigned long long)actual.applied_revision,(unsigned long long)actual.requested_revision);
+    const auto requested=BbNR::ReadRequest();
+    if(actual.applied_revision<requested.revision)ImGui::Text("Display/config pending; requested %s %.2f",c.display_bypass?"bypass":"history",c.display_strength);
+    if(requested.model_apply_seq>actual.model_applied_version)ImGui::Text("Model %s | apply requested %llu / actual %llu",actual.status==BbNR::Status::Failed?"FAILED - explicit retry":"PENDING",(unsigned long long)requested.model_apply_seq,(unsigned long long)actual.model_applied_version);
     if(actual.timing_available)ImGui::Text("Real Presents %.1f FPS | P95 %.2f P99 %.2f ms",actual.fps,actual.p95_ms,actual.p99_ms);
     if(actual.gpu_sample_available)ImGui::Text("GPU sample #%llu: valid %.1f%% age %.1ff/%.1fms",(unsigned long long)actual.gpu_sample_source,100.f*actual.history_valid_rate,actual.actual_age_frames,actual.actual_age_ms);
     else ImGui::TextUnformatted("GPU history sample: unavailable");
