@@ -170,6 +170,7 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  const auto n=s.used++;auto& buffer=*s.cb[n];auto cmd=scheduler.CommandBuffer();
  PersistentHistoryConstants c{};c.Mode=mode;c.Width=Width;c.Height=Height;c.SourceState=from;c.DestState=to;c.FallbackState=active;
  const auto& control=applied_controls.config;
+ c.ReprojectionMode=float(static_cast<uint32_t>(control.reprojection));
  c.DisplayStrength=control.display_strength;c.MaxFrames=float(control.ttl_frames);c.MaxMs=control.ttl_ms;
  c.DepthTolerance=control.depth_tolerance;c.ColourTolerance=control.colour_tolerance;c.MinConfidence=control.min_confidence;
  c.HistoryValid=valid?1:0;c.MvScaleX=c.MvScaleY=1;
@@ -276,14 +277,14 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  if(p.pending_controls.revision!=p.applied_controls.revision||p.pending_controls.reset_seq!=p.applied_controls.reset_seq||p.pending_controls.config!=p.applied_controls.config){
   const bool log_commit=p.pending_controls.revision!=p.applied_controls.revision||p.pending_controls.reset_seq!=p.applied_controls.reset_seq;
   const auto& a=p.applied_controls.config;const auto& b=p.pending_controls.config;
-  if(a.ttl_frames!=b.ttl_frames||a.ttl_ms!=b.ttl_ms||a.depth_tolerance!=b.depth_tolerance||a.colour_tolerance!=b.colour_tolerance||a.min_confidence!=b.min_confidence||p.pending_controls.reset_seq!=p.applied_controls.reset_seq){
+  if(BbNR::RequiresVisualReset(a,b)||p.pending_controls.reset_seq!=p.applied_controls.reset_seq){
    p.history=false;p.reset_window.ResetAt(frame.source);
    p.clocks.clear();p.clocks.push_back({frame.source,p.clock_ms,frame.history,frame.params});
   }
   p.applied_controls=p.pending_controls;p.latest_sample.available=false;p.latest_sample.timing_available=false;
-  if(log_commit)std::printf("PERSISTENT_HISTORY_CONTROLS_COMMITTED source=%llu revision=%llu reset_seq=%llu minimum_candidate_origin=%llu reset_generation=%llu params=%llu\n",
+  if(log_commit)std::printf("PERSISTENT_HISTORY_CONTROLS_COMMITTED source=%llu revision=%llu reset_seq=%llu minimum_candidate_origin=%llu reset_generation=%llu params=%llu reprojection=%u\n",
    (unsigned long long)frame.source,(unsigned long long)p.applied_controls.revision,(unsigned long long)p.applied_controls.reset_seq,
-   (unsigned long long)p.reset_window.minimum_origin,(unsigned long long)p.reset_window.generation,(unsigned long long)frame.params);
+   (unsigned long long)p.reset_window.minimum_origin,(unsigned long long)p.reset_window.generation,(unsigned long long)frame.params,static_cast<unsigned>(p.applied_controls.config.reprojection));
  }
  if(p.diagnostic&&p.diagnostic->Finished()&&p.diagnostic->Ready()){
   p.capture_status.busy=false;p.capture_status.complete=true;p.capture_status.failed=!p.diagnostic->Succeeded();p.diagnostic.reset();
