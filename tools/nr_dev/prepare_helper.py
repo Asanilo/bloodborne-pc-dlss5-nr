@@ -1,11 +1,25 @@
 #!/usr/bin/env python3
 """Export only f527 Helper compile closure; preserve effective wire specification bytes."""
-import hashlib,json,re,subprocess
+import hashlib,json,re,subprocess,sys
 from pathlib import Path
 ROOT=Path('/home/arinp/Code/nrbridge-dev')
 OLD=Path('/home/arinp/Code/nrbridge-design/game-poc-20261011/opti-async-pre-sr-play-worktree/poc/game_nr/async-pre-sr-play')
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def rebuild():
+ source=ROOT/'inputs/helper-f527';out=ROOT/'build/helper';info=json.loads((source/'manifest.json').read_text())
+ for path,expected in info.get('dependency_pins',{}).items():
+  if sha(Path(path))!=expected:raise ValueError('dependency drift '+path)
+ for item in info['files']:
+  if sha(Path(item['export']))!=item['sha256']:raise ValueError('exported source drift '+item['export'])
+ if sha(source/'effective-generated-spec.json')!=info['effective_spec_sha256']:raise ValueError('effective spec drift')
+ if sha(Path(info['compiler']['path']))!=info['compiler']['sha256']:raise ValueError('compiler drift')
+ for i,command in enumerate(info['commands']):
+  result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=180);(out/f'rebuild-step-{i}.log').write_bytes(result.stdout)
+  if result.returncode:raise RuntimeError(result.stdout.decode(errors='replace'))
+ print('HELPER_REBUILD_ONLY_PASS',sha(out/'wine_async_presr_play.exe'))
+
 def main():
+ if '--rebuild' in sys.argv:return rebuild()
  info=json.loads((OLD/'out/build.json').read_text());pins=info['readonly_dependency_pins']
  source=ROOT/'inputs/helper-f527';out=ROOT/'build/helper';source.mkdir(parents=True,exist_ok=True);out.mkdir(parents=True,exist_ok=True)
  mapping={}; manifest=[]
@@ -34,6 +48,6 @@ def main():
  for i,command in enumerate(compile_steps):
   result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=180);(out/f'step-{i}.log').write_bytes(result.stdout)
   if result.returncode:raise RuntimeError(result.stdout.decode(errors='replace'))
- (source/'manifest.json').write_text(json.dumps({'source_commit':'f527d8f2f12d474a66bbb4c1e231d6cd9b673476','effective_spec_sha256':sha(spec),'files':manifest,'compiler':pins['compiler'],'current_runtime_pins':info['current_runtime_pins'],'commands':compile_steps,'artifact_sha256':sha(out/'wine_async_presr_play.exe'),'wire_transport_logic_changed':False},indent=2)+'\n')
+ (source/'manifest.json').write_text(json.dumps({'source_commit':'f527d8f2f12d474a66bbb4c1e231d6cd9b673476','effective_spec_sha256':sha(spec),'files':manifest,'compiler':pins['compiler'],'dependency_pins':{**pins['SDK_headers'],**pins['ngx_sdk_headers'],pins['json_header']['path']:pins['json_header']['sha256']},'current_runtime_pins':info['current_runtime_pins'],'commands':compile_steps,'artifact_sha256':sha(out/'wine_async_presr_play.exe'),'wire_transport_logic_changed':False},indent=2)+'\n')
  print('HELPER_BUILD_ONLY_PASS',sha(out/'wine_async_presr_play.exe'))
 if __name__=='__main__':main()
