@@ -47,6 +47,12 @@ bool previousDepth(float d,ivec2 c,out float expected) {
 float depthResidual(float a,float b,float projectionZ) {
  return clamp(abs(a-b)/max(2e-7,abs(projectionZ-b)*p.thresholds.y),0.,1.);
 }
+// Catmull-Rom / cubic Hermite with a=-.5. Negative lobes require
+// independently validated taps and an explicit center-footprint range limit.
+vec4 cubicWeights(float t) {
+ float t2=t*t,t3=t2*t;
+ return vec4(-.5*t+t2-.5*t3,1.-2.5*t2+1.5*t3,.5*t+2.*t2-1.5*t3,-.5*t2+.5*t3);
+}
 float boundedMotionSpread(vec2 a,vec2 b) {
  if(!finite1(a.x)||!finite1(a.y)||!finite1(b.x)||!finite1(b.y))return 1.;
  float spread=length(a-b);
@@ -125,11 +131,13 @@ void main() {
      // samples. Missing/invalid support falls back to that unchanged reference.
      vec2 texel=prev*vec2(p.dispatch.yz)-.5,phase=fract(texel);
      ivec2 base=ivec2(floor(texel));vec3 filtered=vec3(0);
+     vec4 wx=cubicWeights(phase.x),wy=cubicWeights(phase.y);
+     vec3 centerMin=e.rgb,centerMax=e.rgb;
      float filteredConfidence=1.;vec2 oldest=m.zw;bool supported=true;
-     for(int y=0;y<2;y++) for(int x=0;x<2;x++) {
-      float weight=(x==0?1.-phase.x:phase.x)*(y==0?1.-phase.y:phase.y);
-      if(weight<=0.)continue; // Zero-weight taps do not reject image boundaries.
-      ivec2 tap=base+ivec2(x,y);
+     for(int y=0;y<4;y++) for(int x=0;x<4;x++) {
+      float weight=wx[x]*wy[y];
+      if(weight==0.)continue; // Zero-weight taps do not reject image boundaries.
+      ivec2 tap=base+ivec2(x-1,y-1);
       if(any(lessThan(tap,ivec2(0)))||any(greaterThanEqual(tap,ivec2(p.dispatch.yz)))) {supported=false;continue;}
       vec4 te=imageLoad(sourceEdit,tap),tm=imageLoad(sourceMeta,tap);
       bool sameOrigin=all(equal(tm.zw,sourceAge));tm.zw+=p.age.xy;
@@ -141,6 +149,7 @@ void main() {
       te.a=min(te.a,1.-.5*clamp(tapResidual,0.,1.));
       if(!live(te,tm)) {supported=false;continue;}
       filtered+=weight*te.rgb;filteredConfidence=min(filteredConfidence,te.a);oldest=max(oldest,tm.zw);
+      if(x>=1&&x<=2&&y>=1&&y<=2) {centerMin=min(centerMin,te.rgb);centerMax=max(centerMax,te.rgb);}
      }
      // Filtering must not introduce a new live-set loss when RGBA16 storage
      // rounds a passing float confidence below a high user threshold. Preserve
@@ -150,7 +159,7 @@ void main() {
      // Image-store rounding can differ from packHalf. Positive half encodings
      // are monotonic; test the lower representable value for both RNE and RTZ.
      if(storedConfidence>filteredConfidence&&confidenceBits>0u)storedConfidence=unpackHalf2x16(confidenceBits-1u).x;
-     if(supported&&storedConfidence>0.&&storedConfidence>=p.limits.w) {e=vec4(filtered,filteredConfidence);m.zw=oldest;}
+     if(supported&&storedConfidence>0.&&storedConfidence>=p.limits.w) {e=vec4(clamp(filtered,centerMin,centerMax),filteredConfidence);m.zw=oldest;}
     }
    }
    m.xy=vec2(d,packed(raw.rgb));

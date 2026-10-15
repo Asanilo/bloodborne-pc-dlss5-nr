@@ -89,10 +89,39 @@ def restricted_sample(grid,position,nearest,min_confidence=.5):
     if stored<=0 or stored<min_confidence:return reference
     return tuple(rgb),confidence,*age,True
 
+def cubic_weights(t):
+    return (-.5*t+t*t-.5*t**3,1-2.5*t*t+1.5*t**3,
+            .5*t+2*t*t-1.5*t**3,-.5*t*t+.5*t**3)
+
+def restricted_cubic(grid,position,nearest,min_confidence=.5):
+    x,y=position;bx,by=math.floor(x),math.floor(y)
+    wx,wy=cubic_weights(x-bx),cubic_weights(y-by)
+    reference=grid[nearest[1]][nearest[0]]
+    if not reference[4]:return None
+    rgb=[0.,0.,0.];confidence=1.;lo=list(reference[0]);hi=lo[:]
+    for dy in range(4):
+        for dx in range(4):
+            weight=wx[dx]*wy[dy]
+            if weight==0:continue
+            tx,ty=bx+dx-1,by+dy-1
+            if not 0<=ty<len(grid) or not 0<=tx<len(grid[0]):return reference
+            tap=grid[ty][tx]
+            if not tap[4] or tap[2:4]!=reference[2:4]:return reference
+            for c in range(3):rgb[c]+=weight*tap[0][c]
+            confidence=min(confidence,tap[1])
+            if 1<=dx<=2 and 1<=dy<=2:
+                lo=[min(a,b) for a,b in zip(lo,tap[0])]
+                hi=[max(a,b) for a,b in zip(hi,tap[0])]
+    bits=struct.unpack('<H',struct.pack('<e',confidence))[0]
+    stored=struct.unpack('<e',struct.pack('<H',bits))[0]
+    if stored>confidence:stored=struct.unpack('<e',struct.pack('<H',bits-1))[0]
+    if stored<=0 or stored<min_confidence:return reference
+    return tuple(min(max(v,a),b) for v,a,b in zip(rgb,lo,hi)),confidence,*reference[2:4],True
+
 class Boundaries(unittest.TestCase):
     def test_restricted_bilinear_same_origin_and_hard_reference(self):
         self.assertIn('vec2 texel=prev*vec2(p.dispatch.yz)-.5',SHADER)
-        self.assertIn('if(weight<=0.)continue',SHADER)
+        self.assertIn('if(weight==0.)continue',SHADER)
         self.assertIn('all(equal(tm.zw,sourceAge))',SHADER)
         self.assertIn('oldest=max(oldest,tm.zw)',SHADER)
         self.assertNotIn('texture(sourceEdit',SHADER)
@@ -112,6 +141,70 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(restricted_sample([[tap(2)]],(0.,0.),(0,0)),tap(2))
         # A contributing out-of-image tap never clamps/borrows another surface.
         self.assertEqual(restricted_sample(grid,(-.1,.5),(0,1)),grid[1][0])
+
+    def test_cubic_support_negative_weights_clamp_and_age(self):
+        self.assertIn('vec4 wx=cubicWeights(phase.x),wy=cubicWeights(phase.y)',SHADER)
+        self.assertIn('clamp(filtered,centerMin,centerMax)',SHADER)
+        self.assertIn('for(int y=0;y<4;y++) for(int x=0;x<4;x++)',SHADER)
+        for t in (0,.1,.5,.9,1):self.assertAlmostEqual(sum(cubic_weights(t)),1.)
+        self.assertLess(cubic_weights(.25)[0],0)
+        tap=lambda v,q=1,f=4,ms=62,ok=True:((v,v,v),q,f,ms,ok)
+        grid=[[tap(x+y) for x in range(6)] for y in range(6)]
+        out=restricted_cubic(grid,(2.25,2.5),(2,3))
+        self.assertAlmostEqual(out[0][0],4.75);self.assertEqual(out[2:4],(4,62))
+        for bad in (tap(2,ok=False),tap(2,f=3),tap(2,ms=62.00001)):
+            altered=[row[:] for row in grid];altered[1][1]=bad
+            # Outer negative-lobe contributor cannot be ignored or used from
+            # another model origin, even when the nearest itself is valid.
+            self.assertEqual(restricted_cubic(altered,(2.25,2.5),(2,3)),grid[3][2])
+        grid[1][1]=tap(-4,.6)
+        self.assertEqual(restricted_cubic(grid,(2.25,2.5),(2,3))[1],.6)
+        # Range limiting prevents negative lobes overshooting central samples.
+        grid=[[tap(-4) for _ in range(6)] for _ in range(6)]
+        for y in (2,3):
+            for x in (2,3):grid[y][x]=tap(1)
+        self.assertEqual(restricted_cubic(grid,(2.25,2.5),(2,3))[0],(1,1,1))
+        self.assertEqual(restricted_cubic([[tap(2)]],(0,0),(0,0)),tap(2))
+        self.assertEqual(restricted_cubic(grid,(-.1,2),(0,2)),grid[2][0])
+        for threshold,q in ((.8,.80001),(.912,.91201)):
+            grid=[[tap(0,.95) for _ in range(6)] for _ in range(6)]
+            grid[1][1]=tap(.2,q)
+            self.assertEqual(restricted_cubic(grid,(2.25,2.5),(2,3),threshold),grid[3][2])
+
+    def test_cubic_repeated_subpixel_detail_and_phase_cost(self):
+        def warp(a,p,mode):
+            out=[]
+            for x in range(len(a)):
+                z=x+p;b=math.floor(z);t=z-b
+                if mode=='nearest':v=a[math.floor(z+.5)%len(a)]
+                elif mode=='bilinear':v=(1-t)*a[b%len(a)]+t*a[(b+1)%len(a)]
+                else:
+                    v=sum(w*a[(b+i-1)%len(a)] for i,w in enumerate(cubic_weights(t)))
+                    v=min(max(v,min(a[b%len(a)],a[(b+1)%len(a)])),max(a[b%len(a)],a[(b+1)%len(a)]))
+                out.append(v)
+            return out
+        n=256
+        for source in ([float(i==128) for i in range(n)],
+                       [math.sin(2*math.pi*i/8) for i in range(n)],
+                       [i/n for i in range(n)]):
+            result={}
+            for mode in ('nearest','bilinear','cubic'):
+                a=source[:]
+                for _ in range(16):a=warp(warp(a,.25,mode),-.25,mode)
+                result[mode]=a
+            mse=lambda a:sum((a-b)**2 for a,b in zip(a,source))/n
+            self.assertLess(mse(result['cubic']),mse(result['bilinear']))
+            self.assertEqual(result['nearest'],source) # No net shift, but quantized transport.
+        pulse=[float(i==128) for i in range(n)]
+        cubic=pulse[:];linear=pulse[:]
+        for _ in range(16):
+            cubic=warp(warp(cubic,.25,'cubic'),-.25,'cubic')
+            linear=warp(warp(linear,.25,'bilinear'),-.25,'bilinear')
+        self.assertGreater(max(cubic),2*max(linear))
+        self.assertLess(max(cubic),.5) # Explicitly NOT lossless infinite reprojection.
+        ramp=[i/n for i in range(n)]
+        self.assertAlmostEqual(warp(ramp,.51,'cubic')[100]-warp(ramp,.49,'cubic')[100],.02/n)
+        self.assertAlmostEqual(warp(ramp,.51,'nearest')[100]-warp(ramp,.49,'nearest')[100],1/n)
 
     def test_filtered_confidence_half_rounding_preserves_nearest(self):
         self.assertIn('packHalf2x16(vec2(filteredConfidence,0.))&65535u',SHADER)
