@@ -239,6 +239,8 @@ private:
     /// (BB_COPY_GPU_BUFFERS): the guest reused their memory before the GPU thread decoded
     /// them ("PM4 type 0" from zeros or the next frame's commands, while an area loads).
     struct SubmittedCopy {
+        bool cold_trace=false,cold_framing_valid=true;
+        size_t cold_bad_offset=0;uint32_t cold_bad_word=0;uint64_t cold_digest=0;
         std::vector<u32> data; ///< dcb, then ccb
         const u32* guest_dcb{};
         std::size_t dcb_dwords{};

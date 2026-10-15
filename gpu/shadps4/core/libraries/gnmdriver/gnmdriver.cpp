@@ -25,6 +25,7 @@
 #include "bbport_timeline.h"
 #include "bbport_heap_sites.h"
 #include "bbport_gnm_hooks.h"
+#include "bbport_pm4_cold_trace.h"
 #include "video_core/amdgpu/pm4_cmds.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
@@ -1526,6 +1527,7 @@ int PS4_SYSV_ABI sceGnmSdmaOpen() {
 }
 
 s32 PS4_SYSV_ABI sceGnmSetCsShader(u32* cmdbuf, u32 size, const u32* cs_regs) {
+    BbPm4Cold::CsWrite cold_trace{"sceGnmSetCsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1550,11 +1552,13 @@ s32 PS4_SYSV_ABI sceGnmSetCsShader(u32* cmdbuf, u32 size, const u32* cs_regs) {
         cs_regs[6]); // COMPUTE_NUM_THREAD_X/COMPUTE_NUM_THREAD_Y/COMPUTE_NUM_THREAD_Z
 
     WriteTrailingNop<11>(cmdbuf);
+    cold_trace.Written(25);
     return ORBIS_OK;
 }
 
 s32 PS4_SYSV_ABI sceGnmSetCsShaderWithModifier(u32* cmdbuf, u32 size, const u32* cs_regs,
                                                u32 modifier) {
+    BbPm4Cold::CsWrite cold_trace{"sceGnmSetCsShaderWithModifier",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1584,6 +1588,7 @@ s32 PS4_SYSV_ABI sceGnmSetCsShaderWithModifier(u32* cmdbuf, u32 size, const u32*
         cs_regs[6]); // COMPUTE_NUM_THREAD_X/COMPUTE_NUM_THREAD_Y/COMPUTE_NUM_THREAD_Z
 
     WriteTrailingNop<11>(cmdbuf);
+    cold_trace.Written(25);
     return ORBIS_OK;
 }
 
