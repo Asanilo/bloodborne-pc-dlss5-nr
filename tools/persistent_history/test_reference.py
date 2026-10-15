@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """CPU numerical boundary oracle; shader compilation is separate, never GPU acceptance."""
-import math,pathlib,re,unittest
+import math,pathlib,re,unittest,struct
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 HEADER=(ROOT/'gpu/shadps4/video_core/renderer_vulkan/native_persistent_history_shader.h').read_text()
 SHADER=(ROOT/'tools/persistent_history/history.comp').read_text()
@@ -30,7 +30,23 @@ def compose(raw,h):
     if h is None:return raw
     return tuple(max((max(v,0)+EPS)*2**e-EPS,0) for v,e in zip(raw[:3],h[0]))+(raw[3],)
 
+def guide_roundtrip(rgb):
+    quantized=[round((math.log2(c+EPS)+16)/32*n) for c,n in zip(rgb,(127,255,255))]
+    bits=0x3f800000|quantized[0]|quantized[1]<<7|quantized[2]<<15
+    stored=struct.unpack('<f',struct.pack('<I',bits))[0]
+    retrieved=struct.unpack('<I',struct.pack('<f',stored))[0]
+    values=(retrieved&127,(retrieved>>7)&255,(retrieved>>15)&255)
+    return stored,tuple(max(2**(q/n*32-16)-EPS,0) for q,n in zip(values,(127,255,255)))
+
 class Boundaries(unittest.TestCase):
+    def test_packed_guide_normal_and_colour_precision(self):
+        self.assertIn('0x3f800000u|u.x|(u.y<<7)|(u.z<<15)',SHADER)
+        for rgb in [(0,0,0),(.001,.03,.1),(1,10,100),(1000,10000,30000)]:
+            stored,decoded=guide_roundtrip(rgb)
+            self.assertTrue(math.isfinite(stored) and 1<=stored<2)
+            for a,b in zip(rgb,decoded):
+                self.assertLessEqual(abs(math.log2((a+EPS)/(b+EPS))),32/127/2+1e-10)
+
     def test_source_contract(self):
         # Validate oracle assumptions against shader actually compiled, not detached constants.
         for text in ['m.zw+=p.age.xy','m=vec4(d,packed(origin),p.age.zw)', 'state.invalid[src]==0u', 'p.flags.w','vec4(rgb,raw.a)','difference','motionImage','p.motion.zw']:
