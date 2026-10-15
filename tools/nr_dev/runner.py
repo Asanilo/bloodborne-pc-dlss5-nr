@@ -64,6 +64,65 @@ def audit_pre_nr_absence(run, provenance):
  if 'exact_token(run+"/native-helper-start")' not in frontend or 'frontend&&frontend->HelperStartRequested()' not in native or 'if(!peer&&can_start)' not in native:raise ValueError('unrecognized scene-first gate')
  return {name:sha(run/name) for name in ('manifest.json','result.json','runner.json','game-identity.json','game.log','native-loaded-libraries.json')}
 
+TERMINATED_PRE_NR_HEAD='b701356f2580886380d21a4a31003e672aa7815f'
+def audit_terminated_pre_nr_freeze(run, provenance):
+ """Exact frozen run exception; proves no NR ownership, NEVER guest GPU retirement."""
+ if run!=ROOT/'runs/dev-transition-cold-01' or run.resolve()!=run:raise ValueError('not exact terminated pre-NR context')
+ manifest=json.loads((run/'manifest.json').read_text());result=json.loads((run/'result.json').read_text());env=manifest.get('environment',{})
+ if manifest.get('schema')!='nr-dev-session-v1' or manifest.get('session')!=run.name or env.get('BB_NR_NATIVE_ASYNC_SCENE_FIRST')!='1' or env.get('BB_NR_NATIVE_ASYNC')!='0' or env.get('BB_NR_NATIVE_ASYNC_PRE_SR')!='1' or env.get('BB_NR_NATIVE_ASYNC_RUN_DIR')!=str(run) or env.get('BB_NR_NATIVE_ASYNC_SCENE_ARM')!=str(run/'native-scene-arm'):raise ValueError('not exact scene-first environment')
+ if result.get('status')!='HOLD' or result.get('returncode')!=137 or result.get('watchdog_expired') is not True or result.get('supervisor_interrupted') is not False or result.get('received_signals')!=0 or result.get('residuals')!=[] or result.get('native_lastuse_proof') is not False:raise ValueError('not exact abnormal terminated HOLD')
+ allowed={'manifest.json','result.json','runner.json','game-identity.json','game.log','native-loaded-libraries.json','pad.txt','present-metrics.json','retirement-audit.json','profile','build-provenance','authorized-abnormal-termination.json','exit-thread-stacks-user.txt','exit-thread-stacks-privileged.txt','exit-thread-stacks.txt','frozen-registers.txt','read-frozen-registers.gdb','native-helper-start','planned-close.json','stop-request.json','scene-ready.json','scene-ready.png','scene.png','gpu-memory.jsonl','hold-resolution.json','post-exit-host-observation.json'}
+ if any(p.name not in allowed or p.is_symlink() for p in run.iterdir()):raise ValueError('unexpected artifact, arm, config, frames or NR ownership evidence')
+ build=manifest.get('native_build_provenance',{});files=build.get('files',{})
+ if build.get('source_commit')!=TERMINATED_PRE_NR_HEAD or set(files)!={'source-head.txt','source-diff.patch','artifacts.sha256'}:raise ValueError('unreviewed source provenance')
+ for name,digest in files.items():
+  path=run/'build-provenance'/name
+  if not path.is_file() or path.is_symlink() or sha(path)!=digest:raise ValueError('source provenance drift')
+ if (run/'build-provenance/source-head.txt').read_text().strip()!=TERMINATED_PRE_NR_HEAD or (run/'build-provenance/source-diff.patch').read_bytes()!=b'':raise ValueError('nonclean reviewed source')
+ recorded={}
+ for line in (run/'build-provenance/artifacts.sha256').read_text().splitlines():
+  digest,path=line.split(None,1)
+  if not re.fullmatch('[0-9a-f]{64}',digest) or path in recorded:raise ValueError('malformed artifact provenance')
+  recorded[path]=digest
+ native={p:d for p,d in manifest.get('artifacts',{}).items() if Path(p).is_relative_to(Path(manifest['native_build']))}
+ if not native or recorded!=native or provenance.get('artifacts')!=manifest.get('artifacts') or provenance.get('source_commit')!=TERMINATED_PRE_NR_HEAD or provenance.get('observed_clean_build') is not True or not provenance.get('observation'):raise ValueError('missing observed exact artifacts')
+ # Bind the reviewed source boundary by exact commit and source content, not
+ # current mutable checkout or a generic log-absence rule.
+ def source(path):return subprocess.check_output(['git','show',TERMINATED_PRE_NR_HEAD+':'+path],cwd=WT,text=True)
+ owner=source('gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr_origin_owner.cpp')
+ native_source=source('gpu/shadps4/video_core/renderer_vulkan/native_async_pre_sr.cpp')
+ if not owner.index('create_directories(run+"/frames/bucket-000000")')<owner.index('getProperties2(&props)')<owner.index('Atomic(run+"/async-config.json"')<owner.index('NativePreSrSpawnLog::Spawn('):raise ValueError('unrecognized bootstrap boundary')
+ if 'if(!Enabled()||!Armed())return false;' not in native_source or 'if(!Enabled()||!Armed()||!actual_supported' not in native_source:raise ValueError('unrecognized NR resource gate')
+ identity=json.loads((run/'game-identity.json').read_text());auth=json.loads((run/'authorized-abnormal-termination.json').read_text())
+ if auth.get('identity')!=identity or auth.get('scope')!='explicit user-authorized termination of one frozen private test; NOT normal GPU retirement' or auth.get('signals')!=['SIGTERM','SIGKILL'] or auth.get('identity_remaining') is not False or auth.get('original_hold_sha256')!='7be3c9c44e16262b34d181b093970aaa0f9c04a6acdf76188cd80b3bba717345' or not 0<auth.get('monotonic_ns',0)<auth.get('completed_monotonic_ns',0):raise ValueError('missing exact termination authority')
+ diagnostics=auth.get('diagnostic_sha256',{})
+ if set(diagnostics)!={'exit-thread-stacks-user.txt','frozen-registers.txt'}:raise ValueError('missing frozen diagnostics')
+ for name,digest in diagnostics.items():
+  if sha(run/name)!=digest:raise ValueError('frozen diagnostic drift')
+ text=(run/'game.log').read_text(errors='strict');frontend=0;pending=0
+ for line in text.splitlines():
+  if not re.search(r'NATIVE_ASYNC_|NATIVE_ORIGIN_|NATIVE_PRE_SR_|HELPER_|PERSISTENT_|NR_RUNTIME_|ASYNC_CONFIG|INPUT_PUBLISHED',line):continue
+  name=line.split(' ',1)[0];fields=dict(re.findall(r'(\w+)=(\S+)',line))
+  if name=='NATIVE_ASYNC_PRE_SR_FRONTEND_READY':
+   if line!='NATIVE_ASYNC_PRE_SR_FRONTEND_READY session='+run.name+' scene_arm=REQUIRED availability_only=1 no_GPU_proof=1':raise ValueError('unknown frontend evidence')
+   frontend+=1;continue
+  if name=='NATIVE_ASYNC_HELPER_START_REQUEST':
+   if line!='NATIVE_ASYNC_HELPER_START_REQUEST session='+run.name+' scene_first=1 scene_proof=REQUIRES_ROOT GPU_proof=NONE':raise ValueError('unknown helper-start evidence')
+   continue
+  if name=='NATIVE_ASYNC_EXIT_PENDING':
+   if line!='NATIVE_ASYNC_EXIT_PENDING actual_owner_completion=WAITING forced_free=0':raise ValueError('unknown pending evidence')
+   pending+=1;continue
+  raw_checks={
+   'NATIVE_PRE_SR_SR_EXPERIMENT':{'fixed_bound':'0','cache_content_selected':'0'},
+   'NATIVE_ASYNC_PRE_SR_INPUT_DOMAIN':{'cache_selected':'0','input_domain':'raw','request_origin':'0','candidate_job':'0','request_age':'0'},
+   'NATIVE_ASYNC_PRE_SR_SR_READ':{'cache_selected':'0','request_origin':'0','candidate_job':'0'},
+   'NATIVE_ASYNC_PRE_SR_CURRENT_PRESENT':{'cache_selected':'0','job':'0','current_NR_inference_claim':'0'},
+  }
+  if name not in raw_checks or fields.get('session')!=run.name or any(fields.get(k)!=v for k,v in raw_checks[name].items()):raise ValueError('NR-owning or unrecognized log evidence')
+ if frontend!=1 or pending!=1:raise ValueError('incomplete pre-NR freeze log')
+ names=['manifest.json','result.json','runner.json','game-identity.json','game.log','native-loaded-libraries.json','authorized-abnormal-termination.json',*diagnostics]
+ return {name:sha(run/name) for name in names}|{'build-provenance/'+name:digest for name,digest in files.items()}
+
 def verify_fresh_context_resolution(run, resolution, lock):
  if lock is None:raise ValueError('fresh-context exception requires held GPU lock')
  if Path(os.readlink('/proc/self/fd/'+str(lock.fileno())))!=Path('/tmp/nrbridge-poc-gpu.lock'):raise ValueError('wrong GPU lock')
@@ -73,8 +132,9 @@ def verify_fresh_context_resolution(run, resolution, lock):
   try:fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)
   except BlockingIOError:pass
   else:raise ValueError('GPU lock not exclusive')
- if resolution.get('kind')!='pre-nr-absence' or resolution.get('scope')!='fresh-context-only' or resolution.get('normal_retirement_proved') is not False:raise ValueError('wrong resolution scope')
- evidence=audit_pre_nr_absence(run,resolution.get('build_observation',{}))
+ if resolution.get('kind') not in ('pre-nr-absence','terminated-pre-nr-freeze') or resolution.get('scope')!='fresh-context-only' or resolution.get('normal_retirement_proved') is not False:raise ValueError('wrong resolution scope')
+ audit=audit_pre_nr_absence if resolution['kind']=='pre-nr-absence' else audit_terminated_pre_nr_freeze
+ evidence=audit(run,resolution.get('build_observation',{}))
  if resolution.get('evidence_sha256')!=evidence:raise ValueError('pre-NR evidence changed')
  boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
  manifest=json.loads((run/'manifest.json').read_text())
@@ -111,7 +171,7 @@ def preflight(lock=None):
    if not resolution.is_file():raise ValueError('unresolved new-context HOLD '+str(result))
    resolved=json.loads(resolution.read_text())
    if resolved.get('original_result_sha256')!=sha(result):raise ValueError('HOLD result changed')
-   if resolved.get('kind')=='pre-nr-absence':verify_fresh_context_resolution(result.parent,resolved,lock)
+   if resolved.get('kind') in ('pre-nr-absence','terminated-pre-nr-freeze'):verify_fresh_context_resolution(result.parent,resolved,lock)
    elif resolved.get('normal_retirement_proved') is not True or not resolved.get('evidence'):raise ValueError('unproved HOLD resolution '+str(resolution))
  for pin in json.loads((ROOT/'inputs/runtime-pins.json').read_text())['pins']:
   if sha(Path(pin['path']))!=pin['sha256']:raise ValueError('runtime pin drift '+pin['path'])
