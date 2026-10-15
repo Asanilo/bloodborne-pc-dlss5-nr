@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd -- "$(dirname -- "$0")"
-mkdir -p out
+BUILD=${BB_BUILD_DIR:-$PWD/out}
+mkdir -p "$BUILD"
 if [[ -z ${CC:-} ]]; then
     CC=$(command -v cc || command -v gcc || true)
     if [[ -z $CC ]]; then
@@ -21,14 +22,14 @@ if ! { command -v pkg-config >/dev/null && pkg-config --exists vulkan sdl3 && co
 fi
 read -r -a includes <<< "$(pkg-config --cflags vulkan sdl3)"
 read -r -a libraries <<< "$(pkg-config --libs vulkan sdl3)"
-# GPU library (shadPS4 video core + drivers), built by CMake into out/gpu/libbbgpu.so.
+# GPU library (shadPS4 video core + drivers), built by CMake into "$BUILD"/gpu/libbbgpu.so.
 # BB_PGO: generate (instrumented build that writes pgo/ while the game runs), use, off.
 # Default: use the profile in pgo/ when there is one. BB_LTO=OFF disables link-time optimization.
 pgo=${BB_PGO:-}
 if [[ -z $pgo ]]; then
-    if [[ -n $(find pgo -name '*.gcda' -print -quit 2>/dev/null) ]]; then pgo=use; else pgo=off; fi
+    if [[ -n $(find "$BUILD/pgo" -name '*.gcda' -print -quit 2>/dev/null) ]]; then pgo=use; else pgo=off; fi
 fi
-mkdir -p pgo
+mkdir -p "$BUILD/pgo"
 # Submodules (git clone --recursive, or: git submodule update --init) and this port's changes
 # to FSR-Vulkan (gpu/patches/fsr-vulkan), applied to its working tree once.
 if [[ ! -f gpu/third_party/fsr-vulkan/CMakeLists.txt || ! -f gpu/third_party/imgui/imgui.h ]]; then
@@ -39,49 +40,49 @@ for patch in gpu/patches/fsr-vulkan/*.patch; do
         git -C gpu/third_party/fsr-vulkan apply "$PWD/$patch"
     fi
 done
-cmake -S gpu -B out/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO="$pgo" \
-    -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$PWD/pgo" >/dev/null
+cmake -S gpu -B "$BUILD"/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO="$pgo" \
+    -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$BUILD/pgo" >/dev/null
 echo "GPU library: PGO $pgo, LTO ${BB_LTO:-ON}"
 # A failed GPU build must stop here: an older libbbgpu.so would otherwise be used silently.
-if ! ninja -C out/gpu bbgpu > out/gpu-build.log 2>&1; then
-    grep -v '^\[' out/gpu-build.log | tail -40 >&2
-    echo 'GPU library build failed (full log: out/gpu-build.log)' >&2; exit 1
+if ! ninja -C "$BUILD"/gpu bbgpu > "$BUILD"/gpu-build.log 2>&1; then
+    grep -v '^\[' "$BUILD"/gpu-build.log | tail -40 >&2
+    echo 'GPU library build failed (full log: "$BUILD"/gpu-build.log)' >&2; exit 1
 fi
 # Optional DLSS (NVIDIA RTX): DLSS_SDK_ROOT=<github.com/NVIDIA/DLSS checkout> builds the bridge
 # (gpu/dlss_bridge, the only code using NVIDIA's SDK) and puts it next to bb-probe with NVIDIA's
 # libnvidia-ngx-dlss.so. Without them the DLSS upscaler is listed as unavailable.
 if [[ -n ${DLSS_SDK_ROOT:-} ]]; then
-    cmake -S gpu/dlss_bridge -B out/dlss-bridge -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    cmake -S gpu/dlss_bridge -B "$BUILD"/dlss-bridge -G Ninja -DCMAKE_BUILD_TYPE=Release \
         -DDLSS_SDK_ROOT="$DLSS_SDK_ROOT" >/dev/null
-    ninja -C out/dlss-bridge >/dev/null
-    rm -f out/libnvidia-ngx-dlss.so.*
-    cp out/dlss-bridge/libbbport_dlss.so "$DLSS_SDK_ROOT"/lib/Linux_x86_64/rel/libnvidia-ngx-dlss.so.* out/
-    cp "$DLSS_SDK_ROOT/LICENSE.txt" out/NVIDIA-DLSS-LICENSE.txt
-    echo "DLSS bridge: out/libbbport_dlss.so"
+    ninja -C "$BUILD"/dlss-bridge >/dev/null
+    rm -f "$BUILD"/libnvidia-ngx-dlss.so.*
+    cp "$BUILD"/dlss-bridge/libbbport_dlss.so "$DLSS_SDK_ROOT"/lib/Linux_x86_64/rel/libnvidia-ngx-dlss.so.* "$BUILD"/
+    cp "$DLSS_SDK_ROOT/LICENSE.txt" "$BUILD"/NVIDIA-DLSS-LICENSE.txt
+    echo "DLSS bridge: "$BUILD"/libbbport_dlss.so"
 fi
 # $ORIGIN/gpu: packaged copies keep the library next to the binary without patching it.
-gpu=(-Lout/gpu -lbbgpu -Wl,-rpath,'$ORIGIN/gpu' -Wl,-rpath,"$PWD/out/gpu" -rdynamic)
+gpu=(-L"$BUILD"/gpu -lbbgpu -Wl,-rpath,'$ORIGIN/gpu' -Wl,-rpath,"$BUILD/gpu" -rdynamic)
 runtime=(src/runtime*.c)
 # Third-party decoders: compiled once, without this project's -Werror policy.
 atrac9=(third_party/LibAtrac9/C/src/*.c)
-if [[ ! -f out/libatrac9.a || -n $(find third_party/LibAtrac9/C/src -newer out/libatrac9.a -name '*.c') ]]; then
-    rm -rf out/atrac9 && mkdir -p out/atrac9
-    for source in "${atrac9[@]}"; do "$CC" -std=c99 -O2 -g -w -c "$source" -o "out/atrac9/$(basename "${source%.c}").o"; done
-    ar rcs out/libatrac9.a out/atrac9/*.o
+if [[ ! -f "$BUILD"/libatrac9.a || -n $(find third_party/LibAtrac9/C/src -newer "$BUILD"/libatrac9.a -name '*.c') ]]; then
+    rm -rf "$BUILD"/atrac9 && mkdir -p "$BUILD"/atrac9
+    for source in "${atrac9[@]}"; do "$CC" -std=c99 -O2 -g -w -c "$source" -o "$BUILD/atrac9/$(basename "${source%.c}").o"; done
+    ar rcs "$BUILD"/libatrac9.a "$BUILD"/atrac9/*.o
 fi
-"$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -no-pie "${includes[@]}" -I. -Isrc src/probe.c "${runtime[@]}" src/vulkan_smoke.c out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o out/bb-probe
-echo "Built $PWD/out/bb-probe"
+"$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -no-pie "${includes[@]}" -I. -Isrc src/probe.c "${runtime[@]}" src/vulkan_smoke.c "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/bb-probe
+echo "Built $BUILD/bb-probe"
 # GPU check for run.sh (live_resolution=auto) and the launcher's gamepad list (--gamepads).
-"$CC" -std=c11 -O2 -Wall -Wextra -Werror "${includes[@]}" tools/gpu_capabilities.c "${libraries[@]}" -o out/bb-gpu-capabilities
+"$CC" -std=c11 -O2 -Wall -Wextra -Werror "${includes[@]}" tools/gpu_capabilities.c "${libraries[@]}" -o "$BUILD"/bb-gpu-capabilities
 if [[ ${1:-} == --test ]]; then
-    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" -o out/pad-test
-    out/pad-test
-    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_runtime.c "${runtime[@]}" out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o out/runtime-test
-    out/runtime-test
-    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -Isrc tests/test_file_mods.c -o out/file-mods-test
-    out/file-mods-test
-    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_sema.c "${runtime[@]}" out/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o out/sema-test
-    out/sema-test
-    "$CC" -std=c11 -D_GNU_SOURCE -O2 -g -Wall -Wextra -Werror -I. -Isrc tests/test_content.c src/runtime_content.c -o out/content-test
-    out/content-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" -o "$BUILD"/pad-test
+    "$BUILD"/pad-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_runtime.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/runtime-test
+    "$BUILD"/runtime-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -Isrc tests/test_file_mods.c -o "$BUILD"/file-mods-test
+    "$BUILD"/file-mods-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_sema.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/sema-test
+    "$BUILD"/sema-test
+    "$CC" -std=c11 -D_GNU_SOURCE -O2 -g -Wall -Wextra -Werror -I. -Isrc tests/test_content.c src/runtime_content.c -o "$BUILD"/content-test
+    "$BUILD"/content-test
 fi
