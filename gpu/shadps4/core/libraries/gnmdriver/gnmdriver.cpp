@@ -1523,7 +1523,7 @@ int PS4_SYSV_ABI sceGnmSdmaOpen() {
 }
 
 s32 PS4_SYSV_ABI sceGnmSetCsShader(u32* cmdbuf, u32 size, const u32* cs_regs) {
-    BbPm4Cold::CsWrite cold_trace{"sceGnmSetCsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetCsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1548,13 +1548,13 @@ s32 PS4_SYSV_ABI sceGnmSetCsShader(u32* cmdbuf, u32 size, const u32* cs_regs) {
         cs_regs[6]); // COMPUTE_NUM_THREAD_X/COMPUTE_NUM_THREAD_Y/COMPUTE_NUM_THREAD_Z
 
     WriteTrailingNop<11>(cmdbuf);
-    cold_trace.Written(25);
+    cold_trace.Footprint(25); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
 s32 PS4_SYSV_ABI sceGnmSetCsShaderWithModifier(u32* cmdbuf, u32 size, const u32* cs_regs,
                                                u32 modifier) {
-    BbPm4Cold::CsWrite cold_trace{"sceGnmSetCsShaderWithModifier",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetCsShaderWithModifier",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1584,12 +1584,13 @@ s32 PS4_SYSV_ABI sceGnmSetCsShaderWithModifier(u32* cmdbuf, u32 size, const u32*
         cs_regs[6]); // COMPUTE_NUM_THREAD_X/COMPUTE_NUM_THREAD_Y/COMPUTE_NUM_THREAD_Z
 
     WriteTrailingNop<11>(cmdbuf);
-    cold_trace.Written(25);
+    cold_trace.Footprint(25); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
 s32 PS4_SYSV_ABI sceGnmSetEmbeddedPsShader(u32* cmdbuf, u32 size, u32 shader_id,
                                            u32 shader_modifier) {
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetEmbeddedPsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if (shader_id > 1) {
@@ -1654,11 +1655,13 @@ s32 PS4_SYSV_ABI sceGnmSetEmbeddedPsShader(u32* cmdbuf, u32 size, u32 shader_id,
 
     WriteTrailingNop<11>(cmdbuf);
 
+    cold_trace.Footprint(40); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
 s32 PS4_SYSV_ABI sceGnmSetEmbeddedVsShader(u32* cmdbuf, u32 size, u32 shader_id,
                                            u32 shader_modifier) {
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetEmbeddedVsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if (shader_id != 0) {
@@ -1706,6 +1709,7 @@ s32 PS4_SYSV_ABI sceGnmSetEmbeddedVsShader(u32* cmdbuf, u32 size, u32 shader_id,
     cmdbuf = PM4CmdSetData::SetContextReg(cmdbuf, 0x1c3u, vs_regs[5]); // SPI_SHADER_POS_FORMAT
 
     WriteTrailingNop<11>(cmdbuf);
+    cold_trace.Footprint(29); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
@@ -1841,6 +1845,7 @@ s32 PS4_SYSV_ABI sceGnmSetLsShader(u32* cmdbuf, u32 size, const u32* ls_regs, u3
 }
 
 s32 PS4_SYSV_ABI sceGnmSetPsShader(u32* cmdbuf, u32 size, const u32* ps_regs) {
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetPsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1875,10 +1880,12 @@ s32 PS4_SYSV_ABI sceGnmSetPsShader(u32* cmdbuf, u32 size, const u32* ps_regs) {
 
         WriteTrailingNop<11>(cmdbuf);
     }
+    cold_trace.Footprint(40); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
 s32 PS4_SYSV_ABI sceGnmSetPsShader350(u32* cmdbuf, u32 size, const u32* ps_regs) {
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetPsShader350",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1914,6 +1921,7 @@ s32 PS4_SYSV_ABI sceGnmSetPsShader350(u32* cmdbuf, u32 size, const u32* ps_regs)
 
         WriteTrailingNop<11>(cmdbuf);
     }
+    cold_trace.Footprint(40); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
@@ -1978,6 +1986,7 @@ s32 PS4_SYSV_ABI sceGnmSetVgtControl(u32* cmdbuf, u32 size, u32 prim_group_sz_mi
 }
 
 s32 PS4_SYSV_ABI sceGnmSetVsShader(u32* cmdbuf, u32 size, const u32* vs_regs, u32 shader_modifier) {
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetVsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -2008,6 +2017,7 @@ s32 PS4_SYSV_ABI sceGnmSetVsShader(u32* cmdbuf, u32 size, const u32* vs_regs, u3
     cmdbuf = PM4CmdSetData::SetContextReg(cmdbuf, 0x1c3u, vs_regs[5]); // SPI_SHADER_POS_FORMAT
 
     WriteTrailingNop<11>(cmdbuf);
+    cold_trace.Footprint(29); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
@@ -2640,6 +2650,7 @@ int PS4_SYSV_ABI sceGnmUpdateHsShader(u32* cmdbuf, u32 size, const u32* hs_regs,
 }
 
 s32 PS4_SYSV_ABI sceGnmUpdatePsShader(u32* cmdbuf, u32 size, const u32* ps_regs) {
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmUpdatePsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -2680,10 +2691,12 @@ s32 PS4_SYSV_ABI sceGnmUpdatePsShader(u32* cmdbuf, u32 size, const u32* ps_regs)
 
         WriteTrailingNop<11>(cmdbuf);
     }
+    cold_trace.Footprint(40); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
 s32 PS4_SYSV_ABI sceGnmUpdatePsShader350(u32* cmdbuf, u32 size, const u32* ps_regs) {
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmUpdatePsShader350",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -2726,11 +2739,13 @@ s32 PS4_SYSV_ABI sceGnmUpdatePsShader350(u32* cmdbuf, u32 size, const u32* ps_re
 
         WriteTrailingNop<11>(cmdbuf);
     }
+    cold_trace.Footprint(40); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
 s32 PS4_SYSV_ABI sceGnmUpdateVsShader(u32* cmdbuf, u32 size, const u32* vs_regs,
                                       u32 shader_modifier) {
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmUpdateVsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -2765,6 +2780,7 @@ s32 PS4_SYSV_ABI sceGnmUpdateVsShader(u32* cmdbuf, u32 size, const u32* vs_regs,
                                            vs_regs[5]); // PA_CL_VS_OUT_CNTL update
 
     WriteTrailingNop<11>(cmdbuf);
+    cold_trace.Footprint(29); // Logical packet span; trailing NOP payload is not fully written.
     return ORBIS_OK;
 }
 
