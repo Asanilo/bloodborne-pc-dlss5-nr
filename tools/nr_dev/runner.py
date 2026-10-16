@@ -236,6 +236,9 @@ def preflight(lock=None,recovery=None):
  h=holders()
  if h:raise ValueError('live Native/Helper GPU holders: '+json.dumps(h))
  if recovery is not None:
+  if getattr(recovery,'context_recovery',None):
+   from context_recovery import check_launch
+   return check_launch(argparse.Namespace(**globals()),recovery,lock)
   for pin in json.loads((ROOT/'inputs/runtime-pins.json').read_text())['pins']:
    if sha(Path(pin['path']))!=pin['sha256']:raise ValueError('runtime pin drift '+pin['path'])
   return reboot_diagnostic_preflight(lock,recovery)
@@ -427,6 +430,9 @@ def control(args):
  run=checked_run(args.session)
  if args.command in ('start-helper','arm') and json.loads((run/'manifest.json').read_text()).get('host_safety',{}).get('reboot_diagnostic'):raise ValueError('reboot diagnostic forbids Helper and NR')
  game=current_game(run)
+ if args.command in ('start-helper','arm'):
+  from context_recovery import check_control
+  check_control(argparse.Namespace(**globals()),run,game,args.command)
  if args.command=='dump':
   (run/'dump').mkdir(exist_ok=True)
   with (run/'present-dump-trigger').open('x') as trigger:trigger.write(args.session+'\n')
@@ -528,7 +534,7 @@ def launch_supervised(args,signals):
  if args.runtime_model_helper:helper,helper_build=checked_runtime_helper(args.runtime_model_helper,args.runtime_model_build_sha256)
  if args.continue_session==args.session:raise ValueError('continuation must create a new session')
  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
-  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight(lock,args if getattr(args,'reboot_diagnostic',None) else None)
+  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight(lock,args if (getattr(args,'reboot_diagnostic',None) or getattr(args,'context_recovery',None)) else None)
   for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
   run.mkdir(mode=0o700);signals.run=run
@@ -607,7 +613,8 @@ def launch_supervised(args,signals):
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ if a.context_recovery and a.reboot_diagnostic:p.error('choose one isolated diagnostic scope')
  if a.command=='preflight':
   with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);print(json.dumps(preflight(lock),indent=2))
