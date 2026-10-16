@@ -93,15 +93,19 @@ static ABI uint64_t process_time_counter(void) {
 static ABI uint64_t process_time_frequency(void) { return 1000000000; }
 static ABI uint64_t read_tsc(void) { return __rdtsc(); }
 static uint64_t tsc_hz;
+static pthread_once_t tsc_once = PTHREAD_ONCE_INIT;
+static void calibrate_tsc_frequency(void) {
+    struct timespec a,b,nap={0,20000000};
+    clock_gettime(CLOCK_MONOTONIC,&a); uint64_t t0=__rdtsc();
+    nanosleep(&nap,NULL);
+    clock_gettime(CLOCK_MONOTONIC,&b); uint64_t t1=__rdtsc();
+    uint64_t ns=(uint64_t)(b.tv_sec-a.tv_sec)*1000000000+(uint64_t)(b.tv_nsec-a.tv_nsec);
+    tsc_hz=(t1-t0)*1000000000/(ns ? ns : 1);
+}
 static ABI uint64_t tsc_frequency(void) {
-    if (!tsc_hz) {
-        struct timespec a,b,nap={0,20000000};
-        clock_gettime(CLOCK_MONOTONIC,&a); uint64_t t0=__rdtsc();
-        nanosleep(&nap,NULL);
-        clock_gettime(CLOCK_MONOTONIC,&b); uint64_t t1=__rdtsc();
-        uint64_t ns=(uint64_t)(b.tv_sec-a.tv_sec)*1000000000+(uint64_t)(b.tv_nsec-a.tv_nsec);
-        tsc_hz=(t1-t0)*1000000000/(ns ? ns : 1);
-    }
+    /* All guest/native callers share one immutable calibration. Concurrent
+     * lazy initializers must not publish different frequencies or race on it. */
+    pthread_once(&tsc_once,calibrate_tsc_frequency);
     return tsc_hz;
 }
 /* Shared with the GPU library so flip/label timestamps use the guest's clock. */
