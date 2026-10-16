@@ -234,10 +234,11 @@ void Liverpool::Process(std::stop_token stoken) {
                     std::scoped_lock lock2{submit_mutex};
                     --num_submits;
                     ++decoded_total;
+                    ++queue_decoded[curr_qid];
                     if (curr_qid == GfxQueueId) {
                         ++gfx_decoded;
                     }
-                    frame_end = !frame_ends.empty() && frame_ends.front().first <= decoded_total;
+                    frame_end = !frame_ends.empty() && frame_ends.front().IsDecoded(queue_decoded);
                     submit_cv.notify_all();
                 }
                 // BB_SUBMIT_LOCK=frame: the last submission of a frame (any queue) is decoded.
@@ -2482,6 +2483,7 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
         std::scoped_lock lk{submit_mutex};
         ++num_submits;
         ++submissions_total;
+        ++queue_submitted[GfxQueueId];
         ++gfx_submitted;
         BbTimeline::Note(BbTimeline::GuestSubmit, 0, submissions_total);
         work_retired = false;
@@ -2493,8 +2495,8 @@ void Liverpool::SignalDecodedFrames() {
     u64 frame = 0;
     {
         std::scoped_lock lk{submit_mutex};
-        while (!frame_ends.empty() && frame_ends.front().first <= decoded_total) {
-            frame = frame_ends.front().second;
+        while (!frame_ends.empty() && frame_ends.front().IsDecoded(queue_decoded)) {
+            frame = frame_ends.front().frame;
             frame_ends.pop_front();
         }
     }
@@ -2558,6 +2560,7 @@ void Liverpool::SubmitAsc(u32 gnm_vqid, std::span<const u32> acb) {
                                         gnm_vqid + 1),std::memory_order_relaxed);
         ++num_submits;
         ++submissions_total;
+        ++queue_submitted[gnm_vqid];
         work_retired = false;
     }
     submit_cv.notify_one();

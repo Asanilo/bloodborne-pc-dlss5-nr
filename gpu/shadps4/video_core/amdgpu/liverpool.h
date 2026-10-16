@@ -112,7 +112,7 @@ public:
     void SubmitDone(u64 frame = 0) noexcept {
         std::scoped_lock lk{submit_mutex};
         if (frame != 0) {
-            frame_ends.emplace_back(submissions_total, frame);
+            frame_ends.push_back({queue_submitted, frame});
         }
         mapped_queues[GfxQueueId].ccb_buffer_offset = 0;
         mapped_queues[GfxQueueId].dcb_buffer_offset = 0;
@@ -320,13 +320,27 @@ private:
     const bool guest_markers_enabled;
     std::jthread process_thread{};
     std::atomic<u32> num_submits{};
-    /// BB_SUBMIT_LOCK=decode, under submit_mutex: graphics submissions made and decoded, and per frame
-    /// sceGnmSubmitDone ended the graphics submissions made so far (count, frame number).
+    /// Submission/decode counters below and frame snapshots are protected by submit_mutex.
     u64 gfx_submitted = 0, gfx_decoded = 0;
     u64 decoded_total = 0; ///< submissions of every queue decoded (submissions_total)
     void* last_decoded = nullptr; ///< BB_TIMELINE: the submission whose decoding began last
-    std::deque<std::pair<u64, u64>> frame_ends;
-    /// Frames whose graphics submissions are all decoded are reported finished once the GPU has
+    // Each queue completes its own FIFO prefix. A global completion count can include younger
+    // work from another queue while an older submission is still yielding.
+    std::array<u64, NumTotalQueues> queue_submitted{}, queue_decoded{};
+    struct FrameEnd {
+        std::array<u64, NumTotalQueues> targets{};
+        u64 frame{};
+        bool IsDecoded(const std::array<u64, NumTotalQueues>& decoded) const {
+            for (size_t q = 0; q < targets.size(); ++q) {
+                if (decoded[q] < targets[q]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    };
+    std::deque<FrameEnd> frame_ends;
+    /// Frames whose submissions on every queue are decoded are reported finished once the GPU has
     /// executed the work recorded so far (GPU command thread).
     void SignalDecodedFrames();
     /// BB_HONEST_LABELS: GPU idle once the GPU has finished the work up to `generation` and nothing

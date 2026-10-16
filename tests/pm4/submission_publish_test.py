@@ -10,8 +10,11 @@ def scope_after(start):
  return block.replace('queue.submits.emplace(task.handle);','queue.submits.emplace(task.handle);paused.count_down();resume.wait();')
 gfx=scope_after(text.index('auto prep_submission =',text.index('void Liverpool::SubmitGfx')))
 asc=scope_after(text.index('const auto& task =',text.index('void Liverpool::SubmitAsc')))
+header=(ROOT/'gpu/shadps4/video_core/amdgpu/liverpool.h').read_text()
+constants='\n'.join(line.strip().replace('u32','uint32_t') for line in header.splitlines() if 'static constexpr u32' in line and any(name in line for name in ('GfxQueueId','NumGfxRings','NumComputePipes','NumQueuesPerPipe','NumComputeRings','NumTotalQueues')))
 code=r'''
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cassert>
 #include <cstdint>
@@ -21,12 +24,14 @@ code=r'''
 #include <queue>
 #include <thread>
 using u64=uint64_t;constexpr u64 NoSeq=~u64(0);
+'''+constants+r'''
 namespace BbFreeCheck{template<class...T>void NoteSubmit(T...) {}}
 namespace BbTimeline{constexpr int GuestSubmit=0;template<class...T>void Note(T...) {}}
 struct Task{int handle=1;};struct Span{const unsigned* data(){return nullptr;}size_t size_bytes(){return 0;}};
 struct Copy{const unsigned* guest_dcb=nullptr;};struct Prep{void Enqueue(u64,int){}};
 struct State{
  struct Queue{std::mutex m_access;std::queue<int> submits;}queue;
+ std::array<u64,NumTotalQueues> queue_submitted{};
  std::mutex submit_mutex;std::atomic<unsigned> num_submits{0};u64 submissions_total=0,gfx_submitted=0,gfx_submit_seq=0;std::atomic<unsigned> num_mapped_queues{1};unsigned gnm_vqid=1;bool work_retired=true;
  std::latch paused{1},resume{1};Prep* draw_prep=nullptr;int prep_submission=0;Span dcb,ccb;std::shared_ptr<Copy> copy;
  template<class...T>Task ProcessGraphics(T...){return {};}
@@ -37,9 +42,9 @@ struct State{
  }
 };
 void test(bool gfx){
- State s;std::thread producer([&]{if(gfx)s.Gfx();else s.Asc();});s.paused.wait();assert(s.num_submits==0&&s.submissions_total==0);
+ State s;std::thread producer([&]{if(gfx)s.Gfx();else s.Asc();});s.paused.wait();assert(s.num_submits==0&&s.submissions_total==0);for(auto count:s.queue_submitted)assert(count==0);
  {std::unique_lock locked(s.queue.m_access,std::try_to_lock);assert(!locked.owns_lock());} // unpublished task cannot be read
- std::latch consumer_attempt{1};std::thread consumer([&]{consumer_attempt.count_down();std::lock_guard lock(s.queue.m_access);assert(!s.queue.submits.empty());std::lock_guard global(s.submit_mutex);assert(s.num_submits==1&&s.submissions_total==1&&!s.work_retired);s.queue.submits.pop();--s.num_submits;});
+ std::latch consumer_attempt{1};std::thread consumer([&]{consumer_attempt.count_down();std::lock_guard lock(s.queue.m_access);assert(!s.queue.submits.empty());std::lock_guard global(s.submit_mutex);assert(s.num_submits==1&&s.submissions_total==1&&!s.work_retired);for(size_t q=0;q<NumTotalQueues;++q)assert(s.queue_submitted[q]==(q==(gfx?GfxQueueId:s.gnm_vqid)?1u:0u));s.queue.submits.pop();--s.num_submits;});
  consumer_attempt.wait();s.resume.count_down();producer.join();consumer.join();assert(s.num_submits==0&&s.submissions_total==1);if(gfx)assert(s.gfx_submitted==1);else assert(s.num_mapped_queues==2);
 }
 int main(){test(true);test(false);}
