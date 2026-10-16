@@ -1326,7 +1326,13 @@ void TextureCache::GarbageCollectSamplers() {
             return true;
         }
         --num_deletions;
-        const size_t lru_id = samplers.at(hash).lru_id;
+        auto& sampler = samplers.at(hash);
+        const size_t lru_id = sampler.lru_id;
+        // GC age selects an eviction candidate, not GPU completion. Keep the
+        // move-only Vulkan sampler alive through this scheduler's current tick,
+        // including recorded work that has not yet been submitted. Capture no
+        // cache pointer: the callback can safely outlive this cache.
+        scheduler.DeferOperation([retired = std::move(sampler)] { (void)retired; });
         samplers.erase(hash);
         sampler_lru_cache.Free(lru_id);
         return false;
