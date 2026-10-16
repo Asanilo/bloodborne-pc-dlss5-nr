@@ -4,11 +4,13 @@
 #include <fstream>
 #include <sys/mman.h>
 static unsigned context_calls=0;
+static bool known_context=true,failed_context=false;
+static uint64_t context_wrapper=0x1075840,context_caller=0x8011fe65f;
 static BbGnmHooks::ProducerContext FakeContext(const uint32_t* p){
  ++context_calls;
  BbGnmHooks::ProducerContext c{};
- c.known=true;c.exact_record=true;c.record_type_matches=false;c.record_target_matches=false;
- c.wrapper=0x1075840;c.caller=0x8011fe65f;c.cb=0x1234;c.cursor=reinterpret_cast<uintptr_t>(p);
+ c.known=known_context;c.read_failed=failed_context;c.exact_record=true;c.record_type_matches=false;c.record_target_matches=false;
+ c.wrapper=context_wrapper;c.caller=context_caller;c.cb=0x1234;c.cursor=reinterpret_cast<uintptr_t>(p);
  c.exact_record_index=3;c.record_count=5;c.record_target=0x9876;
  c.record[0]=0x9f;c.record[1]=0x0604;c.record[2]=4;
  c.target_word_count=1;c.target_before[0]=p[0];
@@ -19,7 +21,7 @@ int main(int argc,char**){
   unsetenv("BB_NR_PM4_COLD_TRACE");assert(!BbPm4Cold::Enabled());
   // Even an inaccessible pointer must remain untouched on the disabled path.
   {BbPm4Cold::ShaderWrite disabled("disabled",reinterpret_cast<uint32_t*>(1),40,0,FakeContext);disabled.Footprint(40);}
-  assert(BbPm4Cold::Records().sequence==0&&context_calls==0);return 0;
+  assert(BbPm4Cold::Records().sequence==0&&BbPm4Cold::Records().control_count==0&&context_calls==0);return 0;
  }
  setenv("BB_NR_PM4_COLD_TRACE","1",1);assert(BbPm4Cold::Enabled());
  std::array<uint32_t,15> broken{0xc00a1000,0,0xc0016900,0x358,0,0xc0016900,0x367,0,0xc0016900,0x376,0,0xc0016900,0x385,0,0xc0086900};
@@ -48,17 +50,48 @@ int main(int argc,char**){
  assert(records.ring[303%256].footprint==15&&records.ring[303%256].head[12]==0x385);
  // The final 12-DWORD NOP contains ten residual words; preserve them as observations,
  // without claiming that the shader builder physically wrote those payload words.
+ char path[]="/tmp/pm4-cold-trace-test-XXXXXX";int fd=mkstemp(path);assert(fd>=0);int previous=dup(STDERR_FILENO);assert(dup2(fd,STDERR_FILENO)>=0);close(fd);
  std::array<uint32_t,40> ps{};ps.fill(0xa5a5a5a5);ps[28]=0xc00a1000;ps[29]=0;
  {BbPm4Cold::ShaderWrite trace("ps40",ps.data(),40,0x5678,FakeContext);trace.Footprint(40);}
  const auto& psrecord=records.ring[304%256];
  assert(context_calls==1&&psrecord.context.exact_record_index==3&&psrecord.context.record_target==0x9876);
  assert(psrecord.snapshot_dw==40&&psrecord.head[28]==0xc00a1000&&psrecord.head[39]==0xa5a5a5a5);
- char path[]="/tmp/pm4-cold-trace-test-XXXXXX";int fd=mkstemp(path);assert(fd>=0);int previous=dup(STDERR_FILENO);assert(dup2(fd,STDERR_FILENO)>=0);close(fd);
  std::array<uint32_t,16385> oversized{};
  BbPm4Cold::Dump("oversized",reinterpret_cast<uintptr_t>(oversized.data()),oversized,BbPm4Cold::Validate(oversized),BbPm4Cold::Digest(oversized));
  for(unsigned i=0;i<10;i++)BbPm4Cold::Dump("cpu",reinterpret_cast<uintptr_t>(ps.data()),ps,BbPm4Cold::Validate(ps),BbPm4Cold::Digest(ps));
- assert(records.dumps==4);assert(dup2(previous,STDERR_FILENO)>=0);close(previous);
+ assert(records.dumps==4&&records.control_count==1);
+ auto sample=[&](bool success=true){BbPm4Cold::ShaderWrite trace("control",ps.data(),40,0x5678,FakeContext);if(success)trace.Footprint(40);};
+ sample();sample();assert(records.control_count==1); // Repeat wrapper/caller emits once.
+ context_caller++;known_context=false;sample();known_context=true;assert(records.control_count==1);
+ sample(false);assert(records.control_count==1);
+ // Exhaust all eight PS/VS slots first; CS remains independently available for loading callers.
+ context_wrapper=0x10753c0;
+ for(unsigned i=0;i<20;i++){context_caller=0x70000000+i;failed_context=(i==0);sample();}
+ failed_context=false;
+ assert(records.control_count==9&&records.control_other_count==8&&records.control_cs_count==1);
+ context_wrapper=0x1075840;
+ for(unsigned i=0;i<20;i++){context_caller=0x80000000+i;sample();}
+ assert(records.control_count==16&&records.control_other_count==8&&records.control_cs_count==8);
+ assert(records.dumps==4); // Control samples never consume or reset failure dump quota.
+ assert(dup2(previous,STDERR_FILENO)>=0);close(previous);
  std::ifstream file(path);std::string text((std::istreambuf_iterator<char>(file)),{});
+ unsigned control_lines=0,control_producers=0,control_contexts=0,control_records=0,control_before=0;
+ size_t line_begin=0;
+ while(line_begin<text.size()){
+  const size_t line_end=text.find('\n',line_begin);const auto line=text.substr(line_begin,line_end-line_begin);
+  if(line.find("phase=control_sample")!=std::string::npos){
+   ++control_lines;
+   control_producers+=line.find("PM4_COLD_PRODUCER seq=")==0;
+   control_contexts+=line.find("PM4_COLD_CONTEXT seq=")==0;
+   control_records+=line.find("PM4_COLD_RECORD seq=")==0;
+   control_before+=line.find("PM4_COLD_BEFORE seq=")==0;
+   assert(line.find("PM4_COLD_DCB")==std::string::npos);
+  }
+  if(line_end==std::string::npos)break;
+  line_begin=line_end+1;
+ }
+ assert(text.find("known=1 read_failed=1 exact_record=1")!=std::string::npos);
+ assert(control_lines==64&&control_producers==16&&control_contexts==16&&control_records==16&&control_before==16);
  assert(text.find("logical_footprint_dw=40")!=std::string::npos&&text.find("logical_end=")!=std::string::npos);
  assert(text.find("physical_store_count_unknown=1")!=std::string::npos&&text.find("NOP_payload_may_be_residual=1")!=std::string::npos);
  assert(text.find("snapshot_dw=40 snapshot_truncated=0")!=std::string::npos);

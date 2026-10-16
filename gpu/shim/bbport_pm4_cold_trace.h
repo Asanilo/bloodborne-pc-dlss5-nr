@@ -11,6 +11,7 @@
 #include <mutex>
 #include <optional>
 #include <span>
+#include <utility>
 #include <sys/syscall.h>
 #include <unistd.h>
 namespace BbPm4Cold {
@@ -26,7 +27,33 @@ inline Framing Validate(std::span<const uint32_t> words){
 }
 inline uint64_t Digest(std::span<const uint32_t> words){uint64_t h=14695981039346656037ull;for(auto w:words)for(unsigned n=0;n<4;n++){h^=(w>>(n*8))&255;h*=1099511628211ull;}return h;}
 struct Producer {uint64_t sequence=0,time_ns=0,end_ns=0;uintptr_t address=0,callsite=0;uint32_t requested=0,footprint=0,snapshot_dw=0;long tid=0;const char* name="";std::array<uint32_t,40> head{};BbGnmHooks::ProducerContext context{};};
-struct Store {std::mutex mutex;std::array<Producer,256> ring{};uint64_t sequence=0;unsigned dumps=0;};
+inline void PrintProducer(const Producer& r,const char* phase){
+  std::fprintf(stderr,"PM4_COLD_PRODUCER seq=%llu name=%s cmd=%#llx requested_dw=%u logical_footprint_dw=%u logical_end=%#llx physical_store_count_unknown=1 callsite=%#llx tid=%ld begin_monotonic_ns=%llu end_monotonic_ns=%llu postwrite_snapshot_atomic=0 snapshot_dw=%u snapshot_truncated=%u NOP_payload_may_be_residual=1 postwrite_words=",(unsigned long long)r.sequence,r.name,(unsigned long long)r.address,r.requested,r.footprint,(unsigned long long)(r.address+uint64_t(r.footprint)*4),(unsigned long long)r.callsite,r.tid,(unsigned long long)r.time_ns,(unsigned long long)r.end_ns,r.snapshot_dw,r.snapshot_dw<r.footprint);
+  for(unsigned i=0;i<r.snapshot_dw;i++)std::fprintf(stderr,"%08x,",r.head[i]);
+  std::fprintf(stderr," phase=%s\n",phase);
+  const auto& c=r.context;
+  std::fprintf(stderr,"PM4_COLD_CONTEXT seq=%llu known=%u read_failed=%u exact_record=%u record_type_matches=%u record_target_matches=%u wrapper_offset=%#llx caller=%#llx cb=%#llx base=%#llx end=%#llx cursor=%#llx patcher_caller=%#llx table=%#llx records=%#llx payload=%#llx record_count=%llu record_index=%llu record_target=%#llx record_payload=%#llx snapshot_atomic=0 no_repair=1 phase=%s\n",
+   (unsigned long long)r.sequence,c.known,c.read_failed,c.exact_record,c.record_type_matches,c.record_target_matches,
+   (unsigned long long)c.wrapper,(unsigned long long)c.caller,(unsigned long long)c.cb,
+   (unsigned long long)c.base,(unsigned long long)c.end,(unsigned long long)c.cursor,
+   (unsigned long long)c.patcher_caller,(unsigned long long)c.table,
+   (unsigned long long)c.records,(unsigned long long)c.payload,(unsigned long long)c.record_count,
+   (unsigned long long)c.exact_record_index,(unsigned long long)c.record_target,(unsigned long long)c.record_payload,phase);
+  if(c.exact_record){
+   std::fprintf(stderr,"PM4_COLD_RECORD seq=%llu words=%08x,%08x,%08x, payload_words=",(unsigned long long)r.sequence,c.record[0],c.record[1],c.record[2]);
+   for(unsigned i=0;i<std::min<unsigned>(c.payload_word_count,10);++i)std::fprintf(stderr,"%08x,",c.payload_words[i]);
+   std::fprintf(stderr," phase=%s\n",phase);
+  }
+  if(c.known){
+   std::fprintf(stderr,"PM4_COLD_BEFORE seq=%llu words=",(unsigned long long)r.sequence);
+   for(unsigned i=0;i<std::min<unsigned>(c.target_word_count,40);++i)std::fprintf(stderr,"%08x,",c.target_before[i]);
+   std::fprintf(stderr," phase=%s\n",phase);
+  }
+}
+struct Store {std::mutex mutex;std::array<Producer,256> ring{};uint64_t sequence=0;unsigned dumps=0;
+ // Reserve eight sites for CS so early PS/VS callers cannot consume its loading controls.
+ std::array<std::pair<uint64_t,uint64_t>,16> control_sites{};unsigned control_count=0,control_cs_count=0,control_other_count=0;
+};
 inline Store& Records(){static Store s;return s;}
 class ShaderWrite {
  std::optional<Producer> record;uint32_t* pointer=nullptr;
@@ -50,6 +77,16 @@ public:
    std::memcpy(r.head.data(),pointer,r.snapshot_dw*4);
   }
   auto& s=Records();std::lock_guard lock(s.mutex);r.sequence=++s.sequence;s.ring[(r.sequence-1)%s.ring.size()]=r;
+  if(r.footprint&&r.snapshot_dw&&r.context.known&&s.control_count<s.control_sites.size()){
+   const auto site=std::pair{r.context.wrapper,r.context.caller};
+   const bool cs=r.context.wrapper==0x1075840;
+   auto& count=cs?s.control_cs_count:s.control_other_count;
+   const auto begin=s.control_sites.begin()+(cs?0:8),end=begin+count;
+   if(count<8&&std::find(begin,end,site)==end){
+    begin[count++]=site;++s.control_count;
+    PrintProducer(r,"control_sample");std::fflush(stderr);
+   }
+  }
  }
 };
 using CsWrite = ShaderWrite;
@@ -65,27 +102,7 @@ inline void Dump(const char* phase,uintptr_t guest,std::span<const uint32_t> cop
  for(uint64_t seq=first;seq<=s.sequence;seq++){
   const auto& r=s.ring[(seq-1)%s.ring.size()];const uintptr_t end=guest+copied.size_bytes();
   if(r.address>=end||r.address+uint64_t(r.requested)*4<=guest)continue;
-  std::fprintf(stderr,"PM4_COLD_PRODUCER seq=%llu name=%s cmd=%#llx requested_dw=%u logical_footprint_dw=%u logical_end=%#llx physical_store_count_unknown=1 callsite=%#llx tid=%ld begin_monotonic_ns=%llu end_monotonic_ns=%llu postwrite_snapshot_atomic=0 snapshot_dw=%u snapshot_truncated=%u NOP_payload_may_be_residual=1 postwrite_words=",(unsigned long long)r.sequence,r.name,(unsigned long long)r.address,r.requested,r.footprint,(unsigned long long)(r.address+uint64_t(r.footprint)*4),(unsigned long long)r.callsite,r.tid,(unsigned long long)r.time_ns,(unsigned long long)r.end_ns,r.snapshot_dw,r.snapshot_dw<r.footprint);
-  for(unsigned i=0;i<r.snapshot_dw;i++)std::fprintf(stderr,"%08x,",r.head[i]);
-  std::fputc('\n',stderr);
-  const auto& c=r.context;
-  std::fprintf(stderr,"PM4_COLD_CONTEXT seq=%llu known=%u read_failed=%u exact_record=%u record_type_matches=%u record_target_matches=%u wrapper_offset=%#llx caller=%#llx cb=%#llx base=%#llx end=%#llx cursor=%#llx patcher_caller=%#llx table=%#llx records=%#llx payload=%#llx record_count=%llu record_index=%llu record_target=%#llx record_payload=%#llx snapshot_atomic=0 no_repair=1\n",
-   (unsigned long long)r.sequence,c.known,c.read_failed,c.exact_record,c.record_type_matches,c.record_target_matches,
-   (unsigned long long)c.wrapper,(unsigned long long)c.caller,(unsigned long long)c.cb,
-   (unsigned long long)c.base,(unsigned long long)c.end,(unsigned long long)c.cursor,
-   (unsigned long long)c.patcher_caller,(unsigned long long)c.table,
-   (unsigned long long)c.records,(unsigned long long)c.payload,(unsigned long long)c.record_count,
-   (unsigned long long)c.exact_record_index,(unsigned long long)c.record_target,(unsigned long long)c.record_payload);
-  if(c.exact_record){
-   std::fprintf(stderr,"PM4_COLD_RECORD seq=%llu words=%08x,%08x,%08x, payload_words=",(unsigned long long)r.sequence,c.record[0],c.record[1],c.record[2]);
-   for(unsigned i=0;i<std::min<unsigned>(c.payload_word_count,10);++i)std::fprintf(stderr,"%08x,",c.payload_words[i]);
-   std::fputc('\n',stderr);
-  }
-  if(c.known){
-   std::fprintf(stderr,"PM4_COLD_BEFORE seq=%llu words=",(unsigned long long)r.sequence);
-   for(unsigned i=0;i<std::min<unsigned>(c.target_word_count,40);++i)std::fprintf(stderr,"%08x,",c.target_before[i]);
-   std::fputc('\n',stderr);
-  }
+  PrintProducer(r,phase);
  }
  if(copied.size_bytes()<=65536){for(size_t i=0;i<copied.size();i+=8){std::fprintf(stderr,"PM4_COLD_DCB guest_offset=%#zx:",i*4);for(size_t j=i;j<std::min(i+8,copied.size());j++)std::fprintf(stderr," %08x",copied[j]);std::fputc('\n',stderr);}}
  else std::fprintf(stderr,"PM4_COLD_DCB full_dump_omitted=1 reason=above_64KiB\n");
