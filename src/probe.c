@@ -215,6 +215,36 @@ static void dump_frames(ucontext_t *uc) {
     char arg[]="  tid=0000000000000000 rdi=0000000000000000\n";
     write_hex(arg+6,tid); write_hex(arg+27,(uint64_t)uc->uc_mcontext.gregs[REG_RDI]);
     { ssize_t written_=write(2,arg,sizeof(arg)-1); (void)written_; }
+    /* Only the kernel-supplied signal context, no guest register pointers.
+     * Keep each fixed-size record short and retain the original RDI/frame lines. */
+    const int registers[]={REG_RAX,REG_RBX,REG_RCX,REG_RDX,REG_RSI,REG_RSP,REG_RBP,REG_R12,REG_R15};
+    const char labels[][4]={"rax","rbx","rcx","rdx","rsi","rsp","rbp","r12","r15"};
+    for (unsigned i=0; i<sizeof(registers)/sizeof(registers[0]); ++i) {
+        char reg[]="  tid=0000000000000000 rax=0000000000000000\n";
+        write_hex(reg+6,tid);
+        for (unsigned j=0; j<3; ++j) reg[23+j]=labels[i][j];
+        write_hex(reg+27,(uint64_t)uc->uc_mcontext.gregs[registers[i]]);
+        { ssize_t written_=write(2,reg,sizeof(reg)-1); (void)written_; }
+    }
+    if (uc->uc_mcontext.fpregs) {
+        const struct _libc_fpstate *fp=uc->uc_mcontext.fpregs;
+        char control[]="  tid=0000000000000000 mxcsr=0000000000000000\n";
+        write_hex(control+6,tid); write_hex(control+29,(uint64_t)fp->mxcsr);
+        { ssize_t written_=write(2,control,sizeof(control)-1); (void)written_; }
+        for (unsigned i=0; i<4; ++i) {
+            char xmm[]="  tid=0000000000000000 xmm0=00000000000000000000000000000000\n";
+            write_hex(xmm+6,tid); xmm[26]=(char)('0'+i);
+            /* x86 signal ABI stores little-endian 32-bit limbs. Print the
+             * most significant limb first, preserving every bit, including NaNs. */
+            write_hex(xmm+28,((uint64_t)fp->_xmm[i].element[3]<<32)|fp->_xmm[i].element[2]);
+            write_hex(xmm+44,((uint64_t)fp->_xmm[i].element[1]<<32)|fp->_xmm[i].element[0]);
+            { ssize_t written_=write(2,xmm,sizeof(xmm)-1); (void)written_; }
+        }
+    } else {
+        char unavailable[]="  tid=0000000000000000 fpregs=unavailable\n";
+        write_hex(unavailable+6,tid);
+        { ssize_t written_=write(2,unavailable,sizeof(unavailable)-1); (void)written_; }
+    }
     for (int depth=0; depth<24; ++depth) {
         write_hex(line+6,tid); write_hex(line+27,rip); write_hex(line+59,rip-(uintptr_t)image); write_hex(line+90,rip-exe_base);
         { ssize_t written_=write(2,line,sizeof(line)-1); (void)written_; }
