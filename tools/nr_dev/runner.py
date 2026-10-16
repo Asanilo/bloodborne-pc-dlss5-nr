@@ -199,9 +199,46 @@ def check_kernel_journal(journal,boot):
   if not isinstance(message,str):raise ValueError('unreadable kernel journal message')
   if re.search(r'NVRM:.*(?:Xid|fallen off|GPU.*(?:error|timeout))|GPU HANG|GPU reset|amdgpu.*(?:timeout|fault|reset)|i915.*(?:hang|reset)|nouveau.*(?:fault|timeout)',message,re.I):raise ValueError('current boot GPU driver error: '+message)
 
-def preflight(lock=None):
+def held_run_snapshot():
+ out={}
+ for p in (ROOT/'runs').glob('*/result.json'):
+  if json.loads(p.read_text()).get('status')!='HOLD':continue
+  names=('result.json','manifest.json','hold-resolution.json','game.log','kernel-gpu-faults.jsonl','gpu-fault-observation.json')
+  out[p.parent.name]={'boot_id':json.loads((p.parent/'manifest.json').read_text())['host_safety']['boot_id'],'files':{n:sha(p.parent/n) for n in names if (p.parent/n).is_file()}}
+ return out
+
+def validate_reboot_scope(record,args,boot,snapshot,provenance,artifacts):
+ if record.get('schema')!='nr-reboot-sr-diagnostic-v1' or record.get('normal_retirement_proved') is not False or record.get('historical_faults_resolved') is not False:raise ValueError('diagnostic is not historical retirement/recovery proof')
+ if record.get('boot_id')!=boot or record.get('previous_boot_id')==boot or not record.get('previous_boot_id'):raise ValueError('actual new boot required')
+ if record.get('session')!=args.session or args.mode!='skipEvaluate' or args.sky!='off' or not 1<=args.seconds<=180 or args.watchdog_seconds>300 or args.runtime_model_helper or args.history_diagnostic or getattr(args,'continue_session',None) or not args.pm4_cold_trace:raise ValueError('one bounded SR-only diagnostic required')
+ if record.get('held_runs')!=snapshot or not snapshot or any(x['boot_id']!=record['previous_boot_id'] for x in snapshot.values()):raise ValueError('new or changed HOLD; diagnostic refused')
+ if record.get('source_commit')!=provenance['source_commit'] or record.get('native_artifacts')!=artifacts:raise ValueError('diagnostic build drift')
+ if record.get('project_holders')!=[] or record.get('driver_errors')!=[] or not record.get('authorization_basis'):raise ValueError('current observation required')
+
+def reboot_diagnostic_preflight(lock,args):
+ if lock is None or Path(os.readlink('/proc/self/fd/'+str(lock.fileno())))!=Path('/tmp/nrbridge-poc-gpu.lock'):raise ValueError('GPU lock required')
+ fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ with open('/tmp/nrbridge-poc-gpu.lock','a') as probe:
+  try:fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)
+  except BlockingIOError:pass
+  else:raise ValueError('GPU lock not exclusive')
+ path=Path(args.reboot_diagnostic)
+ if path.parent!=ROOT/'inputs' or path.resolve()!=path or not path.is_file() or path.stat().st_size>131072:raise ValueError('bounded private diagnostic observation required')
+ record=json.loads(path.read_text());boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+ _,assets,provenance=checked_native_build(args.native_build or ROOT/'build/native')
+ validate_reboot_scope(record,args,boot,held_run_snapshot(),provenance,{str(p):sha(p) for p in assets})
+ if checked_run(args.session).exists():raise ValueError('diagnostic already consumed')
+ journal=subprocess.check_output(['journalctl','-k','-b','0','--no-pager','--output=json'],text=True,stderr=subprocess.PIPE,timeout=20);check_kernel_journal(journal,boot)
+ if type(record.get('monotonic_ns')) is not int or not 0<record['monotonic_ns']<=time.monotonic_ns():raise ValueError('positive current-boot observation timestamp required')
+ return {'boot_id':boot,'unresolved_driver_hang':False,'scope':'one reboot-isolated SR diagnostic only; old GPU fault unresolved','reboot_diagnostic':True,'historical_faults_resolved':False,'evidence':[{'path':str(path),'sha256':sha(path)}]}
+
+def preflight(lock=None,recovery=None):
  h=holders()
  if h:raise ValueError('live Native/Helper GPU holders: '+json.dumps(h))
+ if recovery is not None:
+  for pin in json.loads((ROOT/'inputs/runtime-pins.json').read_text())['pins']:
+   if sha(Path(pin['path']))!=pin['sha256']:raise ValueError('runtime pin drift '+pin['path'])
+  return reboot_diagnostic_preflight(lock,recovery)
  for result in (ROOT/'runs').glob('*/result.json'):
   if json.loads(result.read_text()).get('status')=='HOLD':
    resolution=result.parent/'hold-resolution.json'
@@ -387,7 +424,9 @@ def current_game(run):
  atomic(record,identity);return identity
 
 def control(args):
- run=checked_run(args.session);game=current_game(run)
+ run=checked_run(args.session)
+ if args.command in ('start-helper','arm') and json.loads((run/'manifest.json').read_text()).get('host_safety',{}).get('reboot_diagnostic'):raise ValueError('reboot diagnostic forbids Helper and NR')
+ game=current_game(run)
  if args.command=='dump':
   (run/'dump').mkdir(exist_ok=True)
   with (run/'present-dump-trigger').open('x') as trigger:trigger.write(args.session+'\n')
@@ -489,7 +528,7 @@ def launch_supervised(args,signals):
  if args.runtime_model_helper:helper,helper_build=checked_runtime_helper(args.runtime_model_helper,args.runtime_model_build_sha256)
  if args.continue_session==args.session:raise ValueError('continuation must create a new session')
  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
-  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight(lock)
+  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight(lock,args if getattr(args,'reboot_diagnostic',None) else None)
   for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
   run.mkdir(mode=0o700);signals.run=run
@@ -568,7 +607,7 @@ def launch_supervised(args,signals):
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
  if a.command=='preflight':
   with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
    fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);print(json.dumps(preflight(lock),indent=2))
