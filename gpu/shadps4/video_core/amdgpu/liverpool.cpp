@@ -231,8 +231,8 @@ void Liverpool::Process(std::stop_token stoken) {
                     std::scoped_lock lock{queue.m_access};
                     queue.submits.pop();
 
-                    --num_submits;
                     std::scoped_lock lock2{submit_mutex};
+                    --num_submits;
                     ++decoded_total;
                     if (curr_qid == GfxQueueId) {
                         ++gfx_decoded;
@@ -2475,14 +2475,15 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
         BbFreeCheck::NoteSubmit(seq, copy ? copy->guest_dcb : dcb.data(), dcb.size_bytes());
         auto task = ProcessGraphics(dcb, ccb, seq, std::move(copy));
         queue.submits.emplace(task.handle);
+        // Keep the task invisible to the consumer until its count/generation
+        // are published. Same lock order as Process's pop: queue -> submit.
+        std::scoped_lock lk{submit_mutex};
+        ++num_submits;
+        ++submissions_total;
+        ++gfx_submitted;
+        BbTimeline::Note(BbTimeline::GuestSubmit, 0, submissions_total);
+        work_retired = false;
     }
-
-    std::scoped_lock lk{submit_mutex};
-    ++num_submits;
-    ++submissions_total;
-    ++gfx_submitted;
-    BbTimeline::Note(BbTimeline::GuestSubmit, 0, submissions_total);
-    work_retired = false;
     submit_cv.notify_one();
 }
 
@@ -2548,13 +2549,12 @@ void Liverpool::SubmitAsc(u32 gnm_vqid, std::span<const u32> acb) {
     {
         std::scoped_lock lock{queue.m_access};
         queue.submits.emplace(task.handle);
+        std::scoped_lock lk{submit_mutex};
+        num_mapped_queues = std::max(num_mapped_queues, gnm_vqid + 1);
+        ++num_submits;
+        ++submissions_total;
+        work_retired = false;
     }
-
-    std::scoped_lock lk{submit_mutex};
-    num_mapped_queues = std::max(num_mapped_queues, gnm_vqid + 1);
-    ++num_submits;
-    ++submissions_total;
-    work_retired = false;
     submit_cv.notify_one();
 }
 

@@ -3116,7 +3116,10 @@ void RegisterLib(Core::Loader::SymbolsResolver* sym) {
     }
 
     // Submission-lock release is now generation-checked inside Liverpool's
-    // submit transaction. GpuIdle remains a notification, never an unscoped reset.
+    // submit transaction. Pre-create the IRQ context before guest submission;
+    // the no-op handler must never clear a newer epoch's submission lock.
+    Platform::IrqC::Instance()->Register(Platform::InterruptId::GpuIdle,
+        [](Platform::InterruptId) {}, nullptr);
 
     LIB_FUNCTION("b0xyllnVY-I", "libSceGnmDriver", 1, "libSceGnmDriver", sceGnmAddEqEvent);
     LIB_FUNCTION("b08AgtPlHPg", "libSceGnmDriver", 1, "libSceGnmDriver", sceGnmAreSubmitsAllowed);
