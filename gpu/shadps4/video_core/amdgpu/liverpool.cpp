@@ -247,7 +247,10 @@ void Liverpool::Process(std::stop_token stoken) {
             }
         }
 
-        if (submit_done) {
+        // Consume before doing work: a SubmitDone arriving during OnSubmit/Flush
+        // stays set for the next iteration. Default seq_cst matches the producer
+        // and the idle/wakeup predicate loads; never clear a newer notification.
+        if (submit_done.exchange(false)) {
             VideoCore::EndCapture();
             if (rasterizer && rasterizer->PipeSignals()) {
                 // BB_PIPE_SIGNALS: the frame's cache work runs on the recording thread after the
@@ -263,7 +266,6 @@ void Liverpool::Process(std::stop_token stoken) {
                 rasterizer->OnSubmit();
                 rasterizer->Flush();
             }
-            submit_done = false;
         }
         // BB_SUBMIT_LOCK=decode: a frame ended after its submissions were all decoded.
         SignalDecodedFrames();
