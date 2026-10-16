@@ -20,6 +20,8 @@
 
 有因果依据的独立可靠性修复`a3d3665`：旧全局decoded_total可由年轻ASC完成补足，掩盖尚yield的旧Gfx，从而过早安排帧GPU退休。actual-source CPU交错复现旧行为；改为帧末快照各FIFO队列提交目标，全部队列达到各自目标后才沿原SignalAfterGpu退休，未新增GPU等待/队列或改变画质。新旧负对照、同队列/多帧/空帧/实际最高队列56及发布同步回归通过；完整Native构建通过，实际build a3d3665、source-diff为空、四产物SHA校验通过（build/frame-prefix-build.log）。它确实改变了已复现的CPU失败行为，**尚未证明改变本次实机PM4行为或修复Xid**。
 
+定点实现e073fcd已完整构建：仅6个既有入口使用冷钩子，live r12索引绑定记录，错误类型/目标照实记录，写前/写后与DCB复制窗口关联；纯CPU执行实际生成钩子验证参数/返回和索引链，尚无实机采样。需要用户实际重启后，在真实新boot运行一次120秒SR-only冷加载（dev-producer-context-01，watchdog240），禁Helper/arm。现有reboot入口v2显式保存完整多历史boot集合及HOLD摘要，不改旧记录；当前boot被历史集合包含或新增HOLD时拒绝。此准备不等于已拿到故障caller，也不等于恢复试玩。
+
 下一项直接证据是失败CS的wrapper上层caller、对应CB对象/base/end/cursor及模板记录。优先复用已有`BB_GNM_TRACE`与限定census范围区分普通setter/原位patcher；现成trace只有caller，缺CB字段与记录关联，不能假称这些已采到。只有该定点关联确实无法获取时才扩展少量现有字段，不新建审计系统。新的运行必须先满足实际上下文/所有权安全条件，不能以新session、假resolution或修改HOLD替代。没有新增实机运行，正常绘制回归尚待安全恢复后的有限加载/退出验证；不要求完整历史审计。
 
 亮尾离线控制支持一个有条件机制：旧bank亮度0.8、新target与raw均0.2时，过渡1/3和2/3显示约0.504/0.318；不写回target，真实贡献年龄继续推进，旧bank失效或过渡结束即消失。只有实际故障像素仍有亮旧贡献且处在过渡才支持此解释，无过渡时可排除此机制。缺故障像素同候选直接Resolve与独立SR历史，模型原始伪影、错误MV/遮挡/累计光照及SR积累均未排除；不合入亮度锚、全局降强度或TTL改动。可靠加载恢复后立即回到玩家动态画质和发布。
