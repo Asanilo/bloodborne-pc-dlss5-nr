@@ -8,6 +8,7 @@
 #include <bit>
 #include <cerrno>
 #include <condition_variable>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -64,6 +65,10 @@ struct NativePersistentHistoryDiagnostic::Impl {
  std::atomic<unsigned> recorded{0};
  unsigned limit=3;uint64_t start=0,first=0,after_candidate=1,capture_seq=0,last_source=0;
  bool ui_request=false,sealed=false;
+ // A stopped/unarmed NR path must not hold an explicit UI capture busy forever.
+ const std::chrono::steady_clock::time_point candidate_deadline=
+  std::chrono::steady_clock::now()+std::chrono::seconds(10);
+ void ExpireCandidateWait() noexcept;
  bool directory_created=false;
  const Scheduler* scheduler=nullptr;
  std::atomic<bool> unknown{false};
@@ -94,9 +99,16 @@ NativePersistentHistoryDiagnostic::Impl::Impl(const Instance& instance,uint64_t 
  // filesystem writes, hashing, mapping invalidation or per-frame allocation.
  if(std::filesystem::exists(directory))throw std::runtime_error("persistent diagnostic refuses existing output directory");
  for(unsigned i=0;i<limit;i++)for(unsigned j=0;j<10;j++)frames[i].staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,Sizes[j],VideoCore::MemoryType::HostCached,"Bounded persistent cold readback");
- if(!ui_request)for(unsigned j=0;j<3;j++)candidate_staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,CandidateSizes[j],VideoCore::MemoryType::HostCached,"Single exact candidate cold readback");
+ for(unsigned j=0;j<3;j++)candidate_staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,CandidateSizes[j],VideoCore::MemoryType::HostCached,"Single exact candidate cold readback");
  writer=std::jthread([this](std::stop_token token){Run(token);});
- std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_INIT frame_limit=%u frame_bytes=%llu staging_bytes=%llu disk_limit_bytes=%llu performance_excluded=1 no_GPU_wait=1\n",limit,(unsigned long long)FrameBytes,(unsigned long long)(FrameBytes*limit+(ui_request?0:CandidateBytes)),(unsigned long long)((FrameBytes+ManifestLimit)*limit+(ui_request?0:CandidateBytes+ManifestLimit)));
+ std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_INIT frame_limit=%u frame_bytes=%llu staging_bytes=%llu disk_limit_bytes=%llu performance_excluded=1 no_GPU_wait=1\n",limit,(unsigned long long)FrameBytes,(unsigned long long)(FrameBytes*limit+CandidateBytes),(unsigned long long)((FrameBytes+ManifestLimit)*limit+(CandidateBytes+ManifestLimit)));
+}
+void NativePersistentHistoryDiagnostic::Impl::ExpireCandidateWait() noexcept{
+ if(ui_request&&!sealed&&!candidate_recorded.load(std::memory_order_acquire)&&
+    std::chrono::steady_clock::now()>=candidate_deadline){
+  sealed=true;
+  std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_INCOMPLETE capture_seq=%llu reason=no_new_candidate_within_10s captured=0 candidate_once=0 retry=0\n",(unsigned long long)capture_seq);
+ }
 }
 bool NativePersistentHistoryDiagnostic::Enabled()noexcept{const char* e=std::getenv("BB_NATIVE_HISTORY_DIAGNOSTIC");return e&&std::strcmp(e,"1")==0;}
 NativePersistentHistoryDiagnostic::NativePersistentHistoryDiagnostic(const Instance& i,uint64_t sequence,unsigned frames):impl(std::make_unique<Impl>(i,sequence,frames)){}
@@ -108,11 +120,11 @@ NativePersistentHistoryDiagnostic::~NativePersistentHistoryDiagnostic(){
  std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_DESTROYED staging=0 writer_joined=1\n");
 }
 bool NativePersistentHistoryDiagnostic::Record(Scheduler& scheduler,const Snapshot& snapshot){
- auto& p=*impl;p.last_source=snapshot.current.source;if(p.unknown.load(std::memory_order_acquire))return false;
+ auto& p=*impl;p.ExpireCandidateWait();p.last_source=snapshot.current.source;if(p.sealed||p.unknown.load(std::memory_order_acquire))return false;
  if(p.scheduler&&p.scheduler!=&scheduler){HoldUnknown();return false;}
  const auto index=p.recorded.load(std::memory_order_acquire);if(index>=p.limit)return false;
  if(!snapshot.current.source||!snapshot.state||!snapshot.guard)return false;for(auto image:snapshot.images)if(!image)return false;
- if(!p.first){if(!p.ui_request&&(!p.candidate_recorded.load(std::memory_order_acquire)||snapshot.current.source<p.candidate.current.source))return false;if(!p.ui_request&&snapshot.candidate_count<p.after_candidate)return false;if((p.start&&snapshot.current.source<p.start)||(!p.ui_request&&!p.start&&!snapshot.host_history))return false;p.first=snapshot.current.source;}
+ if(!p.first){if(!p.candidate_recorded.load(std::memory_order_acquire)||snapshot.current.source<p.candidate.current.source)return false;if(!p.ui_request&&snapshot.candidate_count<p.after_candidate)return false;if((p.start&&snapshot.current.source<p.start)||(!p.ui_request&&!p.start&&!snapshot.host_history))return false;p.first=snapshot.current.source;}
  // Capture only the bounded contiguous attempted window. A missed current is
  // reported, never silently relabeled as a continuous image sequence.
  if(snapshot.current.source<p.first||snapshot.current.source-p.first>=p.limit){p.sealed=true;return false;}
@@ -152,7 +164,7 @@ bool NativePersistentHistoryDiagnostic::Record(Scheduler& scheduler,const Snapsh
  p.wake.notify_all();return true;
 }
 bool NativePersistentHistoryDiagnostic::RecordCandidate(Scheduler& scheduler,const CandidateSnapshot& snapshot){
- auto& p=*impl;if(p.ui_request||p.unknown.load(std::memory_order_acquire)||p.candidate_recorded.load(std::memory_order_acquire))return false;
+ auto& p=*impl;p.ExpireCandidateWait();if(p.sealed||p.unknown.load(std::memory_order_acquire)||p.candidate_recorded.load(std::memory_order_acquire))return false;
  if(p.scheduler&&p.scheduler!=&scheduler){HoldUnknown();return false;}
  if(snapshot.count<p.after_candidate||(p.start&&snapshot.current.source<p.start))return false;
  if(snapshot.identity.session!=p.session||snapshot.identity.resource_set.empty()||!snapshot.identity.helper_serial||!snapshot.identity.native_input_tick||!snapshot.origin.source||snapshot.current.source<snapshot.origin.source||snapshot.bank>=4)throw std::runtime_error("single candidate diagnostic exact identity missing");
@@ -181,22 +193,22 @@ bool NativePersistentHistoryDiagnostic::Impl::Ready()const noexcept{
  for(unsigned i=0;i<recorded.load(std::memory_order_acquire);i++){const auto& proof=*frames[i].proof;if(proof.observed.load(std::memory_order_acquire)<proof.target||!proof.written.load(std::memory_order_acquire))return false;}return true;
 }
 bool NativePersistentHistoryDiagnostic::Ready()const noexcept{return impl->Ready();}
-bool NativePersistentHistoryDiagnostic::Finished()const noexcept{return impl->sealed||impl->recorded.load(std::memory_order_acquire)>=impl->limit;}
+bool NativePersistentHistoryDiagnostic::Finished()const noexcept{impl->ExpireCandidateWait();return impl->sealed||impl->recorded.load(std::memory_order_acquire)>=impl->limit;}
 bool NativePersistentHistoryDiagnostic::Succeeded()const noexcept{
- const auto& p=*impl;if(!Finished()||!Ready()||p.recorded.load(std::memory_order_acquire)!=p.limit)return false;
+ const auto& p=*impl;if(!p.candidate_recorded.load(std::memory_order_acquire)||!Finished()||!Ready()||p.recorded.load(std::memory_order_acquire)!=p.limit)return false;
  for(unsigned i=0;i<p.limit;i++)if(p.frames[i].proof->failed.load(std::memory_order_acquire))return false;
- return !p.candidate_recorded.load(std::memory_order_acquire)||!p.candidate_proof->failed.load(std::memory_order_acquire);
+ return !p.candidate_proof->failed.load(std::memory_order_acquire);
 }
 std::string NativePersistentHistoryDiagnostic::Directory()const{return impl->directory;}
 uint64_t NativePersistentHistoryDiagnostic::LastSource()const noexcept{return impl->last_source;}
 void NativePersistentHistoryDiagnostic::HoldUnknown()noexcept{impl->unknown.store(true,std::memory_order_release);impl->wake.notify_all();}
 void NativePersistentHistoryDiagnostic::ObserveCompletion(Scheduler& scheduler){
- auto& p=*impl;if(p.unknown.load(std::memory_order_acquire)||!p.scheduler)return;if(p.scheduler!=&scheduler){HoldUnknown();return;}
+ auto& p=*impl;p.ExpireCandidateWait();if(p.unknown.load(std::memory_order_acquire)||!p.scheduler)return;if(p.scheduler!=&scheduler){HoldUnknown();return;}
  for(unsigned i=0;i<p.recorded.load(std::memory_order_acquire);i++){auto proof=p.frames[i].proof;if(proof->target&&proof->target<scheduler.CurrentTick()&&proof->observed.load(std::memory_order_acquire)<proof->target&&scheduler.IsFree(proof->target))proof->observed.store(proof->target,std::memory_order_release);}
  if(p.candidate_recorded.load(std::memory_order_acquire)){auto proof=p.candidate_proof;if(proof->target&&proof->target<scheduler.CurrentTick()&&proof->observed.load(std::memory_order_acquire)<proof->target&&scheduler.IsFree(proof->target))proof->observed.store(proof->target,std::memory_order_release);}
  p.wake.notify_all();
 }
-uint64_t NativePersistentHistoryDiagnostic::StagingBytes()const noexcept{return FrameBytes*impl->limit+(impl->ui_request?0:CandidateBytes);}
+uint64_t NativePersistentHistoryDiagnostic::StagingBytes()const noexcept{return FrameBytes*impl->limit+CandidateBytes;}
 void NativePersistentHistoryDiagnostic::ReportRetirement(const char* stage)const noexcept{
  const auto& p=*impl;
  if(p.candidate_recorded.load(std::memory_order_acquire))std::printf("PERSISTENT_HISTORY_CANDIDATE_DIAGNOSTIC_RETIRE stage=%s job=%llu origin=%llu target=%llu observed=%llu writer_finished=%u write_failed=%u unknown=%u all_ready=%u\n",stage?stage:"unspecified",(unsigned long long)p.candidate.identity.job,(unsigned long long)p.candidate.origin.source,(unsigned long long)p.candidate_proof->target,(unsigned long long)p.candidate_proof->observed.load(std::memory_order_acquire),p.candidate_proof->written.load(std::memory_order_acquire),p.candidate_proof->failed.load(std::memory_order_acquire),p.unknown.load(std::memory_order_acquire),Ready());
@@ -228,8 +240,9 @@ void NativePersistentHistoryDiagnostic::Impl::Write(unsigned index){
  {"copy_target_tick",frame.proof->target},{"copy_observed_tick",frame.proof->observed.load(std::memory_order_acquire)},
  {"native_scheduler_identity",reinterpret_cast<uintptr_t>(scheduler)},
  {"GPU_proof","existing same Native Scheduler target completion; no Helper serial comparison or CPU GPU wait"},
+ {"candidate_once_required",true},{"candidate_once_current_source",candidate.current.source},{"lifetime_scope","bounded current window only; does not cover full 16-frame lifetime"},
  {"capture_scope","Apply-complete currentraw/finalhalf and activebank snapshots; actual SR binding/merge/Present require independent source join"},
- {"performance_excluded",true},{"frame_limit",limit},{"frame_byte_limit",FrameBytes},{"total_byte_limit",FrameBytes*limit+(ui_request?0:CandidateBytes)+(limit+1)*ManifestLimit},{"total_binary_byte_limit",FrameBytes*limit+(ui_request?0:CandidateBytes)},{"assets",assets}};
+ {"performance_excluded",true},{"frame_limit",limit},{"frame_byte_limit",FrameBytes},{"total_byte_limit",FrameBytes*limit+CandidateBytes+(limit+1)*ManifestLimit},{"total_binary_byte_limit",FrameBytes*limit+CandidateBytes},{"assets",assets}};
  const auto json=manifest.dump(2)+"\n";if(json.size()>ManifestLimit)throw std::runtime_error("persistent diagnostic manifest bound exceeded");
  std::ofstream meta(dir/"readback.json.tmp");meta<<json;meta.close();if(!meta)throw std::runtime_error("persistent diagnostic manifest write failed");std::filesystem::rename(dir/"readback.json.tmp",dir/"readback.json");
  std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_COMPLETE source=%llu index=%u actual_GPU_complete=1 bytes=%llu guard_actual=%u active_bank=%u candidate_bank=%u present=REQUIRES_SOURCE_JOIN performance_excluded=1\n",(unsigned long long)s.current.source,index,(unsigned long long)FrameBytes,guard,s.active_bank,s.candidate_bank);
@@ -245,7 +258,7 @@ void NativePersistentHistoryDiagnostic::Impl::WriteCandidate(){
   assets.push_back({{"file",names[j]},{"bytes",CandidateSizes[j]},{"sha256",Sha256(bytes)},{"image_handle",reinterpret_cast<uintptr_t>(VkImage(c.images[j]))}});
  }
  const auto frame=[](const BbNativeAsync::Frame& f){return J{{"source",f.source},{"previous",f.previous},{"epoch",f.epoch},{"history",f.history},{"params",f.params},{"sr_reset",f.sr_reset},{"source_edited",f.source_edited},{"copy_tick",f.copy_tick},{"viewport",f.viewport},{"previous_viewport",f.previous_viewport},{"sr_jitter",f.sr_jitter},{"previous_sr_jitter",f.previous_sr_jitter},{"current_projection",f.current_projection},{"previous_projection",f.previous_projection},{"previous_view_z",f.previous_view_z}};};
- J manifest{{"schema","persistent-history-single-candidate-v1"},{"identity",{{"session",id.session},{"resource_set",id.resource_set},{"generation",id.generation},{"job",id.job},{"helper_serial_identity_only",id.helper_serial},{"native_input_tick",id.native_input_tick},{"origin_source",c.origin.source},{"origin_epoch",c.origin.epoch},{"origin_history",c.origin.history},{"params_version",c.origin.params}}},
+ J manifest{{"schema","persistent-history-single-candidate-v1"},{"capture_seq",capture_seq},{"image_scope","actual acquired Resolve720 output, not SDK tensor or history composite"},{"identity",{{"session",id.session},{"resource_set",id.resource_set},{"generation",id.generation},{"job",id.job},{"helper_serial_identity_only",id.helper_serial},{"native_input_tick",id.native_input_tick},{"origin_source",c.origin.source},{"origin_epoch",c.origin.epoch},{"origin_history",c.origin.history},{"params_version",c.origin.params}}},
  {"origin",frame(c.origin)},{"actual_current",frame(c.current)},{"candidate_count",c.count},{"candidate_bank",c.bank},
  {"capture_parameters",{{"mode",p.Mode},{"reprojection",p.ReprojectionMode},{"source_state",p.SourceState},{"dest_state",p.DestState},{"depth_inverted",p.DepthInverted},{"epsilon",p.Epsilon},{"depth_tolerance",p.DepthTolerance},{"colour_tolerance",p.ColourTolerance},{"max_log_edit",p.MaxLogEdit},{"origin_age_frames",p.OriginAgeFrames},{"origin_age_ms",p.OriginAgeMs},{"max_frames",p.MaxFrames},{"max_ms",p.MaxMs},{"exposure_ratio",p.ExposureRatio},{"min_confidence",p.MinConfidence},{"current_jitter",{p.CurrentJitterX,p.CurrentJitterY}}}},
  {"copy_target_tick",candidate_proof->target},{"copy_observed_tick",candidate_proof->observed.load(std::memory_order_acquire)},{"native_scheduler_identity",reinterpret_cast<uintptr_t>(scheduler)},
