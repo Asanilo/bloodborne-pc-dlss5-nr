@@ -56,6 +56,13 @@ class RebootScope(unittest.TestCase):
    old=getattr(self.args,key);setattr(self.args,key,value);self.assertRaises(ValueError,self.verify);setattr(self.args,key,old)
   for value in (None,1,'true',False):
    self.record['producer_context']=value;self.assertRaises(ValueError,self.verify)
+ def test_producer_exactly_one_scope_and_strict_cold(self):
+  args=SimpleNamespace(pm4_producer_context=True,pm4_cold_trace=True,reboot_diagnostic=None,context_recovery='/record')
+  self.assertTrue(r.validate_pm4_producer_context(args))
+  args.reboot_diagnostic='/other';self.assertRaises(ValueError,r.validate_pm4_producer_context,args)
+  args.reboot_diagnostic=None
+  for value in (False,1,'1',None):
+   args.pm4_cold_trace=value;self.assertRaises(ValueError,r.validate_pm4_producer_context,args)
  def test_producer_option_rejected_before_launch_setup(self):
   args=SimpleNamespace(pm4_producer_context=True,pm4_cold_trace=True,reboot_diagnostic=None)
   with patch.object(r,'checked_run') as checked:

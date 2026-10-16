@@ -58,9 +58,81 @@ class Scope(unittest.TestCase):
                 record = self.record | {'request': req}
                 self.assertRaises(ValueError, c.validate_scope, record, req, 'new', self.snapshot)
 
+    def test_v1_forbids_producer_at_record_launch_and_control(self):
+        self.record['producer_context'] = True
+        self.assertRaises(ValueError, self.verify)
+        self.record['producer_context'] = False
+        self.assertRaises(ValueError, c._trace_launch, self.record,
+                          SimpleNamespace(pm4_producer_context=True, pm4_cold_trace=True))
+        self.assertRaises(ValueError, c._trace_control, self.record,
+                          {'BB_NR_PM4_PRODUCER_CONTEXT': '1'})
+
     def test_request_mismatch_rejected(self):
         self.req['source_limit'] -= 1
         self.assertRaises(ValueError, self.verify)
+
+
+class ScopeV2(unittest.TestCase):
+    def setUp(self):
+        self.record = copy.deepcopy(c.EXAMPLE_RECORD)
+        self.req = copy.deepcopy(self.record['request'])
+        self.old = '11111111-1111-4111-8111-111111111111'
+        self.other = '33333333-3333-4333-8333-333333333333'
+        self.boot = '22222222-2222-4222-8222-222222222222'
+        self.snapshot = {'failure': {'boot_id': self.old, 'files': {'result.json': 'hash'}},
+                         'older': {'boot_id': self.other, 'files': {'game.log': 'hash'}}}
+        self.record.update(schema='nr-isolated-context-v2', boot_id=self.boot,
+                           previous_boot_id=self.old, historical_boot_ids=sorted([self.old, self.other]),
+                           held_runs=copy.deepcopy(self.snapshot), producer_context=False, cold_trace=False)
+
+    def verify(self):
+        c.validate_scope(self.record, self.req, self.boot, self.snapshot)
+
+    def test_new_hold_changed_hold_same_boot_rejected(self):
+        self.snapshot['failure']['boot_id'] = self.boot
+        self.record['held_runs'] = copy.deepcopy(self.snapshot)
+        self.record['historical_boot_ids'] = sorted([self.boot, self.other])
+        self.assertRaisesRegex(ValueError, 'current boot HOLD', self.verify)
+
+    def test_histories_and_uuid_reject(self):
+        for value in ([self.old], [self.other, self.old], [self.old, self.other, self.other], None):
+            self.record['historical_boot_ids'] = value
+            self.assertRaises(ValueError, self.verify)
+        self.record['historical_boot_ids'] = sorted([self.old, self.other])
+        for value in ('bad', '', 1):
+            self.snapshot['failure']['boot_id'] = value
+            self.record['held_runs'] = copy.deepcopy(self.snapshot)
+            self.assertRaises(ValueError, self.verify)
+
+    def test_full_hold_digest_drift(self):
+        self.snapshot['failure']['files']['result.json'] = 'changed'
+        self.assertRaises(ValueError, self.verify)
+
+    def test_strict_trace_binding_launch_and_control(self):
+        args = SimpleNamespace(pm4_producer_context=False, pm4_cold_trace=False)
+        c._trace_launch(self.record, args)
+        for attribute in ('pm4_producer_context', 'pm4_cold_trace'):
+            for value in (None, 0, 1, 'true'):
+                altered_args = SimpleNamespace(**vars(args))
+                setattr(altered_args, attribute, value)
+                self.assertRaises(ValueError, c._trace_launch, self.record, altered_args)
+        c._trace_control(self.record, {})
+        for field in ('producer_context', 'cold_trace'):
+            for value in (None, 0, 1, 'true'):
+                altered = self.record | {field: value}
+                self.assertRaises(ValueError, c.validate_scope, altered, self.req, self.boot, self.snapshot)
+        self.record.update(producer_context=True, cold_trace=True)
+        self.verify()
+        self.assertRaises(ValueError, c._trace_launch, self.record, args)
+        args.pm4_producer_context = args.pm4_cold_trace = True
+        c._trace_launch(self.record, args)
+        env = {'BB_NR_PM4_PRODUCER_CONTEXT': '1', 'BB_NR_PM4_COLD_TRACE': '1', 'BB_NR_RESOURCE_TRACE': '1'}
+        c._trace_control(self.record, env)
+        for variable in env:
+            for value in (None, '0', 'true'):
+                changed = env | {variable: value}
+                self.assertRaises(ValueError, c._trace_control, self.record, changed)
+
 
 
 class FilesAndControls(unittest.TestCase):

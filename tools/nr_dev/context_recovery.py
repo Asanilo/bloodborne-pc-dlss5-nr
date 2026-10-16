@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import uuid
 from collections import Counter
 from pathlib import Path
 
@@ -55,14 +56,37 @@ def request(args):
 
 
 def validate_scope(record, requested, boot, snapshot):
-    need(record.get('schema') == 'nr-isolated-context-v1'
+    schema = record.get('schema')
+    need(schema in ('nr-isolated-context-v1', 'nr-isolated-context-v2')
          and record.get('historical_faults_resolved') is False
          and record.get('authorization_basis'), 'explicit unresolved historical scope required')
-    need(record.get('boot_id') == boot and record.get('previous_boot_id')
-         and record['previous_boot_id'] != boot, 'new isolated boot required')
-    need(record.get('held_runs') == snapshot and snapshot
-         and all(x['boot_id'] == record['previous_boot_id'] for x in snapshot.values()),
-         'new or changed HOLD')
+    need(record.get('boot_id') == boot, 'new isolated boot required')
+    need(record.get('held_runs') == snapshot and snapshot, 'new or changed HOLD')
+    if schema == 'nr-isolated-context-v1':
+        need(record.get('previous_boot_id') and record['previous_boot_id'] != boot
+             and all(x['boot_id'] == record['previous_boot_id'] for x in snapshot.values()),
+             'new or changed HOLD')
+        need(record.get('producer_context', False) is False, 'v1 forbids producer context')
+    else:
+        def boot_uuid(value):
+            need(isinstance(value, str), 'canonical boot UUID required')
+            try:
+                parsed = uuid.UUID(value)
+            except (ValueError, AttributeError):
+                raise ValueError('isolated context: canonical boot UUID required') from None
+            need(str(parsed) == value, 'canonical boot UUID required')
+            return value
+        boot_uuid(boot)
+        historical = sorted({boot_uuid(x.get('boot_id')) for x in snapshot.values()})
+        need(boot not in historical, 'current boot HOLD forbidden')
+        previous = record.get('previous_boot_id')
+        if previous is not None:
+            need(boot_uuid(previous) != boot, 'new isolated boot required')
+        need(record.get('historical_boot_ids') == historical,
+             'exact sorted unique historical boots required')
+        need(all(type(record.get(k)) is bool for k in ('producer_context', 'cold_trace'))
+             and (not record['producer_context'] or record['cold_trace']),
+             'strict cold trace and producer binding required')
     need(record.get('request') == requested, 'request drift')
     need(set(requested) == set(EXAMPLE_RECORD['request']), 'exact request fields required')
     need((requested['sky'], requested['mode']) in
@@ -74,6 +98,29 @@ def validate_scope(record, requested, boot, snapshot):
          and 1 <= requested['source_limit'] <= 36000
          and type(requested['history_diagnostic']) is bool
          and requested['continue_session'] is None, 'bounded fresh-private diagnostic required')
+
+
+def _trace_launch(record, args):
+    producer = getattr(args, 'pm4_producer_context', False)
+    cold = getattr(args, 'pm4_cold_trace', False)
+    need(type(producer) is bool and type(cold) is bool, 'strict trace booleans required')
+    if record['schema'] == 'nr-isolated-context-v1':
+        need(not producer, 'v1 forbids producer context')
+    else:
+        need(record.get('producer_context') is producer and record.get('cold_trace') is cold,
+             'trace request drift')
+        need(not producer or cold, 'producer requires cold trace')
+
+
+def _trace_control(record, environment):
+    if record['schema'] == 'nr-isolated-context-v1':
+        need('BB_NR_PM4_PRODUCER_CONTEXT' not in environment, 'v1 forbids producer context')
+        return
+    for field, variable in (('producer_context', 'BB_NR_PM4_PRODUCER_CONTEXT'),
+                            ('cold_trace', 'BB_NR_PM4_COLD_TRACE'),
+                            ('cold_trace', 'BB_NR_RESOURCE_TRACE')):
+        expected = '1' if record.get(field) is True else None
+        need(environment.get(variable) == expected, 'manifest trace drift')
 
 
 def _kernel(r, boot):
@@ -224,6 +271,7 @@ def check_launch(r, args, lock):
          and args.runtime_model_build_sha256 == record['helper']['build_manifest']['sha256'],
          'launch binary options drift')
     need(not r.holders(), 'project GPU holder remains')
+    _trace_launch(record, args)
     _common(r, record, request(args))
     return {'boot_id': record['boot_id'], 'unresolved_driver_hang': False,
             'historical_faults_resolved': False,
@@ -265,6 +313,7 @@ def check_control(r, run, game, command):
          and safety.get('historical_faults_resolved') is False
          and manifest['session'] == run.name and safety.get('request') == record['request'],
          'session recovery binding drift')
+    _trace_control(record, manifest['environment'])
     req = record['request']
     need(manifest['mode'] == req['mode'] and manifest['sky'] == req['sky']
          and manifest['planned_seconds'] == req['seconds']
