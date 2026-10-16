@@ -131,3 +131,8 @@ python3 native/tools/nr_dev/runner.py dump dev-UNIQUE
 After Helper startup, normal retirement additionally audits exact terminal counts/session and each input→complete→consumed immutable origin tuple, true Native/Helper completion ticks, Native zero-owned resources, Helper zero shared/export-FD ownership, targeted FD inventory, model release/shutdown and normal waitpid. The 16384 cap is the unchanged effective wire resource budget, not an inherited four-job rule. No-peer exits require the explicit current-session absent-owner/snapshot/pending-use/preparation-join proof and absence of config/arm, rather than inferring safety from zero jobs.
 
 冷加载诊断沿用主协调现有 `--pm4-cold-trace`，同时启用 `BB_NR_RESOURCE_TRACE=1`；整run排除热性能评分。日志最多4096个资源事件加一条截断提示。离线地址关联使用 `python3 native/tools/nr_dev/resource_trace.py --game-log PATH --xid-address ADDRESS --fault-monotonic-ns NS --output NEW_JSON`，输出仅新建。不同进程的地址不可交叉归因；未命中、未记录、未知tick或截断都不能证明安全，当前hooks不覆盖image/SDK内部资源及所有GPU VA。普通运行不启用这些冷日志。
+
+
+**当前恢复诊断状态（2026-10-16）。** `--context-recovery PATH`仅供主协调按`context_recovery.py`的精确schema执行有界新boot诊断；不得改旧host-safety为false来替代核验。它重新验证实际前序退休/逐job清单、全boot内核、锁/进程、build/依赖及原HOLD摘要，不能作为普通play的默认豁免。build9a32779的SR/off-skip/persistent-skip/小量resident链正常退休，但后继dev-bright-outline-player-01在NR前PM4断言HOLD，**目前所有新GPU启动暂停**。当前无残留/新增Xid不构成该run正常退休证明；恢复记录因新HOLD自动失效。c1a702e只补齐冷PM4生产者追踪，未修复未知生产者根因。
+
+F9现可在同一捕获中保留下一合法候选的origin及acquired Resolve720，再采当前3帧；等待10秒无候选明确INCOMPLETE。约232.03MiB临时读回，非16帧连续历史证明，Resolve不是SDK tensor；实际GPU配对验证仍待完成。不要将编译通过视为亮尾修复或玩家验收。

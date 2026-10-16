@@ -137,3 +137,18 @@ edge的三个窗口内可跟踪一次adoption：ROI旧origin10185(age9)／新ori
 下一次采样优先区分：静止角色在快速转镜下的镜头MV+jitter对应／遮挡显露、NR旧正编辑的空间滞留，以及下游SR对轮廓亮度的保留；不能仅因动作涉及镜头就排除模型或局部光照。固定同灯位、相机起止角和转镜方向/速度，分别保留转镜前、运动中、停止后的连续画面，并继续使用前述来源与正常曝光对照要求。
 
 本次实时复查boot c0492968-c33c-4b74-91dd-adb9b79a5e8b，无项目holders、当前boot内核无新GPU错误。锁内普通preflight仍因旧fresh-context记录需要same boot而拒绝，host-safety保留旧Xid31未解决事实；没有改记录解除NR准入，也没有启动游戏。现行短窗与同候选模型采集缺口仍在，未承诺在人工作业窗口内完成资源改造。用户无需为补充描述运行旧版或绕过启动检查。
+
+
+### 2026-10-16：有界恢复实测与再次加载失败（当前状态）
+
+用户回到电脑后，完成当前boot/build9a32779的SR-only → off/skip（24）→ persistent/skip（24）→ resident（18 Evaluate，17 captured/1 obsolete）链，相关run为dev-paired-sr-01、dev-recovery-off-04、dev-recovery-persistent-01、dev-recovery-nr-01。均有真实正常退休、无残留及完整boot内核复检；没有将此冷诊断作为热FPS或亮尾改善证明。其余off-01/02/03只完成零job/未arm或no-peer退出，不计工作负载验证。
+
+9a32779补齐F9的同候选origin raw/Depth与Helper acquired Resolve720，后接当前3帧管线；不是SDK原始tensor，也未解决16帧全寿命窗口。UI临时读回约232.03MiB，维持4帧底层上限；等待新候选10秒到期标INCOMPLETE。3项CPU验证与Native构建通过，但本轮没有实际F9配对成功证据：首次自动热键因缺xdotool未发送，随后玩家采集run在NR前失败。不得将已实现当作GPU采样验收。
+
+286e8fa复用现有Runner增加`--context-recovery`精确记录入口，未建立新的执行系统。启动、Helper和arm均绑定同boot/实际build/依赖/原HOLD摘要/请求和当前锁/进程身份/完整内核证据；以前序实际逐job及GPU/FD退休审计递进。首次resident最多120source，后续7200source，最长240秒是这条恢复诊断的边界，非普通研发配额。普通play仍阻断，旧host-safety/Xid/HOLD原样。112项Python测试通过。
+
+**当前阻断**：dev-bright-outline-player-01在场景就绪与Helper/NR前exit23/HOLD。最新宿主只读核对无项目holder、当前boot无新增GPU错误；不等于该run正常退休或故障已修。提交和解码的完整1488字节副本一致（另算SHA），首错0x284；记录的CS从0x27c开始，与前一0x274的reg0xa包payload重叠8字节。CS/PS/VS guest wrapper分别预留/推进25/40/29DW，HLE所有分支匹配，暂未发现尺寸ABI错误；PS生产者缺失。CS尾部NOP保留旧payload合法，不能当并发写入证据。独立离线核验在analysis/pm4-overlap-20261016，guest反汇编仅本地私有，不公开分发。
+
+c1a702e补齐Set/Update/Embedded PS/VS及CS共10入口；固定256条生产者记录、40DW快照、最多4dump/64KiB，标明逻辑footprint、覆盖不完整及非原子快照。默认关闭不初始化大数组、不读guest/取时钟/锁；失败footprint0不读，guard-page CPU测试通过。完整Native构建通过，实际build c1a702e且source-diff为空；日志build/pm4-producer-build.log。该更改是定向诊断，不是根因修复，NR强度/TTL/算法未改。
+
+下一步仅围绕重叠生产者、guest CB游标/提交所有权定位；需要实证支持的修复及新的实际上下文安全条件后再安排GPU。当前boot新HOLD会拒绝已有恢复记录，不能换session、改previous_boot或写假resolution绕过。旧Xid与float冻结仍独立OPEN；亮尾实采/改善、长期试玩和发布尚未完成，不要求玩家现在重复启动或再作无证据重启。
