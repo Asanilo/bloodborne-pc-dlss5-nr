@@ -204,7 +204,7 @@ void Liverpool::Process(std::stop_token stoken) {
         while (num_submits || num_commands) {
             ProcessCommands();
 
-            curr_qid = (curr_qid + 1) % num_mapped_queues;
+            curr_qid = (curr_qid + 1) % num_mapped_queues.load(std::memory_order_relaxed);
 
             auto& queue = mapped_queues[curr_qid];
 
@@ -2550,7 +2550,10 @@ void Liverpool::SubmitAsc(u32 gnm_vqid, std::span<const u32> acb) {
         std::scoped_lock lock{queue.m_access};
         queue.submits.emplace(task.handle);
         std::scoped_lock lk{submit_mutex};
-        num_mapped_queues = std::max(num_mapped_queues, gnm_vqid + 1);
+        // Writers are serialized by submit_mutex; queue.m_access publishes task data.
+        // Initialized to 1 and gnm_vqid < NumTotalQueues, so modulo stays nonzero/bounded.
+        num_mapped_queues.store(std::max(num_mapped_queues.load(std::memory_order_relaxed),
+                                        gnm_vqid + 1),std::memory_order_relaxed);
         ++num_submits;
         ++submissions_total;
         work_retired = false;

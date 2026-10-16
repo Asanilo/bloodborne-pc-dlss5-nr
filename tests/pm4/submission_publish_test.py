@@ -27,7 +27,7 @@ struct Task{int handle=1;};struct Span{const unsigned* data(){return nullptr;}si
 struct Copy{const unsigned* guest_dcb=nullptr;};struct Prep{void Enqueue(u64,int){}};
 struct State{
  struct Queue{std::mutex m_access;std::queue<int> submits;}queue;
- std::mutex submit_mutex;std::atomic<unsigned> num_submits{0};u64 submissions_total=0,gfx_submitted=0,gfx_submit_seq=0;unsigned num_mapped_queues=1,gnm_vqid=1;bool work_retired=true;
+ std::mutex submit_mutex;std::atomic<unsigned> num_submits{0};u64 submissions_total=0,gfx_submitted=0,gfx_submit_seq=0;std::atomic<unsigned> num_mapped_queues{1};unsigned gnm_vqid=1;bool work_retired=true;
  std::latch paused{1},resume{1};Prep* draw_prep=nullptr;int prep_submission=0;Span dcb,ccb;std::shared_ptr<Copy> copy;
  template<class...T>Task ProcessGraphics(T...){return {};}
  void Gfx()

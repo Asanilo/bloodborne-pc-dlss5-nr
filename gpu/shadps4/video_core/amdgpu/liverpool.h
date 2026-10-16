@@ -269,7 +269,7 @@ private:
         ComputeProgram cs_state{};
     };
     std::array<GpuQueue, NumTotalQueues> mapped_queues{};
-    u32 num_mapped_queues{1u}; // GFX is always available
+    std::atomic<u32> num_mapped_queues{1u}; // GFX is always available; range [1, NumTotalQueues]
 
     VAddr indirect_args_addr{};
     u32 num_counter_pairs{};
