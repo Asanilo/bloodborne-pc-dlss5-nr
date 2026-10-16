@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Isolated NR development runner. No legacy approval, ledger or launch quota imports."""
-import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math
+import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid
 from pathlib import Path
 ROOT=Path('/home/arinp/Code/nrbridge-dev');WT=ROOT/'native';OLD=Path('/home/arinp/Code/nrbridge-design/game-poc-20261011')
 GE=Path('/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64')
@@ -207,11 +207,38 @@ def held_run_snapshot():
   out[p.parent.name]={'boot_id':json.loads((p.parent/'manifest.json').read_text())['host_safety']['boot_id'],'files':{n:sha(p.parent/n) for n in names if (p.parent/n).is_file()}}
  return out
 
+def validate_pm4_producer_context(args):
+ enabled=getattr(args,'pm4_producer_context',False)
+ if type(enabled) is not bool or (enabled and (not getattr(args,'pm4_cold_trace',False) or not getattr(args,'reboot_diagnostic',None))):raise ValueError('producer context requires cold trace and reboot diagnostic')
+ return enabled
+
 def validate_reboot_scope(record,args,boot,snapshot,provenance,artifacts):
- if record.get('schema')!='nr-reboot-sr-diagnostic-v1' or record.get('normal_retirement_proved') is not False or record.get('historical_faults_resolved') is not False:raise ValueError('diagnostic is not historical retirement/recovery proof')
- if record.get('boot_id')!=boot or record.get('previous_boot_id')==boot or not record.get('previous_boot_id'):raise ValueError('actual new boot required')
+ schema=record.get('schema')
+ if schema not in ('nr-reboot-sr-diagnostic-v1','nr-reboot-sr-diagnostic-v2') or record.get('normal_retirement_proved') is not False or record.get('historical_faults_resolved') is not False:raise ValueError('diagnostic is not historical retirement/recovery proof')
+ def boot_uuid(value):
+  if not isinstance(value,str) or not value:raise ValueError('valid boot UUID required')
+  try:parsed=uuid.UUID(value)
+  except (ValueError,AttributeError):raise ValueError('valid boot UUID required') from None
+  if str(parsed)!=value:raise ValueError('canonical boot UUID required')
+  return value
+ boot_uuid(boot);boot_uuid(record.get('boot_id'))
+ if record.get('boot_id')!=boot:raise ValueError('actual new boot required')
+ if record.get('held_runs')!=snapshot or not snapshot:raise ValueError('new or changed HOLD; diagnostic refused')
+ historical=sorted({boot_uuid(x.get('boot_id')) for x in snapshot.values()})
+ if boot in historical:raise ValueError('actual new boot required')
+ previous=record.get('previous_boot_id')
+ if previous is not None:
+  boot_uuid(previous)
+  if previous==boot:raise ValueError('actual new boot required')
+ if schema=='nr-reboot-sr-diagnostic-v1':
+  if not previous or historical!=[previous]:raise ValueError('new or changed HOLD; diagnostic refused')
+ else:
+  if record.get('historical_boot_ids')!=historical:raise ValueError('exact sorted unique historical boots required')
+ producer=validate_pm4_producer_context(args)
+ if schema=='nr-reboot-sr-diagnostic-v1':
+  if producer or record.get('producer_context',False) is not False:raise ValueError('v1 forbids producer context')
+ elif type(record.get('producer_context')) is not bool or record['producer_context'] is not producer:raise ValueError('producer context request drift')
  if record.get('session')!=args.session or args.mode!='skipEvaluate' or args.sky!='off' or not 1<=args.seconds<=180 or args.watchdog_seconds>300 or args.runtime_model_helper or args.history_diagnostic or getattr(args,'continue_session',None) or not args.pm4_cold_trace:raise ValueError('one bounded SR-only diagnostic required')
- if record.get('held_runs')!=snapshot or not snapshot or any(x['boot_id']!=record['previous_boot_id'] for x in snapshot.values()):raise ValueError('new or changed HOLD; diagnostic refused')
  if record.get('source_commit')!=provenance['source_commit'] or record.get('native_artifacts')!=artifacts:raise ValueError('diagnostic build drift')
  if record.get('project_holders')!=[] or record.get('driver_errors')!=[] or not record.get('authorization_basis'):raise ValueError('current observation required')
 
@@ -529,6 +556,7 @@ def launch(args):
  return 3 if signals.interrupted else code
 
 def launch_supervised(args,signals):
+ validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=OLD/'playtest/assets/CUSA03173';seed=OLD/'integration/private-NRTest-seed';helper=ROOT/'build/helper/wine_async_presr_play.exe'
  helper_build=None
  if args.runtime_model_helper:helper,helper_build=checked_runtime_helper(args.runtime_model_helper,args.runtime_model_build_sha256)
@@ -556,6 +584,7 @@ def launch_supervised(args,signals):
   for name in ('config','cache','data','state'):env['XDG_'+name.upper()+'_HOME']=str(profile/name)
   nr={'BB_NR_NATIVE_ASYNC':'0','BB_NR_NATIVE_ASYNC_PRE_SR':'1','BB_NR_NATIVE_ASYNC_SCENE_FIRST':'1','BB_NR_NATIVE_ASYNC_PRE_SR_PLAY':'1','BB_NR_NATIVE_ASYNC_PRE_SR_SKY':'off','BB_NATIVE_PERSISTENT_HISTORY':'1' if args.sky=='persistent' else '0','BB_NR_NATIVE_ASYNC_PRE_SR_SR_HISTORY':'game_only','BB_NR_NATIVE_ASYNC_PRE_SR_SR_INPUT':'switching','BB_NR_NATIVE_ASYNC_SESSION':args.session,'BB_NR_NATIVE_ASYNC_MODE':args.mode,'BB_NR_NATIVE_ASYNC_RUN_DIR':str(run),'BB_NR_NATIVE_ASYNC_SCENE_ARM':str(run/'native-scene-arm'),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':str(args.source_limit),'BB_NR_NATIVE_ORIGIN_RUN_DIR':str(run),'BB_NR_NATIVE_ORIGIN_HELPER':str(helper),'BB_NR_NATIVE_ORIGIN_WINE':str(GE/'files/lib/wine/x86_64-unix/wine'),'BB_NR_NATIVE_ORIGIN_PRELOADER':str(GE/'files/lib/wine/x86_64-unix/wine-preloader'),'BB_NR_NATIVE_ORIGIN_PREFIX':str(profile/'wine-prefix'),'BB_NR_NATIVE_ORIGIN_WINEDEBUG':'-all,warn+vulkan,err+vulkan','BB_NR_NATIVE_ORIGIN_MODE':args.mode}
   if getattr(args,'pm4_cold_trace',False):nr.update(BB_NR_PM4_COLD_TRACE='1',BB_NR_RESOURCE_TRACE='1')
+  if getattr(args,'pm4_producer_context',False):nr['BB_NR_PM4_PRODUCER_CONTEXT']='1'
   if args.runtime_model_helper:nr['BB_NR_RUNTIME_MODEL']='1'
   if args.history_diagnostic:
    if args.sky!='persistent' or args.mode!='resident':raise ValueError('history diagnostic requires persistent resident mode')
@@ -613,7 +642,9 @@ def launch_supervised(args,signals):
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; reboot cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ try:validate_pm4_producer_context(a)
+ except ValueError as error:p.error(str(error))
  if a.context_recovery and a.reboot_diagnostic:p.error('choose one isolated diagnostic scope')
  if a.command=='preflight':
   with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:

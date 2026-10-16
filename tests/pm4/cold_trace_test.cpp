@@ -3,12 +3,23 @@
 #include <string>
 #include <fstream>
 #include <sys/mman.h>
+static unsigned context_calls=0;
+static BbGnmHooks::ProducerContext FakeContext(const uint32_t* p){
+ ++context_calls;
+ BbGnmHooks::ProducerContext c{};
+ c.known=true;c.exact_record=true;c.record_type_matches=false;c.record_target_matches=false;
+ c.wrapper=0x1075840;c.caller=0x8011fe65f;c.cb=0x1234;c.cursor=reinterpret_cast<uintptr_t>(p);
+ c.exact_record_index=3;c.record_count=5;c.record_target=0x9876;
+ c.record[0]=0x9f;c.record[1]=0x0604;c.record[2]=4;
+ c.target_word_count=1;c.target_before[0]=p[0];
+ return c;
+}
 int main(int argc,char**){
  if(argc>1){
   unsetenv("BB_NR_PM4_COLD_TRACE");assert(!BbPm4Cold::Enabled());
   // Even an inaccessible pointer must remain untouched on the disabled path.
-  {BbPm4Cold::ShaderWrite disabled("disabled",reinterpret_cast<uint32_t*>(1),40,0);disabled.Footprint(40);}
-  assert(BbPm4Cold::Records().sequence==0);return 0;
+  {BbPm4Cold::ShaderWrite disabled("disabled",reinterpret_cast<uint32_t*>(1),40,0,FakeContext);disabled.Footprint(40);}
+  assert(BbPm4Cold::Records().sequence==0&&context_calls==0);return 0;
  }
  setenv("BB_NR_PM4_COLD_TRACE","1",1);assert(BbPm4Cold::Enabled());
  std::array<uint32_t,15> broken{0xc00a1000,0,0xc0016900,0x358,0,0xc0016900,0x367,0,0xc0016900,0x376,0,0xc0016900,0x385,0,0xc0086900};
@@ -38,8 +49,9 @@ int main(int argc,char**){
  // The final 12-DWORD NOP contains ten residual words; preserve them as observations,
  // without claiming that the shader builder physically wrote those payload words.
  std::array<uint32_t,40> ps{};ps.fill(0xa5a5a5a5);ps[28]=0xc00a1000;ps[29]=0;
- {BbPm4Cold::ShaderWrite trace("ps40",ps.data(),40,0x5678);trace.Footprint(40);}
+ {BbPm4Cold::ShaderWrite trace("ps40",ps.data(),40,0x5678,FakeContext);trace.Footprint(40);}
  const auto& psrecord=records.ring[304%256];
+ assert(context_calls==1&&psrecord.context.exact_record_index==3&&psrecord.context.record_target==0x9876);
  assert(psrecord.snapshot_dw==40&&psrecord.head[28]==0xc00a1000&&psrecord.head[39]==0xa5a5a5a5);
  char path[]="/tmp/pm4-cold-trace-test-XXXXXX";int fd=mkstemp(path);assert(fd>=0);int previous=dup(STDERR_FILENO);assert(dup2(fd,STDERR_FILENO)>=0);close(fd);
  std::array<uint32_t,16385> oversized{};
@@ -51,6 +63,10 @@ int main(int argc,char**){
  assert(text.find("physical_store_count_unknown=1")!=std::string::npos&&text.find("NOP_payload_may_be_residual=1")!=std::string::npos);
  assert(text.find("snapshot_dw=40 snapshot_truncated=0")!=std::string::npos);
  assert(text.find("retained_first_seq=50 retained_last_seq=305 retained_count=256 evicted_count=49 coverage_complete=0")!=std::string::npos);
+ assert(text.find("exact_record=1 record_type_matches=0 record_target_matches=0")!=std::string::npos);
+ assert(text.find("record_index=3 record_target=0x9876")!=std::string::npos);
+ assert(text.find("PM4_COLD_RECORD seq=305 words=0000009f,00000604,00000004,")!=std::string::npos);
+ assert(text.find("PM4_COLD_BEFORE seq=305 words=a5a5a5a5,")!=std::string::npos);
  assert(text.find("actual_written_dw=")==std::string::npos&&text.find("actual_end=")==std::string::npos);
  assert(text.find("full_dump_omitted=1 reason=above_64KiB")!=std::string::npos);
  assert(text.find("PM4_COLD_DCB")!=std::string::npos&&text.find("dump=5")==std::string::npos);unlink(path);

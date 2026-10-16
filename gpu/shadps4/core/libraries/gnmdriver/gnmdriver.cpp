@@ -1523,7 +1523,7 @@ int PS4_SYSV_ABI sceGnmSdmaOpen() {
 }
 
 s32 PS4_SYSV_ABI sceGnmSetCsShader(u32* cmdbuf, u32 size, const u32* cs_regs) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetCsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetCsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1554,7 +1554,7 @@ s32 PS4_SYSV_ABI sceGnmSetCsShader(u32* cmdbuf, u32 size, const u32* cs_regs) {
 
 s32 PS4_SYSV_ABI sceGnmSetCsShaderWithModifier(u32* cmdbuf, u32 size, const u32* cs_regs,
                                                u32 modifier) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetCsShaderWithModifier",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetCsShaderWithModifier",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1590,7 +1590,7 @@ s32 PS4_SYSV_ABI sceGnmSetCsShaderWithModifier(u32* cmdbuf, u32 size, const u32*
 
 s32 PS4_SYSV_ABI sceGnmSetEmbeddedPsShader(u32* cmdbuf, u32 size, u32 shader_id,
                                            u32 shader_modifier) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetEmbeddedPsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetEmbeddedPsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if (shader_id > 1) {
@@ -1661,7 +1661,7 @@ s32 PS4_SYSV_ABI sceGnmSetEmbeddedPsShader(u32* cmdbuf, u32 size, u32 shader_id,
 
 s32 PS4_SYSV_ABI sceGnmSetEmbeddedVsShader(u32* cmdbuf, u32 size, u32 shader_id,
                                            u32 shader_modifier) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetEmbeddedVsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetEmbeddedVsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     LOG_TRACE(Lib_GnmDriver, "called");
 
     if (shader_id != 0) {
@@ -1845,7 +1845,7 @@ s32 PS4_SYSV_ABI sceGnmSetLsShader(u32* cmdbuf, u32 size, const u32* ls_regs, u3
 }
 
 s32 PS4_SYSV_ABI sceGnmSetPsShader(u32* cmdbuf, u32 size, const u32* ps_regs) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetPsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetPsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1885,7 +1885,7 @@ s32 PS4_SYSV_ABI sceGnmSetPsShader(u32* cmdbuf, u32 size, const u32* ps_regs) {
 }
 
 s32 PS4_SYSV_ABI sceGnmSetPsShader350(u32* cmdbuf, u32 size, const u32* ps_regs) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetPsShader350",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetPsShader350",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -1986,7 +1986,7 @@ s32 PS4_SYSV_ABI sceGnmSetVgtControl(u32* cmdbuf, u32 size, u32 prim_group_sz_mi
 }
 
 s32 PS4_SYSV_ABI sceGnmSetVsShader(u32* cmdbuf, u32 size, const u32* vs_regs, u32 shader_modifier) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetVsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmSetVsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -2650,7 +2650,7 @@ int PS4_SYSV_ABI sceGnmUpdateHsShader(u32* cmdbuf, u32 size, const u32* hs_regs,
 }
 
 s32 PS4_SYSV_ABI sceGnmUpdatePsShader(u32* cmdbuf, u32 size, const u32* ps_regs) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmUpdatePsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmUpdatePsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -2696,7 +2696,7 @@ s32 PS4_SYSV_ABI sceGnmUpdatePsShader(u32* cmdbuf, u32 size, const u32* ps_regs)
 }
 
 s32 PS4_SYSV_ABI sceGnmUpdatePsShader350(u32* cmdbuf, u32 size, const u32* ps_regs) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmUpdatePsShader350",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmUpdatePsShader350",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 
@@ -2745,7 +2745,7 @@ s32 PS4_SYSV_ABI sceGnmUpdatePsShader350(u32* cmdbuf, u32 size, const u32* ps_re
 
 s32 PS4_SYSV_ABI sceGnmUpdateVsShader(u32* cmdbuf, u32 size, const u32* vs_regs,
                                       u32 shader_modifier) {
-    BbPm4Cold::ShaderWrite cold_trace{"sceGnmUpdateVsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0))};
+    BbPm4Cold::ShaderWrite cold_trace{"sceGnmUpdateVsShader",cmdbuf,size,reinterpret_cast<uintptr_t>(__builtin_return_address(0)),BbGnmHooks::CurrentProducerContext};
     BbGnmHooks::DriverWrite bb_observe{cmdbuf, size};
     LOG_TRACE(Lib_GnmDriver, "called");
 

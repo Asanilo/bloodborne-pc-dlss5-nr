@@ -1243,12 +1243,12 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
 
         switch (type) {
         default:
-            if(copy&&copy->cold_trace)BbPm4Cold::Dump("decode_bad_packet",reinterpret_cast<uintptr_t>(copy->guest_dcb),{copy->data.data(),copy->dcb_dwords},{copy->cold_framing_valid,copy->cold_bad_offset,copy->cold_bad_word,"recorded_at_submit"},copy->cold_digest);
+            if(copy&&copy->cold_trace)BbPm4Cold::Dump("decode_bad_packet",reinterpret_cast<uintptr_t>(copy->guest_dcb),{copy->data.data(),copy->dcb_dwords},{copy->cold_framing_valid,copy->cold_bad_offset,copy->cold_bad_word,"recorded_at_submit"},copy->cold_digest,copy->cold_copy_begin_ns,copy->cold_copy_end_ns,copy->cold_copy_tid);
             ReportBadPacket(base_addr, dcb_dwords, dcb.data(), seq, dcb_depth);
             UNREACHABLE_MSG("Wrong PM4 type {}", type);
             break;
         case 0:
-            if(copy&&copy->cold_trace)BbPm4Cold::Dump("decode_bad_packet",reinterpret_cast<uintptr_t>(copy->guest_dcb),{copy->data.data(),copy->dcb_dwords},{copy->cold_framing_valid,copy->cold_bad_offset,copy->cold_bad_word,"recorded_at_submit"},copy->cold_digest);
+            if(copy&&copy->cold_trace)BbPm4Cold::Dump("decode_bad_packet",reinterpret_cast<uintptr_t>(copy->guest_dcb),{copy->data.data(),copy->dcb_dwords},{copy->cold_framing_valid,copy->cold_bad_offset,copy->cold_bad_word,"recorded_at_submit"},copy->cold_digest,copy->cold_copy_begin_ns,copy->cold_copy_end_ns,copy->cold_copy_tid);
             ReportBadPacket(base_addr, dcb_dwords, dcb.data(), seq, dcb_depth);
             UNREACHABLE_MSG("Unimplemented PM4 type 0, base reg: {}, size: {}",
                             header->type0.base.Value(), header->type0.NumWords());
@@ -2011,7 +2011,7 @@ Liverpool::Task Liverpool::ProcessGraphics(std::span<const u32> dcb, std::span<c
                 break;
             }
             default:
-                if(copy&&copy->cold_trace)BbPm4Cold::Dump("decode_unknown_opcode",reinterpret_cast<uintptr_t>(copy->guest_dcb),{copy->data.data(),copy->dcb_dwords},{copy->cold_framing_valid,copy->cold_bad_offset,copy->cold_bad_word,"recorded_at_submit"},copy->cold_digest);
+                if(copy&&copy->cold_trace)BbPm4Cold::Dump("decode_unknown_opcode",reinterpret_cast<uintptr_t>(copy->guest_dcb),{copy->data.data(),copy->dcb_dwords},{copy->cold_framing_valid,copy->cold_bad_offset,copy->cold_bad_word,"recorded_at_submit"},copy->cold_digest,copy->cold_copy_begin_ns,copy->cold_copy_end_ns,copy->cold_copy_tid);
                 ReportBadPacket(base_addr, dcb_dwords, dcb.data(), seq, dcb_depth);
                 UNREACHABLE_MSG("Unknown PM4 type 3 opcode {:#x} with count {}",
                                 static_cast<u32>(opcode), count);
@@ -2446,7 +2446,17 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
     if (EmulatorSettings.IsCopyGpuBuffers()) {
         copy = std::make_shared<SubmittedCopy>();
         copy->data.resize(dcb.size() + ccb.size());
+        copy->cold_trace = BbPm4Cold::Enabled();
+        if (copy->cold_trace) {
+            copy->cold_copy_tid = syscall(SYS_gettid);
+            copy->cold_copy_begin_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
         std::memcpy(copy->data.data(), dcb.data(), dcb.size_bytes());
+        if (copy->cold_trace) {
+            copy->cold_copy_end_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        }
         std::memcpy(copy->data.data() + dcb.size(), ccb.data(), ccb.size_bytes());
         copy->guest_dcb = dcb.data();
         copy->dcb_dwords = dcb.size();
@@ -2460,7 +2470,7 @@ void Liverpool::SubmitGfx(std::span<const u32> dcb, std::span<const u32> ccb) {
     if (BbPm4Cold::Enabled() && copy) {
         const auto framing=BbPm4Cold::Validate(dcb);copy->cold_trace=true;
         copy->cold_framing_valid=framing.valid;copy->cold_bad_offset=framing.offset;copy->cold_bad_word=framing.word;copy->cold_digest=BbPm4Cold::Digest(dcb);
-        if(!framing.valid)BbPm4Cold::Dump("submit_copy",reinterpret_cast<uintptr_t>(copy->guest_dcb),dcb,framing,copy->cold_digest);
+        if(!framing.valid)BbPm4Cold::Dump("submit_copy",reinterpret_cast<uintptr_t>(copy->guest_dcb),dcb,framing,copy->cold_digest,copy->cold_copy_begin_ns,copy->cold_copy_end_ns,copy->cold_copy_tid);
     }
 
     // The copy for the draw preparation workers is made before taking the queue lock, which

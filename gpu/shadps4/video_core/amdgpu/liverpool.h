@@ -241,6 +241,7 @@ private:
     struct SubmittedCopy {
         bool cold_trace=false,cold_framing_valid=true;
         size_t cold_bad_offset=0;uint32_t cold_bad_word=0;uint64_t cold_digest=0;
+        uint64_t cold_copy_begin_ns=0,cold_copy_end_ns=0;long cold_copy_tid=0;
         std::vector<u32> data; ///< dcb, then ccb
         const u32* guest_dcb{};
         std::size_t dcb_dwords{};

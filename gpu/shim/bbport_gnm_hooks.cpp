@@ -5,12 +5,15 @@
 #include <initializer_list>
 #include <atomic>
 #include <chrono>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <thread>
 #include <vector>
 #include <sys/mman.h>
+#include <sys/uio.h>
+#include <limits>
 #include <unistd.h>
 
 namespace BbGnmHooks {
@@ -72,6 +75,19 @@ bool Rel32(const u8* from_next, const void* to, std::int32_t& rel) {
 /// wrote in a shadow table (writer, checksum). Submissions are checked against it: which packets
 /// came from known API calls, which from elsewhere, which were changed after the call wrote them.
 bool observe = false;
+bool producer_context = false;
+bool IsProducer(u64 offset) {
+    return offset == 0x10753c0 || offset == 0x1075420 || offset == 0x1075480 ||
+           offset == 0x10754f0 || offset == 0x1075840;
+}
+bool ReadGuest(u64 address, void* out, std::size_t size) {
+    if (!address || size > 160 || address > std::numeric_limits<u64>::max() - size) return false;
+    iovec local{out, size}, remote{reinterpret_cast<void*>(address), size};
+    const int saved_errno = errno;
+    const bool ok = process_vm_readv(getpid(), &local, 1, &remote, 1, 0) == ssize_t(size);
+    errno = saved_errno;
+    return ok;
+}
 u8* exit_thunk = nullptr;
 
 struct Frame {
@@ -79,6 +95,8 @@ struct Frame {
     u64 cb;
     u64 before;
     u64 ret;
+    u64 entry_r12 = 0;
+    u64 patch_cb = 0;
     u64 args[6]; // rdi, rsi, rdx, rcx, r8, r9 (BB_GNM_TRACE)
 };
 /// BB_GNM_TRACE=offset[:count]: prints the arguments, the caller and the packets written by the
@@ -88,6 +106,7 @@ std::atomic<int> trace_left{0};
 constexpr int MaxDepth = 64;
 thread_local Frame frames[MaxDepth];
 thread_local int depth = 0;
+thread_local bool context_overflow = false;
 
 std::atomic<u64> anomalies{0};
 std::atomic<u64> anomalies_by_fn[1024];
@@ -201,15 +220,21 @@ void Mark(std::uint32_t index, u64 before, u64 after, u64 cb = 0) {
     }
 }
 
-extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot) {
-    __atomic_fetch_add(CounterAt(index), 1, __ATOMIC_RELAXED);
+extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot, u64 entry_r12) {
+    if (observe || !producer_context) __atomic_fetch_add(CounterAt(index), 1, __ATOMIC_RELAXED);
     if (depth == MaxDepth) {
         overflow.fetch_add(1, std::memory_order_relaxed);
+        context_overflow = true;
         return;
     }
     Frame& f = frames[depth++];
     // A traced function that is not a command buffer method: no write pointer to note.
-    f = {index, cb, Table[index].cb_method ? *reinterpret_cast<const u64*>(cb + 0x10) : 0, *slot, {}};
+    f = {};
+    f.index = index; f.cb = cb; f.ret = *slot; f.entry_r12 = entry_r12;
+    if (producer_context && Table[index].offset == 0x11fde00) f.patch_cb = slot[-2];
+    if (observe && Table[index].cb_method) {
+        f.before = *reinterpret_cast<const u64*>(cb + 0x10);
+    }
     if (index == trace_index) {
         // The stub saved rdi..r9 just below the return address slot.
         f.args[0] = slot[-1]; f.args[1] = slot[-2]; f.args[2] = slot[-3];
@@ -220,6 +245,8 @@ extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot) {
 
 extern "C" u64 BbGnmLeave() {
     const Frame f = frames[--depth];
+    if (depth == 0) context_overflow = false;
+    if (producer_context && !observe) return f.ret;
     const bool cb_method = Table[f.index].cb_method;
     if (f.index == trace_index && trace_left.fetch_sub(1, std::memory_order_relaxed) > 0) {
         const u64 after = cb_method ? *reinterpret_cast<const u64*>(f.cb + 0x10) : f.before;
@@ -317,6 +344,7 @@ u8* WriteObserveStub(u8* at, std::uint32_t index) {
     w.Imm32(0xb0);                                             // mov rsi, [rsp+0xb0] (rdi)
     w.Put({0x48, 0x8d, 0x94, 0x24});
     w.Imm32(0xb8);                                             // lea rdx, [rsp+0xb8] (return slot)
+    w.Put({0x4c, 0x89, 0xe1}); // mov rcx, r12: live patcher loop index + 1
     w.Put({0x48, 0xb8});
     w.Imm64(reinterpret_cast<u64>(&BbGnmEnter));               // mov rax, BbGnmEnter
     w.Put({0xff, 0xd0});                                       // call rax
@@ -459,6 +487,65 @@ void ReportLoop() {
 }
 } // namespace
 
+ProducerContext CurrentProducerContext(const std::uint32_t* commands) {
+    ProducerContext out;
+    if (!producer_context || context_overflow || depth == 0 || !commands) return out;
+    const Frame& f = frames[depth - 1];
+    const u64 wrapper = Table[f.index].offset;
+    if (!IsProducer(wrapper)) return out;
+    u64 cb[3]{};
+    if (!ReadGuest(f.cb, cb, sizeof(cb))) { out.read_failed = true; return out; }
+    out.wrapper = wrapper; out.caller = f.ret;
+    out.cb = f.cb; out.base = cb[0]; out.end = cb[1]; out.cursor = cb[2];
+    const u64 command = reinterpret_cast<u64>(commands);
+    if (cb[0] > cb[2] || cb[2] >= cb[1] || cb[2] != command || (command & 3)) return out;
+    out.known = true;
+    const auto words = std::min<u64>(40, (out.end - command) / 4);
+    if (ReadGuest(command, out.target_before, words * 4)) out.target_word_count = words;
+    else out.read_failed = true;
+    // Only the immediately enclosing verified patcher is evidence of a parent table.
+    if (depth < 2) return out;
+    const Frame& parent = frames[depth - 2];
+    if (Table[parent.index].offset != 0x11fde00 || parent.patch_cb != f.cb) return out;
+    out.table = parent.cb; out.patcher_caller = parent.ret;
+    u64 table[9]{};
+    if (!ReadGuest(out.table, table, sizeof(table))) { out.read_failed = true; return out; }
+    out.records = table[4]; out.payload = table[5]; out.record_count = table[8];
+    const u64 caller = f.ret >= image_base ? f.ret - image_base : 0;
+    const bool cs = wrapper == 0x1075840 && (caller == 0x11fe65f || caller == 0x11fe670);
+    const bool ps = wrapper == 0x10753c0 && (caller == 0x11fe138 || caller == 0x11fe642);
+    const bool vs = wrapper == 0x1075480 && (caller == 0x11fe19e || caller == 0x11fe4e8);
+    if ((!cs && !ps && !vs) || !f.entry_r12 || f.entry_r12 > 0xffffffffu) return out;
+    u8 call[5]{};
+    if (!ReadGuest(f.ret - 5, call, sizeof(call))) { out.read_failed = true; return out; }
+    std::int32_t displacement = 0; std::memcpy(&displacement, call + 1, 4);
+    if (call[0] != 0xe8 || caller + displacement != wrapper) return out;
+    const u64 index = f.entry_r12 - 1;
+    // This is one exact record, never a table scan. Bound arithmetic even for corrupt counts.
+    if (index >= out.record_count || index > (std::numeric_limits<u64>::max() - out.records) / 12)
+        return out;
+    std::uint32_t record[3]{};
+    if (!ReadGuest(out.records + index * 12, record, sizeof(record))) {
+        out.read_failed = true; return out;
+    }
+    const unsigned type = record[1] & 0xff, subtype = (record[1] >> 8) & 0xff;
+    out.exact_record = true; out.exact_record_index = index;
+    std::memcpy(out.record, record, sizeof(record));
+    out.record_type_matches = type == 4 && subtype == (cs ? 12u : ps ? 6u : 7u);
+    if (out.base <= std::numeric_limits<u64>::max() - u64(record[0]) * 4) {
+        out.record_target = out.base + u64(record[0]) * 4;
+        out.record_target_matches = out.record_target == command;
+    }
+    const u64 payload_offset = u64(record[2]) * 4;
+    if (out.payload <= std::numeric_limits<u64>::max() - payload_offset) {
+        out.record_payload = out.payload + payload_offset;
+        if (ReadGuest(out.record_payload, out.payload_words, sizeof(out.payload_words)))
+            out.payload_word_count = 10;
+        else out.read_failed = true;
+    } else out.read_failed = true;
+    return out;
+}
+
 void CheckSubmission(const std::uint32_t* commands, std::uint64_t dwords) {
     if (!observe || !commands) {
         return;
@@ -513,7 +600,13 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
     const char* env = std::getenv("BB_GNM_CENSUS");
     const char* observe_env = std::getenv("BB_GNM_OBSERVE");
     observe = observe_env && observe_env[0] == '1';
-    if (!observe && (!env || env[0] != '1')) {
+    const char* context_env = std::getenv("BB_NR_PM4_PRODUCER_CONTEXT");
+    const char* cold_env = std::getenv("BB_NR_PM4_COLD_TRACE");
+    producer_context = context_env && std::strcmp(context_env, "1") == 0 &&
+                       cold_env && std::strcmp(cold_env, "1") == 0;
+    const bool census = env && env[0] == '1';
+    const bool cold_only = producer_context && !observe && !census;
+    if (!producer_context && !observe && !census) {
         return;
     }
     const std::size_t stub_bytes = (Count + 1) * SlotSize; // + the shared exit thunk
@@ -542,12 +635,13 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
     WriteExitThunk(exit_thunk);
     // BB_GNM_CENSUS_RANGE=first:last (table indices, bisecting).
     std::size_t first = 0, last = Count;
-    if (const char* r = std::getenv("BB_GNM_CENSUS_RANGE")) {
+    if (const char* r = cold_only ? nullptr : std::getenv("BB_GNM_CENSUS_RANGE")) {
         std::sscanf(r, "%zu:%zu", &first, &last);
     }
     u8* counters = stubs + code_bytes;
     for (std::size_t i = first; i < std::min(last, Count); ++i) {
         const Entry& e = Table[i];
+        if (cold_only && !IsProducer(e.offset) && e.offset != 0x11fde00) continue;
         u8* fn = image + e.offset;
         if (e.offset + e.prologue_size > size || std::memcmp(fn, e.prologue, e.prologue_size) != 0) {
             ++mismatched;
@@ -557,7 +651,8 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
         u8* counter = counters + i * CounterStride;
         std::int32_t rel;
         u8* body;
-        if (observe && (e.cb_method || i == trace_index)) {
+        if ((observe && (e.cb_method || i == trace_index)) ||
+            (producer_context && (IsProducer(e.offset) || e.offset == 0x11fde00))) {
             body = WriteObserveStub(s, std::uint32_t(i));
         } else {
             // lock inc qword [rip+rel]
@@ -589,9 +684,14 @@ void PatchImage(unsigned char* image, std::uint64_t size) {
         ++patched;
     }
     mprotect(stubs, code_bytes, PROT_READ | PROT_EXEC);
-    std::printf("Gnm census: %zu of %zu libGnm entry points hooked (%zu do not match the 1.09 eboot)%s\n",
-                patched, Count, mismatched, observe ? "; command buffer methods observed" : "");
-    std::thread(ReportLoop).detach();
+    if (cold_only) {
+        std::printf("Gnm producer context: %zu of 6 targeted entry points hooked (%zu prologue mismatches); "
+                    "same-thread cold evidence only\n", patched, mismatched);
+    } else {
+        std::printf("Gnm census: %zu of %zu libGnm entry points hooked (%zu do not match the 1.09 eboot)%s\n",
+                    patched, Count, mismatched, observe ? "; command buffer methods observed" : "");
+    }
+    if (!cold_only) std::thread(ReportLoop).detach();
 }
 } // namespace BbGnmHooks
 

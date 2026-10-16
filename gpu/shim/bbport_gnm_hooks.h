@@ -12,6 +12,26 @@ namespace BbGnmHooks {
 /// still writable). Each entry is checked byte for byte against the 1.09 eboot.
 void PatchImage(unsigned char* image, std::uint64_t size);
 
+/// Cold-only, same-thread evidence. Addresses are host guest-image addresses; wrapper is an
+/// image-relative offset. exact_record means the live loop index and callsite were verified,
+/// never uniqueness inferred from a matching target. Unavailable fields remain zero.
+struct ProducerContext {
+    bool known = false;
+    bool read_failed = false;
+    bool exact_record = false;
+    bool record_type_matches = false;
+    bool record_target_matches = false;
+    std::uint64_t wrapper = 0, caller = 0;
+    std::uint64_t cb = 0, base = 0, end = 0, cursor = 0;
+    std::uint64_t patcher_caller = 0, table = 0, records = 0, payload = 0, record_count = 0;
+    std::uint64_t exact_record_index = 0, record_target = 0, record_payload = 0;
+    std::uint32_t record[3]{};
+    std::uint32_t payload_words[10]{};
+    std::uint32_t target_before[40]{};
+    std::uint32_t payload_word_count = 0, target_word_count = 0;
+};
+ProducerContext CurrentProducerContext(const std::uint32_t* commands);
+
 /// BB_GNM_OBSERVE=1: checks a submitted command buffer against the packets the hooked API calls
 /// wrote (the submitting thread; statistics in the census report).
 void CheckSubmission(const std::uint32_t* commands, std::uint64_t dwords);
