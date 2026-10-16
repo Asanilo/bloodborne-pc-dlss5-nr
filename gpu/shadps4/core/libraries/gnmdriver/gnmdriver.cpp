@@ -84,11 +84,6 @@ static u32 asc_next_offs_dw[Liverpool::NumComputeRings];
 static VAddr tessellation_factors_ring_addr = -1;
 static constexpr u32 tessellation_offchip_buffer_size = 0x800000u;
 
-static void ResetSubmissionLock(Platform::InterruptId irq) {
-    std::unique_lock lock{m_wait_idle};
-    submission_lock = 0;
-    cv_lock.notify_all();
-}
 
 bool SubmitLockOnDecode() {
     // Only with honest labels: without them the GPU idle interrupt comes at decode anyway, and
@@ -285,7 +280,8 @@ s32 PS4_SYSV_ABI sceGnmAddEqEvent(OrbisKernelEqueue eq, u64 id, void* udata) {
 int PS4_SYSV_ABI sceGnmAreSubmitsAllowed() {
     LOG_TRACE(Lib_GnmDriver, "called");
     // bbport (frame stats): how often the guest asks, and how often it hears no.
-    const bool allowed = submission_lock == 0;
+    bool allowed;
+    {std::scoped_lock lock{m_wait_idle};allowed=submission_lock==0;}
     BbStats::submits_allowed_queries.fetch_add(1, std::memory_order_relaxed);
     if (!allowed) {
         BbStats::submits_refused.fetch_add(1, std::memory_order_relaxed);
@@ -2541,8 +2537,11 @@ s32 PS4_SYSV_ABI sceGnmSubmitDone() {
         liverpool->SubmitDone(u64(frames_submitted));
     } else {
         WaitGpuIdle();
-        if (!liverpool->IsGpuIdle()) {
-            submission_lock = true;
+        {
+            // IsGpuIdle reads atomics only; do not take Liverpool::submit_mutex
+            // while holding m_wait_idle (idle publication takes the opposite order).
+            std::scoped_lock idle_lock{m_wait_idle};
+            if (!liverpool->IsGpuIdle()) submission_lock = true;
         }
         ++frames_submitted;
         liverpool->SubmitDone();
@@ -3116,8 +3115,8 @@ void RegisterLib(Core::Loader::SymbolsResolver* sym) {
         sdk_version = 0;
     }
 
-    Platform::IrqC::Instance()->Register(Platform::InterruptId::GpuIdle, ResetSubmissionLock,
-                                         nullptr);
+    // Submission-lock release is now generation-checked inside Liverpool's
+    // submit transaction. GpuIdle remains a notification, never an unscoped reset.
 
     LIB_FUNCTION("b0xyllnVY-I", "libSceGnmDriver", 1, "libSceGnmDriver", sceGnmAddEqEvent);
     LIB_FUNCTION("b08AgtPlHPg", "libSceGnmDriver", 1, "libSceGnmDriver", sceGnmAreSubmitsAllowed);

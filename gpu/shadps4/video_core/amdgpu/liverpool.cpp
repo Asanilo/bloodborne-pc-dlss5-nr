@@ -298,12 +298,9 @@ void Liverpool::Process(std::stop_token stoken) {
             // BB_SUBMIT_LOCK=decode: everything is decoded, so the next submission need not wait
             // for the GPU to finish (the interrupt below still waits for it).
             if (Libraries::GnmDriver::SubmitLockOnDecode()) {
-                bool decoded;
-                {
-                    std::scoped_lock lk{submit_mutex};
-                    decoded = num_submits == 0 && submissions_total == generation;
-                }
-                if (decoded) {
+                std::scoped_lock lk{submit_mutex};
+                if (num_submits == 0 && submissions_total == generation) {
+                    // Check and release are one transaction versus new submit.
                     Libraries::GnmDriver::ReleaseSubmissionLock();
                 }
             }
@@ -326,17 +323,9 @@ void Liverpool::Process(std::stop_token stoken) {
             rasterizer->SignalAfterGpu([this, generation] { SignalGpuIdle(generation); });
             continue;
         }
-        bool idle;
-        {
-            std::scoped_lock lk{submit_mutex};
-            idle = num_submits == 0;
-            if (idle) {
-                work_retired = true;
-            }
-        }
-        if (idle) {
-            Platform::IrqC::Instance()->Signal(Platform::InterruptId::GpuIdle);
-        }
+        u64 generation;
+        {std::scoped_lock lk{submit_mutex};generation=submissions_total;}
+        SignalGpuIdle(generation);
     }
 }
 
@@ -2539,6 +2528,9 @@ void Liverpool::SignalGpuIdle(u64 generation) {
         idle = num_submits == 0 && submissions_total == generation;
         if (idle) {
             work_retired = true;
+            // Lock order: submit_mutex -> Gnm m_wait_idle. No synchronous IRQ
+            // callback runs under these locks; a delayed IRQ cannot clear a new lock.
+            Libraries::GnmDriver::ReleaseSubmissionLock();
         }
     }
     if (idle) {
