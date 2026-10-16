@@ -33,6 +33,22 @@ class FreshContext(unittest.TestCase):
  def test_lock_required(self):self.assertRaises(ValueError,r.verify_fresh_context_resolution,self.run,{},None)
  def test_build_observation_cannot_change_artifacts(self):
   self.provenance['artifacts']={};self.assertRaises(ValueError,r.audit_pre_nr_absence,self.run,self.provenance)
+ def unobserved_fixture(self):
+  for name in ('game-identity.json','native-loaded-libraries.json'):(self.run/name).unlink()
+  head='a'*40;build=self.run/'build-provenance';build.mkdir()
+  artifacts={'/example/build/'+n:'b'*64 for n in ('bb-probe','gpu/libbbgpu.so','libbbport_dlss.so','libnvidia-ngx-dlss.so.1')}
+  (build/'source-head.txt').write_text(head+'\n');(build/'source-diff.patch').write_bytes(b'');(build/'artifacts.sha256').write_text(''.join(d+'  '+p+'\n' for p,d in artifacts.items()))
+  manifest=json.loads((self.run/'manifest.json').read_text());manifest.update(native_build='/example/build',artifacts=artifacts,native_build_provenance={'source_commit':head,'files':{p.name:r.sha(p) for p in build.iterdir()}});self.put('manifest.json',manifest)
+  self.provenance.update(source_commit=head,artifacts=artifacts)
+ def test_player_assert_before_control_records_explicit_absence(self):
+  self.unobserved_fixture();before=(self.run/'result.json').read_bytes();e=r.audit_pre_nr_absence(self.run,self.provenance)
+  self.assertEqual(e['game-identity.json'],'ABSENT_BEFORE_CONTROL_OBSERVATION');self.assertIn('build-provenance/artifacts.sha256',e);self.assertFalse((self.run/'game-identity.json').exists());self.assertEqual(before,(self.run/'result.json').read_bytes())
+ def test_missing_identity_without_exact_build_rejected(self):
+  (self.run/'game-identity.json').unlink();(self.run/'native-loaded-libraries.json').unlink();self.assertRaises(ValueError,r.audit_pre_nr_absence,self.run,self.provenance)
+ def test_partial_identity_observation_rejected(self):
+  (self.run/'game-identity.json').unlink();self.assertRaises(ValueError,r.audit_pre_nr_absence,self.run,self.provenance)
+ def test_unobserved_build_drift_rejected(self):
+  self.unobserved_fixture();(self.run/'build-provenance/source-diff.patch').write_text('changed');self.assertRaises(ValueError,r.audit_pre_nr_absence,self.run,self.provenance)
 class CurrentHost(unittest.TestCase):
  def verify(self,message='kernel boot safe',journal_error=None):
   with tempfile.TemporaryDirectory() as temp:

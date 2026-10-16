@@ -68,7 +68,29 @@ def audit_pre_nr_absence(run, provenance):
   if image.exists():
    if image.is_symlink() or not image.is_file() or image.stat().st_size>32*1024*1024 or image.read_bytes()[:8]!=b'\x89PNG\r\n\x1a\n':raise ValueError('unexpected scene observation')
    observers.append(name)
- return {name:sha(run/name) for name in ('manifest.json','result.json','runner.json','game-identity.json','game.log','native-loaded-libraries.json',*observers)}
+ identity_names=('game-identity.json','native-loaded-libraries.json')
+ observed=[(run/name).is_file() for name in identity_names]
+ evidence={name:sha(run/name) for name in ('manifest.json','result.json','runner.json','game.log',*observers)}
+ if all(observed):return evidence|{name:sha(run/name) for name in identity_names}
+ if any(observed):raise ValueError('partial live identity observation')
+ # A player can hit a loading assertion before the first control request observes
+ # PID/maps. Never invent either record; bind the captured clean build instead.
+ build=manifest.get('native_build_provenance',{});files=build.get('files',{})
+ if not re.fullmatch('[0-9a-f]{40}',head) or build.get('source_commit')!=head or set(files)!={'source-head.txt','source-diff.patch','artifacts.sha256'}:raise ValueError('unobserved game requires captured exact build provenance')
+ for name,digest in files.items():
+  path=run/'build-provenance'/name
+  if path.is_symlink() or not path.is_file() or sha(path)!=digest:raise ValueError('captured build provenance changed')
+ if (run/'build-provenance/source-head.txt').read_text().strip()!=head or (run/'build-provenance/source-diff.patch').read_bytes():raise ValueError('unobserved game requires clean source')
+ recorded={}
+ for line in (run/'build-provenance/artifacts.sha256').read_text().splitlines():
+  match=re.fullmatch(r'([0-9a-f]{64})  (.+)',line)
+  if not match or match[2] in recorded:raise ValueError('malformed captured artifact identity')
+  recorded[match[2]]=match[1]
+ native_artifacts={p:d for p,d in manifest.get('artifacts',{}).items() if Path(p).is_relative_to(Path(manifest['native_build']))}
+ if len(recorded)!=4 or recorded!=native_artifacts:raise ValueError('unobserved game artifact mismatch')
+ if any((run/name).exists() or (run/name).is_symlink() for name in identity_names):raise ValueError('unexpected identity file type')
+ return evidence|{name:'ABSENT_BEFORE_CONTROL_OBSERVATION' for name in identity_names}|{'build-provenance/'+name:digest for name,digest in files.items()}
+
 
 TERMINATED_PRE_NR_HEAD='b701356f2580886380d21a4a31003e672aa7815f'
 def audit_terminated_pre_nr_freeze(run, provenance):
@@ -145,7 +167,11 @@ def verify_fresh_context_resolution(run, resolution, lock):
  boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
  manifest=json.loads((run/'manifest.json').read_text())
  if resolution.get('boot_id')!=boot or manifest['host_safety']['boot_id']!=boot:raise ValueError('same boot required')
- for identity in [json.loads((run/'game-identity.json').read_text()),*json.loads((run/'runner.json').read_text()).values()]:
+ identities=list(json.loads((run/'runner.json').read_text()).values())
+ game_identity=run/'game-identity.json'
+ if game_identity.exists():identities.append(json.loads(game_identity.read_text()))
+ elif resolution['kind']!='pre-nr-absence' or evidence.get('game-identity.json')!='ABSENT_BEFORE_CONTROL_OBSERVATION':raise ValueError('game identity absence not proved')
+ for identity in identities:
   try:current=live(identity['pid'])
   except FileNotFoundError:continue
   if current['start_ticks']==identity['start_ticks']:raise ValueError('original process still live')
