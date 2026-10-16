@@ -7,6 +7,7 @@
 #include "common/assert.h"
 #include "video_core/buffer_cache/buffer.h"
 #include "bbport_guest_memory.h"
+#include "bbport_resource_trace.h"
 #include "video_core/renderer_vulkan/vk_instance.h"
 #include "video_core/renderer_vulkan/vk_platform.h"
 #include "video_core/renderer_vulkan/vk_scheduler.h"
@@ -71,12 +72,28 @@ UniqueBuffer::~UniqueBuffer() {
     Destroy();
 }
 
+void UniqueBuffer::TraceCreated(u64 bytes) {
+    if (!BbResourceTrace::Enabled()) return;
+    trace_id = BbResourceTrace::NewId();
+    trace_bytes = bytes;
+    BbResourceTrace::Emit({.type="buffer", .event="create", .id=trace_id,
+        .handle=reinterpret_cast<uint64_t>(static_cast<VkBuffer>(buffer)),
+        .bda=bda_addr, .bytes=trace_bytes});
+}
+
 void UniqueBuffer::Destroy() {
+    // These events identify actual API calls, not proof of GPU completion.
+    const auto handle = reinterpret_cast<uint64_t>(static_cast<VkBuffer>(buffer));
+    if (trace_id) BbResourceTrace::Emit({.type="buffer", .event="destroy_begin",
+        .id=trace_id, .handle=handle, .bda=bda_addr, .bytes=trace_bytes});
     if (allocation) {
         vmaDestroyBuffer(allocator, buffer, allocation);
     } else if (buffer) {
         device.destroyBuffer(buffer);
     }
+    if (trace_id) BbResourceTrace::Emit({.type="buffer", .event="destroy_end",
+        .id=trace_id, .handle=handle, .bda=bda_addr, .bytes=trace_bytes});
+    trace_id = trace_bytes = 0;
     buffer = VK_NULL_HANDLE;
     allocation = VK_NULL_HANDLE;
     bda_addr = 0;
@@ -156,6 +173,7 @@ void UniqueBuffer::Create(vk::BufferCreateInfo& buffer_ci, MemoryType mem_type,
         ASSERT_MSG(bda_result != 0, "Failed to get buffer device address");
         bda_addr = bda_result;
     }
+    TraceCreated(buffer_ci.size);
 }
 
 Buffer::Buffer(const Vulkan::Instance& instance, u64 size_bytes_, vk::DeviceMemory memory,
@@ -191,6 +209,7 @@ Buffer::Buffer(const Vulkan::Instance& instance, u64 size_bytes_, vk::DeviceMemo
     if (layer) {
         buffer.bda_addr = device.getBufferAddress({.buffer = buffer.buffer});
     }
+    buffer.TraceCreated(size_bytes);
     Vulkan::SetObjectName(device, Handle(), debug_name);
     is_coherent = true;
 }

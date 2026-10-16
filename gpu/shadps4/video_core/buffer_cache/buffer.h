@@ -90,7 +90,9 @@ struct UniqueBuffer {
         : device{other.device}, buffer{std::exchange(other.buffer, VK_NULL_HANDLE)},
           bda_addr{std::exchange(other.bda_addr, 0)},
           allocator{std::exchange(other.allocator, VK_NULL_HANDLE)},
-          allocation{std::exchange(other.allocation, VK_NULL_HANDLE)} {}
+          allocation{std::exchange(other.allocation, VK_NULL_HANDLE)},
+          trace_id{std::exchange(other.trace_id, 0)},
+          trace_bytes{std::exchange(other.trace_bytes, 0)} {}
 
     UniqueBuffer& operator=(UniqueBuffer&& other) noexcept {
         if (this != &other) {
@@ -100,6 +102,8 @@ struct UniqueBuffer {
             bda_addr = std::exchange(other.bda_addr, 0);
             allocator = std::exchange(other.allocator, VK_NULL_HANDLE);
             allocation = std::exchange(other.allocation, VK_NULL_HANDLE);
+            trace_id = std::exchange(other.trace_id, 0);
+            trace_bytes = std::exchange(other.trace_bytes, 0);
         }
         return *this;
     }
@@ -108,12 +112,16 @@ struct UniqueBuffer {
                 VmaAllocationInfo* out_alloc_info);
 
     void Destroy();
+    // Cold CPU-only identity tracking; no address query or ownership change.
+    void TraceCreated(u64 bytes);
 
     vk::Device device;
     vk::Buffer buffer{};
     vk::DeviceAddress bda_addr{};
     VmaAllocator allocator;
     VmaAllocation allocation{};
+    u64 trace_id{};
+    u64 trace_bytes{};
 };
 
 struct Buffer {

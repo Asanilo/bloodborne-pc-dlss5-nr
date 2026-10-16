@@ -19,6 +19,7 @@
 #include "video_core/renderer_vulkan/vk_scheduler.h"
 #include "video_core/texture_cache/host_compatibility.h"
 #include "video_core/texture_cache/texture_cache.h"
+#include "bbport_resource_trace.h"
 #include "video_core/texture_cache/tile_manager.h"
 
 namespace VideoCore {
@@ -1332,7 +1333,33 @@ void TextureCache::GarbageCollectSamplers() {
         // move-only Vulkan sampler alive through this scheduler's current tick,
         // including recorded work that has not yet been submitted. Capture no
         // cache pointer: the callback can safely outlive this cache.
-        scheduler.DeferOperation([retired = std::move(sampler)] { (void)retired; });
+        if (BbResourceTrace::Enabled()) {
+            // Diagnostic identity covers this eviction, not the sampler's entire
+            // lifetime. KnownGpuTick only reads the existing CPU observation.
+            const auto id = BbResourceTrace::NewId();
+            const auto handle = reinterpret_cast<uint64_t>(static_cast<VkSampler>(sampler.Handle()));
+            const auto tick = scheduler.CurrentTick();
+            auto* timeline = scheduler.GetWorkSemaphore();
+            const auto identity = reinterpret_cast<uint64_t>(timeline);
+            BbResourceTrace::Emit({.type="sampler_gc", .event="schedule", .id=id,
+                .handle=handle, .bda=0, .bytes=0, .scheduler=identity,
+                .retire_tick=tick, .observed_tick=timeline->KnownGpuTick()});
+            scheduler.DeferOperation([retired = std::move(sampler), id, handle, tick,
+                                      timeline, identity]() mutable {
+                // This body runs only when the scheduler invokes the completed
+                // callback, not when an unexecuted closure is destroyed.
+                const auto observed = timeline->KnownGpuTick();
+                BbResourceTrace::Emit({.type="sampler_gc", .event="destroy_begin", .id=id,
+                    .handle=handle, .bda=0, .bytes=0, .scheduler=identity,
+                    .retire_tick=tick, .observed_tick=observed});
+                { auto destroy_now = std::move(retired); }
+                BbResourceTrace::Emit({.type="sampler_gc", .event="destroy_end", .id=id,
+                    .handle=handle, .bda=0, .bytes=0, .scheduler=identity,
+                    .retire_tick=tick, .observed_tick=observed});
+            });
+        } else {
+            scheduler.DeferOperation([retired = std::move(sampler)] { (void)retired; });
+        }
         samplers.erase(hash);
         sampler_lru_cache.Free(lru_id);
         return false;
