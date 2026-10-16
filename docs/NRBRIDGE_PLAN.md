@@ -87,3 +87,6 @@ Astra负责架构、风险资源决策、接口整合、排他GPU运行及画质
 
 
 **重启后单次隔离验证（2026-10-16）。** 用户确认重启，实际boot为c0492968-c33c-4b74-91dd-adb9b79a5e8b。dev-postreboot-sr-01使用095c5fa实际Native构建、全新private seed、sky off/skipEvaluate；未启动Helper或NR。已从加载画面进入Clinic，实际raw→SR与Present连续推进至source7994，并通过正常no-peer退出及source/cache/SR GPU末用证明，returncode0、无watchdog和残留。当前boot完整内核复检未发现GPU错误，证据保存在该run的post-exit-kernel.jsonl/post-exit-observation.json。发送的两秒转镜输入在pad日志可见，但截图未证实镜头位移，不将其计为动态画质验收；本次冷诊断不计热性能。Runner90b5d7f只允许这一精确session/boot/build且禁止Helper/arm，未解除普通试玩阻断、未修改任何历史HOLD。一次成功不证明间歇性加载故障或Xid31根因已修复；下一步需针对加载/资源退休的剩余具体风险形成恢复依据，再恢复NR和亮尾测试。
+
+
+2026-10-16继续执行结果：已修复并离线验证TSC首次校准竞态（4871089），当前a65e230在dev-loading-trace-01完成120秒SR-only加载/移动/正常退休，当前boot无GPU错误；未验证真实NR或亮尾改善。新增有界资源地址日志和原始寄存器快照，完整状态与证据见CURRENT.md最新条目。旧float归一循环不推进已CPU复现，输入生产者仍未知，不能与Xid合并归因。亮度锚CPU候选存在曝光误拒绝，暂不合入生产。阶段仍为加载可靠性与亮尾定位，不进入发布/清理，用户离线期间不代填玩家验收。

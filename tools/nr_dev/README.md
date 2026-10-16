@@ -1,6 +1,6 @@
 # 私有试玩与开发入口
 
-**当前GPU试玩仍暂停（2026-10-16 Xid31）。** 重启后已在全新上下文完成一次095c5fa的SR-only加载、持续出帧和正常GPU末用退出，run为dev-postreboot-sr-01；当前boot内核无GPU错误、无项目残留。该验证未启动Helper/NR，不证明间歇性故障根因已修复。原HOLD保留，普通启动入口仍阻断；下面的说明不表示已恢复玩家试玩。
+**当前GPU试玩仍暂停（2026-10-16 Xid31）。** 当前实际build为a65e230，含TSC并发初始化修复及默认关闭的资源/寄存器诊断。重启后dev-postreboot-sr-01与dev-loading-trace-01均SR-only正常退出，后者已确认加载、转镜和角色位移，无新驱动错误；尚未恢复Helper/NR验收，间歇性故障和亮尾保持OPEN。原HOLD保留，下面的普通试玩入口仍被安全检查阻断。
 
 从 `/home/arinp/Code/nrbridge-dev` 启动：
 
@@ -129,3 +129,5 @@ python3 native/tools/nr_dev/runner.py dump dev-UNIQUE
 `input` releases the pad in a finally block; holds are limited to five seconds and all buttons/axis ranges are validated. `dump` requests one actual completed Present into `runs/SESSION/dump`; inspect the resulting PNG and confirm a controllable Clinic character before `scene-ready`. A capture is diagnostic and should be outside the measured performance window. `BB_PRESENT_DUMP_COUNT=0` means one frame in Native's `max(1, atoi(...))`, not zero capture.
 
 After Helper startup, normal retirement additionally audits exact terminal counts/session and each input→complete→consumed immutable origin tuple, true Native/Helper completion ticks, Native zero-owned resources, Helper zero shared/export-FD ownership, targeted FD inventory, model release/shutdown and normal waitpid. The 16384 cap is the unchanged effective wire resource budget, not an inherited four-job rule. No-peer exits require the explicit current-session absent-owner/snapshot/pending-use/preparation-join proof and absence of config/arm, rather than inferring safety from zero jobs.
+
+冷加载诊断沿用主协调现有 `--pm4-cold-trace`，同时启用 `BB_NR_RESOURCE_TRACE=1`；整run排除热性能评分。日志最多4096个资源事件加一条截断提示。离线地址关联使用 `python3 native/tools/nr_dev/resource_trace.py --game-log PATH --xid-address ADDRESS --fault-monotonic-ns NS --output NEW_JSON`，输出仅新建。不同进程的地址不可交叉归因；未命中、未记录、未知tick或截断都不能证明安全，当前hooks不覆盖image/SDK内部资源及所有GPU VA。普通运行不启用这些冷日志。
