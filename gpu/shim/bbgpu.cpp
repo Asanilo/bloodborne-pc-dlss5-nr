@@ -1,6 +1,7 @@
 #include "bbport_write_log.h"
 #include "bbport_game_menu.h"
 #include "bbport_gnm_hooks.h"
+#include "bbport_gx_render_owner.h"
 // bbport: glue between the C loader and the vendored shadPS4 video core.
 #include "bbport_overlay.h"
 #include "video_core/renderer_vulkan/nr_runtime_control.h"
@@ -382,6 +383,9 @@ extern "C" int bbgpu_handle_fault(void* ucontext, void* address) {
 }
 
 extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
+    const auto owner = BbGxRenderOwner::Patch(image, size);
+    std::printf("GX_RENDER_OWNER completion_dispatch=%s scope=CPU_command_context no_GPU_completion_claim=1\n",
+                owner == BbGxRenderOwner::Result::ImageMismatch ? "NOT_APPLIED_IMAGE_MISMATCH" : "synchronous");
     BbGnmHooks::PatchImage(image, size);
     BbGameMenu::PatchImage(image, size);
 }
