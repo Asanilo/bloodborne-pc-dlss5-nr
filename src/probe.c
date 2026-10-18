@@ -343,8 +343,25 @@ static void apply_patches(const char *path, Segment *segments, uint64_t ns, cons
 /* Restarts the game through run.sh (the settings menu: a new render resolution is a patch
  * applied at start). Descriptors are closed first so the old GPU device and its memory are
  * released before the new process opens its own. */
+const char *runtime_restart_block_reason(void) {
+    static const char *const session_vars[] = {
+        "BB_NR_NATIVE_ASYNC_SESSION", "BB_NR_NATIVE_ASYNC_RUN_DIR",
+        "BB_NR_NATIVE_ORIGIN_RUN_DIR"
+    };
+    for (size_t i = 0; i < sizeof(session_vars) / sizeof(session_vars[0]); ++i) {
+        const char *value = getenv(session_vars[i]);
+        if (value && *value)
+            return "Isolated NR sessions cannot restart in place. Exit normally, then start a new session.";
+    }
+    return NULL;
+}
 volatile int runtime_restarting;
 void runtime_restart(void) {
+    const char *reason = runtime_restart_block_reason();
+    if (reason) {
+        fprintf(stderr, "Runtime: restart blocked: %s\n", reason);
+        return;
+    }
     fflush(NULL);
     puts("Runtime: restarting through run.sh");
     /* The GPU threads still run until exec: their Vulkan calls fail once the device fd is

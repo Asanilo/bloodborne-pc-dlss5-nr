@@ -37,6 +37,7 @@ asm(".section .rodata\n"
 extern "C" const unsigned char bb_font_ttf[];
 extern "C" const unsigned char bb_font_ttf_end[];
 
+extern "C" const char* runtime_restart_block_reason(void);
 extern "C" void runtime_restart(void); // bb-probe (probe.c)
 
 namespace BbOverlay {
@@ -671,8 +672,16 @@ void Menu() {
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f), "%s",
                            BbSettings::MenuText("Changes apply after restarting the game",
                                                 "Изменения применятся после перезапуска игры"));
-        if (ImGui::Button(
-                BbSettings::MenuText("Apply and restart game", "Применить и перезапустить игру"))) {
+        const char* restart_block = runtime_restart_block_reason();
+        if (restart_block) {
+            ImGui::TextWrapped("%s", BbSettings::MenuText(
+                restart_block,
+                "Изолированные сеансы NR нельзя перезапускать на месте. Завершите игру обычным образом, затем начните новый сеанс."));
+            if (ImGui::Button(BbSettings::MenuText("Save for next session", "Сохранить для следующего сеанса"))) {
+                BbSettings::Save();
+            }
+        } else if (ImGui::Button(
+                       BbSettings::MenuText("Apply and restart game", "Применить и перезапустить игру"))) {
             BbSettings::Save();
             runtime_restart();
         }
@@ -895,7 +904,11 @@ void UpdateTextInput(SDL_Window* window) {
 
 bool HandleEvent(const SDL_Event& event) {
     std::scoped_lock lock{imgui_mutex};
+    const bool nr_hotkey = event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                          (event.key.key == SDLK_F8 || event.key.key == SDLK_F9);
+    const unsigned nr_key = nr_hotkey && event.key.key == SDLK_F9 ? 9u : 8u;
     if (!initialized) {
+        if (nr_hotkey) std::printf("NR_HOTKEY_OVERLAY key=F%u initialized=0 disposition=ignored_uninitialized\n", nr_key);
         return false;
     }
     ImGuiIO& io = ImGui::GetIO();
@@ -912,11 +925,29 @@ bool HandleEvent(const SDL_Event& event) {
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
         const bool down = event.type == SDL_EVENT_KEY_DOWN;
-        if(PersistentNRControlsEnabled()&&down&&!event.key.repeat&&(event.key.key==SDLK_F8||event.key.key==SDLK_F9)) {
-            const auto request=BbNR::ReadRequest();auto c=request.config;
-            if(event.key.key==SDLK_F8){c.display_bypass=!c.display_bypass;BbNR::Submit(c);}
-            else {const auto status=BbNR::ReadSnapshot();if(!status.capture_busy&&request.capture_seq==status.capture_applied_seq)BbNR::Submit(c,{.capture=true});}
-            return true;
+        if (nr_hotkey) {
+            const bool enabled = PersistentNRControlsEnabled();
+            if (!enabled) {
+                std::printf("NR_HOTKEY_OVERLAY key=F%u initialized=1 opt_in=0 disposition=ignored_opt_in\n", nr_key);
+            } else {
+                const auto request = BbNR::ReadRequest();
+                const auto status = BbNR::ReadSnapshot();
+                auto c = request.config;
+                const char* disposition = "accepted";
+                if (nr_key == 9 && status.capture_busy) disposition = "ignored_capture_busy";
+                else if (nr_key == 9 && request.capture_seq != status.capture_applied_seq) disposition = "ignored_capture_pending";
+                else {
+                    if (nr_key == 8) c.display_bypass = !c.display_bypass;
+                    if (!BbNR::Submit(c, {.capture = nr_key == 9})) disposition = "rejected_submit";
+                }
+                const auto after = BbNR::ReadRequest();
+                std::printf("NR_HOTKEY_OVERLAY key=F%u initialized=1 opt_in=1 disposition=%s capture_busy=%u capture_applied_seq=%llu revision_before=%llu revision_after=%llu capture_seq_before=%llu capture_seq_after=%llu\n",
+                            nr_key, disposition, unsigned(status.capture_busy),
+                            (unsigned long long)status.capture_applied_seq,
+                            (unsigned long long)request.revision, (unsigned long long)after.revision,
+                            (unsigned long long)request.capture_seq, (unsigned long long)after.capture_seq);
+                return true;
+            }
         }
         if (down && !event.key.repeat &&
             (event.key.key == SDLK_DELETE || (is_open && event.key.key == SDLK_ESCAPE))) {

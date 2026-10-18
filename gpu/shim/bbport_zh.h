@@ -222,6 +222,8 @@ inline const char* BbChinese(const char* text) {
         {"Free camera (Cross + L3)", "自由镜头（× + L3）"},
         {"Debug menu (requires font files)", "调试菜单（需要字体文件）"},
         {"Changes apply after restarting the game", "部分修改需要重启游戏才能生效"},
+        {"Isolated NR sessions cannot restart in place. Exit normally, then start a new session.", "隔离 NR 会话不能原地重启。请正常退出，然后使用新会话启动。"},
+        {"Save for next session", "保存供下次新会话生效"},
         {"Apply and restart game", "应用并重启游戏"},
         {"Other", "其他"},
         {"FPS counter in corner", "在角落显示真实渲染帧率"},

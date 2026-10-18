@@ -144,6 +144,21 @@ bool WindowSDL::PollEvents() {
     UpdateCursor();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        // One receipt per press and at most one repeat receipt per held hotkey.
+        // Never include text input contents in these diagnostics.
+        if ((event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) &&
+            (event.key.key == SDLK_F8 || event.key.key == SDLK_F9)) {
+            static bool repeat_logged[2]{};
+            const unsigned index = event.key.key == SDLK_F9;
+            if (event.type == SDL_EVENT_KEY_UP || !event.key.repeat) repeat_logged[index] = false;
+            if (event.type == SDL_EVENT_KEY_DOWN && (!event.key.repeat || !repeat_logged[index])) {
+                std::printf("NR_HOTKEY_SDL key=F%u repeat=%u text_active=%u window=%u timestamp_ns=%llu disposition=%s\n",
+                            index ? 9u : 8u, unsigned(event.key.repeat), unsigned(text_active),
+                            unsigned(event.key.windowID), (unsigned long long)event.key.timestamp,
+                            text_active ? "ignored_text_input" : event.key.repeat ? "ignored_repeat" : "forward_overlay");
+                repeat_logged[index] = event.key.repeat;
+            }
+        }
         if (event.type == SDL_EVENT_MOUSE_MOTION && std::getenv("BB_INPUT_TRACE")) {
             static u64 last_raw;
             const u64 now = SDL_GetTicksNS();
