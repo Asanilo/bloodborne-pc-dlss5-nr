@@ -73,6 +73,12 @@ int main(int argc,char**){
  for(unsigned i=0;i<20;i++){context_caller=0x80000000+i;sample();}
  assert(records.control_count==16&&records.control_other_count==8&&records.control_cs_count==8);
  assert(records.dumps==4); // Control samples never consume or reset failure dump quota.
+ BbPm4Cold::Producer mismatch{};mismatch.sequence=999;mismatch.context.known=false;
+ mismatch.context.target_word_count=1;mismatch.context.target_before[0]=0x11223344;
+ mismatch.context.entry_rbp=0x10000;mismatch.context.caller_frame_count=1;
+ mismatch.context.caller_frames[0]={0x10000,0x10020,0x8026b26be};
+ mismatch.context.caller_chain_stop="read_failed";mismatch.context.read_failed=true;
+ BbPm4Cold::PrintProducer(mismatch,"mismatch_sample");
  assert(dup2(previous,STDERR_FILENO)>=0);close(previous);
  std::ifstream file(path);std::string text((std::istreambuf_iterator<char>(file)),{});
  unsigned control_lines=0,control_producers=0,control_contexts=0,control_records=0,control_before=0;
@@ -100,6 +106,8 @@ int main(int argc,char**){
  assert(text.find("record_index=3 record_target=0x9876")!=std::string::npos);
  assert(text.find("PM4_COLD_RECORD seq=305 words=0000009f,00000604,00000004,")!=std::string::npos);
  assert(text.find("PM4_COLD_BEFORE seq=305 words=a5a5a5a5,")!=std::string::npos);
+ assert(text.find("PM4_COLD_BEFORE seq=999 words=11223344, phase=mismatch_sample")!=std::string::npos);
+ assert(text.find("PM4_COLD_CALLER_CHAIN seq=999 entry_rbp=0x10000 count=1 stop=read_failed raw_frames=0x10000:0x10020:0x8026b26be,")!=std::string::npos);
  assert(text.find("actual_written_dw=")==std::string::npos&&text.find("actual_end=")==std::string::npos);
  assert(text.find("full_dump_omitted=1 reason=above_64KiB")!=std::string::npos);
  assert(text.find("PM4_COLD_DCB")!=std::string::npos&&text.find("dump=5")==std::string::npos);unlink(path);

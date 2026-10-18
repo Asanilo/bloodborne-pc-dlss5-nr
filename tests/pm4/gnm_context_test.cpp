@@ -7,23 +7,29 @@ using namespace BbGnmHooks;
 namespace {
 u64 cb_words[3];
 ProducerContext captured;
-u64 observed_r12;
+u64 observed_r12, observed_rbp;
 struct Pair { u64 a, b; };
 using IntFn = Pair (*)(u64*, u64, u64, u64, u64, u64);
 IntFn nested_fn;
 Pair IntegerBody(u64* cb, u64 b, u64 c, u64 d, u64 e, u64 f) {
     assert(cb == cb_words && b == 2 && c == 3 && d == 4 && e == 5 && f == 6);
     observed_r12 = frames[depth - 1].entry_r12;
+    observed_rbp = frames[depth - 1].entry_rbp;
     captured = CurrentProducerContext(reinterpret_cast<const std::uint32_t*>(cb[2]));
     assert(captured.known && captured.wrapper == 0x1075840);
     assert(captured.target_word_count == 40);
     const auto mismatch = CurrentProducerContext(reinterpret_cast<const std::uint32_t*>(cb[2] + 4));
     assert(!mismatch.known && mismatch.cb == reinterpret_cast<u64>(cb) && mismatch.cursor == cb[2]);
+    assert(mismatch.target_word_count == 40 && mismatch.target_before[0] == 0x1234abcd);
     return {0x123456789abcdef0ull, 0xfedcba9876543210ull};
 }
 Pair NestedBody(u64* cb, u64 b, u64 c, u64 d, u64 e, u64 f) {
     const int before = depth;
+    u64 rbp_before, rbp_after;
+    asm volatile("mov %%rbp,%0" : "=r"(rbp_before));
     Pair result = nested_fn(cb, b, c, d, e, f);
+    asm volatile("mov %%rbp,%0" : "=r"(rbp_after));
+    assert(rbp_before == rbp_after && observed_rbp == rbp_before);
     assert(depth == before && Table[frames[depth - 1].index].offset == 0x10753c0);
     return result;
 }
@@ -92,6 +98,7 @@ void Run() {
     assert(!observe && producer_context);
     assert(mprotect(image, image_size, PROT_READ|PROT_EXEC) == 0);
     std::uint32_t commands[64]{};
+    commands[4] = 0x1234abcd;
     cb_words[0] = reinterpret_cast<u64>(commands);
     cb_words[1] = reinterpret_cast<u64>(commands + 64);
     cb_words[2] = reinterpret_cast<u64>(commands + 3);
@@ -159,6 +166,63 @@ void Run() {
     table[4] = reinterpret_cast<u64>(records); table[5] = 1;
     auto unreadable_payload = CurrentProducerContext(commands + 3);
     assert(unreadable_payload.exact_record && unreadable_payload.read_failed && !unreadable_payload.payload_word_count);
+    // Mismatch snapshots are independently bounded by the actual command and CB end.
+    frames[1].entry_rbp = 0; frames[1].entry_stack = reinterpret_cast<u64>(commands);
+    auto short_target = CurrentProducerContext(commands + 63);
+    assert(!short_target.known && short_target.target_word_count == 1);
+    assert(std::strcmp(short_target.caller_chain_stop, "invalid_range") == 0);
+    assert(!CurrentProducerContext(commands + 64).target_word_count);
+    assert(!CurrentProducerContext(reinterpret_cast<const std::uint32_t*>(cb_words[0] - 4)).target_word_count);
+    assert(!CurrentProducerContext(reinterpret_cast<const std::uint32_t*>(cb_words[0] + 1)).target_word_count);
+    // Six raw 16-byte frame observations, no symbol inference or unbounded walk.
+    alignas(16) u64 chain[8][2]{};
+    for (unsigned i = 0; i < 8; ++i) {
+        chain[i][0] = i == 7 ? 0 : reinterpret_cast<u64>(chain[i + 1]);
+        chain[i][1] = 0x8026b0000 + i;
+    }
+    Frame synthetic{};synthetic.entry_stack = synthetic.entry_rbp = reinterpret_cast<u64>(chain);
+    auto walk = [&] { ProducerContext c;ReadCallerChain(c, synthetic);return c; };
+    auto full = walk();assert(full.caller_frame_count == 6 && !full.read_failed);
+    assert(std::strcmp(full.caller_chain_stop, "frame_limit") == 0);
+    assert(full.caller_frames[0].return_address == chain[0][1]);
+    frames[1].entry_rbp = synthetic.entry_rbp;frames[1].entry_stack = synthetic.entry_stack;
+    auto mismatch_chain = CurrentProducerContext(commands + 4);
+    assert(!mismatch_chain.known && mismatch_chain.caller_frame_count == 6 && mismatch_chain.target_word_count == 40);
+    table[5] = reinterpret_cast<u64>(payload);
+    auto matching_chain = CurrentProducerContext(commands + 3);
+    assert(matching_chain.known && !matching_chain.caller_frame_count && !matching_chain.read_failed);
+    assert(std::strcmp(matching_chain.caller_chain_stop,"not_requested") == 0);
+    chain[0][0] = 0;assert(std::strcmp(walk().caller_chain_stop,"null_parent") == 0);
+    chain[0][0] = synthetic.entry_rbp;assert(std::strcmp(walk().caller_chain_stop,"not_ascending") == 0);
+    chain[0][0] = synthetic.entry_rbp - 16;assert(walk().caller_frame_count == 1);
+    chain[0][0] = synthetic.entry_rbp + (1 << 20) + 8;
+    assert(std::strcmp(walk().caller_chain_stop,"step_limit") == 0);
+    chain[0][0] = reinterpret_cast<u64>(chain[1]) + 1;
+    assert(walk().caller_frame_count == 1 && std::strcmp(walk().caller_chain_stop,"invalid_range") == 0);
+    for (u64 invalid : {u64(0), u64(8), (u64(1) << 47), synthetic.entry_stack - 8,
+                        synthetic.entry_stack + (u64(8) << 20) + 8}) {
+        synthetic.entry_rbp = invalid;assert(walk().caller_frame_count == 0);
+    }
+    const auto page = sysconf(_SC_PAGESIZE);
+    auto* inaccessible = mmap(nullptr,page,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0);
+    assert(inaccessible != MAP_FAILED);
+    synthetic.entry_stack = synthetic.entry_rbp = reinterpret_cast<u64>(inaccessible);
+    errno = E2BIG;auto failed_chain = walk();
+    assert(failed_chain.read_failed && !failed_chain.caller_frame_count && errno == E2BIG);
+    assert(std::strcmp(failed_chain.caller_chain_stop,"read_failed") == 0);
+    cb_words[0] = cb_words[2] = reinterpret_cast<u64>(inaccessible);
+    cb_words[1] = cb_words[0] + 160;
+    auto failed_target = CurrentProducerContext(reinterpret_cast<const std::uint32_t*>(cb_words[0] + 4));
+    assert(!failed_target.known && failed_target.read_failed && !failed_target.target_word_count);
+    assert(munmap(inaccessible,page) == 0);
+    auto* guarded = static_cast<u8*>(mmap(nullptr,page*2,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS,-1,0));
+    assert(guarded != MAP_FAILED && mprotect(guarded+page,page,PROT_NONE) == 0);
+    auto* last = reinterpret_cast<std::uint32_t*>(guarded+page-4);*last = 0xabcdef12;
+    cb_words[0] = cb_words[2] = reinterpret_cast<u64>(last-1);cb_words[1] = reinterpret_cast<u64>(last+1);
+    frames[1].entry_rbp = frames[1].entry_stack = 0;
+    auto edge = CurrentProducerContext(last);
+    assert(!edge.known && edge.target_word_count == 1 && edge.target_before[0] == 0xabcdef12 && !edge.read_failed);
+    assert(munmap(guarded,page*2) == 0);
     depth = 0;
 }
 } // namespace

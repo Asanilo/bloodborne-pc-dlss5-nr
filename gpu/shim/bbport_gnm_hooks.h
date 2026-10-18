@@ -29,6 +29,12 @@ struct ProducerContext {
     std::uint32_t payload_words[10]{};
     std::uint32_t target_before[40]{};
     std::uint32_t payload_word_count = 0, target_word_count = 0;
+    // Raw, bounded caller-frame observations only on cursor/command mismatch.
+    std::uint64_t entry_rbp = 0;
+    struct CallerFrame { std::uint64_t rbp = 0, next_rbp = 0, return_address = 0; };
+    CallerFrame caller_frames[6]{};
+    std::uint32_t caller_frame_count = 0;
+    const char* caller_chain_stop = "not_requested";
 };
 ProducerContext CurrentProducerContext(const std::uint32_t* commands);
 

@@ -44,7 +44,12 @@ inline void PrintProducer(const Producer& r,const char* phase){
    for(unsigned i=0;i<std::min<unsigned>(c.payload_word_count,10);++i)std::fprintf(stderr,"%08x,",c.payload_words[i]);
    std::fprintf(stderr," phase=%s\n",phase);
   }
-  if(c.known){
+  if(c.caller_chain_stop && std::strcmp(c.caller_chain_stop,"not_requested")){
+   std::fprintf(stderr,"PM4_COLD_CALLER_CHAIN seq=%llu entry_rbp=%#llx count=%u stop=%s raw_frames=",(unsigned long long)r.sequence,(unsigned long long)c.entry_rbp,c.caller_frame_count,c.caller_chain_stop);
+   for(unsigned i=0;i<std::min<unsigned>(c.caller_frame_count,6);++i){const auto& f=c.caller_frames[i];std::fprintf(stderr,"%#llx:%#llx:%#llx,",(unsigned long long)f.rbp,(unsigned long long)f.next_rbp,(unsigned long long)f.return_address);}
+   std::fprintf(stderr," snapshot_atomic=0 phase=%s\n",phase);
+  }
+  if(c.known || c.target_word_count){
    std::fprintf(stderr,"PM4_COLD_BEFORE seq=%llu words=",(unsigned long long)r.sequence);
    for(unsigned i=0;i<std::min<unsigned>(c.target_word_count,40);++i)std::fprintf(stderr,"%08x,",c.target_before[i]);
    std::fprintf(stderr," phase=%s\n",phase);

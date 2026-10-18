@@ -96,6 +96,7 @@ struct Frame {
     u64 before;
     u64 ret;
     u64 entry_r12 = 0;
+    u64 entry_rbp = 0, entry_stack = 0;
     u64 patch_cb = 0;
     u64 args[6]; // rdi, rsi, rdx, rcx, r8, r9 (BB_GNM_TRACE)
 };
@@ -220,7 +221,7 @@ void Mark(std::uint32_t index, u64 before, u64 after, u64 cb = 0) {
     }
 }
 
-extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot, u64 entry_r12) {
+extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot, u64 entry_r12, u64 entry_rbp) {
     if (observe || !producer_context) __atomic_fetch_add(CounterAt(index), 1, __ATOMIC_RELAXED);
     if (depth == MaxDepth) {
         overflow.fetch_add(1, std::memory_order_relaxed);
@@ -231,6 +232,7 @@ extern "C" void BbGnmEnter(std::uint32_t index, u64 cb, u64* slot, u64 entry_r12
     // A traced function that is not a command buffer method: no write pointer to note.
     f = {};
     f.index = index; f.cb = cb; f.ret = *slot; f.entry_r12 = entry_r12;
+    f.entry_rbp = entry_rbp; f.entry_stack = reinterpret_cast<u64>(slot);
     if (producer_context && Table[index].offset == 0x11fde00) f.patch_cb = slot[-2];
     if (observe && Table[index].cb_method) {
         f.before = *reinterpret_cast<const u64*>(cb + 0x10);
@@ -345,6 +347,7 @@ u8* WriteObserveStub(u8* at, std::uint32_t index) {
     w.Put({0x48, 0x8d, 0x94, 0x24});
     w.Imm32(0xb8);                                             // lea rdx, [rsp+0xb8] (return slot)
     w.Put({0x4c, 0x89, 0xe1}); // mov rcx, r12: live patcher loop index + 1
+    w.Put({0x49, 0x89, 0xe8}); // mov r8, rbp: caller's live frame before moved prologue
     w.Put({0x48, 0xb8});
     w.Imm64(reinterpret_cast<u64>(&BbGnmEnter));               // mov rax, BbGnmEnter
     w.Put({0xff, 0xd0});                                       // call rax
@@ -487,6 +490,31 @@ void ReportLoop() {
 }
 } // namespace
 
+namespace {
+void ReadCallerChain(ProducerContext& out, const Frame& frame) {
+    constexpr u64 UserEnd = u64(1) << 47, MaxStep = u64(1) << 20, MaxSpan = u64(8) << 20;
+    out.entry_rbp = frame.entry_rbp;
+    u64 rbp = frame.entry_rbp;
+    for (unsigned i = 0; i < 6; ++i) {
+        if (rbp < 0x10000 || rbp > UserEnd - 16 || (rbp & 7) ||
+            frame.entry_stack < 0x10000 || frame.entry_stack >= UserEnd ||
+            rbp < frame.entry_stack || rbp - frame.entry_stack > MaxSpan) {
+            out.caller_chain_stop = "invalid_range"; return;
+        }
+        u64 words[2]{};
+        if (!ReadGuest(rbp, words, sizeof(words))) {
+            out.read_failed = true; out.caller_chain_stop = "read_failed"; return;
+        }
+        out.caller_frames[out.caller_frame_count++] = {rbp, words[0], words[1]};
+        if (!words[0]) { out.caller_chain_stop = "null_parent"; return; }
+        if (words[0] <= rbp) { out.caller_chain_stop = "not_ascending"; return; }
+        if (words[0] - rbp > MaxStep) { out.caller_chain_stop = "step_limit"; return; }
+        rbp = words[0];
+    }
+    out.caller_chain_stop = "frame_limit";
+}
+} // namespace
+
 ProducerContext CurrentProducerContext(const std::uint32_t* commands) {
     ProducerContext out;
     if (!producer_context || context_overflow || depth == 0 || !commands) return out;
@@ -498,11 +526,15 @@ ProducerContext CurrentProducerContext(const std::uint32_t* commands) {
     out.wrapper = wrapper; out.caller = f.ret;
     out.cb = f.cb; out.base = cb[0]; out.end = cb[1]; out.cursor = cb[2];
     const u64 command = reinterpret_cast<u64>(commands);
+    if (cb[2] != command) ReadCallerChain(out, f);
+    // Preserve the actual destination even when the separately observed cursor disagrees.
+    if (out.base <= command && command < out.end && !(command & 3)) {
+        const auto words = std::min<u64>(40, (out.end - command) / 4);
+        if (words && ReadGuest(command, out.target_before, words * 4)) out.target_word_count = words;
+        else if (words) out.read_failed = true;
+    }
     if (cb[0] > cb[2] || cb[2] >= cb[1] || cb[2] != command || (command & 3)) return out;
     out.known = true;
-    const auto words = std::min<u64>(40, (out.end - command) / 4);
-    if (ReadGuest(command, out.target_before, words * 4)) out.target_word_count = words;
-    else out.read_failed = true;
     // Only the immediately enclosing verified patcher is evidence of a parent table.
     if (depth < 2) return out;
     const Frame& parent = frames[depth - 2];

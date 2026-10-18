@@ -24,7 +24,8 @@
 
 2026-10-18接续发现一个独立、明确的失败路径：dev-context-capture-01日志70809行记录runtime_restart，直接close_range后exec run.sh并复用旧NR session；新bootstrap因stale run拒绝，旧会话未知末用。原HOLD/137及Helper BLOCKED保留，用户不记得是否手动结束，不能推定137来源。修复隔离NR runtime重启入口，在任何FD/flag副作用前拒绝；菜单仅保存供正常退出后的新会话使用。普通非NR行为保持。F9此前未出现接受revision/初始化，补最小输入反馈以区分SDL丢弃、busy/pending与实际接受。此修复与PM4/Xid/guest float仍分别评价。
 
-此前off/skip、persistent/skip、resident短验证各24个job正常退休；连续采集HOLD不能覆盖短验证，也不能被短验证追认为正常。当前系统已是不同boot，修复构建后实时复核并沿原隔离验证链恢复，先取得真实capture再判断亮尾；不更动画质基线。
+此前off/skip、persistent/skip、resident短验证各24个job正常退休。当前boot3d1c1f5c上，9add7f3完成重启保护/F9反馈及完整构建，dev-restart-sr-01在Continue加载复现PM4断言23，原HOLD保留，当前GPU再次停止。新证据直接识别CS上层caller0x8026cd5b1（主线程39713），与线程39958的VS/PS共享CB0x10282a2850；实际wrapper是先读cursor、HLE写入、再add当前cursor。采样显示调用时cursor已偏离cmd，强于之前仅包范围重叠的证据，但仍缺更上层CB选取/交接点，不能只锁单个setter冒充根因修复。本次2184B提交/解码副本相同，首坏0x7c/0x1e6，独立于旧0x284记录。实际CS/PS wrapper机器码与当前HLE builder的CPU强制交错已通过：背景写者在wrapper读cursor后推进CB，CS精确复现0x7c/0x1e6；双方两种串行顺序正常。背景SET_CONTEXT序列是合成负载，证明机制足以致错，未取得其真实上层生产者。当前仅为cursor/command冲突补既有ring最多6层raw RBP调用链，并保留冲突时原本丢弃的写前字；不新增钩子/线程或改变同步，无新画质结论。
+
 
 亮尾离线控制支持一个有条件机制：旧bank亮度0.8、新target与raw均0.2时，过渡1/3和2/3显示约0.504/0.318；不写回target，真实贡献年龄继续推进，旧bank失效或过渡结束即消失。只有实际故障像素仍有亮旧贡献且处在过渡才支持此解释，无过渡时可排除此机制。缺故障像素同候选直接Resolve与独立SR历史，模型原始伪影、错误MV/遮挡/累计光照及SR积累均未排除；不合入亮度锚、全局降强度或TTL改动。可靠加载恢复后立即回到玩家动态画质和发布。
 
