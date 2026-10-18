@@ -4,17 +4,17 @@
 
 ## 2026-10-19执行收敛：所有权候选与已批准全量去重
 
-主任务保持PM4根因修复。静态链已从低层setter追到实际共享对象：主线程global资源copy取得的`renderer->field10->field08`由GXRenderThread初始化为`backend+0x130`，与绘制任务共享。`1d96b19`明确设置config[0x72]=1，经renderer配置复制给GXRenderThread；`21b6aa0`在此模式kick新job后直接返回，event68直到job回调返回、清空job指针后才置位。原有主线程可继续使用共享parent的交叠窗口与实机CS/graphics同CB证据相符。未知动态改写、实际失败更深caller及全部子worker完成范围仍未实测，不冒充全部根因闭环。
+主任务保持PM4根因修复。静态链已从低层setter追到实际共享对象：主线程global资源copy取得的`renderer->field10->field08`由GXRenderThread初始化为`backend+0x130`，与绘制任务共享。`1d96b19`明确设置config[0x72]=1，经renderer配置复制给GXRenderThread；`21b6aa0`在此模式kick新job后直接返回，event68直到job回调返回、清空job指针后才置位。原有主线程可继续使用共享parent的交叠窗口与实机CS/graphics同CB证据相符。实际fieldb0对象的回调已锁定为`219d220`，逐项同步调用`21b2fb0`；该路径完成CPU命令构造/提交后才返回event68，没有发现提前派发子worker的分支。此结论不代表全部GXWorker空闲或GPU完成；实际失败更深caller与候选实机行为仍待验证。
 
 当前代码候选在载入私有镜像时核验完整dispatch与配置初始化指纹，仅将factory config[0x72]初值改为0，复用游戏原有同步模式；不改setter、命令包、GXWorker创建或GPU完成判断。模式在上下游保持一致，正式游戏文件不改，固定c8fb9df不改。CPU执行私有实际配置store与dispatch机器码：原async1允许caller在job完成前返回；原sync0及候选均阻止此交叠，覆盖状态更新/等待分支和版本不匹配不写入。事件替身不证明所有子worker或真实GPU完成；候选代价可能是CPU前后帧重叠减少，必须实测加载成功率、正常退出及热性能。
 
-旧boot的PM4 HOLD仍在，新GPU不自动放行。候选完成构建后，需明确的新上下文恢复条件与用户配合，再运行有限SR-only加载/退出，随后NR生命周期与玩家画质；不再扩展冷追踪。CPU源码开发和去重不等待GPU。
+候选`3608e21fa1bb7510103e098acbfaa22b72d985d6`已完整构建，干净来源及四产物SHA核验通过，尚无本候选GPU结果。当前boot的PM4 HOLD保留；用户已同意去重完成后重启并恢复受控验证。重启后实时复核设备、内核、持有者与依赖，先验证SR-only加载/正常退出，再递进NR生命周期与画质。在Continue前必须确认`GX_RENDER_OWNER completion_dispatch=synchronous`实际应用日志；不匹配则正常停止。CPU源码开发和去重不等待GPU，不重复逐步骤请批。
 
-全量去重已获用户明确批准，计划digest `e557c6f657f0ba55a3fda7c527f8bef96ea007a639b5a3c0cbaa62eb988e65ed`：165个prefix、299635对windows普通文件，98.930651GiB逻辑重复量，先8对再连续同清单FIDEDUPERANGE。Sol执行；独立inode、内容、元数据和HOLD状态保留，不删除/覆盖文件、不碰注册表/存档/日志/固定构建/稳定源码树。真实空间回收以执行后范围内extent及df变化报告，不能用逻辑量替代。执行账本仅保存在私有cleanup-review的dedup-preparation目录，未作为公开资产推送。
+全量去重已按用户批准计划`e557c6f657f0ba55a3fda7c527f8bef96ea007a639b5a3c0cbaa62eb988e65ed`完成：165个prefix、299635对windows普通文件，done299635、failed0、remaining0，最终301337个参与文件metadata核验通过，每对执行前后完整SHA核验。仅FIDEDUPERANGE，独立inode、内容、元数据和HOLD状态保留，不删除/覆盖文件、不碰注册表/存档/日志/固定构建/稳定源码树。执行窗口/home的df Used净下降38.011GiB，可用空间86.699→124.615GiB；包含同期写入影响，不将98.931GiB逻辑重复量或逐树shared之和冒充物理释放。执行账本和完整核验仅保存在私有cleanup-review的dedup-preparation目录，未作为公开资产推送。批处理已结束，下一项用户操作为重启以建立新的GPU验证上下文。
 
-以下2026-10-18进度表保留阶段位置；本节是最新增量，不把候选CPU通过写成游戏加载恢复或发布完成。
+以下2026-10-18进度及阻塞分析保留当时事实；审批、当前候选和恢复安排以上述2026-10-19状态为准，不把候选CPU通过写成游戏加载恢复或发布完成。
 
-## 当前进度与固定基线（2026-10-18）
+## 阶段快照与固定基线（2026-10-18）
 
 长期顺序保留：**稳定画质与性能 → 工程化 → 日常可用发布 → 空间整理 → 高级功能及上游扩展**。当前主分支为 `dev/persistent-visual-history-20261015`；实际诊断构建为 `cfeaf0994bc6a4d3e3943c205f730d95dbe902f7`，干净来源和四产物SHA已校验。本文后续文档提交不改变该实际构建身份，也不表示新增实机验收。
 
