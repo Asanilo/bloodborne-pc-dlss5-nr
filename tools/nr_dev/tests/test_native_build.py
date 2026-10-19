@@ -1,8 +1,17 @@
-import importlib.util,tempfile,unittest,json
+import importlib.util,tempfile,unittest,json,shutil
 from pathlib import Path
 from unittest.mock import patch
 spec=importlib.util.spec_from_file_location('runner',Path(__file__).parents[1]/'runner.py');r=importlib.util.module_from_spec(spec);spec.loader.exec_module(r)
+PRIVATE_ROOT=r.ROOT
 class NativeBuild(unittest.TestCase):
+ def test_source_checkout_relocation_keeps_private_data_confinement(self):
+  with tempfile.TemporaryDirectory() as scratch:
+   checkout=Path(scratch)/'bloodborne_pc';tools=checkout/'tools/nr_dev';tools.mkdir(parents=True)
+   for name in ('runner.py','runtime_inputs.py'):shutil.copyfile(Path(r.__file__).with_name(name),tools/name)
+   spec=importlib.util.spec_from_file_location('relocated_runner',tools/'runner.py');relocated=importlib.util.module_from_spec(spec);spec.loader.exec_module(relocated)
+   self.assertEqual(relocated.WT,checkout)
+   self.assertEqual(relocated.ROOT,PRIVATE_ROOT)
+   self.assertRaises(ValueError,relocated.checked_native_build,checkout/'out')
  def setUp(self):
   self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name);self.patch=patch.object(r,'ROOT',self.root);self.patch.start();self.addCleanup(self.patch.stop);self.head='e'*40
  def make(self,baseline=False):

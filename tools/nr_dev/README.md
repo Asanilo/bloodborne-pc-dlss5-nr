@@ -31,7 +31,7 @@ python3 -m unittest discover -s helper/nrbridge/tests -p 'test_*.py'
 
 Native构建输入可用 `NR_SOURCE_DEPS_ROOT` / `NR_BUILD_ENV_ROOT` 选择；Helper有SDK/编译器目录参数。它们接受相同锁定内容，缺失或漂移会拒绝，不能通过换任意新版依赖来绕过。Native/Helper默认输出及Runner仍有本机绝对路径；异机准备依赖、路径迁移与专有资源配置尚不是自动化安装流程。
 
-本机这两目录还是Git worktree：Native的Git元数据在 `bloodborne_pc/.git`，Helper的在 `dlss5_linux/OptiScaler-Linux-NR/.git`。不能仅因新目录已有源码就删除原主仓库。新的独立clone应从上面两个开发分支建立，而不是复制只有`.git`指针的工作树目录。
+目标是把源码检出位置收回两个原Fork主目录；归位步骤及待确认的主线合并见 `docs/NRBRIDGE_PLAN.md` 首部。当前尚未切换目录或分支。本机这两目录还是Git worktree：Native的Git元数据在 `bloodborne_pc/.git`，Helper的在 `dlss5_linux/OptiScaler-Linux-NR/.git`。不能仅因新目录已有源码就删除原主仓库。新的独立clone应从上面两个开发分支建立，而不是复制只有`.git`指针的工作树目录。
 
 ## 构建
 
@@ -43,7 +43,7 @@ python3 helper/nrbridge/build.py
 python3 helper/nrbridge/forwarder/build.py
 ```
 
-Native 包装器的 `NR_SOURCE_DEPS_ROOT` 默认是开发根的 `inputs/source-deps`，包含已打补丁的 FSR、imgui、LibAtrac9 和各自 `*.content.sha256`。`NR_BUILD_ENV_ROOT` 独立选择 SDK/sysroot 环境，默认仍是稳定 `bloodborne_pc/out/deps`。完整源码依赖清单、环境实际导出及本仓库固定协议副本在编译/输出副作用前校验，缺失、漂移或错误依赖链接会拒绝。不要把本地 gitlink symlink 提交进 Git。
+Native 包装器的 `NR_SOURCE_DEPS_ROOT` 默认是开发根的 `inputs/source-deps`，包含已打补丁的 FSR、imgui、LibAtrac9 和各自 `*.content.sha256`。`NR_BUILD_ENV_ROOT` 独立选择 SDK/sysroot 环境，默认仍是稳定 `bloodborne_pc/out/deps`。完整源码依赖清单、环境实际导出及本仓库固定协议副本在编译/输出副作用前校验，缺失、漂移或错误依赖链接会拒绝。构建直接消费prepared-root，不创建或替换源码树gitlink；旧树已有的本地symlink不要提交进Git。
 
 输出包含 `build-inputs.json`、源码 HEAD/diff 和 Native 四产物 SHA；Runner只接受 `build/native` 或已核验的 `build/baselines/<完整提交>`。`NR_DEV_ROOT` 只改变构建默认根，不迁移 Runner 的固定 `ROOT/runs` confinement。默认构建隔离旧 P0/Q 实验路径；完整构建不等于实机验收。
 

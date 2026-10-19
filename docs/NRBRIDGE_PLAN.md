@@ -2,6 +2,49 @@
 
 2026-10-15，按用户本轮正式规划执行。本文件记录完整周期、当前目标与阶段验收；运行安全与当前事实仍以开发根 `CURRENT.md` 为唯一现行工程规范。它不授予旧目录删除权，也不替代真实 GPU 退休证据。
 
+## 2026-10-20 归位现有 Fork：执行顺序与确认边界
+
+用户的新目标覆盖旧“两棵长期nrbridge-dev源码树”布局：Native日常源码回到 `/home/arinp/Code/bloodborne_pc`；完整OptiScaler及 `nrbridge/` 回到 `/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR`；`nrbridge-dev`只作为锁定inputs/localinputs、build、runs和测试资料根。沿用现有Fork与全部remote，不新建仓库/clone，不重写历史/强推。本轮不升级上游、不制作AppImage、不修亮尾；后续两个项目分别跟进上游的规划保留。
+
+### 核查起点与本轮非破坏性准备
+
+- Native主目录master3630bc52干净；开发分支核查起点f09d5941，master为祖先，0/177提交差，309个路径变化。旧实验代码仍以默认OFF隔离，历史提交数或可快进不能代替主线验收。
+- OptiScaler主目录linux-nr eaada4c2干净；Helper分支f2c8607c以它为祖先，0/24提交差，变化只在nrbridge/29路径和poc/187路径。origin默认仍是dlss-neural-rendering；不擅改默认分支。ci/linux-nr-build另有fc876dde尚未纳入Helper分支，不能随意丢弃。
+- 当前运行仍只选Native5635804 / Helper7f69 / forwarder9a825；新编译只写全新输出，不替换运行配置、pins或旧HOLD。回滚依据是这些保留产物和来源记录，不承诺已退休c8二进制仍可用。
+- 本轮只把旧NGX SDK与JSON头校验复制到 `inputs/workspace-return-20261020/{ngx-sdk,nlohmann}`；原件不移除。工具链和sysroot仍分别复用dlss5_linux/build/toolchain与bloodborne_pc/out/deps，都是数据输入，不是新的源码中心。
+- Native Runner从脚本位置确定源码根，私人ROOT/runs及安全检查保持。NR构建通过显式prepared-root向CMake/编译器传入FSR/imgui/LibAtrac9，不再创建/替换源码树gitlink symlink。依赖全清单/补丁核验保持，普通无prepared-root构建仍走原submodule流程。主目录现有干净submodule不需deinit、删除或被改补丁。
+- 当前主目录FSR与锁定准备树有真实补丁差异，不能直接换用其未打补丁内容；新构建必须继续显式选择校验过的prepared输入。本轮冷构建来自现有开发工作树，仅证明准备方案和编译闭包；尚不等于主目录归位验证或实机回归。
+
+### 安全归位顺序（本轮不切换主目录、不合并）
+
+1. 完成上述依赖路径准备、CPU回归和新输出冷构建，保存actual input/command/artifact记录。保留主目录、开发树、所有子模块未提交状态；源HEAD与master/linux-nr检查点写入本地inspection.json。不得批量stage本地gitlink。
+2. 源码位置与主分支合并分开处理。确认迁移窗口、所有相关树均无独有未提交代码后，可先让旧nrbridge-dev工作树detach在已记录开发HEAD，再在原Fork主目录switch同一开发分支。Git不允许同分支同时检出两树；不使用ignore-other-worktrees、force或手工改gitdir。旧树暂留作detached回退，不急于移除。
+3. 在两个原Fork主目录按下列命令重做独立冷构建/CPU与协议导出校验，确认实际编译源码路径位于原Fork；运行资料仍写nrbridge-dev。不能复制旧CMakeCache冒充冷构建。届时通过显式 `NR_HELPER_ROOT` / `--helper-root` 选择归位Helper，检查并收口仍有的legacy默认路径。
+4. 验证后才提交主分支合并操作供确认。Native master当前满足祖先条件，候选是 `merge --ff-only dev/persistent-visual-history-20261015`，但需先审默认Legacy OFF、源补丁/协议闭包、加载补丁及冷构建/回归，不能据可快进直接执行。保留旧master3630bc52指针检查点；不推master直到批准。
+5. OptiScaler推荐继续以现有linux-nr为Linux长期主线，nrbridge/为独立Helper子目录，保留dlss-neural-rendering及upstream/sky关系。先审187个历史poc路径是否有构建/回归依赖及ci分支，再决定Helper整支快进或单独整合；本轮不合入linux-nr或改origin默认分支。Helper冷构建不代表完整OptiScaler DLL/DS2功能回归，合入前需补对应现有回归。
+6. 原Fork归位验证后，才逐项退役旧detached源码worktree及无人引用的临时构建；正常git worktree remove，不force。删除独有资料、移动已pin运行输入或切换实际运行构建，另列精确操作/回滚并等确认。清理以df净变化验收，不把同卷移动当释放。
+
+归位后构建命令模板（只有第二步执行后才从原目录使用）：
+
+```bash
+D=/home/arinp/Code/nrbridge-dev
+NR_SOURCE_DEPS_ROOT="$D/inputs/source-deps" \
+NR_BUILD_ENV_ROOT=/home/arinp/Code/bloodborne_pc/out/deps \
+BB_BUILD_DIR="$D/build/workspace-return-20261020/native-home-cold" \
+  bash /home/arinp/Code/bloodborne_pc/tools/nr_dev/build.sh
+python3 /home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/nrbridge/build.py \
+  --ngx-sdk-root "$D/inputs/workspace-return-20261020/ngx-sdk" \
+  --json-root "$D/inputs/workspace-return-20261020/nlohmann"
+```
+
+失败回退：不删除失败输出。在未改主分支引用的源码归位阶段，先把原Fork主目录detach在已记录开发HEAD，再使旧工作树switch回原开发分支，最后原Fork主目录switch回master3630bc52或linux-nr eaada4c2；所有步骤先确认干净，不reset/clean。新构建从未成为运行选择，运行产物/配置无需回退。若以后批准主分支合并，先保留旧分支指针；不擅自reset已推主线，公开回退另行确认。
+
+### gpu-share-poc-20261010 是否可删
+
+这棵工作树与master同为3630bc52，没有独有提交，但有4份独有未跟踪文件（README/REPORT/run.py/share_fixture.c，共72566B），已校验复制到 `inputs/workspace-return-20261020/gpu-share-source-preserved`，原件保留。约1.3GiB主要是两套旧Wine prefix，不是当前Native编译。当前显式运行/编译闭包不选此路径，但历史文档引用不等于可删除全部故障资料。
+
+结论：属于可退役候选，**本轮不能直接git worktree remove，更不能force**。待独有源码有受控Git归档或确认采用校验副本、旧out内用户/故障附件完成审批后，才正常移除；分支poc/gpu-share-20261010保留。不能把保存4份源码等同于整个out已获得删除授权。实际占用及备存SHA见 `build/workspace-return-20261020/`。
+
 ## 2026-10-20 清理后现行入口
 
 用户确认：当前工作是为下一开发阶段整理工作空间、源码边界、依赖和构建文档；尚未指定立即转入AppImage或其他功能。后续继续跟进bbport和OptiScaler上游的规划保留。历史“本轮不升级上游”仅限定对应执行阶段，不是永久停止维护。届时基于当时真实上游差异选择移植内容，独立验证，不覆盖现有可玩基线，也不将OptiScaler整个项目缩减为NRBridge Helper。

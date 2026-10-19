@@ -32,16 +32,28 @@ fi
 mkdir -p "$BUILD/pgo"
 # Submodules (git clone --recursive, or: git submodule update --init) and this port's changes
 # to FSR-Vulkan (gpu/patches/fsr-vulkan), applied to its working tree once.
-if [[ ! -f gpu/third_party/fsr-vulkan/CMakeLists.txt || ! -f gpu/third_party/imgui/imgui.h ]]; then
-    git submodule update --init --recursive
-fi
-for patch in gpu/patches/fsr-vulkan/*.patch; do
-    if ! git -C gpu/third_party/fsr-vulkan apply --reverse --check "$PWD/$patch" 2>/dev/null; then
-        git -C gpu/third_party/fsr-vulkan apply "$PWD/$patch"
+prepared=${NR_SOURCE_DEPS_ROOT:-}
+if [[ -n $prepared ]]; then
+    [[ $prepared == /* && -f $prepared/fsr-vulkan/CMakeLists.txt && -f $prepared/imgui/imgui.h && -d $prepared/LibAtrac9/C/src ]] || { echo 'Incomplete absolute prepared source root.' >&2; exit 3; }
+    # The NR wrapper verifies every file before reaching this point. Never
+    # initialize or patch source-tree submodules when prepared inputs are selected.
+    for patch in gpu/patches/fsr-vulkan/*.patch; do
+        git -C "$prepared/fsr-vulkan" apply --reverse --check "$PWD/$patch" 2>/dev/null || { echo 'Prepared FSR patch missing.' >&2; exit 3; }
+    done
+    atrac_source="$prepared/LibAtrac9"
+else
+    if [[ ! -f gpu/third_party/fsr-vulkan/CMakeLists.txt || ! -f gpu/third_party/imgui/imgui.h ]]; then
+        git submodule update --init --recursive
     fi
-done
+    for patch in gpu/patches/fsr-vulkan/*.patch; do
+        if ! git -C gpu/third_party/fsr-vulkan apply --reverse --check "$PWD/$patch" 2>/dev/null; then
+            git -C gpu/third_party/fsr-vulkan apply "$PWD/$patch"
+        fi
+    done
+    atrac_source=third_party/LibAtrac9
+fi
 cmake -S gpu -B "$BUILD"/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO="$pgo" \
-    -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$BUILD/pgo" >/dev/null
+    -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$BUILD/pgo" -DBB_PREPARED_SOURCE_DEPS_ROOT="$prepared" >/dev/null
 echo "GPU library: PGO $pgo, LTO ${BB_LTO:-ON}"
 # A failed GPU build must stop here: an older libbbgpu.so would otherwise be used silently.
 if ! ninja -j "${BB_BUILD_JOBS:-8}" -C "$BUILD"/gpu bbgpu > "$BUILD"/gpu-build.log 2>&1; then
@@ -64,8 +76,8 @@ fi
 gpu=(-L"$BUILD"/gpu -lbbgpu -Wl,-rpath,'$ORIGIN/gpu' -Wl,-rpath,"$BUILD/gpu" -rdynamic)
 runtime=(src/runtime*.c)
 # Third-party decoders: compiled once, without this project's -Werror policy.
-atrac9=(third_party/LibAtrac9/C/src/*.c)
-if [[ ! -f "$BUILD"/libatrac9.a || -n $(find third_party/LibAtrac9/C/src -newer "$BUILD"/libatrac9.a -name '*.c') ]]; then
+atrac9=("$atrac_source"/C/src/*.c)
+if [[ ! -f "$BUILD"/libatrac9.a || -n $(find "$atrac_source/C/src" -newer "$BUILD"/libatrac9.a -name '*.c') ]]; then
     rm -rf "$BUILD"/atrac9 && mkdir -p "$BUILD"/atrac9
     for source in "${atrac9[@]}"; do "$CC" -std=c99 -O2 -g -w -c "$source" -o "$BUILD/atrac9/$(basename "${source%.c}").o"; done
     ar rcs "$BUILD"/libatrac9.a "$BUILD"/atrac9/*.o

@@ -2,7 +2,7 @@
 """Isolated NR development runner. No legacy approval, ledger or launch quota imports."""
 import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid,importlib.util,stat
 from pathlib import Path
-ROOT=Path('/home/arinp/Code/nrbridge-dev');WT=ROOT/'native';OLD=Path('/home/arinp/Code/nrbridge-design/game-poc-20261011')
+ROOT=Path('/home/arinp/Code/nrbridge-dev');WT=Path(__file__).resolve().parents[2];OLD=Path('/home/arinp/Code/nrbridge-design/game-poc-20261011')
 GE=Path('/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64')
 _runtime_spec=importlib.util.spec_from_file_location('nr_dev_runtime_inputs',Path(__file__).with_name('runtime_inputs.py'))
 runtime_inputs=importlib.util.module_from_spec(_runtime_spec);_runtime_spec.loader.exec_module(runtime_inputs)

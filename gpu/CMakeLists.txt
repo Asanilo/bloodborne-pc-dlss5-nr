@@ -59,10 +59,19 @@ find_program(GLSLANG_COMPILER NAMES glslang glslangValidator REQUIRED)
 set(SIRIT_USE_SYSTEM_SPIRV_HEADERS OFF CACHE BOOL "" FORCE)
 add_subdirectory(third_party/sirit EXCLUDE_FROM_ALL)
 
+set(BB_PREPARED_SOURCE_DEPS_ROOT "" CACHE PATH "Optional prepared FSR/imgui source root")
+if(BB_PREPARED_SOURCE_DEPS_ROOT)
+    set(BB_FSR_SOURCE "${BB_PREPARED_SOURCE_DEPS_ROOT}/fsr-vulkan")
+    set(BB_IMGUI_SOURCE "${BB_PREPARED_SOURCE_DEPS_ROOT}/imgui")
+else()
+    set(BB_FSR_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/fsr-vulkan")
+    set(BB_IMGUI_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui")
+endif()
+
 # bbport: FSR 3.1 temporal upscaling / frame generation, native Vulkan (MIT, FireBurn/FSR-Vulkan).
 set(FFX_VK_PORTABLE_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(FFX_VK_PORTABLE_BUILD_PROBE OFF CACHE BOOL "" FORCE)
-add_subdirectory(third_party/fsr-vulkan EXCLUDE_FROM_ALL)
+add_subdirectory("${BB_FSR_SOURCE}" "${CMAKE_CURRENT_BINARY_DIR}/third_party/fsr-vulkan" EXCLUDE_FROM_ALL)
 
 # Host shaders -> headers (same scheme as shadPS4's host_shaders/CMakeLists.txt).
 set(SHADER_SRC ${CMAKE_CURRENT_SOURCE_DIR}/shadps4/video_core/host_shaders)
@@ -156,10 +165,10 @@ add_dependencies(bbgpu host_shaders)
 target_compile_definitions(bbgpu PUBLIC NRBRIDGE_LEGACY_EXPERIMENTS=$<BOOL:${NRBRIDGE_LEGACY_EXPERIMENTS}>)
 # In-game settings menu: Dear ImGui (third_party/imgui, MIT) with its Vulkan backend, and an
 # embedded Cyrillic font (third_party/fonts).
-target_sources(bbgpu PRIVATE third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp
-    third_party/imgui/imgui_tables.cpp third_party/imgui/imgui_widgets.cpp
-    third_party/imgui/backends/imgui_impl_vulkan.cpp)
-target_include_directories(bbgpu PRIVATE third_party/imgui third_party/imgui/backends)
+target_sources(bbgpu PRIVATE "${BB_IMGUI_SOURCE}/imgui.cpp" "${BB_IMGUI_SOURCE}/imgui_draw.cpp"
+    "${BB_IMGUI_SOURCE}/imgui_tables.cpp" "${BB_IMGUI_SOURCE}/imgui_widgets.cpp"
+    "${BB_IMGUI_SOURCE}/backends/imgui_impl_vulkan.cpp")
+target_include_directories(bbgpu PRIVATE "${BB_IMGUI_SOURCE}" "${BB_IMGUI_SOURCE}/backends")
 target_compile_definitions(bbgpu PRIVATE IMGUI_IMPL_VULKAN_NO_PROTOTYPES
     BB_FONT_PATH="${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/DejaVuSans.ttf")
 set_source_files_properties(shim/bbport_overlay.cpp PROPERTIES

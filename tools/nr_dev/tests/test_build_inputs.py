@@ -58,6 +58,7 @@ mkdir -p "$BB_BUILD_DIR/gpu"
 for p in bb-probe gpu/libbbgpu.so libbbport_dlss.so libnvidia-ngx-dlss.so.310.9.1; do
  printf fixture > "$BB_BUILD_DIR/$p"
 done
+printf '%s' "$NR_SOURCE_DEPS_ROOT" > "$BB_BUILD_DIR/selected-source-root"
 ''')
         self.git('init', '-q')
         self.git('add', '.')
@@ -94,9 +95,11 @@ done
         self.assertEqual(record['environment']['CPATH'], str(self.envroot / 'root/usr/include'))
         self.assertFalse((self.root / 'build/native').exists())
         self.assertTrue((self.output / 'compile-started').is_file())
-        for name, rel in SPECS.items():
-            self.assertEqual((self.wt / rel).resolve(), self.deps / name)
-        self.run_build()  # Matching preexisting links remain usable.
+        self.assertEqual((self.output / 'selected-source-root').read_text(), str(self.deps))
+        for rel in SPECS.values():
+            self.assertFalse((self.wt / rel).is_symlink())
+            self.assertEqual(list((self.wt / rel).iterdir()), [])
+        self.run_build()  # Existing source directories remain untouched.
 
     def test_explicit_independent_dependency_root(self):
         other = self.root / 'separate sources'
@@ -133,8 +136,9 @@ done
     def test_populated_checkout_preserved(self):
         checkout = self.wt / SPECS['imgui'] / 'imgui.h'
         checkout.write_text('existing checkout')
-        self.run_build(False)
+        self.run_build()
         self.assertEqual(checkout.read_text(), 'existing checkout')
+        self.assertEqual((self.output / 'selected-source-root').read_text(), str(self.deps))
 
     def test_unapplied_patch_rejected_without_repair(self):
         (self.deps / 'fsr-vulkan/CMakeLists.txt').write_text('original\n')

@@ -49,15 +49,8 @@ for name in ('fsr-vulkan','imgui','LibAtrac9'):
             fail('dependency content drift: '+str(path))
 PY
 [[ -f $ENV_ROOT/bbport-env.sh && -d $ENV_ROOT/root/usr && -d $ENV_ROOT/dlss-sdk ]] || fail 'incomplete SDK/sysroot environment'
-# Do not replace an existing submodule checkout, populated directory or wrong link.
-for spec in 'gpu/third_party/fsr-vulkan fsr-vulkan' 'gpu/third_party/imgui imgui' 'third_party/LibAtrac9 LibAtrac9'; do
- read -r rel name <<< "$spec"
- if [[ -L $WT/$rel ]]; then
-  [[ $(realpath -e -- "$WT/$rel") == "$DEPS/$name" ]] || fail "dependency link selects another source: $rel"
- elif [[ ! -d $WT/$rel || -n $(find "$WT/$rel" -mindepth 1 -maxdepth 1 -print -quit) ]]; then
-  fail "expected empty gitlink directory or prepared source link; preserving $rel"
- fi
-done
+# Prepared inputs are selected directly by the lower-level build and CMake.
+# Existing Git submodule checkouts and links remain untouched and unused.
 [[ -f $DEPS/fsr-vulkan/CMakeLists.txt && -f $DEPS/imgui/imgui.h && -d $DEPS/LibAtrac9/C/src ]] || fail 'incomplete source dependency layout'
 # The lower-level build.sh retains submodule initialization/patch behavior. This
 # wrapper accepts only the already-patched closure, so it cannot mutate inputs.
@@ -74,14 +67,7 @@ export PKG_CONFIG_PATH="$ENV_ROOT/root/usr/lib/pkgconfig:$ENV_ROOT/root/usr/lib6
 mkdir -p "$BUILD"
 exec 9>"$BUILD/build.lock"
 flock -n 9 || fail 'build directory already has a writer'
-for spec in 'gpu/third_party/fsr-vulkan fsr-vulkan' 'gpu/third_party/imgui imgui' 'third_party/LibAtrac9 LibAtrac9'; do
- read -r rel name <<< "$spec"
- if [[ ! -L $WT/$rel ]]; then
-  rmdir "$WT/$rel"
-  ln -s "$DEPS/$name" "$WT/$rel"
- fi
-done
-export BB_BUILD_DIR="$BUILD" BB_PGO=off BB_LTO=OFF CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL:-8}
+export NR_SOURCE_DEPS_ROOT="$DEPS" BB_BUILD_DIR="$BUILD" BB_PGO=off BB_LTO=OFF CMAKE_BUILD_PARALLEL_LEVEL=${CMAKE_BUILD_PARALLEL_LEVEL:-8}
 git -C "$WT" rev-parse HEAD > "$BUILD/source-head.txt"
 git -C "$WT" diff --ignore-submodules=all --binary HEAD > "$BUILD/source-diff.patch"
 # Record selected inputs and the env's actual exports, not a claim of runtime
