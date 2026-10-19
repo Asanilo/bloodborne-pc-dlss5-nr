@@ -2,6 +2,12 @@
 
 2026-10-15，按用户本轮正式规划执行。本文件记录完整周期、当前目标与阶段验收；运行安全与当前事实仍以开发根 `CURRENT.md` 为唯一现行工程规范。它不授予旧目录删除权，也不替代真实 GPU 退休证据。
 
+## 2026-10-19实机进展：加载恢复与NR回归
+
+**2026-10-19重启后实机验证。** 新boot `199949cd-b649-4b57-b99f-a502f91a2118`，用户报告PD供电，sysfs确认USB-C PD（20V/4.5A）；功耗遥测590.01W异常，不用于功耗判断。实际build `3608e21` 在五轮均确认同步交接补丁日志并成功加载Clinic：`dev-gx-owner-sr-01`正常no-peer退出；`dev-gx-owner-off-01`完成24 skip；`dev-gx-owner-skip-01`完成25 skip；`dev-gx-owner-nr-01`完成24 Evaluate（23 captured/1 obsolete）；`dev-gx-owner-capture-01`计划240秒，完成1172 Evaluate（1168 captured/4 obsolete），实际转镜画面已观察。五轮均PASS_NORMAL_TEARDOWN、真实末用证明通过、无残留，退出后完整当前boot内核检查无新增GPU错误。
+
+候选已通过本轮有限加载/NR/正常退出回归，不再是BUILD_ONLY；不能把五次成功等同于所有间歇性故障消除，旧0x284、Xid31与float冻结仍各自OPEN。连续NR描述性窗口133.218秒、7568实际Present，56.80FPS/P95 24.61ms/P99 25.91ms/最长33.73ms，1次source gap计入；整卡峰值3895MiB（含其他应用）。PD供电、冷trace及Present读回影响整轮，不作热性能回归或与旧AC数据直接比较。未观察到F9输入，未获得本轮同源raw/模型/历史/SR捕获；亮尾归因及画质改善仍OPEN。固定c8fb9df四产物SHA与只读权限保持。下一步恢复有界动态画质采样和同供电条件热对照；仍使用现有真实退出前序与实时设备检查，不改旧HOLD、不开新审计体系。详细证据见`analysis/pm4-overlap-20261016/gx-render-owner-validation-20261019.json`。
+
 ## 2026-10-19执行收敛：所有权候选与已批准全量去重
 
 主任务保持PM4根因修复。静态链已从低层setter追到实际共享对象：主线程global资源copy取得的`renderer->field10->field08`由GXRenderThread初始化为`backend+0x130`，与绘制任务共享。`1d96b19`明确设置config[0x72]=1，经renderer配置复制给GXRenderThread；`21b6aa0`在此模式kick新job后直接返回，event68直到job回调返回、清空job指针后才置位。原有主线程可继续使用共享parent的交叠窗口与实机CS/graphics同CB证据相符。实际fieldb0对象的回调已锁定为`219d220`，逐项同步调用`21b2fb0`；该路径完成CPU命令构造/提交后才返回event68，没有发现提前派发子worker的分支。此结论不代表全部GXWorker空闲或GPU完成；实际失败更深caller与候选实机行为仍待验证。
