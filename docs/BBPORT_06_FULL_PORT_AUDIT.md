@@ -199,3 +199,33 @@ Esc、超时和失焦取消，不改原绑定；窗口失焦不能继续带着�
 
 证据为工作树`out/gameplay-06-input/`及DeepSeek独立`out/chords-dsv/`，不提交构建产物。
 本文件不宣称在线/DLC/原生鼠标已移植或GPU手感已改善。
+
+### 最终构建与复现
+
+实际空目录完整构建来源`43be58c035ce841f348efba0cb7c619e33777c19`，source-diff为空，
+Native编译/链接与capabilities工具构建均通过。输出为
+`/home/arinp/Code/bloodborne_pc/out/gameplay-06-input-native-20261020`；四项原有产物manifest
+与新增capabilities工具SHA均已核验，记录在`out/gameplay-06-input/validation.json`。
+后续本文提交只是验证记录，不冒充重新编译来源。
+
+新产物是BUILD_ONLY。原master3630bc52、Native开发分支feda4a1保持原位，原工作树干净；
+现用5635804四产物、7f69 Helper、9a825 forwarder及s4资源配置SHA匹配，未推送/合并、未创建AppImage。
+下轮包须配套更新Native、capabilities和launcher；只换launcher会把新组合写给不支持它的旧运行时。
+GPU手感验证、鼠标原生相机、在线与DLC实际移植仍是明确后续工作，不由本轮CPU通过代替。
+
+本机锁定依赖已备好的CPU复现命令（不运行GPU枚举或游戏）：
+
+```bash
+cd /home/arinp/Code/bloodborne_pc/.worktree/gameplay-06
+source /home/arinp/Code/bloodborne_pc/out/deps/bbport-env.sh
+export PKG_CONFIG_PATH=/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib/pkgconfig:/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib64/pkgconfig
+mkdir -p out/gameplay-06-input
+for case in pad input_capture chord_capture; do
+  cc -std=c11 -O2 -g -Wall -Wextra -Werror -pthread \
+    $(pkg-config --cflags sdl3) -I. -Isrc tests/test_$case.c \
+    $(pkg-config --libs sdl3) -o out/gameplay-06-input/$case-test
+  out/gameplay-06-input/$case-test
+done
+BB_BUILD_DIR=/home/arinp/Code/bloodborne_pc/out/gameplay-06-input-native-20261020 \
+  bash tools/nr_dev/build.sh
+```
