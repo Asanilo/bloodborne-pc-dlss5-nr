@@ -22,6 +22,34 @@ int main(void) {
     FILE *f=fopen(source,"w"); assert(f); assert(fputs("modded",f)>=0); assert(!fclose(f));
     assert(!symlink(source,link));
     runtime_file_configure(game,user);
+    // The five base mounts must leave room for all sixteen SaveData mount points.
+    for (int i=0;i<16;++i) {
+        char guest[64],translated[1024],expected[1024];
+        snprintf(guest,sizeof(guest),"/savedata%d",i);
+        assert(!runtime_file_mount(guest,user));
+        snprintf(guest,sizeof(guest),"/savedata%d/slot-%d",i,i);
+        assert(!translate(guest,translated,sizeof(translated)));
+        snprintf(expected,sizeof(expected),"%s/slot-%d",user,i);
+        assert(!strcmp(translated,expected));
+    }
+    // Exhaustion refuses a new name, keeps old mappings, and unmount frees capacity.
+    for (int i=0;i<MAX_MOUNTS-21;++i) {
+        char guest[64]; snprintf(guest,sizeof(guest),"/capacity%d",i);
+        assert(!runtime_file_mount(guest,user));
+    }
+    assert(runtime_file_mount("/overflow",user)==-1);
+    assert(!runtime_file_mount("/savedata15",user)); // replacement at capacity
+    runtime_file_unmount("/savedata15");
+    assert(!runtime_file_mount("/overflow",user));
+    for (int i=0;i<16;++i) {
+        char guest[64]; snprintf(guest,sizeof(guest),"/savedata%d",i);
+        runtime_file_unmount(guest);
+    }
+    for (int i=0;i<MAX_MOUNTS-21;++i) {
+        char guest[64]; snprintf(guest,sizeof(guest),"/capacity%d",i);
+        runtime_file_unmount(guest);
+    }
+    runtime_file_unmount("/overflow");
     for (int i=0;i<3;++i) {
         const char *path=i==0 ? "/app0/asset.dcx" : i==1 ? "/hostapp/asset.dcx" : "asset.dcx";
         int fd=(int)do_open(path,0,0); assert(fd>=3);
@@ -51,5 +79,5 @@ int main(void) {
     const char *dirs[]={"temp0","download0","data"};
     for (int i=0;i<3;++i) { char p[1024]; snprintf(p,sizeof(p),"%s/%s",user,dirs[i]); assert(!rmdir(p)); }
     assert(!rmdir(user) && !rmdir(root));
-    puts("Guest mod files: reads, stat, merged listing, readonly assets and writable saves PASS");
+    puts("Guest mod files: 16 save mounts, capacity/reuse, reads, stat, merged listing, readonly assets and writable saves PASS");
 }
