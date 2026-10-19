@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic CPU protocol fixtures; never evidence of GPU completion."""
 import importlib.util,json,pathlib,tempfile,unittest
-SPEC=importlib.util.spec_from_file_location('retirement',pathlib.Path(__file__).resolve().parents[1]/'retirement.py')
+SPEC=importlib.util.spec_from_file_location('peer_retirement',pathlib.Path(__file__).resolve().parents[1]/'peer_retirement.py')
 ret=importlib.util.module_from_spec(SPEC);SPEC.loader.exec_module(ret)
 def write(root,name,j):
  p=root/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(json.dumps(j))

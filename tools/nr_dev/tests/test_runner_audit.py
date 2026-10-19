@@ -5,7 +5,7 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parents[1]
 def module(name):
  spec=importlib.util.spec_from_file_location(name,HERE/(name+'.py'));m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);return m
-runner=module('runner');retirement=module('retirement')
+runner=module('runner');retirement=module('peer_retirement')
 PRE='NATIVE_ASYNC_PRE_SR_EXIT_PROOF actual_source_cache_SR_GPU_lastuse_complete=1 managed_owner_joined=1 peer_retirement=OWNER_PROOF\n'
 NO='NATIVE_ASYNC_PRE_SR_EXIT_NO_PEER session=test actual_no_owner=1 actual_no_snapshot=1 actual_no_pending=1 maximum_native_use_tick=0 preparation_joined=1 no_peer_created=1 no_NR_claim=1 scope=native_async_only\n'
 class AuditTests(unittest.TestCase):

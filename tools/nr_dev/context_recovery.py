@@ -156,7 +156,7 @@ def _identities(r, record):
 
 
 def _retirement(run):
-    spec = importlib.util.spec_from_file_location('isolated_retirement', Path(__file__).with_name('retirement.py'))
+    spec = importlib.util.spec_from_file_location('isolated_peer_retirement', Path(__file__).with_name('peer_retirement.py'))
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.audit_session(run)

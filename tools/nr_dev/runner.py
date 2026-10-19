@@ -351,7 +351,7 @@ def continuation_source(session):
  if result.get('status')!='PASS_NORMAL_TEARDOWN' or result.get('returncode')!=0 or result.get('supervisor_interrupted',False) or result.get('watchdog_expired') is not False or result.get('residuals')!=[]:raise ValueError('continuation requires unambiguous normal retired session, not HOLD/resolution')
  environment=manifest.get('environment',{})
  if environment.get('BB_USER_DIR')!=str(source/'profile/user') or environment.get('BB_DATA_DIR')!=str(source/'profile'):raise ValueError('source must use this new session private save/profile paths')
- from retirement import audit_session
+ from peer_retirement import audit_session
  proof=audit_session(source)
  saves=source/'profile/user/savedata';inventory=save_inventory(saves);config=source/'profile/nrbridge.json'
  if config.is_symlink() or (config.exists() and (config.resolve()!=config or not config.is_file() or config.stat().st_size>65536)):raise ValueError('private regular bounded NR config required')
@@ -647,7 +647,7 @@ def launch_supervised(args,signals):
     time.sleep(.25)
    signals.flush()
    text=(run/'game.log').read_text(errors='replace');residual=holders()
-   from retirement import audit_session
+   from peer_retirement import audit_session
    termination={'returncode':process.returncode,'residuals':residual,'watchdog_expired':held}
    try:
     retirement=audit_session(run,termination)

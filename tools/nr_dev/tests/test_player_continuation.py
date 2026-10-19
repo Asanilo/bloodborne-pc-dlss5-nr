@@ -6,7 +6,7 @@ HERE=Path(__file__).resolve().parents[1];sys.path.insert(0,str(HERE));spec=impor
 class ContinuationTests(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.patch=patch.object(r,'ROOT',self.root);self.patch.start();self.source=self.root/'runs'/'player-old';save=self.source/'profile/user/savedata';save.mkdir(parents=True);(save/'private-save').write_bytes(b'private progress');(self.source/'profile/nrbridge.json').write_text('{"version":1,"model_style":1}')
-  (self.source/'manifest.json').write_text(json.dumps({'schema':'nr-dev-session-v1','session':'player-old','environment':{'BB_USER_DIR':str(self.source/'profile/user'),'BB_DATA_DIR':str(self.source/'profile')}}));self.result={'status':'PASS_NORMAL_TEARDOWN','returncode':0,'watchdog_expired':False,'residuals':[],'supervisor_interrupted':False};self.write_result();self.audit=patch('retirement.audit_session',return_value={'retirement':'CPU_TEST_STUB_NORMAL_RETIREMENT'});self.audit.start()
+  (self.source/'manifest.json').write_text(json.dumps({'schema':'nr-dev-session-v1','session':'player-old','environment':{'BB_USER_DIR':str(self.source/'profile/user'),'BB_DATA_DIR':str(self.source/'profile')}}));self.result={'status':'PASS_NORMAL_TEARDOWN','returncode':0,'watchdog_expired':False,'residuals':[],'supervisor_interrupted':False};self.write_result();self.audit=patch('peer_retirement.audit_session',return_value={'retirement':'CPU_TEST_STUB_NORMAL_RETIREMENT'});self.audit.start()
  def tearDown(self):self.audit.stop();self.patch.stop();self.tmp.cleanup()
  def write_result(self):(self.source/'result.json').write_text(json.dumps(self.result))
  def test_independent_copy_includes_private_config_and_hashes(self):
@@ -20,7 +20,7 @@ class ContinuationTests(unittest.TestCase):
   save=self.source/'profile/user/savedata';(save/'bad-link').symlink_to('/tmp')
   with self.assertRaises(ValueError):r.continuation_source('player-old')
  def test_retirement_is_reaudited_not_status_only(self):
-  with patch('retirement.audit_session',side_effect=ValueError('unretired model resources')):
+  with patch('peer_retirement.audit_session',side_effect=ValueError('unretired model resources')):
    with self.assertRaises(ValueError):r.continuation_source('player-old')
  def test_planned_end_is_not_watchdog_failure(self):
   s=r.SessionSchedule(100,480,600,120);self.assertFalse(s.close_due(579));self.assertTrue(s.close_due(580));s.note_close(580);self.assertFalse(s.expired(580));self.assertFalse(s.expired(699));self.assertTrue(s.expired(700))

@@ -1,53 +1,102 @@
 #!/usr/bin/env python3
-"""Export only f527 Helper compile closure; preserve effective wire specification bytes."""
-import hashlib,json,re,subprocess,sys
+"""Delegate normal Helper builds; explicitly isolate frozen legacy rebuilds."""
+import argparse
+import hashlib
+import json
+import os
 from pathlib import Path
-ROOT=Path('/home/arinp/Code/nrbridge-dev')
-OLD=Path('/home/arinp/Code/nrbridge-design/game-poc-20261011/opti-async-pre-sr-play-worktree/poc/game_nr/async-pre-sr-play')
-def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
-def rebuild():
- source=ROOT/'inputs/helper-f527';out=ROOT/'build/helper';info=json.loads((source/'manifest.json').read_text())
- for path,expected in info.get('dependency_pins',{}).items():
-  if sha(Path(path))!=expected:raise ValueError('dependency drift '+path)
- for item in info['files']:
-  if sha(Path(item['export']))!=item['sha256']:raise ValueError('exported source drift '+item['export'])
- if sha(source/'effective-generated-spec.json')!=info['effective_spec_sha256']:raise ValueError('effective spec drift')
- if sha(Path(info['compiler']['path']))!=info['compiler']['sha256']:raise ValueError('compiler drift')
- for i,command in enumerate(info['commands']):
-  result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=180);(out/f'rebuild-step-{i}.log').write_bytes(result.stdout)
-  if result.returncode:raise RuntimeError(result.stdout.decode(errors='replace'))
- print('HELPER_REBUILD_ONLY_PASS',sha(out/'wine_async_presr_play.exe'))
+import subprocess
+import sys
 
-def main():
- if '--rebuild' in sys.argv:return rebuild()
- info=json.loads((OLD/'out/build.json').read_text());pins=info['readonly_dependency_pins']
- source=ROOT/'inputs/helper-f527';out=ROOT/'build/helper';source.mkdir(parents=True,exist_ok=True);out.mkdir(parents=True,exist_ok=True)
- mapping={}; manifest=[]
- def export(p,desired=None):
-  p=p.resolve()
-  if p in mapping:return mapping[p]
-  dest=source/(desired or ('closure/'+hashlib.sha256(str(p).encode()).hexdigest()[:12]+'-'+p.name));mapping[p]=dest;dest.parent.mkdir(parents=True,exist_ok=True)
-  text=p.read_text()
-  def inc(m):
-   target=Path(m[1]);target=target if target.is_absolute() else p.parent/target
-   if not target.is_file():
-    choices=[Path(pins['ngx_sdk_root'])/m[1],Path(pins['sdk_root'])/m[1]]
-    target=next((q for q in choices if q.is_file()),target)
-   if not target.is_file():raise ValueError('missing include '+str(target))
-   q=export(target)
-   return '#include "'+str(q)+'"'
-  text=re.sub(r'^#include\s+"([^"]+)"',inc,text,flags=re.M)
-  dest.write_text(text);manifest.append({'original':str(p),'original_sha256':sha(p),'export':str(dest),'sha256':sha(dest),'change':'quoted include relocation only'})
-  return dest
- cpp=export(OLD/'wine_async_presr_play.cpp','wine_async_presr_play.cpp');checker=export(OLD/'wire_check.cpp','wire_check.cpp')
- spec=OLD/'out/effective-generated-spec.json';assert sha(spec)=='671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b'
- (source/spec.name).write_bytes(spec.read_bytes())
- cc=Path(pins['compiler']['path']);assert sha(cc)==pins['compiler']['sha256']
- jh=Path(pins['json_header']['path']);assert sha(jh)==pins['json_header']['sha256']
- compile_steps=[['/usr/bin/c++','-std=c++17','-O2','-Wall','-Wextra','-Werror','-I'+str(jh.parent),str(checker),'-o',str(out/'wire_check')],[str(out/'wire_check')],[str(cc),'-std=c++17','-static','-O1','-Wall','-Wextra','-Wno-missing-field-initializers','-Wno-unused-function','-I'+pins['sdk_root'],'-I'+pins['ngx_sdk_root'],'-I'+str(jh.parent),str(cpp),'-o',str(out/'wine_async_presr_play.exe')]]
- for i,command in enumerate(compile_steps):
-  result=subprocess.run(command,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,timeout=180);(out/f'step-{i}.log').write_bytes(result.stdout)
-  if result.returncode:raise RuntimeError(result.stdout.decode(errors='replace'))
- (source/'manifest.json').write_text(json.dumps({'source_commit':'f527d8f2f12d474a66bbb4c1e231d6cd9b673476','effective_spec_sha256':sha(spec),'files':manifest,'compiler':pins['compiler'],'dependency_pins':{**pins['SDK_headers'],**pins['ngx_sdk_headers'],pins['json_header']['path']:pins['json_header']['sha256']},'current_runtime_pins':info['current_runtime_pins'],'commands':compile_steps,'artifact_sha256':sha(out/'wine_async_presr_play.exe'),'wire_transport_logic_changed':False},indent=2)+'\n')
- print('HELPER_BUILD_ONLY_PASS',sha(out/'wine_async_presr_play.exe'))
-if __name__=='__main__':main()
+ROOT = Path(os.environ.get('NR_DEV_ROOT', '/home/arinp/Code/nrbridge-dev'))
+HELPER = Path(os.environ.get('NR_HELPER_ROOT', '/home/arinp/Code/nrbridge-dev/helper'))
+
+
+def sha(path):
+    with Path(path).open('rb') as stream:
+        return hashlib.file_digest(stream, 'sha256').hexdigest()
+
+
+def delegate(helper_root, arguments):
+    helper_root = Path(helper_root)
+    script = helper_root / 'nrbridge/build.py'
+    if not helper_root.is_absolute() or not script.is_file():
+        raise ValueError('independent Helper repository required; select --helper-root /absolute/Helper')
+    # The Helper repository owns source, SDK selection, tests and provenance.
+    # Normal builds never read/re-export the historical frozen closure.
+    return subprocess.run([sys.executable, str(script), *arguments], check=False).returncode
+
+
+def legacy_rebuild(output=None):
+    source = ROOT / 'inputs/helper-f527'
+    manifest = source / 'manifest.json'
+    info = json.loads(manifest.read_text())
+    for path, expected in info.get('dependency_pins', {}).items():
+        if sha(path) != expected:
+            raise ValueError('legacy dependency drift: ' + path)
+    for item in info['files']:
+        if sha(item['export']) != item['sha256']:
+            raise ValueError('legacy frozen closure drift: ' + item['export'])
+    if sha(source / 'effective-generated-spec.json') != info['effective_spec_sha256']:
+        raise ValueError('legacy effective spec drift')
+    if sha(info['compiler']['path']) != info['compiler']['sha256']:
+        raise ValueError('legacy compiler drift')
+    allowed = (ROOT / 'build/convergence/legacy-helper-rebuild').resolve()
+    output = Path(output) if output is not None else allowed / sha(manifest)[:16]
+    if not output.is_absolute() or output.resolve() != output or not output.is_relative_to(allowed) or output == allowed:
+        raise ValueError('legacy output must be a new canonical subdirectory of build/convergence/legacy-helper-rebuild')
+    if output.exists():
+        raise ValueError('existing legacy output preserved; choose a new output directory')
+    old_output = ROOT / 'build/helper'
+    # Validate every stored command and map only the old output prefix. All
+    # frozen source/SDK inputs remain read-only at their recorded paths.
+    commands = []
+    for command in info['commands']:
+        if not isinstance(command, list) or not command or not all(isinstance(arg, str) for arg in command):
+            raise ValueError('invalid frozen legacy command')
+        changed = [str(output / Path(arg).relative_to(old_output)) if Path(arg).is_relative_to(old_output) else arg for arg in command]
+        if changed == command:
+            raise ValueError('legacy command has no isolated output mapping')
+        commands.append(changed)
+    output.mkdir(parents=True)
+    steps = []
+    for number, command in enumerate(commands):
+        result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=180,
+                                env=dict(os.environ, TMPDIR=str(output), PYTHONDONTWRITEBYTECODE='1'))
+        (output / ('step-%d.log' % number)).write_bytes(result.stdout)
+        steps.append({'command': command, 'exit_code': result.returncode})
+        if result.returncode:
+            raise RuntimeError('isolated legacy rebuild failed; output preserved: ' + str(output))
+    artifact = output / 'wine_async_presr_play.exe'
+    record = {'schema': 'nrbridge-legacy-helper-rebuild-v1', 'status': 'BUILD_ONLY_PASS',
+              'frozen_manifest': str(manifest), 'frozen_manifest_sha256': sha(manifest),
+              'frozen_expected_artifact_sha256': info['artifact_sha256'],
+              'steps': steps, 'artifact': str(artifact), 'artifact_sha256': sha(artifact),
+              'legacy_originals_modified': False, 'GPU': 'NOT_RUN', 'Wine': 'NOT_RUN'}
+    (output / 'build.json').write_text(json.dumps(record, indent=2) + '\n')
+    print('LEGACY_ISOLATED_BUILD_ONLY_PASS', artifact, record['artifact_sha256'])
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--helper-root', type=Path, default=HELPER)
+    parser.add_argument('--legacy-rebuild', '--rebuild', action='store_true',
+                        help='rebuild frozen inputs only to a new isolated directory; --rebuild is the legacy alias')
+    parser.add_argument('--legacy-output', type=Path)
+    args, remaining = parser.parse_known_args(argv)
+    try:
+        if args.legacy_rebuild:
+            if remaining:
+                parser.error('unexpected legacy rebuild options: ' + ' '.join(remaining))
+            return legacy_rebuild(args.legacy_output)
+        if args.legacy_output:
+            parser.error('--legacy-output requires --legacy-rebuild')
+        return delegate(args.helper_root, remaining)
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+        print('nr-dev Helper: ' + str(error), file=sys.stderr)
+        return 3
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
