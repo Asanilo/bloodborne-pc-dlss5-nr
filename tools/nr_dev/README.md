@@ -1,173 +1,93 @@
-# 私有试玩与开发入口
+# NRBridge 构建与私有运行入口
 
-**当前GPU试玩仍暂停（2026-10-16 Xid31）。** 当前实际build为a65e230，含TSC并发初始化修复及默认关闭的资源/寄存器诊断。重启后dev-postreboot-sr-01与dev-loading-trace-01均SR-only正常退出，后者已确认加载、转镜和角色位移，无新驱动错误；尚未恢复Helper/NR验收，间歇性故障和亮尾保持OPEN。原HOLD保留，下面的普通试玩入口仍被安全检查阻断。
+现行工程规范见开发根 `CURRENT.md`，阶段、历史故障和画质证据见 [NRBRIDGE_PLAN](../../docs/NRBRIDGE_PLAN.md)。本页只说明当前入口，不把旧运行报告当成启动指令。以下命令从 `/home/arinp/Code/nrbridge-dev` 执行。
 
-从 `/home/arinp/Code/nrbridge-dev` 启动：
+当前推荐显式组合：Native 只读 baseline `563580452e46ea253cecbf75c24ac65579ee031b`、独立 Helper `7f69c1e556810b2b`、forwarder `9a8251430ccfa68a`，资源配置 `localinputs/runtime-s3-20261019.json`。此组合已完成 Clinic SR 正常退出、off/skip 各24个 skip，以及24次真实 Evaluate（23 captured、1 obsolete）的正常退休；完整当前 boot 内核和 holders 检查通过。这是有限加载/传输/退休验证，不代表亮尾修复、热性能或日常发布验收。
+
+## 构建
 
 ```bash
-python3 native/tools/nr_dev/play.py
+# 隔离 Native 输出；不覆盖现用 build/native 或只读 baseline。
+BB_BUILD_DIR="$PWD/build/convergence/native" bash native/tools/nr_dev/build.sh
+# 独立 Helper 与协议导出；forwarder 单独构建，不替换运行选择。
+python3 helper/nrbridge/build.py
+python3 helper/nrbridge/forwarder/build.py
 ```
 
-可选 `--native-build /home/arinp/Code/nrbridge-dev/build/baselines/<完整提交SHA>` 使用已校验的固定 Alpha；默认仍为 `build/native`。入口预校验四产物与构建来源，Helper 独立选择不变。
+Native 包装器的 `NR_SOURCE_DEPS_ROOT` 默认是开发根的 `inputs/source-deps`，包含已打补丁的 FSR、imgui、LibAtrac9 和各自 `*.content.sha256`。`NR_BUILD_ENV_ROOT` 独立选择 SDK/sysroot 环境，默认仍是稳定 `bloodborne_pc/out/deps`。完整源码依赖清单、环境实际导出及本仓库固定协议副本在编译/输出副作用前校验，缺失、漂移或错误依赖链接会拒绝。不要把本地 gitlink symlink 提交进 Git。
 
-### 显式本地运行输入（S3，尚未切换默认）
+输出包含 `build-inputs.json`、源码 HEAD/diff 和 Native 四产物 SHA；Runner只接受 `build/native` 或已核验的 `build/baselines/<完整提交>`。`NR_DEV_ROOT` 只改变构建默认根，不迁移 Runner 的固定 `ROOT/runs` confinement。默认构建隔离旧 P0/Q 实验路径；完整构建不等于实机验收。
 
-普通 `play.py` 和未传 `--local-inputs` 的 Runner 继续使用原 legacy 路径、61 项 `inputs/runtime-pins.json` 和已验证的旧 Helper。新模式必须显式选择配置；配置、独立运行 pins 和所有私人绝对路径只放开发根的 `localinputs/`，不提交游戏、模型或存档。公开示例是 [runtime-inputs.template.json](runtime-inputs.template.json)。现有固定 Native baseline 可以继续用 legacy；缺少 `NRBRIDGE_NATIVE_HELPER_RUNTIME_CONFIG_V1` 标记的旧 Native 会拒绝新模式。
+`native/tools/nr_dev/prepare_helper.py` 和旧 `helper_runtime/build.py` 现在委托独立 Helper 仓库，可用 `--helper-root` 或 `NR_HELPER_ROOT` 选择已准备源码。Native只保留固定协议副本及 peer 退休验收。Frozen legacy 输入保持只读；只有显式 `prepare_helper.py --legacy-rebuild` 才向全新 `build/convergence/legacy-helper-rebuild/` 子目录回放旧配方，不覆盖原 PE/manifest，也不切换运行产物。
 
-将模板复制到 `localinputs/runtime-draft.json`，填入真实的只读资产、私人 seed、GE `files`、sysroot 库目录、独立 Helper PE/完整 `build.json` SHA、forwarder/model DLL 、实际系统 NGX `.so`（`system_ngx`）和系统 NGX Wine DLL 目录，再封存成全新的配置。配置中的目录和所选 DLL/`.so` 使用 `realpath` 后的规范路径；目录内部的库 symlink 则单独记录目标身份。
+## 资源配置
+
+```bash
+# 只读 CPU 校验；不打开 GPU 锁或运行 Wine。
+python3 native/tools/nr_dev/prepare_runtime_inputs.py \
+  --check "$PWD/localinputs/runtime-s3-20261019.json"
+```
+
+新配置显式选择只读游戏资产、私人 seed、GE `files`、sysroot 库目录、Helper PE/manifest、forwarder/model、实际系统 NGX `.so` 及 NGX Wine DLL 目录。配置和私人绝对路径只放开发根 `localinputs/`，不提交游戏、模型、存档或生成的运行 pins。公开格式见 [runtime-inputs.template.json](runtime-inputs.template.json)。需要建立另一个配置时，填写模板后封存到全新文件：
 
 ```bash
 python3 native/tools/nr_dev/prepare_runtime_inputs.py \
   --draft "$PWD/localinputs/runtime-draft.json" \
-  --output "$PWD/localinputs/runtime-v1.json"
-# 仅做 CPU 校验；不打开 GPU 锁、不运行 Wine，也不修改任何旧记录。
-python3 native/tools/nr_dev/prepare_runtime_inputs.py --check "$PWD/localinputs/runtime-v1.json"
-# 仅在协调方完成统一构建/验证及实时安全检查后，显式选择新闭包。
-python3 native/tools/nr_dev/play.py --local-inputs "$PWD/localinputs/runtime-v1.json"
+  --output "$PWD/localinputs/runtime-next.json"
 ```
 
-生成器拒绝覆盖旧配置或旧 pins。它为 GE `files`、sysroot 库目录和 NGX Wine DLL 目录的完整文件清单记录 SHA、大小及 symlink 的真实目标；另锁定指定的 Helper/manifest、forwarder、模型、系统 NGX `.so`、游戏 `eboot.bin`、seed manifest 和全部 seed 存档。游戏其余资产保持原位置的只读引用，不声称整份游戏都已逐文件 SHA 审计。实际运行的其他系统文件可重复传 `--extra-runtime-file` 纳入运行 pins。未列入运行闭包的历史源码、SDK 头、编译器和旧预检 PE 不参与该模式的运行准入；构建来源仍由独立构建 manifest 保存。
+生成器拒绝覆盖配置或 pins。独立 pins 锁定完整 GE/sysroot/NGX Wine DLL 目录的文件 SHA、大小及 symlink 真实目标，并锁定所选 Helper/manifest、forwarder、模型、系统 NGX、`eboot.bin`、seed manifest 与全部私人 seed 存档；其他实际系统运行文件可用重复的 `--extra-runtime-file` 纳入。配置中的目录和所选 DLL/`.so` 使用 `realpath` 后的规范路径。其余游戏资产保持只读引用，不声称整份游戏都经过逐文件 SHA 审计。
 
-启动前和开启 Helper/NR 前核对配置/pins/资源身份及 Helper schema、wire/interface 版本。Runner 在新 run 内生成并记录 `helper-runtime.json` 的 SHA；Native 只给新 Helper 追加 `--runtime-config Z:<path>`，并记录实际配置、GE、NGX 路径。此标记和 CPU 检查只证明路径接口兼容，真实加载、GPU/FD 退休仍需实机证据。`ROOT/runs/SESSION` 的固定 confinement、boot、holders、原 HOLD 和正常退休检查均保留；这一步不支持任意迁移开发根。
+新模式运行准入不依赖历史源码、SDK 头、编译器或旧预检 PE；构建来源单独记录。启动及开启 Helper/NR 前校验资源、配置和 Helper 协议身份；run 内生成的 `helper-runtime.json` 也记录 SHA。旧 Native 缺少新接口标记时拒绝新配置。标记只证明接口兼容，真实 GPU/FD 完成仍以实际审计为准。
 
-恢复入口可以在其协调方记录中加入完整 `runtime_inputs` binding（与 session manifest 同值），并绑定相同 Helper 与真实前序退休；省略该字段仍按 legacy pins 检查。新配置不能与 `--runtime-model-helper` / `--runtime-model-build-sha256` 混用，也不能把旧 boot 或旧失败 profile 的许可迁过来。
+## 受控验证与私有试玩
 
-游戏出现后，Space/Cross 继续到可操作场景，再回终端按 Enter 开启真实 NR。WASD/鼠标或手柄操作，正常关闭游戏窗口结束。默认使用已锁定的新模型 Helper `build/helper-runtime-model/06ac7e6b7260172d/wine_runtime_model.exe`，启动时核对其 `build.json` 与 PE SHA，并在本次 manifest 记录实际身份。
-
-- **Delete**：打开 NR 菜单。模型参数加载或调整后需要显式 **Apply**；加载配置不会自动重建模型。
-- **F8**：即时切换 NR 旁路。两种输入共享 SR 历史；快速切换不构成独立双 SR 历史的同帧 A/B。
-- **F9**：请求同源 raw720、edited720、Depth、MV、实际 SR1080 与后处理游戏 Present 的诊断捕获。结果需等 GPU 完成并核验 source、revision、SHA；游戏 Present 是 NR overlay 之前的像素。旁路时 edited 仍可计算，但实际 SR 输入是 raw，不可把候选图称为已显示 NR。
-
-默认计划时长为480秒（含准备），到期主动正常关窗并执行退役审计；独立 watchdog 默认600秒，正常关闭还有受预算限制的 grace。Helper 服务容量仍为600秒。未真实退休仍为 HOLD，不能把计划到期本身解释为 GPU 故障，也不能靠 kill 声称成功。
-
-默认每次从私有 NRTest seed 开始；正式存档不会被使用或修改。若要接着玩，只能明确选择一个已正常退休的新周期 session：
+所有 GPU 启动由协调方排他执行。推荐入口显式指定上述新配置和已验 Native baseline；不自动发现或切换全局 current 配置。下一轮 resident 受控观察可以使用公开源码入口：
 
 ```bash
-python3 native/tools/nr_dev/play.py --continue-session SESSION
+NATIVE="$PWD/build/baselines/563580452e46ea253cecbf75c24ac65579ee031b"
+INPUTS="$PWD/localinputs/runtime-s3-20261019.json"
+# 协调方准备该新scope后，仅在session尚未使用时执行。
+SESSION=play-converged-20261019
+SCOPE="$PWD/inputs/context-$SESSION.json"
+python3 native/tools/nr_dev/play.py \
+  --session "$SESSION" --context-recovery "$SCOPE" \
+  --native-build "$NATIVE" --local-inputs "$INPUTS" \
+  --seconds 240 --watchdog-seconds 360 --source-limit 7200 \
+  --pm4-cold-trace --pm4-producer-context
 ```
 
-它将该 session 的 `profile/user/savedata` 和 `nrbridge.json` 校验后复制到全新 run，保留原件；不复制 Wine prefix、缓存或正式存档。HOLD（即使另有 fresh-context resolution）不能作为续玩来源。私有进度在 `runs/SESSION/profile/user/savedata`。
+`play.py` 固定 resident/persistent，先只读核对 scope 的实际 boot、原 HOLD 摘要、精确 session/请求/诊断开关、build/资源身份和真实前序退休，再启动监督进程。上述7200预算要求匹配已有 resident 正常退休前序；不是通用放宽。`--context-recovery` 使用现有精确 schema，不生成许可、不解决旧故障，也不能复用已消费 session。Runner在持有 GPU 锁后重新检查完整前序、内核、holders 和资源身份，控制动作也复检。新 HOLD 或任何证据漂移都会拒绝。
 
-早期Alpha的主协调已在 `dev-player-01` 获得用户反馈“明显改善，操作流畅”，并核验正常退出。 用户后续补充：仍有轻微鬼影、闪烁及大幅度动作时的闪烁，整体稳定性尚可；这些是尚未解决的画质问题，不能将当前试玩通过解读为无伪影或全场景完成。120秒自动动态窗口：新版60.30 FPS/P95 25.31ms/P99 26.78ms；d9视觉算法隔离参考66.49 FPS/P95 22.19ms/P99 23.58ms。场景为Clinic转镜和小范围移动，未覆盖完整战斗与全游戏。冷诊断不计入热性能。更完整的现行安全和资源边界见开发根 `CURRENT.md`。
+没有 `--context-recovery` 时仍走原 `preflight`，旧 HOLD 和当前宿主安全要求继续生效；不能靠省略 scope 进入同一 boot 的未知上下文。普通私有入口默认仍是480秒计划关闭、600秒 watchdog、36000 source 预算。传入 scope 时所有请求参数必须完全匹配，默认预算不会自动套用到受控记录。
 
-当前默认Native已更新为`c359a29`加载可靠性修复：修正提交锁/旧idle通知竞态及任务先入队后计数的发布窗口，画质算法仍为已认可的c8fb9df。两次同来源加载均成功并正常退出，其中真实NR动态验证578个job正常退休。旧HOLD保留，未绕过断言；有限回归尚不能保证所有偶发加载错误已消失。下面的热性能表对应c8fb9df，修复验证使用冷命令诊断，不作新热性能声明。原启动命令保持不变。
+游戏出现后，用 Space/手柄 Cross 继续到可操作场景，再回终端按 Enter。入口核验真实 Helper GPU/FD readiness 后开启 NR，并尝试切回对应游戏窗口；场景确认不能只凭加载日志。正常关闭窗口结束。Delete 打开 NR 菜单，模型 Style/Intensity 需显式 Apply；F8 是显示旁路，F9 请求诊断捕获。冷诊断和捕获不能用作热性能评分。
 
-## 2026-10-16 可玩参考（亮部轮廓拖影待修）
-
-已认可的画质参考Native构建为 `c8fb9df`，本地标签 `nrbridge-stability-candidate-20261016`。新增独立old/target区域候选过渡和完整时域支持的保守边缘保留；保留真实贡献年龄、四bank、原TTL与完整NR强度。Nearest/Cubic菜单只切换采样方法，**选择Nearest不会撤销这两项新算法**；完整旧行为通过下面的固定baseline启动。
+SR-only、off/skip 和 persistent/skip 使用同一个公开 `runner.py start`，显式填写匹配 scope 的 `--mode`、`--sky`、预算和诊断参数；可用 `--help` 查看完整接口。启动后按实际观测依次调用：
 
 ```bash
-# 新版：与本轮对照相同的私有Clinic进度/默认配置
-python3 native/tools/nr_dev/play.py --continue-session dev-reprojection-switch-01
-# 固定Nearest旧版：相同私有来源，独立进程及SR历史
-python3 native/tools/nr_dev/play.py --continue-session dev-reprojection-switch-01 --native-build /home/arinp/Code/nrbridge-dev/build/baselines/9fcd4ccd443c1bb9ec133c31c539dedbf7a6e004
+python3 native/tools/nr_dev/runner.py scene-ready "$SESSION"
+python3 native/tools/nr_dev/runner.py start-helper "$SESSION"  # 需要 Helper 的阶段
+python3 native/tools/nr_dev/runner.py arm "$SESSION"           # readiness 通过后
+python3 native/tools/nr_dev/runner.py stop "$SESSION"          # 正常关窗请求
 ```
 
-当前已认可的实际Native产物另有只读固定副本：`build/baselines/c8fb9dfdb7d80f444ddfdcf72c6483dba140963f`；后续默认build变化时，可将该绝对路径传给`--native-build`继续使用此版。
+SR-only 不调用 start-helper/arm。所有阶段共用真实运行目录和同一锁内检查，不依赖私有 analysis 启动脚本。每个 session 独立保存 profile、缓存、Wine prefix、生成 guest、manifest 和日志；游戏资产与正式存档保持只读。默认复制私人 NRTest seed；仅 `PASS_NORMAL_TEARDOWN` 且重新审计通过的旧 dev session 可用 `--continue-session SESSION` 复制私人存档/NR配置到新 run。HOLD 即使另有恢复证据也不能作为续玩来源；受控 scope 当前要求全新 seed，不允许 `--continue-session`。
 
-进入实际场景后在终端按Enter，入口核验Helper readiness并开启NR后，会核对窗口PID并切回私人游戏。Delete菜单、F8旁路、F9捕获和Restore defaults保持可用；恢复默认不会撤销新算法。游戏在后台可能被限到约1FPS，性能比较要保持前台。
+## Legacy 与回滚
 
-相同存档、起始场景、预热和120秒动态脚本的一轮独立对照：
-
-| 版本 | FPS | P95 / P99 ms | 最长帧 ms | 整卡峰值 MiB |
-|---|---:|---:|---:|---:|
-| SR-only | 69.35 | 15.85 / 16.62 | 30.30 | 2875 |
-| 固定Nearest旧版 | 58.15 | 24.72 / 26.43 | 117.35 | 4232 |
-| 新区域过渡＋边缘支持 | 57.86 | 24.49 / 26.19 | 28.62 | 4104 |
-
-三轮均正常退休，焦点每秒采样均为前台；两轮NR零source缺口，SR-only一次缺口已保留在耗时内。新旧NR平均帧率差约−0.5%，单轮最长帧/显存差异不能证明优化。显存是整卡用量，含其他应用；没有输入延迟测量。新旧NR分别1187/1189个真实job结清，Feature创建/释放各1次。
-
-两次新算法冷采集共18帧通过finite/alpha/TTL及实际SR/Present关联。独立重构最终half误差最多1 ULP；真实1/3候选过渡有52万像素参与双方混合；完整边缘验证有实际GPU像素保留证据。过渡old-only/fatal fallback没有被该组动态样本直接覆盖；CPU/Shader及源码审查覆盖不冒充该项GPU观测。玩家反馈“我觉得可以了”，认可当前可玩参考；仍有受光角色轮廓的发光拖影，未达到无伪影或正式稳定发布。
-
-开发根 `comparisons/stability-20261016/results.json` 汇集原run和派生证据；`next-view/compare720.png` 是同源raw/NR720共享EV4映射，`next-view/actual-Present1080.png` 是实际后处理1080画面。独立SR-only截图在 `runs/dev-stability-sronly-hot-01/scene.png`，包含HUD、不同采样时刻，不能称严格同帧双SR历史A/B。
-
-已知加载问题仍OPEN：旧基线与新版本都曾pre-NR PM4断言退出；guest巨大float不收敛卡死的生产者尚未定位。原HOLD与诊断保留。无新帧退出owner推进已通过no-peer和真实NR正常退休，但不是异常输入根因修复。此次后续前台加载连续成功并不证明这些问题消失。正式存档不写入，失败profile不可续玩。
-
-## 重投影选项与固定Alpha对照
-
-完整后续规划见 [NRBRIDGE_PLAN](../../docs/NRBRIDGE_PLAN.md)。Delete打开菜单后，在 **History reprojection** 选择：
-
-- **Nearest (Alpha/default)**：默认，保留Alpha的最近邻历史采样。
-- **Clamped cubic (optional)**：带同表面/同来源验证与限幅的三次重建，减少亚像素采样跳变；仍可能损失细节，且有GPU成本。玩家反馈体感变化不大，因此不替换默认方式。
-
-切换在安全帧边界生效，清空视觉历史，保留Helper/物理资源；不需要模型Apply。菜单显示实际Applied模式及pending状态。配置格式v2记录reprojection=0/1；旧v1配置保留其他参数并加载为Nearest，不主动改写旧文件。恢复默认也恢复Nearest。两种immutable Shader pipeline在初始化时分别编译，Nearest不包含cubic采样分支。
-
-此前固定cubic候选的120秒同存档同输入模式热窗口为54.91FPS/P95 25.81/P99 27.19ms，固定Alpha57.63FPS/P95 24.81/P99 26.38ms；这约4.7%的代价是当时两份binary的观测，不作为当前菜单版本的重新测量。两者正常退休；鬼影、大动作闪烁和候选亮度跳变仍未宣称解决。F8共享SR历史，不替代独立Alpha比较。
-
-固定Alpha的源码和实际binary仍可单独运行：
+省略 `--local-inputs` 仍保留原 legacy Helper `06ac7e6b7260172d`、61项 `inputs/runtime-pins.json` 和旧资源路径。可用 `--legacy-inputs` 显式表达该选择；它与 `--local-inputs` 互斥，不改变默认 PE 或准入。旧3608与c8fb的固定 baseline 继续可用：
 
 ```bash
-python3 native/tools/nr_dev/play.py --continue-session dev-runtime-controls-01 --native-build /home/arinp/Code/nrbridge-dev/build/baselines/e08eacfed42b162a54f0d370f8ecdb28bf40f725
+python3 native/tools/nr_dev/play.py --legacy-inputs \
+  --native-build "$PWD/build/baselines/3608e21fa1bb7510103e098acbfaa22b72d985d6"
+# 画质参考可替换为 build/baselines/c8fb9dfdb7d80f444ddfdcf72c6483dba140963f。
 ```
 
-固定源码标签 `nrbridge-alpha-runtime-20261015`；历史对照数据在开发根 `comparisons/stability-20261015/results.json`。此命令使用旧v1默认配置的同一私人存档来源；旧Alpha不支持新v2配置。
+该命令仍须当前宿主检查；有未解决 HOLD 时按已有匹配的受控流程执行，不会自动豁免。`--native-build` 只选择 Native 四产物，不是整个系统回滚；Helper、forwarder、模型、GE、系统依赖和 seed 都要匹配对应资源选择。不要给旧 Native 混配新 `--local-inputs`。原 `runtime-pins.json`、Frozen manifest、失败 profile 和历史 HOLD 均保留。
 
-## 本阶段验证边界
+## 结果与限制
 
-- `dev-runtime-life-01` 提供了本阶段资源生命周期的实际运行证据；原 watchdog **HOLD 保留**，不改写为正常退出或玩家验收通过。资源作用范围的独立证据不等于完整运行 PASS。
-- `dev-runtime-nr-02` 完成 **1841 个真实 job：1821 captured、20 obsolete**，已验证正常退出；同源诊断 capture 实际完成。此项证明该次模型传输、候选处理与退出链实际运行，不代替画质或性能验收。
-- `dev-runtime-controls-01` 正常退出，2715个真实NR job全部结清。3次重建验证Natural、Cinematic及恢复Default，参数身份1→4；Feature创建/释放各4次。连续confidence约千种真实值；强度0.501及修改后的TTL/深度/颜色/minConfidence均通过同源GPU读回与Compose重构（最多1 half ULP）。细节见该run的runtime-model-validation、runtime-controls-offline-check及runtime-thresholds-offline-check；不是主观消鬼影证明。
-- `dev-runtime-hot-01` 无图像捕获，正常退休1374个真实job（1372 captured/2 obsolete）。纯SR静止70.54 FPS/P95 14.64/P99 15.68ms；NR静止57.59 FPS/P95 24.26/P99 25.48ms；120秒NR动态58.34 FPS/P95 24.25/P99 25.80ms，零source缺口、最大28.63ms。整卡峰值3995MiB/8188MiB（含其他应用）。尚未达到稳定60FPS，也未证明默认鬼影/闪烁已改善。
-- `dev-runtime-nr-01` 曾在Helper和NR资源创建前因加载期PM4坏包退出23，原HOLD保持；追加说明仅允许经锁内当前宿主检查后的独立新上下文，不声称整个旧GPU上下文正常退役。新增包语义校验可提前停止错误寄存器写入，源数据损坏根因仍未证明解决。
+正常退出审计检查真实 Native/Helper 末用、精确 origin tuple、共享资源/FD 归零、模型释放/shutdown、正常 waitpid；无 peer 的退出也要求明确的无 owner/snapshot/pending-use 与 preparation join 证明。CPU Present、计数归零、kill 或无残留进程不能代替完成证明。watchdog 只请求正常关闭，未知状态保持 HOLD，进程仍在时继续持有锁。
 
-上面的旧试玩反馈及早期Alpha性能数字仅对应其标明的旧 session/场景，不是当前 runtime/config 版本的性能或玩家 PASS。本轮源码尚未推送。
-
-## 开发与诊断
-
-Build: `bash native/tools/nr_dev/build.sh`. Outputs default to `nrbridge-dev/build/native`; use `BB_BUILD_DIR` for an isolated build, for example:
-
-```bash
-BB_BUILD_DIR=/home/arinp/Code/nrbridge-dev/build/convergence/native \
-  bash worktrees/convergence/tools/nr_dev/build.sh
-```
-
-`NR_SOURCE_DEPS_ROOT` selects the prepared read-only source root (default `$NR_DEV_ROOT/inputs/source-deps`, with `NR_DEV_ROOT` defaulting to `/home/arinp/Code/nrbridge-dev`). It contains `fsr-vulkan`, `imgui`, `LibAtrac9` and their existing sibling `*.content.sha256` inventories. The wrapper verifies every file and rejects missing, extra or changed files before creating links, writing build provenance or compiling. It never copies dependencies, regenerates manifests, overwrites source checkouts or applies patches to these inputs. FSR must already contain the repository patches; the underlying build/submodule recipe remains unchanged. An empty gitlink directory can become a local symlink; an existing checkout or a link selecting another root is preserved and rejected. These local gitlink symlinks must never be staged.
-
-`NR_BUILD_ENV_ROOT` independently selects the SDK/sysroot environment directory (default `/home/arinp/Code/bloodborne_pc/out/deps`). It must contain `bbport-env.sh`, `root/usr` and `dlss-sdk`. The selected script's real `DLSS_SDK_ROOT`, `VULKAN_INCLUDE` and first `CMAKE_PREFIX_PATH` entry must select that environment's SDK/sysroot; stale absolute exports are rejected. Moving a script alone does not make its dependencies portable. Default dependency versions and paths stay unchanged; explicit roots must be prepared from the same locked inputs. All configured paths must be absolute, and build output must not overlap a source/input root.
-
-`build-inputs.json` records the selected roots, manifest/env hashes and actual environment exports alongside source provenance and the four-product manifest. `NR_DEV_ROOT` here only selects build defaults; Runner paths and GPU confinement are configured separately and are not relocated by these variables. No historical execution ledger is imported.
-
-Helper: `python3 helper/nrbridge/build.py` builds the current independent Helper and protocol export. `python3 native/tools/nr_dev/prepare_helper.py` and the old `helper_runtime/build.py` entry both delegate to that repository; select another prepared Helper tree with `--helper-root /absolute/Helper` or `NR_HELPER_ROOT`. They do not export or overwrite `inputs/helper-f527`, and Native retains only peer retirement acceptance and the pinned protocol copy.
-
-Frozen legacy inputs remain read-only. Only explicit `prepare_helper.py --legacy-rebuild` (old `--rebuild` is an alias) replays their stored commands, with all outputs remapped to a new directory under `build/convergence/legacy-helper-rebuild/`; `--legacy-output` can select another new subdirectory there. Existing outputs are refused. The original legacy PE/manifest mismatch is preserved, and this rebuild does not replace runtime selections. Current builds use the independent Helper source, tests, compiler/SDK closure and content identity; CPU/build PASS does not prove Wine/GPU equivalence.
-
-The coordinator must first inspect current host GPU holders and driver-hang evidence, then record `inputs/host-safety.json` with current Linux `boot_id`, `unresolved_driver_hang: false`, and `evidence` referring to that real observation. This is a safety observation, not a historical approval or a launch count allowance. Runtime dependency hashes are checked using `inputs/runtime-pins.json`.
-
-From the development root:
-
-```
-python3 native/tools/nr_dev/runner.py preflight
-python3 native/tools/nr_dev/runner.py start dev-UNIQUE --mode skipEvaluate --sky off
-python3 native/tools/nr_dev/runner.py scene-ready dev-UNIQUE
-python3 native/tools/nr_dev/runner.py start-helper dev-UNIQUE
-python3 native/tools/nr_dev/runner.py arm dev-UNIQUE
-python3 native/tools/nr_dev/runner.py stop dev-UNIQUE
-```
-
-`scene-ready` records an actual coordinator/player observation of a controllable private scene; it must not be issued speculatively. `arm` checks the exact session's real Helper GPU/FD retired readiness. The same runner supports resident NR after lifecycle validation; `--sky persistent` enables `BB_NATIVE_PERSISTENT_HISTORY=1` in the new Native implementation, while the old Masked Sky mode remains `off`. GPU runs are coordinator-owned and globally flock-exclusive.
-
-Each session has independent save copy, profile, cache, Wine prefix, generated guest, provenance and controls. Game assets remain read-only inputs; no formal installation or real save is used. Native retains tuple/UUID/PID/starttime/FD/ownership/last-use checks. Normal close is sent to a window only after its X11 PID matches the exact private game identity. Timeout creates HOLD and requests normal close, retains the GPU lock while the process remains alive, and never kills to claim completion. New-context HOLDs block subsequent sessions until independently resolved with appended evidence by the coordinator. The runner never modifies old FAIL/HOLD/STOPPED records.
-
-`present-metrics.json` measures actual unique nonreuse swapchain Present CPU intervals (FPS/P50/P95/P99/max); it is not pixel quality acceptance. `gpu-memory.jsonl` records PID-associated NVIDIA memory samples and device-total used/total/UUID. Device totals include other applications and shared allocations; PID samples must not be summed as physical GPU total. Unavailable PID sampling is NOT_MEASURED, not zero. Review the actual terminal wire/FD audits and player quality in addition to the runner's normal-teardown result. A runtime failure remains HOLD, not BUILD_ONLY success.
-
-`run.sh` has no `BB_OUT_DIR` knob: generated guest output is `$BB_DATA_DIR/out`, so each run builds it under its private profile. `BB_PROBE` explicitly selects `build/native/bb-probe`; its ELF rpath selects `build/native/gpu/libbbgpu.so`. The DLSS loader resolves `/proc/self/exe` to load the bridge and NGX beside that executable. The runner hashes all four native runtime products and records/checks loaded library paths on each scene/control action. `frames.csv` is a per-flip diagnostic CSV (not an authoritative nonreuse Present ledger). P95/P99 use every `NATIVE_ASYNC_PRE_SR_CURRENT_PRESENT` event, whose producer is guarded by `is_game_frame && !is_reusing_frame` and records monotonic ns; duplicates and nonmonotonic windows are rejected.
-
-Scene operation is separate from the NR model controls. The private seed has 15 files, 15,002,530 bytes, copied to `runs/SESSION/profile/user/savedata` (including `1/CUSA00207/SPRJ0005`). Source manifest identifies Iosefka Clinic; the CUSA03173 asset root and internal save title ID are intentionally those of the verified baseline. Launch adds a private backup via save_manager; it does not redirect to the formal save. Readiness must be judged on the live scene, not merely a loader line or seed existence.
-
-With the focused game window, controller Cross or keyboard Space/keypad Enter confirms menus; Enter/Escape is Options (not Cross). Continue the private Clinic save from the title menu. WASD moves, arrow keys/mouse look; Shift is Circle, E is Square, Q is Triangle; I/K/J/L are D-pad. Use explicit observation because menu count/timing can vary. The coordinator can use bounded private pad requests instead:
-
-```
-python3 native/tools/nr_dev/runner.py input dev-UNIQUE --buttons cross --hold 0.2
-python3 native/tools/nr_dev/runner.py dump dev-UNIQUE
-```
-
-`input` releases the pad in a finally block; holds are limited to five seconds and all buttons/axis ranges are validated. `dump` requests one actual completed Present into `runs/SESSION/dump`; inspect the resulting PNG and confirm a controllable Clinic character before `scene-ready`. A capture is diagnostic and should be outside the measured performance window. `BB_PRESENT_DUMP_COUNT=0` means one frame in Native's `max(1, atoi(...))`, not zero capture.
-
-After Helper startup, normal retirement additionally audits exact terminal counts/session and each input→complete→consumed immutable origin tuple, true Native/Helper completion ticks, Native zero-owned resources, Helper zero shared/export-FD ownership, targeted FD inventory, model release/shutdown and normal waitpid. The 16384 cap is the unchanged effective wire resource budget, not an inherited four-job rule. No-peer exits require the explicit current-session absent-owner/snapshot/pending-use/preparation-join proof and absence of config/arm, rather than inferring safety from zero jobs.
-
-冷加载诊断沿用主协调现有 `--pm4-cold-trace`，同时启用 `BB_NR_RESOURCE_TRACE=1`；整run排除热性能评分。日志最多4096个资源事件加一条截断提示。离线地址关联使用 `python3 native/tools/nr_dev/resource_trace.py --game-log PATH --xid-address ADDRESS --fault-monotonic-ns NS --output NEW_JSON`，输出仅新建。不同进程的地址不可交叉归因；未命中、未记录、未知tick或截断都不能证明安全，当前hooks不覆盖image/SDK内部资源及所有GPU VA。普通运行不启用这些冷日志。
-
-
-**当前恢复诊断状态（2026-10-16）。** `--context-recovery PATH`仅供主协调按`context_recovery.py`的精确schema执行有界新boot诊断；不得改旧host-safety为false来替代核验。它重新验证实际前序退休/逐job清单、全boot内核、锁/进程、build/依赖及原HOLD摘要，不能作为普通play的默认豁免。build9a32779的SR/off-skip/persistent-skip/小量resident链正常退休，但后继dev-bright-outline-player-01在NR前PM4断言HOLD，**目前所有新GPU启动暂停**。当前无残留/新增Xid不构成该run正常退休证明；恢复记录因新HOLD自动失效。c1a702e只补齐冷PM4生产者追踪，未修复未知生产者根因。
-
-F9现可在同一捕获中保留下一合法候选的origin及acquired Resolve720，再采当前3帧；等待10秒无候选明确INCOMPLETE。约232.03MiB临时读回，非16帧连续历史证明，Resolve不是SDK tensor；实际GPU配对验证仍待完成。不要将编译通过视为亮尾修复或玩家验收。
+查看每次 `result.json`、`retirement-audit.json`、实际终端 wire/FD 证据和当前 boot 观察。`present-metrics.json` 统计真实非复用 Present 间隔，不是画质验收；`gpu-memory.jsonl` 的整卡数据包含其他应用。有限生命周期回归不等于间歇性加载故障消除，也未证明亮尾、鬼影、闪烁或热性能改善。本轮不制作 AppImage，也不开放日常无约束发布。

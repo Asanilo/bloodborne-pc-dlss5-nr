@@ -7,34 +7,75 @@ DEFAULT_HELPER=runner.ROOT/'build/helper-runtime-model/06ac7e6b7260172d/wine_run
 DEFAULT_HELPER_BUILD_SHA='e7ab371cfb5d4f2fd799336065bdb69953106c3c731498a09f7609947aaa1680'
 
 
-def main():
+def parse_args(argv=None):
  p=argparse.ArgumentParser(description='私有 NR 试玩入口；不使用正式存档。进入可控制场景后，在本终端按 Enter 开启 NR。')
- p.add_argument('--local-inputs',help='显式 ROOT/localinputs 版本化配置；默认保留legacy已验证路径')
+ inputs=p.add_mutually_exclusive_group()
+ inputs.add_argument('--local-inputs',help='显式 ROOT/localinputs 版本化配置；默认保留legacy路径')
+ inputs.add_argument('--legacy-inputs',action='store_true',help='显式选择原Helper与61项legacy pins，供旧基线回滚')
  p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>')
  p.add_argument('--session',default='play-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
- p.add_argument('--seconds',type=int,default=480,help='计划正常关闭时间（含准备时间；小于600秒）');p.add_argument('--continue-session',help='仅续用已正常退休的新dev session私有存档和NR配置')
- a=p.parse_args()
- if not 1<=a.seconds<600:p.error('planned seconds must be 1..599; independent watchdog remains600')
- runner.checked_native_build(a.native_build or runner.ROOT/'build/native')
- if a.local_inputs:
-  runner.runtime_inputs.load(a.local_inputs,runner.ROOT)
-  runner.runtime_inputs.native_capability(Path(a.native_build) if a.native_build else runner.ROOT/'build/native')
- else:runner.checked_runtime_helper(DEFAULT_HELPER,DEFAULT_HELPER_BUILD_SHA)
- if a.continue_session:runner.continuation_source(a.continue_session)
+ p.add_argument('--seconds',type=int,default=480,help='计划正常关闭时间（含准备时间）')
+ p.add_argument('--watchdog-seconds',type=int,default=600)
+ p.add_argument('--source-limit',type=int,default=36000)
+ p.add_argument('--context-recovery',help='已有协调方scope；在启动监督进程前核对精确请求')
+ p.add_argument('--pm4-cold-trace',action='store_true',help='透传已有冷诊断；整run排除热性能评分')
+ p.add_argument('--pm4-producer-context',action='store_true',help='透传已有生产者冷诊断；须匹配scope')
+ p.add_argument('--continue-session',help='仅续用已正常退休的新dev session私有存档和NR配置')
+ p.set_defaults(mode='resident',sky='persistent',history_diagnostic=False)
+ a=p.parse_args(argv)
+ if not 1<=a.seconds<a.watchdog_seconds<=600:p.error('require 1 <= seconds < watchdog-seconds <= 600')
+ if not 1<=a.source_limit<=216000:p.error('source-limit must be 1..216000')
+ if a.pm4_producer_context and not (a.context_recovery and a.pm4_cold_trace):p.error('producer context requires context-recovery and pm4-cold-trace')
+ return a
+
+
+def launch_command(a):
+ """Read-only checks before spawning the supervisor; Runner rechecks under lock."""
  run=runner.checked_run(a.session)
- if run.exists():p.error('session already exists; use a fresh name')
- command=[sys.executable,str(Path(__file__).with_name('runner.py')),'start',a.session,'--mode','resident','--sky','persistent','--seconds',str(a.seconds),'--watchdog-seconds','600']
+ if run.exists():raise ValueError('session already exists; use a fresh name')
+ record=None
+ if a.context_recovery:
+  import context_recovery as recovery
+  _,record=recovery._record(runner,a.context_recovery)
+  recovery.need(record.get('session')==a.session,'exact unused session required')
+  recovery.validate_scope(record,recovery.request(a),Path('/proc/sys/kernel/random/boot_id').read_text().strip(),runner.held_run_snapshot())
+  recovery._trace_launch(record,a)
+ build,_,_=runner.checked_native_build(a.native_build or runner.ROOT/'build/native')
+ binding=None
+ if a.local_inputs:
+  binding=runner.runtime_inputs.load(a.local_inputs,runner.ROOT)
+  runner.runtime_inputs.native_capability(build)
+  helper=Path(binding['config']['helper']['path']);helper_build=binding['helper_build']
+ else:helper,helper_build=runner.checked_runtime_helper(DEFAULT_HELPER,DEFAULT_HELPER_BUILD_SHA)
+ if record is not None:
+  recovery.need(record['native_build']['path']==str(build)
+                and record.get('runtime_inputs')==binding
+                and record['helper']['path']==str(helper)
+                and record['helper']['build_manifest']==helper_build,'launch build/runtime inputs drift')
+  recovery._identities(runner,record)
+  recovery._predecessor(runner,record)
+ if a.continue_session:runner.continuation_source(a.continue_session)
+ command=[sys.executable,str(Path(__file__).with_name('runner.py')),'start',a.session,'--mode',a.mode,'--sky',a.sky,'--seconds',str(a.seconds),'--watchdog-seconds',str(a.watchdog_seconds),'--source-limit',str(a.source_limit)]
  if a.local_inputs:command+=['--local-inputs',a.local_inputs]
  else:command+=['--runtime-model-helper',str(DEFAULT_HELPER),'--runtime-model-build-sha256',DEFAULT_HELPER_BUILD_SHA]
  if a.native_build:command+=['--native-build',a.native_build]
  if a.continue_session:command+=['--continue-session',a.continue_session]
+ if a.context_recovery:command+=['--context-recovery',a.context_recovery]
+ for flag in ('pm4_cold_trace','pm4_producer_context'):
+  if getattr(a,flag):command+=['--'+flag.replace('_','-')]
+ return run,command
+
+
+def main():
+ a=parse_args()
+ run,command=launch_command(a)
  child=subprocess.Popen(command,start_new_session=True)
  def stop(signum,frame):raise KeyboardInterrupt
  signal.signal(signal.SIGTERM,stop)
  try:
   print('\n游戏使用独立私有存档'+('，续用 '+a.continue_session if a.continue_session else '（新NRTest seed）')+'。Space/Cross 继续；WASD/鼠标或手柄操作。',flush=True)
   print('F8：显示旁路；F9：同源画面捕获；Delete：NR控制菜单。加载的模型Style/Intensity仍需显式Apply。',flush=True)
-  print(f'计划 {a.seconds} 秒后请求正常关闭；独立watchdog为600秒，关闭仍需真实GPU退休。',flush=True)
+  print(f'计划 {a.seconds} 秒后请求正常关闭；独立watchdog为{a.watchdog_seconds}秒，关闭仍需真实GPU退休。',flush=True)
   print('进入可控制的实际游戏场景后，回到本终端按 Enter 开启 NR：',flush=True)
   while child.poll() is None:
    if select.select([sys.stdin],[],[],.2)[0]:
