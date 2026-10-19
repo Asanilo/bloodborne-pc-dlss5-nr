@@ -19,7 +19,7 @@
 #include "bbport_timeline.h"
 #include "video_core/renderer_vulkan/vk_temporal_upscaler.h"
 #include "video_core/renderer_vulkan/vk_presenter.h"
-#include "video_core/renderer_vulkan/p0_timing_math.h"
+#include "video_core/renderer_vulkan/sr_timing_math.h"
 #include "video_core/renderer_vulkan/vk_rasterizer.h"
 #include "video_core/texture_cache/image.h"
 
@@ -841,7 +841,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         // Distinct base-game ledger for resident off/startup/fallback. This checks
         // actual Frame selection, not requested_enable or assumed Helper state.
         const bool selected_p0 = frame->audit_stage == "P0" && frame->audit_selected_output;
-        if (P0Timing::BaseSrPresent(is_game_frame,is_reusing_frame,
+        if (SrTimingMath::BaseSrPresent(is_game_frame,is_reusing_frame,
                 p0_mode && std::strcmp(p0_mode,"resident")==0,
                 frame->p0_selection_known && frame->c1_present_frame_number!=0,selected_p0)) {
             const char* base_session=std::getenv("BB_NR_P0_SESSION");

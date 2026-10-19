@@ -21,6 +21,7 @@
 
 #include "common/types.h"
 #include "video_core/renderer_vulkan/vk_common.h"
+#if NRBRIDGE_LEGACY_EXPERIMENTS
 #include "video_core/renderer_vulkan/c1_game_bridge.h"
 #include "video_core/renderer_vulkan/c1_noop_process.h"
 #include "video_core/renderer_vulkan/c2_game_bridge.h"
@@ -33,8 +34,9 @@
 #include "video_core/renderer_vulkan/q1_game_bridge.h"
 #include "video_core/renderer_vulkan/p0_controller.h"
 #include "video_core/renderer_vulkan/native_async_snapshot.h"
+#endif
 #include "video_core/renderer_vulkan/native_async_pre_sr.h"
-#include "video_core/renderer_vulkan/p0_sr_timing.h"
+#include "video_core/renderer_vulkan/nr_sr_timing.h"
 #include "video_core/renderer_vulkan/vk_dlss.h"
 #include "video_core/renderer_vulkan/vk_fsr4.h"
 #include "video_core/texture_cache/image.h"
@@ -186,7 +188,7 @@ private:
     std::array<ViewEntry, 6> view_cache{};
     u64 view_uses = 0;
 
-    std::shared_ptr<P0SrTiming> p0_sr_timing; // pool kept alive by actual-GPU completion callbacks
+    std::shared_ptr<SrCommandTiming> sr_command_timing; // pool kept alive by actual-GPU completion callbacks
     void Run();
     void RunScaled();
     void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth);
@@ -256,6 +258,7 @@ private:
     u32 jitter_index = 0;
     bool reset = true;
     bool last_dlss_called = false;
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     C1NoopProcess c1_noop_process;
     C1GameBridge c1_game_bridge;
     bool c1_trigger_consumed = false;
@@ -266,11 +269,13 @@ private:
     std::string c2_pending_mode;
     std::string c2_pending_session;
     bool c2_pending_selected_output = false;
+#endif
     std::mutex c1_audit_mutex;
     bool last_dlss_hdr = false;
     bool last_dlss_reset = false;
     float last_dlss_jitter_x = 0.0f, last_dlss_jitter_y = 0.0f;
     float previous_dlss_jitter_x = 0.0f, previous_dlss_jitter_y = 0.0f;
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     bool c2_sr_initial_reset_observed = false;
     bool c2_sr_jitter_zero_from_start = true;
     u64 c2_sr_initial_source_game_frame = 0;
@@ -283,8 +288,10 @@ private:
     std::optional<C1PresentAudit> c3_pending_audit;
     P0Controller p0_controller;
     NativeAsyncSnapshot native_async_snapshot;
+#endif
     NativeAsyncPreSr native_async_pre_sr;
     std::optional<C1PresentAudit> native_async_pre_sr_pending_audit;
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     std::optional<C1PresentAudit> native_async_pending_audit;
     std::optional<C1PresentAudit> p0_pending_audit;
     Q1NrProcess q1_nr_process;
@@ -296,6 +303,7 @@ private:
     C4GameBridge c4_game_bridge;
     bool c4_trigger_consumed = false;
     std::optional<C1PresentAudit> c4_pending_audit;
+#endif
     float last_dlss_frame_ms = 0.0f;
     u64 frame_id = 0;
     std::chrono::steady_clock::time_point last_frame{};
@@ -361,7 +369,9 @@ private:
     vk::UniqueDescriptorSetLayout merge_desc_layout;
     vk::UniquePipelineLayout merge_pipeline_layout;
     vk::UniquePipeline merge_pipeline;
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     vk::UniquePipeline native_sky_merge_pipeline;
+#endif
     std::array<VideoCore::UniqueImage, 2> taa_history;
     std::array<vk::UniqueImageView, 2> taa_history_views;
     u32 taa_next = 0;

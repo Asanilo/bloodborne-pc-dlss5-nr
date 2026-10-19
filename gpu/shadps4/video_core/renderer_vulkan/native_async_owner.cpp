@@ -6,6 +6,10 @@
 namespace BbNativeAsync {
 namespace {std::atomic<bool> exit_held{false},exit_requested{false},exit_complete{false},exit_abnormal_empty{false};}
 bool OptIn() noexcept {
+#if defined(NRBRIDGE_LEGACY_EXPERIMENTS) && !NRBRIDGE_LEGACY_EXPERIMENTS
+ // The current pre-SR owner shares exit state, but the post-SR snapshot route is absent.
+ return false;
+#else
  static const bool enabled=[] {
   const char* on=std::getenv("BB_NR_NATIVE_ASYNC");
   const char* session=std::getenv("BB_NR_NATIVE_ASYNC_SESSION");
@@ -17,6 +21,7 @@ bool OptIn() noexcept {
   }
   return true;
  }();return enabled;
+#endif
 }
 void RequestExit()noexcept{exit_requested.store(true);}
 bool ExitRequested()noexcept{return exit_requested.load();}

@@ -13,13 +13,7 @@ std::atomic<bool> permitted{false};
 std::atomic<bool> initialized{false};
 std::mutex snapshot_mutex;
 Snapshot snapshot;
-SrTiming sr_timing;
-ExitHandshake exit_handshake;
 }
-void RequestExit() noexcept {exit_handshake.Request();}
-ExitState ReadExitState() noexcept {return exit_handshake.Read();}
-void NoteExitDraining() noexcept {exit_handshake.Draining();}
-bool PublishExitProof(const ExitProof& p) noexcept {return exit_handshake.PublishProof(p);}
 const char* StateName(State value) noexcept {
     switch (value) {
     case State::Disabled: return "Disabled";
@@ -59,13 +53,5 @@ void Publish(Snapshot value) {
 Snapshot ReadSnapshot() {
     std::scoped_lock lock{snapshot_mutex};
     return snapshot;
-}
-void PublishSrTiming(SrTiming value) {
-    std::scoped_lock lock{snapshot_mutex};
-    if (value.source_game_frame>=sr_timing.source_game_frame) sr_timing=std::move(value);
-}
-SrTiming ReadSrTiming() {
-    std::scoped_lock lock{snapshot_mutex};
-    return sr_timing;
 }
 } // namespace BbP0

@@ -23,7 +23,9 @@
 #include "bbport_toggles.h"
 #include "ffx_vk_portable.h"
 #include "video_core/host_shaders/upscale_merge_comp.h"
+#if NRBRIDGE_LEGACY_EXPERIMENTS
 #include "video_core/host_shaders/native_sky_merge_comp.h"
+#endif
 #include "video_core/host_shaders/upscale_reactive_comp.h"
 #include "video_core/host_shaders/taa_comp.h"
 #include "video_core/host_shaders/taa_sharpen_comp.h"
@@ -163,6 +165,7 @@ void DumpImages(const Instance& instance, Scheduler& scheduler, vk::CommandBuffe
                         static_cast<unsigned long long>(size),
                         static_cast<unsigned long long>(written), file_ok, file.c_str());
                 }
+#if NRBRIDGE_LEGACY_EXPERIMENTS
                 if (q0_capture) {
                     std::printf("Q0_DUMP_COMPLETE dump_frame=%d source_game_frame=%llu name=%s "
                                 "recorded_tick=%llu completed_tick=%llu GPU_complete=%u "
@@ -172,6 +175,7 @@ void DumpImages(const Instance& instance, Scheduler& scheduler, vk::CommandBuffe
                         (unsigned long long)completion->KnownGpuTick(), completion->IsFree(recorded_tick),
                         (unsigned long long)size, (unsigned long long)written, file_ok, file.c_str());
                 }
+#endif
                 if (c1_present) {
                     std::printf(
                         "%s_PRESENT_DUMP_COMPLETE stage=%s mode=%s session=%s selected_output=%u "
@@ -213,13 +217,18 @@ bool C0CaptureEnabled() {
 }
 
 bool Q0CaptureEnabled() {
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     static const bool enabled = [] {
         const char* value = std::getenv("BB_NR_Q0_CAPTURE");
         return value && std::strcmp(value, "1") == 0;
     }();
     return enabled;
+#else
+    return false;
+#endif
 }
 
+#if NRBRIDGE_LEGACY_EXPERIMENTS
 void PrintQ0Image(int dump, u64 source_frame, const char* role, vk::Image image,
                   vk::ImageView view, const vk::ImageCreateInfo& ci, vk::Format view_format,
                   const char* aspect, u32 valid_width, u32 valid_height) {
@@ -236,6 +245,7 @@ void PrintQ0Image(int dump, u64 source_frame, const char* role, vk::Image image,
                 valid_width, valid_height, bool(ci.usage & vk::ImageUsageFlagBits::eTransferSrc));
 }
 
+#endif
 void PrintC0Image(const char* name, const vk::ImageCreateInfo& ci, vk::Format view_format,
                   const char* aspect) {
     std::printf(
@@ -349,8 +359,10 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
 
 TemporalUpscaler::~TemporalUpscaler() {
     native_async_pre_sr.Shutdown(scheduler);
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     native_async_snapshot.RetireByTick(scheduler);
     p0_controller.Shutdown(instance, scheduler);
+#endif
     if (resources_ready) scheduler.Finish();
     if (context) {
         scheduler.Finish();
@@ -464,8 +476,10 @@ bool TemporalUpscaler::OnFrameStart() {
     const auto& p0_settings=BbSettings::Get();
     try{native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);}
     catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_POLL_HOLD reason=%s unknown_partial_use_retained=1\n",e.what());}
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     native_async_snapshot.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter);
     p0_controller.Tick(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter,BbOverlay::MenuOpen());
+#endif
     // bbport: BB_PRESET_FILE=<file> holding a preset number, read about once a second: switches
     // the preset like the menu does (scripted tests of live preset changes).
     static const char* preset_file = std::getenv("BB_PRESET_FILE");
@@ -638,7 +652,11 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     output_view.reset();
     motion_image = VideoCore::UniqueImage(device, allocator);
     auto motion_usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
-    if (C0CaptureEnabled() || Q0CaptureEnabled() || Q1DiagnosticEnabled() || P0Enabled() || BbNativeAsync::OptIn() || BbNativeAsyncPreSr::Enabled()) {
+    if (C0CaptureEnabled() || BbNativeAsyncPreSr::Enabled()
+#if NRBRIDGE_LEGACY_EXPERIMENTS
+        || Q0CaptureEnabled() || Q1DiagnosticEnabled() || P0Enabled() || BbNativeAsync::OptIn()
+#endif
+    ) {
         motion_usage |= vk::ImageUsageFlagBits::eTransferSrc;
     }
     motion_image.Create(vk::ImageCreateInfo{
@@ -815,7 +833,9 @@ void TemporalUpscaler::CreatePipelines() {
         }));
     }
     merge_pipeline = compute(UPSCALE_MERGE_COMP, *merge_pipeline_layout);
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     if (BbNativeAsync::OptIn()) native_sky_merge_pipeline = compute(NATIVE_SKY_MERGE_COMP, *merge_pipeline_layout);
+#endif
     storage_layout(3, reactive_desc_layout, reactive_pipeline_layout, 3 * sizeof(float));
     reactive_pipeline = compute(UPSCALE_REACTIVE_COMP, *reactive_pipeline_layout);
     storage_layout(2, taa_sharpen_desc_layout, taa_sharpen_pipeline_layout, sizeof(float));
@@ -1450,6 +1470,7 @@ void TemporalUpscaler::Run() {
         // bbport: BB_DUMP_TRIGGER on this (HDR scene color) path too: the upscaler's inputs and
         // its result, for ghosting and history checks (tools/dump_view.py).
         if (const int dump = DumpFrame(); dump >= 0) {
+#if NRBRIDGE_LEGACY_EXPERIMENTS
             if (Q0CaptureEnabled()) {
                 const auto proxy_color = scene_targets.CaptureCreateInfo(input_color);
                 const auto proxy_depth = scene_targets.CaptureCreateInfo(input_depth);
@@ -1508,6 +1529,7 @@ void TemporalUpscaler::Run() {
                             "reason=nonessential_attachment_usage_not_inspected\n", dump,
                             (unsigned long long)source_game_frame);
             } else {
+#endif
             if (C0CaptureEnabled()) {
                 const auto viewport_jitter = camera_motion.CurrentJitter();
                 const auto previous_viewport_jitter = camera_motion.PreviousJitter();
@@ -1565,9 +1587,12 @@ void TemporalUpscaler::Run() {
                 DumpImages(instance, scheduler, cmdbuf, dump,
                            {{object, w, h, 16, "objects", "rgba32f"}});
             }
+#if NRBRIDGE_LEGACY_EXPERIMENTS
             }
+#endif
         }
         vk::ImageView merge_view = *output_view; // immutable SR fallback remains intact
+#if NRBRIDGE_LEGACY_EXPERIMENTS
         bool c2_selected = false;
         bool c2_frame_processed = false;
         const auto c2_current_viewport_jitter = camera_motion.CurrentJitter();
@@ -1967,6 +1992,7 @@ void TemporalUpscaler::Run() {
                              c1_noop_process.Failure().c_str());
             }
         }
+#endif
         // The result replaces the scene color's RGB (its alpha carries data for the post).
         own_barrier(vk::Image(output_image), vk::ImageLayout::eGeneral, all, rw,
                     vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eComputeShader,
@@ -2017,18 +2043,24 @@ void TemporalUpscaler::Run() {
                              ? 1
                          : debug_view == BbSettings::DebugMotion ? 2
                                                                  : 0;
+#if NRBRIDGE_LEGACY_EXPERIMENTS
         if (c4_frame_processed) c4_game_bridge.BeginMergeTiming(scheduler);
         if (q1_frame_processed) q1_game_bridge.BeginMergeTiming(scheduler);
         if (p0_frame_processed) p0_controller.BeginMergeTiming(scheduler);
         cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, native_sky_selected ? *native_sky_merge_pipeline : *merge_pipeline);
+#else
+        cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, *merge_pipeline);
+#endif
         cmdbuf.pushDescriptorSetKHR(vk::PipelineBindPoint::eCompute, *merge_pipeline_layout, 0,
                                     writes);
         cmdbuf.pushConstants(*merge_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0,
                              sizeof(mode), &mode);
         cmdbuf.dispatch((ow + 7) / 8, (oh + 7) / 8, 1);
+#if NRBRIDGE_LEGACY_EXPERIMENTS
         if (c4_frame_processed) c4_game_bridge.EndMergeTiming(scheduler);
         if (q1_frame_processed) q1_game_bridge.EndMergeTiming(scheduler);
         if (p0_frame_processed) p0_controller.EndMergeTiming(scheduler);
+#endif
         if(native_async_pre_sr.Enabled()&&native_async_pre_sr.Supported()&&native_async_pre_sr.Source()==source_game_frame) {
             native_async_pre_sr.MergeRecorded(scheduler,source_game_frame);
             std::scoped_lock lock{c1_audit_mutex};
@@ -2038,6 +2070,7 @@ void TemporalUpscaler::Run() {
                 .session=native_async_pre_sr.Session(),.execution_mode="hot",.selected_output=native_async_pre_sr.EffectSelected(),.audit_full=false,.nr_frame=native_async_pre_sr.EffectJob(),
                 .source_game_frame=source_game_frame,.merge_tick=scheduler.CurrentTick(),.runtime_capture=output_capture};
         }
+#if NRBRIDGE_LEGACY_EXPERIMENTS
         if(native_async_current) {
             if(native_sky_selected) native_async_snapshot.MergeRecorded(scheduler,source_game_frame);
             std::scoped_lock lock{c1_audit_mutex};
@@ -2129,6 +2162,7 @@ void TemporalUpscaler::Run() {
                 static_cast<unsigned long long>(scheduler.CurrentTick()));
             c1_game_bridge.DeferRetirement(instance, scheduler);
         }
+#endif
     }
 }
 
@@ -2892,6 +2926,7 @@ bool TemporalUpscaler::RedirectColor(VideoCore::ImageId color,
         cmd.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &b});
     });
     display.valid = true;
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     if (c1_pending_source_game_frame != 0) {
         display.c1_audit = {
             .source_game_frame = c1_pending_source_game_frame,
@@ -2910,6 +2945,7 @@ bool TemporalUpscaler::RedirectColor(VideoCore::ImageId color,
         c1_pending_source_game_frame = 0;
         c1_pending_merge_tick = 0;
     }
+#endif
     target = {Mirror(vk::Image(display.image), display.views, view_info.format, {}),
               vk::ImageLayout::eGeneral, ui_width, ui_height};
     return true;
@@ -3009,6 +3045,7 @@ bool TemporalUpscaler::TakeC1PresentAudit(VAddr address, u64 present_frame_count
         audit.buffer_prepare_tick=prepare_tick;audit.present_frame_counter_before=present_frame_counter_before;
         native_async_pre_sr_pending_audit.reset();return true;
     }
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     if(native_async_pending_audit) {
         const auto& pending=*native_async_pending_audit;
         if(gpu_frame_at_prepare!=pending.source_game_frame+1||prepare_tick<pending.merge_tick) {
@@ -3203,6 +3240,10 @@ bool TemporalUpscaler::TakeC1PresentAudit(VAddr address, u64 present_frame_count
     c1_pending_source_game_frame = 0;
     c1_pending_merge_tick = 0;
     return true;
+#else
+    return false;
+#endif
+
 }
 
 void TemporalUpscaler::DumpPresented(vk::Image image, u32 width, u32 height, vk::Format format,
@@ -3366,9 +3407,9 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         // generation, sharpening, NR, merge and Present are outside this interval.
         const u64 sr_timing_source=BbStats::gpu_frames.load(std::memory_order_relaxed);
         std::optional<unsigned> sr_timing_slot;
-        if (P0SrTiming::Enabled() && hdr && !Scaled() && w==1280 && h==720 && ow==1920 && oh==1080) {
-            if (!p0_sr_timing) p0_sr_timing=std::make_shared<P0SrTiming>(instance);
-            sr_timing_slot=p0_sr_timing->Begin(cmdbuf,sr_timing_source);
+        if (SrCommandTiming::Enabled() && hdr && !Scaled() && w==1280 && h==720 && ow==1920 && oh==1080) {
+            if (!sr_command_timing) sr_command_timing=std::make_shared<SrCommandTiming>(instance);
+            sr_timing_slot=sr_command_timing->Begin(cmdbuf,sr_timing_source);
         }
         ok = dlss->Evaluate(cmdbuf, {
             .color = sr_color,
@@ -3383,11 +3424,12 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             .frame_ms = frame_ms,
             .sharpness = settings.sharpen ? std::min(settings.sharpness.load(), 1.0f) : 0.0f,
         });
-        if (sr_timing_slot) p0_sr_timing->End(cmdbuf,scheduler,*sr_timing_slot,sr_timing_source,ok);
+        if (sr_timing_slot) sr_command_timing->End(cmdbuf,scheduler,*sr_timing_slot,sr_timing_source,ok);
         native_async_pre_sr.SrReadRecorded(scheduler,pre_source,sr_color.image,ok,pre_domain_changed,reset);
         if(ok)if(auto capture=native_async_pre_sr.RuntimeCaptureFrame(pre_source);capture&&capture->seq)
             RecordRuntimeOutput(instance,scheduler,vk::Image(output_image),vk::Format::eR16G16B16A16Sfloat,ow,oh,*capture,"SR1080");
     }
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     if (ok) {
         const u64 source_frame = BbStats::gpu_frames.load(std::memory_order_relaxed);
         const auto viewport_now = camera_motion.CurrentJitter();
@@ -3412,6 +3454,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
             last_dlss_jitter_y != 0.0f)
             c2_sr_jitter_zero_from_start = false;
     }
+#endif
     if (!ok) {
         std::printf("Upscaler: DLSS failed; falling back to FSR 3.1\n");
         BbSettings::Get().upscaler = BbSettings::UpscalerFsr3;

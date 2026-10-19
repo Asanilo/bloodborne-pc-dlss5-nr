@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "video_core/renderer_vulkan/nr_runtime_status.h"
+#if NRBRIDGE_LEGACY_EXPERIMENTS
 #include "video_core/renderer_vulkan/p0_status.h"
+#endif
 #include "bbport_overlay.h"
 #include "video_core/renderer_vulkan/nr_runtime_control.h"
 #include "video_core/renderer_vulkan/native_async_pre_sr_policy.h"
@@ -314,6 +317,7 @@ void Menu() {
         }
     }
     NRControls();
+#if NRBRIDGE_LEGACY_EXPERIMENTS
     if(const auto p0=BbP0::ReadSnapshot();p0.opt_in) {
         bool enabled=BbP0::ReadRequest().enabled;
         if(ImGui::Checkbox("Experimental NR",&enabled)) BbP0::RequestEnable(enabled);
@@ -324,7 +328,8 @@ void Menu() {
         ImGui::TextWrapped("%s",p0.reason.c_str());
         ImGui::TextWrapped("Quality direct720; motion scale/phase experimental. Style 0, strength 1.");
     }
-    if (const auto sr=BbP0::ReadSrTiming();sr.enabled) {
+#endif
+    if (const auto sr=BbNRRuntime::ReadSrTiming();sr.enabled) {
         if(sr.commands_gpu_ms) ImGui::Text("SR Evaluate commands %.2f ms (includes dependencies)",*sr.commands_gpu_ms);
         else ImGui::TextUnformatted("SR Evaluate commands: not measured");
         ImGui::Text("Latest SR timing source frame %llu",(unsigned long long)sr.source_game_frame);

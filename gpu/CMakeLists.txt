@@ -15,6 +15,8 @@ add_compile_options(-fno-omit-frame-pointer)
 # (BB_PGO: off, generate = instrumented build writing into BB_PGO_DIR, use = build with that
 # profile). Covers bbgpu and the static libraries linked into it. No -march: the same build
 # runs on the Steam Deck.
+option(NRBRIDGE_LEGACY_EXPERIMENTS "Build old P0/Q0/Q1 and post-SR experiment routes" OFF)
+
 option(BB_LTO "Link-time optimization of bbgpu" ON)
 set(BB_PGO "off" CACHE STRING "Profile-guided optimization: off, generate, use")
 set(BB_PGO_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../pgo" CACHE PATH "Profile directory")
@@ -89,10 +91,13 @@ add_host_shader(fsr.comp fsr_rcas_comp SAMPLE_RCAS=1)
 add_host_shader(post_process.frag post_process_frag)
 add_host_shader(camera_motion.comp camera_motion_comp)
 add_host_shader(upscale_merge.comp upscale_merge_comp)
-add_host_shader(upscale_merge.comp native_sky_merge_comp NATIVE_SKY_RGBA32=1)
+if(NRBRIDGE_LEGACY_EXPERIMENTS)
+    add_host_shader(upscale_merge.comp native_sky_merge_comp NATIVE_SKY_RGBA32=1)
+endif()
 add_host_shader(native_sky_convert.comp native_sky_convert_comp)
 add_host_shader(native_async_pre_sr_return.comp native_async_pre_sr_return_comp)
 add_host_shader(native_async_pre_sr_masked_return.comp native_async_pre_sr_masked_return_comp)
+if(NRBRIDGE_LEGACY_EXPERIMENTS)
 add_host_shader(c1_game_bridge.comp c1_game_bridge_comp)
 add_host_shader(c2_game_bridge.comp c2_game_bridge_comp)
 add_host_shader(c3_game_bridge.comp c3_game_bridge_comp)
@@ -102,6 +107,7 @@ add_host_shader(p0_game_bridge.comp p0_game_bridge_comp)
 add_host_shader(c3_frame_validate.comp c3_frame_validate_comp)
 add_host_shader(c3_frame_validate.comp c3_frame_validate_return_comp C3_VALIDATE_RETURN=1)
 add_host_shader(c3_frame_validate.comp c3_frame_validate_raw_comp C3_VALIDATE_RAW=1)
+endif()
 add_host_shader(upscale_reactive.comp upscale_reactive_comp)
 add_host_shader(taa.comp taa_comp)
 add_host_shader(taa_sharpen.comp taa_sharpen_comp)
@@ -125,6 +131,11 @@ add_custom_target(host_shaders DEPENDS ${SHADER_HEADERS})
 file(GLOB_RECURSE VIDEO_CORE CONFIGURE_DEPENDS shadps4/video_core/*.cpp)
 file(GLOB_RECURSE RECOMPILER CONFIGURE_DEPENDS shadps4/shader_recompiler/*.cpp)
 list(FILTER VIDEO_CORE EXCLUDE REGEX "renderdoc\\.cpp$")
+# The recursive source inventory must not bring old transports back into normal builds.
+# native_async_owner/state and native_sky_convert are shared with the current pre-SR route.
+if(NOT NRBRIDGE_LEGACY_EXPERIMENTS)
+    list(FILTER VIDEO_CORE EXCLUDE REGEX "/(c[1-4]_[^/]*|p0_[^/]*|q1_[^/]*|native_async_snapshot|native_origin_owner|native_origin_gpu|native_sky_gpu)\\.cpp$")
+endif()
 set(COMMON
     shadps4/common/decoder.cpp shadps4/common/error.cpp
     shadps4/common/io_file.cpp shadps4/common/native_clock.cpp shadps4/common/number_utils.cpp
@@ -142,6 +153,7 @@ add_library(bbgpu SHARED ${VIDEO_CORE} ${RECOMPILER} ${COMMON} ${SHIM_SOURCES} $
     shadps4/core/libraries/kernel/equeue.cpp ${AVPLAYER}
     shadps4/core/libraries/videodec/video_utils.cpp)
 add_dependencies(bbgpu host_shaders)
+target_compile_definitions(bbgpu PUBLIC NRBRIDGE_LEGACY_EXPERIMENTS=$<BOOL:${NRBRIDGE_LEGACY_EXPERIMENTS}>)
 # In-game settings menu: Dear ImGui (third_party/imgui, MIT) with its Vulkan backend, and an
 # embedded Cyrillic font (third_party/fonts).
 target_sources(bbgpu PRIVATE third_party/imgui/imgui.cpp third_party/imgui/imgui_draw.cpp

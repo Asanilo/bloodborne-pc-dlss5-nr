@@ -9,6 +9,11 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN="$POC_ROOT/bbport/runs/p0-build-$STAMP"
 mkdir -m 700 -p "$RUN"
 SOURCE_LIST=(
+    gpu/shadps4/video_core/renderer_vulkan/nr_runtime_status.cpp
+    gpu/shadps4/video_core/renderer_vulkan/nr_runtime_status.h
+    gpu/shadps4/video_core/renderer_vulkan/nr_sr_timing.cpp
+    gpu/shadps4/video_core/renderer_vulkan/nr_sr_timing.h
+    gpu/shadps4/video_core/renderer_vulkan/sr_timing_math.h
     gpu/shadps4/video_core/renderer_vulkan/p0_controller.cpp
     gpu/shadps4/video_core/renderer_vulkan/p0_controller.h
     gpu/shadps4/video_core/renderer_vulkan/p0_game_bridge.cpp
@@ -134,7 +139,7 @@ done
     printf 'helper_runtime=NOT_STARTED\ngame=NOT_RUN\nGPU=NOT_RUN\nstable_repository_write=none\n'
 } > "$RUN/commands.txt"
 set +e
-c++ -std=c++23 -pthread -Igpu/shadps4 "$WT/tools/nr_probe/test_p0_cpu.cpp" "$WT/gpu/shadps4/video_core/renderer_vulkan/p0_status.cpp" -o "$RUN/test-p0-cpu" > "$RUN/cpu-build.log" 2>&1 && "$RUN/test-p0-cpu" > "$RUN/cpu-tests.json" 2>&1
+c++ -std=c++23 -pthread -Igpu/shadps4 "$WT/tools/nr_probe/test_p0_cpu.cpp" "$WT/gpu/shadps4/video_core/renderer_vulkan/p0_status.cpp" "$WT/gpu/shadps4/video_core/renderer_vulkan/nr_runtime_status.cpp" -o "$RUN/test-p0-cpu" > "$RUN/cpu-build.log" 2>&1 && "$RUN/test-p0-cpu" > "$RUN/cpu-tests.json" 2>&1
 cpu_rc=$?
 if [[ $cpu_rc -eq 0 ]]; then bash "$WT/tools/nr_probe/build_c0.sh" > "$RUN/build.log" 2>&1; else cp "$RUN/cpu-build.log" "$RUN/build.log"; false; fi
 rc=$?

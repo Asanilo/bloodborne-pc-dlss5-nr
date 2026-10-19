@@ -5,7 +5,7 @@
 // bbport: glue between the C loader and the vendored shadPS4 video core.
 #include "bbport_overlay.h"
 #include "video_core/renderer_vulkan/nr_runtime_control.h"
-#include "video_core/renderer_vulkan/p0_status.h"
+#include "video_core/renderer_vulkan/nr_runtime_status.h"
 #include "video_core/renderer_vulkan/native_async_state.h"
 #include "video_core/renderer_vulkan/native_async_pre_sr_policy.h"
 #include "bbport_settings.h"
@@ -314,16 +314,17 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             else std::printf("NATIVE_ASYNC_EXIT_PROOF actual_snapshot_GPU_lastuse_complete=1 managed_owner_joined=1 peer_retirement=OWNER_PROOF\n");
         }
         if(BbNativeAsyncPreSr::Enabled())BbNR::ShutdownConfig();
+#if NRBRIDGE_LEGACY_EXPERIMENTS
         const char* p0_mode=std::getenv("BB_NR_P0_MODE");
         if(p0_mode && (std::strcmp(p0_mode,"resident")==0 || std::strcmp(p0_mode,"skipEvaluate")==0 || std::strcmp(p0_mode,"srOnly")==0)) {
             // This host/window thread performs no Vulkan, Helper IPC, resource teardown
             // or peer signaling. The renderer acknowledges only actual managed proof.
-            BbP0::RequestExit();
+            BbNRRuntime::RequestExit();
             const auto start=std::chrono::steady_clock::now();
-            const auto deadline=start+std::chrono::milliseconds(BbP0::WindowExitWaitMs);
-            std::printf("P0_WINDOW_EXIT_REQUEST budget_ms=%u UI_Vulkan=0 UI_Helper_IPC=0\n",BbP0::WindowExitWaitMs);
+            const auto deadline=start+std::chrono::milliseconds(BbNRRuntime::WindowExitWaitMs);
+            std::printf("P0_WINDOW_EXIT_REQUEST budget_ms=%u UI_Vulkan=0 UI_Helper_IPC=0\n",BbNRRuntime::WindowExitWaitMs);
             while(std::chrono::steady_clock::now()<deadline) {
-                if(BbP0::ReadExitState()==BbP0::ExitState::NormalComplete) {
+                if(BbNRRuntime::ReadExitState()==BbNRRuntime::ExitState::NormalComplete) {
                     std::printf("P0_WINDOW_EXIT_NORMAL actual_renderer_proof=1 elapsed_ms=%.3f\n",
                         std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
                     std::fflush(stdout);std::_Exit(0);
@@ -331,10 +332,11 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
                 SDL_Delay(2);
             }
             std::fprintf(stderr,"P0_WINDOW_EXIT_ABNORMAL normal_release=0 held_or_unretired=1 renderer_state=%u budget_ms=%u elapsed_ms=%.3f UI_Vulkan=0 UI_Helper_IPC=0 forced_free=0\n",
-                unsigned(BbP0::ReadExitState()),BbP0::WindowExitWaitMs,
+                unsigned(BbNRRuntime::ReadExitState()),BbNRRuntime::WindowExitWaitMs,
                 std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count());
             std::fflush(stdout);std::fflush(stderr);std::_Exit(3);
         }
+#endif
         std::fflush(stdout);
         std::_Exit(0);
     });
