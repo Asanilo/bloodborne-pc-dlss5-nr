@@ -2,7 +2,7 @@
 """Isolated NR development runner. No legacy approval, ledger or launch quota imports."""
 import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid,importlib.util,stat
 from pathlib import Path
-ROOT=Path('/home/arinp/Code/nrbridge-dev');WT=Path(__file__).resolve().parents[2];OLD=Path('/home/arinp/Code/nrbridge-design/game-poc-20261011')
+ROOT=Path('/home/arinp/Code/nrbridge-dev');WT=Path(__file__).resolve().parents[2];ASSETS=Path('/home/arinp/Code/nrbridge-dev/assets/CUSA03173');SEED=Path('/home/arinp/Code/nrbridge-dev/seed/private-NRTest-seed')
 GE=Path('/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64')
 _runtime_spec=importlib.util.spec_from_file_location('nr_dev_runtime_inputs',Path(__file__).with_name('runtime_inputs.py'))
 runtime_inputs=importlib.util.module_from_spec(_runtime_spec);_runtime_spec.loader.exec_module(runtime_inputs)
@@ -599,7 +599,7 @@ def launch(args):
 
 def launch_supervised(args,signals):
  validate_pm4_producer_context(args)
- run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=OLD/'playtest/assets/CUSA03173';seed=OLD/'integration/private-NRTest-seed';helper=ROOT/'build/helper/wine_async_presr_play.exe'
+ run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
  binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None
  ge_files=GE/'files';sysroot_lib=Path('/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib')
  if binding is not None:
