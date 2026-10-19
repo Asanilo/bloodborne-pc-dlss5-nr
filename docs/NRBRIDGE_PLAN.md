@@ -15,6 +15,14 @@
 - Native Runner从脚本位置确定源码根，私人ROOT/runs及安全检查保持。NR构建通过显式prepared-root向CMake/编译器传入FSR/imgui/LibAtrac9，不再创建/替换源码树gitlink symlink。依赖全清单/补丁核验保持，普通无prepared-root构建仍走原submodule流程。主目录现有干净submodule不需deinit、删除或被改补丁。
 - 当前主目录FSR与锁定准备树有真实补丁差异，不能直接换用其未打补丁内容；新构建必须继续显式选择校验过的prepared输入。本轮冷构建来自现有开发工作树，仅证明准备方案和编译闭包；尚不等于主目录归位验证或实机回归。
 
+### 本轮准备验证结果
+
+Native准备提交eefc19b完成一次空输出完整构建；移除3条旧构建symlink后复验发现ATRAC9头仍绑定源码相对目录，92e89fe仅修头搜索路径，随后运行C重新编译/链接通过，未无意义重编GPU目标。最后195项CPU通过。旧symlink已精确核对目标并换回空gitlink目录，目标输入未删，逆操作保存在prepared-symlink-rollback.json；原Fork主目录及两棵过渡树的普通git status均干净，不再依赖ignore-submodules隐藏旧链接问题。
+
+Helper通过显式新SDK/JSON根独立构建34f9c3919a939c79，实际编译依赖内旧nr-runtime SDK路径为0；PE及build manifest留在数据根，没有切换现用7f69。当前运行保护清单4235项与退休时相同，另2项是此前已推送f2c8607c的说明文档，逐字核对该提交；没有改写旧保护记录来制造MATCH。主分支引用/remotes不变，无游戏/Wine/GPU运行。
+
+精简实际结果见 `build/workspace-return-20261020/preparation-result.json`；复制清单、首轮测试夹具失败和去链接后的ATRAC9编译失败日志均保留。此处是准备验证，不是原主目录已归位或主线可直接合并的宣告。原目录冷构建、完整OptiScaler对应回归和必要运行验证仍是后继门禁。源码位置/脚本身份变化可能使旧scope失效，按既有流程建立有效上下文，不改旧HOLD。
+
 ### 安全归位顺序（本轮不切换主目录、不合并）
 
 1. 完成上述依赖路径准备、CPU回归和新输出冷构建，保存actual input/command/artifact记录。保留主目录、开发树、所有子模块未提交状态；源HEAD与master/linux-nr检查点写入本地inspection.json。不得批量stage本地gitlink。
@@ -41,7 +49,7 @@ python3 /home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/nrbridge/build.py \
 
 ### gpu-share-poc-20261010 是否可删
 
-这棵工作树与master同为3630bc52，没有独有提交，但有4份独有未跟踪文件（README/REPORT/run.py/share_fixture.c，共72566B），已校验复制到 `inputs/workspace-return-20261020/gpu-share-source-preserved`，原件保留。约1.3GiB主要是两套旧Wine prefix，不是当前Native编译。当前显式运行/编译闭包不选此路径，但历史文档引用不等于可删除全部故障资料。
+这棵工作树与master同为3630bc52，没有独有提交，但有4份独有未跟踪文件（README/REPORT/run.py/share_fixture.c，共72566B），已校验复制到 `inputs/workspace-return-20261020/gpu-share-source-preserved`，原件保留。du约1.3GiB；Btrfs实测Total/Exclusive均约1.24GiB，主要是两套旧Wine prefix，不是当前Native编译。当前显式运行/编译闭包不选此路径，但历史文档引用不等于可删除全部故障资料。
 
 结论：属于可退役候选，**本轮不能直接git worktree remove，更不能force**。待独有源码有受控Git归档或确认采用校验副本、旧out内用户/故障附件完成审批后，才正常移除；分支poc/gpu-share-20261010保留。不能把保存4份源码等同于整个out已获得删除授权。实际占用及备存SHA见 `build/workspace-return-20261020/`。
 
