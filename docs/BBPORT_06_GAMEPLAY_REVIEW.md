@@ -56,8 +56,11 @@ CPU失败证据。本轮最终`runtime_pad.c`与起点逐字相同。不将函�
 旧源码`feda4a1`负对照：新增settings、file-mods回归分别在“继承语言被固化”“第12个保存
 映射失败”处拒绝；旧wrapper被参数/引号回归拒绝。被撤回的touch累积负对照也保留，不能据此
 忽略后续身份冲突。首轮Native空目录构建完整编译/链接，但`build.sh --test`的runtime-test命令
-漏传prepared LibAtrac9头路径而失败；这是测试配方缺口，未修改构建脚本。补齐该include参数
-另行编译现有CPU测试，最终Native wrapper不带`--test`重新构建。首次失败日志保留，不写成全绿。
+漏传prepared LibAtrac9头路径而失败；补齐后另发现测试未提供仅定义于probe.c的
+`runtime_restart_block_reason`符号。这是既有测试配方/链接夹具缺口，未修改生产构建脚本。
+手动CPU命令添加include，并链接从当前probe.c逐字提取的该函数（不链接probe main），
+另行编译现有测试；这不等于`build.sh --test`已经修复。最终Native wrapper不带`--test`
+重新构建通过。首次失败日志与手动适配源保留，不写成配方全绿。
 
 ## Astra只读交接与暂缓依据
 
@@ -97,4 +100,43 @@ CPU失败证据。本轮最终`runtime_pad.c`与起点逐字相同。不将函�
 GPU选择、宿主Vulkan/EGL/pressure-vessel、GE发现和DLSS库安装留给独立打包优化，
 本轮不更换锁定依赖，不研究新驱动或升级模型。
 
-最终构建身份、CPU总结果及证据位置在本报告末尾补记；文档提交不冒充实际编译来源。
+## 最终验证记录
+
+- 实际构建来源`ea378015794824ed30ab5f9c35b05e16a9a2c8c4`，source-diff为空；
+  输出`/home/arinp/Code/bloodborne_pc/out/gameplay-06-native-20261020`。
+  首次从空输出完成全量编译，撤回触点改动后按最终干净来源增量重编/链接通过，
+  四产物SHA逐项核验。后续提交仅补本文记录，不代表再次编译或GPU验收。
+- `python3 -m unittest discover -s tools/nr_dev/tests -p 'test_*.py'`：195/195通过。
+- `python3 -m unittest discover -s tests -v`：117项，89通过、28跳过；
+  跳过项仍按现有测试入口要求单独编译的可执行文件判断，不冒充117全部执行。
+  其中11个runtime/semaphore场景另外显式指向上述CPU测试可执行文件后全部通过，
+  日志`runtime-sema-wrappers.log`；未重写全局测试路径来隐藏skip。
+- standalone `settings-test`、`file-mods-test`、`pad-test`（撤回后原版输入源码）、
+  `content-test`通过。新settings、mount、wrapper的旧实现负对照确实拒绝；
+  双触点冲突作为撤回理由保留，不属于最终通过功能。
+- 证据在工作树`out/gameplay-06-checks/`：`validation.json`、`negative-controls.json`、
+  `wrapper-negative.txt`、`touch-id-conflict.{c,json}`、`first-build-abf2b42/`、
+  `cpu-test-recipe-limitations.txt`、提取的`probe-restart-guard.c`及测试日志。
+  构建输出保留`build.log`、`gpu-build.log`、`build-inputs.json`、`source-head.txt`、
+  `source-diff.patch`、`artifacts.sha256`。这些是本机输出，不提交专有库/构建产物。
+- 原master仍`3630bc52`、原Native开发分支仍`feda4a1`，两原工作树干净；
+  Helper源码未改。现用Native5635804四产物、Helper7f69、forwarder9a825与s4资源配置
+  SHA均匹配既有记录。未推送/合并、未启动游戏/Wine/GPU、未制作AppImage。
+
+可复现命令（本机已有锁定输入，不能解释为新机器一键构建）：
+
+```bash
+cd /home/arinp/Code/bloodborne_pc/.worktree/gameplay-06
+BB_BUILD_DIR=/home/arinp/Code/bloodborne_pc/out/gameplay-06-native-20261020 \
+  bash tools/nr_dev/build.sh
+python3 -m unittest discover -s tools/nr_dev/tests -p 'test_*.py'
+python3 -m unittest discover -s tests -v
+c++ -std=c++20 -O2 -UNDEBUG -Wall -Wextra -Werror -I. -Igpu/shim \
+  tests/test_settings.cpp gpu/shim/bbport_settings.cpp -o out/gameplay-06-checks/settings-test
+out/gameplay-06-checks/settings-test
+cc -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -Isrc \
+  tests/test_file_mods.c -o out/gameplay-06-checks/file-mods-test
+out/gameplay-06-checks/file-mods-test
+```
+
+不运行该输出的bb-probe或GPU capability查询；实际运行选择仍由现行NRBridge流程另行决定。
