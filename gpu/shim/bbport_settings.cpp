@@ -32,6 +32,7 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         else if (value == "zh_CN" || value == "zh") v.menu_language = MenuLanguage::Chinese;
         else if (value == "ru") v.menu_language = MenuLanguage::Russian;
         else std::printf("Settings: unknown menu_language '%s' (expected en, ru or zh_CN)\n", value.c_str());
+        v.menu_language_chosen = value == "en" || value == "ru" || value == "zh_CN" || value == "zh";
     } else if (key == "upscaler") {
         if (value == "xess") {
             std::printf("Upscaler: %s is not integrated in this build; using FSR 3.1\n", value.c_str());
@@ -111,6 +112,7 @@ const char* MenuText(const char* english, const char* russian) {
 
 void Load() {
     auto& v = Get();
+    v.menu_language_chosen = false;
     for (int e = 0; e < EffectCount; ++e) {
         v.effects[e] = Effects[e].default_on;
     }
@@ -230,7 +232,9 @@ void Save() {
         return std::string(text);
     };
     const auto flag = [](bool value) { return std::string(value ? "1" : "0"); };
-    put("menu_language", v.menu_language == MenuLanguage::Chinese ? "zh_CN" : v.menu_language == MenuLanguage::Russian ? "ru" : "en");
+    if (v.menu_language_chosen) {
+        put("menu_language", v.menu_language == MenuLanguage::Chinese ? "zh_CN" : v.menu_language == MenuLanguage::Russian ? "ru" : "en");
+    }
     put("upscaler", UpscalerName(v.upscaler));
     put("preset", std::to_string(v.preset.load()));
     put("sharpen", flag(v.sharpen));

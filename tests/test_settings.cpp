@@ -25,6 +25,7 @@ int main() {
     assert(write(fd, ini, sizeof(ini) - 1) == ssize_t(sizeof(ini) - 1));
     close(fd);
     setenv("BB_CONFIG", path, 1);
+    setenv("BB_MENU_LANGUAGE", "en", 1);
 
     BbSettings::Load();
     auto& s = BbSettings::Get();
@@ -42,15 +43,29 @@ int main() {
                       "fullscreen_hint=1\n") == 0);
     assert(saved.find("menu_pos=0.6250,0.1250\n") != std::string::npos);
     assert(saved.find("upscaler=fsr3") == std::string::npos);
+    assert(saved.find("menu_language=") == std::string::npos);
+
+    // Saving unrelated settings must not pin the launcher's inherited language (#134).
+    setenv("BB_MENU_LANGUAGE", "zh_CN", 1);
+    BbSettings::Load();
+    assert(s.menu_language == BbSettings::MenuLanguage::Chinese && !s.menu_language_chosen);
+    BbSettings::Save();
+    assert(Read(path).find("menu_language=") == std::string::npos);
+    setenv("BB_MENU_LANGUAGE", "ru", 1);
+    BbSettings::Load();
+    assert(s.menu_language == BbSettings::MenuLanguage::Russian && !s.menu_language_chosen);
 
     s.menu_x = -1.0f;
     s.menu_y = -1.0f;
     BbSettings::Load();
     assert(s.menu_x == 0.625f && s.menu_y == 0.125f && s.upscaler == BbSettings::UpscalerFsr411);
     s.menu_language = BbSettings::MenuLanguage::Chinese;
+    s.menu_language_chosen = true;
     BbSettings::Save();
+    assert(Read(path).find("menu_language=zh_CN\n") != std::string::npos);
+    setenv("BB_MENU_LANGUAGE", "en", 1);
     BbSettings::Load();
-    assert(s.menu_language == BbSettings::MenuLanguage::Chinese);
+    assert(s.menu_language == BbSettings::MenuLanguage::Chinese && s.menu_language_chosen);
     assert(std::string(BbSettings::MenuText("Close", "unused")) == "关闭");
     setenv("BB_UPSCALER", "dlss", 1);
     BbSettings::Load();
@@ -65,6 +80,7 @@ int main() {
     BbSettings::Load();
     assert(s.upscaler == BbSettings::UpscalerFsr3);
     unsetenv("BB_UPSCALER");
+    unsetenv("BB_MENU_LANGUAGE");
     unlink(path);
-    std::puts("PASS: settings save keeps other keys, menu position");
+    std::puts("PASS: settings save keeps other keys, menu position, inherited/explicit menu language");
 }
