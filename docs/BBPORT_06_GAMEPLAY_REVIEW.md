@@ -21,8 +21,9 @@ CPU 测试和新编译产物不等于游戏/GPU 验证。原 Native/Helper 分�
 |---|---|---|
 | P1 游戏文本语言 | `launcher/bbport_launcher.py:LANGUAGES` 本地9项含简繁中文；上游8185b88扩为21个PS4语言码；`runtime_services.c:language/system_param` 已直接传递BB_LANGUAGE | 窄移植列表和对应译文，保留本地中文区域解锁；不新增游戏文本资产 |
 | P1 菜单语言跟随 | `bbport_settings.cpp:Load/Save` 本地任何保存都会固化menu_language；上游增加menu_language_chosen；本地另有中文和NR菜单 | 只适配偏好标志和语言选择，保留中文及所有NR逻辑 |
-| P1 双触摸板点击 | `runtime_pad.c:touch_click` 本地每次覆盖触点；72e5c8c开始累积左右且去重 | 单函数移植与CPU正反回归，保留本地键鼠映射 |
+| 暂缓：双触摸板点击 | `runtime_pad.c:touch_click` 上游72e5c8c累积左右且去重，但本地`touch_ids`按数组下标保留身份 | 窄移植测试通过后复核发现冲突：左右同按再松左，右触点继承左ID；CPU已复现，撤回该项，不扩大改造 |
 | P1 文件挂载容量 | `runtime_file.c:MAX_MOUNTS` 本地16，启动基础映射与16个保存槽共享；8185b88改64 | 单常量移植，用临时目录验证所有保存槽路径映射及旧接口 |
+| P1 启动器参数 | `launcher/bb-launcher.sh` 本地nix-shell回退丢失所有参数；上游3c57da4使用数组与bash `%q`转义 | 窄移植，使缺少系统GTK的环境也能接收`--play`；合成启动器验证参数及特殊字符 |
 | 已有：键鼠/控制器 | `runtime_pad.c`、`host_input.h`、`window.cpp`、启动器已有鼠标按钮/移动/灵敏度/反转/慢走、控制器选择/重连/震动、focus与overlay隔离、预设/冲突提示 | 不重复覆盖。上游新默认DS3式布局、鼠标wheel与modifier chords、run/dodge/jump分解另评估，避免静默改老配置 |
 | 已有：中文与存档 | `bbport_zh.py`、`bbport_zh.h`、`patches.py:language_patches`；`save_manager.py`和启动器备份/排队恢复、`runtime_file.c`原子保存 | 保留。本轮不以0.6替换文件或迁移真实存档 |
 | P2 启动检查/地区/模组 | 上游 `game_check.py`识别9个零售地区及已内置Lance补丁的eboot；`mods.py:content_root`增加地区包装目录；本地已有严格1.09哈希检查 | 值得后续窄移植；正确哈希原本已不按地区拒绝，不能宣称新地区已实机验证 |
@@ -36,5 +37,64 @@ CPU 测试和新编译产物不等于游戏/GPU 验证。原 Native/Helper 分�
 
 ## 验证与交付
 
-本节在实施前建立；实际提交、测试结果、回滚和剩余问题在完成后追加。
-所有新测试使用合成输入或临时目录，普通构建写独立输出，不能选用稳定产物运行游戏。
+矩阵先于实施建立，以下按源码复核收口。所有新测试使用合成输入或临时目录，
+普通构建写独立输出，不能选用稳定产物运行游戏。
+
+| 实际有效提交 | 上游来源 | 验证及限制 |
+|---|---|---|
+| `e21ad50` 21项游戏语言选择 | `8185b88` #249 | 21个唯一PS4语言码0..20，英文/中文/葡文标签齐全；原2项i18n回归通过。仅选择游戏已有语言，不提供缺失文本资产，不承诺每个发行版全部可用 |
+| `bd3f0e1` 菜单语言跟随启动器 | `72e5c8c` #134 | actual-source settings-test通过继承en→zh_CN→ru、明确中文优先及其他设置保存。旧文件已有menu_language继续作为明确偏好，不自动迁移或抹除 |
+| `abf2b42` 文件挂载表64项 | `8185b88` | actual-source file-mods-test通过5个基础映射+16个保存槽、表满拒绝/替换/卸载复用、mod只读/保存可写。只扩容；不改变存档内容和算法 |
+| `854f4a8` nix-shell参数转发 | `3c57da4` | 真实wrapper配合python/nix-shell替身，两条路径均通过；覆盖--play、空格/引号/空参数/命令替换文本，bash -n通过 |
+
+`febfee0`曾单独移植双触点累积且窄测试通过，但复核发现本地`touch_ids()`按紧凑数组下标
+维持身份。actual-source `pad_read_state`序列“Tab+Backspace→松开Tab”实测右触点ID
+从3变2，连续触点身份错误；已由`b8ae128`完整撤回该项源码和新增测试，保留两次提交及
+CPU失败证据。本轮最终`runtime_pad.c`与起点逐字相同。不将函数级测试通过说成完整输入验收；
+下一输入任务需先定义合成/真实SDL触点的跨样本身份匹配，再评估modifier chords、wheel和双触点。
+
+旧源码`feda4a1`负对照：新增settings、file-mods回归分别在“继承语言被固化”“第12个保存
+映射失败”处拒绝；旧wrapper被参数/引号回归拒绝。被撤回的touch累积负对照也保留，不能据此
+忽略后续身份冲突。首轮Native空目录构建完整编译/链接，但`build.sh --test`的runtime-test命令
+漏传prepared LibAtrac9头路径而失败；这是测试配方缺口，未修改构建脚本。补齐该include参数
+另行编译现有CPU测试，最终Native wrapper不带`--test`重新构建。首次失败日志保留，不写成全绿。
+
+## Astra只读交接与暂缓依据
+
+- **已有提交副本，不重复搬CP。** 本地`gpu/shadps4/video_core/amdgpu/liverpool.cpp:SubmitGfx`
+  已持有`SubmittedCopy`直到解码，并有queue→submit共同发布和逐队列退休。上游新
+  `gpu/cp/command_processor.cpp:SubmitGfx`的`force_copy`供FX私有临时命令使用；整体替换会
+  丢失本地补强。上游先释放queue锁、再单独更新submit计数是源码差异风险，未在上游实测竞态。
+- **优先审FX初始化是否还有缺口。** 上游`bbport_guest_hooks.cpp:FxInitClear/InstallFxInitClear`
+  和`bbport_fx_init_clear.h:Plan`接管三个2×2 RG16F零clear，调用
+  `gpu/platform/gnm/gnm_driver.cpp:SubmitFxInitZero`私有WRITE_DATA。先与本地
+  `bbport_gx_render_owner.h:Patch`的config[0x72]=0同步交接比较，不能直接叠加提交路径。
+- **Laurence拆分评审。** `JobSlotFix/JobSlotDrop/InstallJobSlotFix`先证明成功/失败/重试/销毁
+  恰好返还一次；`ResourceCacheBacking/InstallResourceCacheSize`另涉及512MiB额外direct
+  pool、`runtime_extra_direct_map`与GPU范围追踪，须独立预算/释放/末用审计。
+- **输入提示及图形设置。** 新`gpu/render/vk_button_prompts.cpp`创建图像/上传/屏障，
+  提示加载也有线程；上游mouse look走guest相机detour。本地HostInput路径保留。
+  `ApplyHotEffects/WriteHotCode`运行时写码与renderer对象身份、`SetDisplayAspect`联动camera/HUD/
+  Scaleform和实时输出extent，都需要单独审查；NR固定输出/历史/typed mailbox不可由普通菜单绕过。
+  F3依赖`bbport_frame_rate.cpp:PatchImage/FrameStep`整套dt/pacer/cloth/奔跑时序Hook，继续暂缓。
+- **DLC不是成熟替代。** 上游`runtime_content.c:addon_unmount`为空，mounted[16]无锁且不回收、
+  失败前先占槽；`runtime_file.c:game_path`只保护/app0、/hostapp，未保护/addcontN。上游未新增
+  mount/unmount测试。现有Old Hunters entitlement保留，不能把新mount当首次DLC支持。
+- **保存错误处理仍有限。** 上游`runtime_savedata.c:mount`只打印文件映射失败，已占slot不回滚，
+  最后仍返回成功。本轮扩容减少容量不足，不宣称完整失败恢复。新增地区声音flag白名单另作临时
+  保存fixture测试后再决定，不修改真实存档。
+- **在线继续暂缓。** BBSC/THD/shadNet不只缺少启动器页，还涉及NP导出优先级、线程、认证与退出。
+  `runtime_ngs2/compat/rewatch/toypad`等通用扩展并非Bloodborne本轮的独立必要收益。
+
+## 回滚与下一轮AppImage
+
+四项有效功能均可在本独立分支用`git revert <提交>`单独撤回；整体不采用时让原NRBridge开发
+分支保持原位即可，无运行配置迁移。不要恢复已撤回的双触点提交，除非同时完成身份修复。
+
+下一轮AppImage只需按选择纳入launcher脚本/译文和新Native；Helper、wire协议、模型无新增
+依赖，保存目录/格式不变。语言资产由玩家现有游戏提供。新Native仍是BUILD_ONLY，正式选用前
+交Astra按现行运行流程验证；不是0.6全量版，也没有制作包或切换运行组合。
+GPU选择、宿主Vulkan/EGL/pressure-vessel、GE发现和DLSS库安装留给独立打包优化，
+本轮不更换锁定依赖，不研究新驱动或升级模型。
+
+最终构建身份、CPU总结果及证据位置在本报告末尾补记；文档提交不冒充实际编译来源。
