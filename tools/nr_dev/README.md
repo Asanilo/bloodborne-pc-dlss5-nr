@@ -92,7 +92,18 @@ python3 native/tools/nr_dev/play.py --continue-session dev-runtime-controls-01 -
 
 ## 开发与诊断
 
-Build: `bash native/tools/nr_dev/build.sh`. Outputs live under `nrbridge-dev/build/native`; incremental rebuilds reuse that one directory. The source dependency copies under inputs are private and made once. SDK/sysroot versions remain the stable locked versions. No old build ancestor or execution ledger is imported.
+Build: `bash native/tools/nr_dev/build.sh`. Outputs default to `nrbridge-dev/build/native`; use `BB_BUILD_DIR` for an isolated build, for example:
+
+```bash
+BB_BUILD_DIR=/home/arinp/Code/nrbridge-dev/build/convergence/native \
+  bash worktrees/convergence/tools/nr_dev/build.sh
+```
+
+`NR_SOURCE_DEPS_ROOT` selects the prepared read-only source root (default `$NR_DEV_ROOT/inputs/source-deps`, with `NR_DEV_ROOT` defaulting to `/home/arinp/Code/nrbridge-dev`). It contains `fsr-vulkan`, `imgui`, `LibAtrac9` and their existing sibling `*.content.sha256` inventories. The wrapper verifies every file and rejects missing, extra or changed files before creating links, writing build provenance or compiling. It never copies dependencies, regenerates manifests, overwrites source checkouts or applies patches to these inputs. FSR must already contain the repository patches; the underlying build/submodule recipe remains unchanged. An empty gitlink directory can become a local symlink; an existing checkout or a link selecting another root is preserved and rejected. These local gitlink symlinks must never be staged.
+
+`NR_BUILD_ENV_ROOT` independently selects the SDK/sysroot environment directory (default `/home/arinp/Code/bloodborne_pc/out/deps`). It must contain `bbport-env.sh`, `root/usr` and `dlss-sdk`. The selected script's real `DLSS_SDK_ROOT`, `VULKAN_INCLUDE` and first `CMAKE_PREFIX_PATH` entry must select that environment's SDK/sysroot; stale absolute exports are rejected. Moving a script alone does not make its dependencies portable. Default dependency versions and paths stay unchanged; explicit roots must be prepared from the same locked inputs. All configured paths must be absolute, and build output must not overlap a source/input root.
+
+`build-inputs.json` records the selected roots, manifest/env hashes and actual environment exports alongside source provenance and the four-product manifest. `NR_DEV_ROOT` here only selects build defaults; Runner paths and GPU confinement are configured separately and are not relocated by these variables. No historical execution ledger is imported.
 
 Helper: `python3 native/tools/nr_dev/prepare_helper.py` exports the f527 quoted-include closure and compiles the wire CPU checker and PE. Only includes are relocated. The effective spec is verified against `671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b`. Export provenance is in `inputs/helper-f527/manifest.json`. Subsequent cold rebuilds use `prepare_helper.py --rebuild` with only exported source and locked SDK/compiler, without reading historical build ancestry.
 
