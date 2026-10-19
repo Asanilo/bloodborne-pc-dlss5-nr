@@ -1,0 +1,16 @@
+{
+  "schema": "nr-local-runtime-inputs-v1",
+  "assets": {"path": "/PRIVATE/read-only-game-assets", "access": "read-only"},
+  "seed": "/PRIVATE/private-NRTest-seed",
+  "ge_files": "/PRIVATE/GE-Proton11-7-x86_64/files",
+  "sysroot_lib": "/PRIVATE/stable-sysroot/usr/lib",
+  "helper": {
+    "path": "/PRIVATE/nrbridge-dev/build/helper-runtime-model/NEW_INPUT_DIGEST/wine_runtime_model.exe",
+    "manifest_sha256": "REPLACE_WITH_COMPLETE_BUILD_JSON_SHA256"
+  },
+  "forwarder": "/PRIVATE/independent-forwarder/nvngx.dll_dlssnr.dll",
+  "model": "/PRIVATE/nvngx_dlssnr.dll",
+  "system_ngx": "/PRIVATE/actual-system-libnvidia-ngx.so.DRIVER_VERSION",
+  "ngx_dir": "/PRIVATE/system-ngx-wine-dll-directory",
+  "pins": {"path": "REPLACED_BY_PREPARE_RUNTIME_INPUTS", "sha256": "REPLACED_BY_PREPARE_RUNTIME_INPUTS"}
+}

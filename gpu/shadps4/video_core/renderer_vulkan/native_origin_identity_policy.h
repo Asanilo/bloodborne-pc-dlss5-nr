@@ -6,6 +6,7 @@
 namespace BbNativeAsync::IdentityPolicy {
 struct Expected {
  std::string helper,run,mode,session,wine,preloader;
+ std::string runtime_config{};
 };
 struct Candidate {
  int64_t pid=0,game=0,launcher=0;
@@ -25,8 +26,10 @@ inline Decision Check(const Candidate&c,const Expected&e) {
   .pid=c.pid>1&&c.game>1&&c.launcher>1&&c.pid!=c.game,
   .ancestry=c.descendant_game&&c.descendant_launcher,
   .start_stable=c.start_before>0&&c.start_before==c.start_after,
-  .argv=c.argv.size()==4&&(c.argv[0]==e.helper||c.argv[0]==base)&&
-    c.argv[1]==e.mode&&c.argv[2]==e.run&&c.argv[3]==e.session,
+  .argv=c.argv.size()==(e.runtime_config.empty()?4u:6u)&&
+    (c.argv[0]==e.helper||c.argv[0]==base)&&c.argv[1]==e.mode&&
+    c.argv[2]==e.run&&c.argv[3]==e.session&&
+    (e.runtime_config.empty()||(c.argv[4]=="--runtime-config"&&c.argv[5]==e.runtime_config)),
   // Only the two configured/pinned absolute ELF paths. Not a "wine" substring.
   .elf=!c.elf.empty()&&((!e.wine.empty()&&c.elf==e.wine)||
                        (!e.preloader.empty()&&c.elf==e.preloader)),

@@ -141,11 +141,18 @@ def _identities(r, record):
     path, manifest = r.checked_runtime_helper(helper['path'], helper['build_manifest']['sha256'])
     need(str(path) == helper['path'] and r.sha(path) == helper['sha256']
          and manifest == helper['build_manifest'], 'Helper identity drift')
-    pins = regular(r.ROOT / 'inputs/runtime-pins.json')
-    need(r.sha(pins) == record['runtime_pins_sha256'], 'pin inventory drift')
-    for pin in load(pins)['pins']:
-        # Runtime pins may deliberately name system symlinks; their resolved bytes are pinned.
-        need(r.sha(Path(pin['path'])) == pin['sha256'], 'runtime pin drift')
+    binding = record.get('runtime_inputs')
+    if binding is not None:
+        current = r.runtime_inputs.recheck(binding, r.ROOT)
+        need(helper['path'] == current['config']['helper']['path']
+             and helper['build_manifest'] == current['helper_build'],
+             'configured Helper binding drift')
+    else:
+        pins = regular(r.ROOT / 'inputs/runtime-pins.json')
+        need(r.sha(pins) == record['runtime_pins_sha256'], 'pin inventory drift')
+        for pin in load(pins)['pins']:
+            # Runtime pins may deliberately name system symlinks; their resolved bytes are pinned.
+            need(r.sha(Path(pin['path'])) == pin['sha256'], 'runtime pin drift')
 
 
 def _retirement(run):
@@ -177,6 +184,8 @@ def _predecessor(r, record):
          and result.get('watchdog_expired') is False
          and result.get('supervisor_interrupted') is False
          and result.get('received_signals') == 0, 'unambiguous predecessor retirement required')
+    need(manifest.get('runtime_inputs') == record.get('runtime_inputs'),
+         'predecessor runtime inputs mismatch')
     native = record['native_build']
     need(manifest['session'] == pred['session']
          and manifest['host_safety']['boot_id'] == record['boot_id']
@@ -266,10 +275,18 @@ def check_launch(r, args, lock):
     path, record = _record(r, args.context_recovery)
     need(record['session'] == args.session and not r.checked_run(args.session).exists(),
          'exact unused session required')
-    need(str(Path(args.native_build or r.ROOT / 'build/native').absolute()) == record['native_build']['path']
-         and args.runtime_model_helper == record['helper']['path']
-         and args.runtime_model_build_sha256 == record['helper']['build_manifest']['sha256'],
-         'launch binary options drift')
+    binding = record.get('runtime_inputs')
+    if getattr(args, 'local_inputs', None):
+        need(binding == r.runtime_inputs.load(args.local_inputs, r.ROOT),
+             'launch runtime config drift')
+        need(not args.runtime_model_helper and not args.runtime_model_build_sha256,
+             'legacy Helper flags with local inputs')
+    else:
+        need(binding is None and args.runtime_model_helper == record['helper']['path']
+             and args.runtime_model_build_sha256 == record['helper']['build_manifest']['sha256'],
+             'launch Helper options drift')
+    need(str(Path(args.native_build or r.ROOT / 'build/native').absolute()) == record['native_build']['path'],
+         'launch Native binary options drift')
     need(not r.holders(), 'project GPU holder remains')
     _trace_launch(record, args)
     _common(r, record, request(args))
@@ -313,6 +330,8 @@ def check_control(r, run, game, command):
          and safety.get('historical_faults_resolved') is False
          and manifest['session'] == run.name and safety.get('request') == record['request'],
          'session recovery binding drift')
+    need(manifest.get('runtime_inputs') == record.get('runtime_inputs'),
+         'manifest runtime input binding drift')
     _trace_control(record, manifest['environment'])
     req = record['request']
     need(manifest['mode'] == req['mode'] and manifest['sky'] == req['sky']

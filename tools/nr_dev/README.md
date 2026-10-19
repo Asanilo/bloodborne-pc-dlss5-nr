@@ -10,6 +10,28 @@ python3 native/tools/nr_dev/play.py
 
 可选 `--native-build /home/arinp/Code/nrbridge-dev/build/baselines/<完整提交SHA>` 使用已校验的固定 Alpha；默认仍为 `build/native`。入口预校验四产物与构建来源，Helper 独立选择不变。
 
+### 显式本地运行输入（S3，尚未切换默认）
+
+普通 `play.py` 和未传 `--local-inputs` 的 Runner 继续使用原 legacy 路径、61 项 `inputs/runtime-pins.json` 和已验证的旧 Helper。新模式必须显式选择配置；配置、独立运行 pins 和所有私人绝对路径只放开发根的 `localinputs/`，不提交游戏、模型或存档。公开示例是 [runtime-inputs.template.json](runtime-inputs.template.json)。现有固定 Native baseline 可以继续用 legacy；缺少 `NRBRIDGE_NATIVE_HELPER_RUNTIME_CONFIG_V1` 标记的旧 Native 会拒绝新模式。
+
+将模板复制到 `localinputs/runtime-draft.json`，填入真实的只读资产、私人 seed、GE `files`、sysroot 库目录、独立 Helper PE/完整 `build.json` SHA、forwarder/model DLL 、实际系统 NGX `.so`（`system_ngx`）和系统 NGX Wine DLL 目录，再封存成全新的配置。配置中的目录和所选 DLL/`.so` 使用 `realpath` 后的规范路径；目录内部的库 symlink 则单独记录目标身份。
+
+```bash
+python3 native/tools/nr_dev/prepare_runtime_inputs.py \
+  --draft "$PWD/localinputs/runtime-draft.json" \
+  --output "$PWD/localinputs/runtime-v1.json"
+# 仅做 CPU 校验；不打开 GPU 锁、不运行 Wine，也不修改任何旧记录。
+python3 native/tools/nr_dev/prepare_runtime_inputs.py --check "$PWD/localinputs/runtime-v1.json"
+# 仅在协调方完成统一构建/验证及实时安全检查后，显式选择新闭包。
+python3 native/tools/nr_dev/play.py --local-inputs "$PWD/localinputs/runtime-v1.json"
+```
+
+生成器拒绝覆盖旧配置或旧 pins。它为 GE `files`、sysroot 库目录和 NGX Wine DLL 目录的完整文件清单记录 SHA、大小及 symlink 的真实目标；另锁定指定的 Helper/manifest、forwarder、模型、系统 NGX `.so`、游戏 `eboot.bin`、seed manifest 和全部 seed 存档。游戏其余资产保持原位置的只读引用，不声称整份游戏都已逐文件 SHA 审计。实际运行的其他系统文件可重复传 `--extra-runtime-file` 纳入运行 pins。未列入运行闭包的历史源码、SDK 头、编译器和旧预检 PE 不参与该模式的运行准入；构建来源仍由独立构建 manifest 保存。
+
+启动前和开启 Helper/NR 前核对配置/pins/资源身份及 Helper schema、wire/interface 版本。Runner 在新 run 内生成并记录 `helper-runtime.json` 的 SHA；Native 只给新 Helper 追加 `--runtime-config Z:<path>`，并记录实际配置、GE、NGX 路径。此标记和 CPU 检查只证明路径接口兼容，真实加载、GPU/FD 退休仍需实机证据。`ROOT/runs/SESSION` 的固定 confinement、boot、holders、原 HOLD 和正常退休检查均保留；这一步不支持任意迁移开发根。
+
+恢复入口可以在其协调方记录中加入完整 `runtime_inputs` binding（与 session manifest 同值），并绑定相同 Helper 与真实前序退休；省略该字段仍按 legacy pins 检查。新配置不能与 `--runtime-model-helper` / `--runtime-model-build-sha256` 混用，也不能把旧 boot 或旧失败 profile 的许可迁过来。
+
 游戏出现后，Space/Cross 继续到可操作场景，再回终端按 Enter 开启真实 NR。WASD/鼠标或手柄操作，正常关闭游戏窗口结束。默认使用已锁定的新模型 Helper `build/helper-runtime-model/06ac7e6b7260172d/wine_runtime_model.exe`，启动时核对其 `build.json` 与 PE SHA，并在本次 manifest 记录实际身份。
 
 - **Delete**：打开 NR 菜单。模型参数加载或调整后需要显式 **Apply**；加载配置不会自动重建模型。

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Isolated NR development runner. No legacy approval, ledger or launch quota imports."""
-import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid
+import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid,importlib.util
 from pathlib import Path
 ROOT=Path('/home/arinp/Code/nrbridge-dev');WT=ROOT/'native';OLD=Path('/home/arinp/Code/nrbridge-design/game-poc-20261011')
 GE=Path('/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64')
+_runtime_spec=importlib.util.spec_from_file_location('nr_dev_runtime_inputs',Path(__file__).with_name('runtime_inputs.py'))
+runtime_inputs=importlib.util.module_from_spec(_runtime_spec);_runtime_spec.loader.exec_module(runtime_inputs)
 def atomic(p,value):
  t=p.with_suffix('.tmp');t.write_text(json.dumps(value,indent=2)+'\n');t.replace(p)
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -259,15 +261,14 @@ def reboot_diagnostic_preflight(lock,args):
  if type(record.get('monotonic_ns')) is not int or not 0<record['monotonic_ns']<=time.monotonic_ns():raise ValueError('positive current-boot observation timestamp required')
  return {'boot_id':boot,'unresolved_driver_hang':False,'scope':'one reboot-isolated SR diagnostic only; old GPU fault unresolved','reboot_diagnostic':True,'historical_faults_resolved':False,'evidence':[{'path':str(path),'sha256':sha(path)}]}
 
-def preflight(lock=None,recovery=None):
+def preflight(lock=None,recovery=None,runtime_binding=None):
  h=holders()
  if h:raise ValueError('live Native/Helper GPU holders: '+json.dumps(h))
  if recovery is not None:
   if getattr(recovery,'context_recovery',None):
    from context_recovery import check_launch
    return check_launch(argparse.Namespace(**globals()),recovery,lock)
-  for pin in json.loads((ROOT/'inputs/runtime-pins.json').read_text())['pins']:
-   if sha(Path(pin['path']))!=pin['sha256']:raise ValueError('runtime pin drift '+pin['path'])
+  verify_runtime_inputs(runtime_binding)
   return reboot_diagnostic_preflight(lock,recovery)
  for result in (ROOT/'runs').glob('*/result.json'):
   if json.loads(result.read_text()).get('status')=='HOLD':
@@ -277,13 +278,17 @@ def preflight(lock=None,recovery=None):
    if resolved.get('original_result_sha256')!=sha(result):raise ValueError('HOLD result changed')
    if resolved.get('kind') in ('pre-nr-absence','terminated-pre-nr-freeze'):verify_fresh_context_resolution(result.parent,resolved,lock)
    elif resolved.get('normal_retirement_proved') is not True or not resolved.get('evidence'):raise ValueError('unproved HOLD resolution '+str(resolution))
- for pin in json.loads((ROOT/'inputs/runtime-pins.json').read_text())['pins']:
-  if sha(Path(pin['path']))!=pin['sha256']:raise ValueError('runtime pin drift '+pin['path'])
+ verify_runtime_inputs(runtime_binding)
  safety=json.loads((ROOT/'inputs/host-safety.json').read_text())
  boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
  if safety.get('boot_id')!=boot or safety.get('unresolved_driver_hang') is not False or not safety.get('evidence'):
   raise ValueError('coordinator must inspect current boot driver-hang evidence before GPU launch')
  return safety
+def verify_runtime_inputs(binding=None):
+ if binding is not None:return runtime_inputs.recheck(binding,ROOT)
+ for pin in json.loads((ROOT/'inputs/runtime-pins.json').read_text())['pins']:
+  if sha(Path(pin['path']))!=pin['sha256']:raise ValueError('runtime pin drift '+pin['path'])
+
 def checked_run(session):
  if not re.fullmatch('[A-Za-z0-9][A-Za-z0-9-]{0,62}',session):raise ValueError('safe session required')
  run=ROOT/'runs'/session
@@ -458,6 +463,11 @@ def control(args):
  if args.command in ('start-helper','arm') and json.loads((run/'manifest.json').read_text()).get('host_safety',{}).get('reboot_diagnostic'):raise ValueError('reboot diagnostic forbids Helper and NR')
  game=current_game(run)
  if args.command in ('start-helper','arm'):
+  session_manifest=json.loads((run/'manifest.json').read_text());binding=session_manifest.get('runtime_inputs')
+  if binding:
+   runtime_inputs.recheck(binding,ROOT)
+   helper_config=run/'helper-runtime.json'
+   if helper_config.resolve()!=helper_config or session_manifest.get('helper_runtime_config')!={'path':str(helper_config),'sha256':sha(helper_config)} or runtime_inputs.read(helper_config)!=runtime_inputs.helper_config(binding):raise ValueError('session Helper runtime config drift')
   from context_recovery import check_control
   check_control(argparse.Namespace(**globals()),run,game,args.command)
  if args.command=='dump':
@@ -558,11 +568,17 @@ def launch(args):
 def launch_supervised(args,signals):
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=OLD/'playtest/assets/CUSA03173';seed=OLD/'integration/private-NRTest-seed';helper=ROOT/'build/helper/wine_async_presr_play.exe'
- helper_build=None
+ binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None
+ ge_files=GE/'files';sysroot_lib=Path('/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib')
+ if binding is not None:
+  runtime_inputs.native_capability(build)
+  c=binding['config'];assets=Path(c['assets']['path']);seed=Path(c['seed']);helper=Path(c['helper']['path']);ge_files=Path(c['ge_files']);sysroot_lib=Path(c['sysroot_lib'])
+  if args.runtime_model_helper or args.runtime_model_build_sha256:raise ValueError('local inputs select Helper; do not mix legacy Helper flags')
+ helper_build=binding['helper_build'] if binding else None;helper_runtime_config=None
  if args.runtime_model_helper:helper,helper_build=checked_runtime_helper(args.runtime_model_helper,args.runtime_model_build_sha256)
  if args.continue_session==args.session:raise ValueError('continuation must create a new session')
  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
-  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight(lock,args if (getattr(args,'reboot_diagnostic',None) or getattr(args,'context_recovery',None)) else None)
+  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight(lock,args if (getattr(args,'reboot_diagnostic',None) or getattr(args,'context_recovery',None)) else None,binding)
   for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
   run.mkdir(mode=0o700);signals.run=run
@@ -580,17 +596,20 @@ def launch_supervised(args,signals):
   (profile/'bbport.ini').write_text('upscaler=dlss\npreset=1\noutput_res=1920x1080\njitter=1\nobject_motion=1\nsharpen=0\nshow_fps=1\n');(run/'pad.txt').write_text('')
   base_keys={'PATH','HOME','USER','LOGNAME','SHELL','LANG','LANGUAGE','LC_ALL','LC_CTYPE','TZ','TERM','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','XDG_RUNTIME_DIR','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS','PULSE_SERVER','PIPEWIRE_REMOTE','SDL_AUDIODRIVER','SDL_VIDEODRIVER'}
   env={k:v for k,v in os.environ.items() if k in base_keys}
-  env.update(BB_GAME_DIR=str(assets),BB_DATA_DIR=str(profile),BB_CONFIG=str(profile/'bbport.ini'),BB_USER_DIR=str(profile/'user'),BB_GPU_USER_DIR=str(profile/'user'),BB_COPY_GPU_BUFFERS='1',BB_PREBUILT='1',BB_PROBE=str(build/'bb-probe'),BB_STARTUP_CHECK='0',BB_MODS_ENABLED='0',BB_UPSCALER='dlss',BB_UPSCALE_PRESET='1',BB_DLSS='1',BB_JITTER='1',BB_FPS='uncap',BB_FPS_LIMIT='90',BB_FRAME_STATS='1',BB_FRAME_LOG=str(profile/'logs/frames.csv'),BB_FULLSCREEN='0',BB_SKIP_NETWORK_CHOICE='1',BB_LANGUAGE='1',BB_PC_MODEL='0',BB_SAVE_LOG='1',BB_IME_TEXT='NRTest',BB_PAD_FILE=str(run/'pad.txt'),BB_DUMP_DIR=str(run/'dump'),BB_PRESENT_DUMP_TRIGGER=str(run/'present-dump-trigger'),BB_PRESENT_DUMP_COUNT='0',LD_LIBRARY_PATH='/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib',DLSSNR_DISABLE='1',DLSSNR_AUTO_DOWNLOAD='0',VK_LOADER_LAYERS_DISABLE='~implicit~',MANGOHUD='0',DISABLE_MANGOHUD='1')
+  env.update(BB_GAME_DIR=str(assets),BB_DATA_DIR=str(profile),BB_CONFIG=str(profile/'bbport.ini'),BB_USER_DIR=str(profile/'user'),BB_GPU_USER_DIR=str(profile/'user'),BB_COPY_GPU_BUFFERS='1',BB_PREBUILT='1',BB_PROBE=str(build/'bb-probe'),BB_STARTUP_CHECK='0',BB_MODS_ENABLED='0',BB_UPSCALER='dlss',BB_UPSCALE_PRESET='1',BB_DLSS='1',BB_JITTER='1',BB_FPS='uncap',BB_FPS_LIMIT='90',BB_FRAME_STATS='1',BB_FRAME_LOG=str(profile/'logs/frames.csv'),BB_FULLSCREEN='0',BB_SKIP_NETWORK_CHOICE='1',BB_LANGUAGE='1',BB_PC_MODEL='0',BB_SAVE_LOG='1',BB_IME_TEXT='NRTest',BB_PAD_FILE=str(run/'pad.txt'),BB_DUMP_DIR=str(run/'dump'),BB_PRESENT_DUMP_TRIGGER=str(run/'present-dump-trigger'),BB_PRESENT_DUMP_COUNT='0',LD_LIBRARY_PATH=str(sysroot_lib),DLSSNR_DISABLE='1',DLSSNR_AUTO_DOWNLOAD='0',VK_LOADER_LAYERS_DISABLE='~implicit~',MANGOHUD='0',DISABLE_MANGOHUD='1')
   for name in ('config','cache','data','state'):env['XDG_'+name.upper()+'_HOME']=str(profile/name)
-  nr={'BB_NR_NATIVE_ASYNC':'0','BB_NR_NATIVE_ASYNC_PRE_SR':'1','BB_NR_NATIVE_ASYNC_SCENE_FIRST':'1','BB_NR_NATIVE_ASYNC_PRE_SR_PLAY':'1','BB_NR_NATIVE_ASYNC_PRE_SR_SKY':'off','BB_NATIVE_PERSISTENT_HISTORY':'1' if args.sky=='persistent' else '0','BB_NR_NATIVE_ASYNC_PRE_SR_SR_HISTORY':'game_only','BB_NR_NATIVE_ASYNC_PRE_SR_SR_INPUT':'switching','BB_NR_NATIVE_ASYNC_SESSION':args.session,'BB_NR_NATIVE_ASYNC_MODE':args.mode,'BB_NR_NATIVE_ASYNC_RUN_DIR':str(run),'BB_NR_NATIVE_ASYNC_SCENE_ARM':str(run/'native-scene-arm'),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':str(args.source_limit),'BB_NR_NATIVE_ORIGIN_RUN_DIR':str(run),'BB_NR_NATIVE_ORIGIN_HELPER':str(helper),'BB_NR_NATIVE_ORIGIN_WINE':str(GE/'files/lib/wine/x86_64-unix/wine'),'BB_NR_NATIVE_ORIGIN_PRELOADER':str(GE/'files/lib/wine/x86_64-unix/wine-preloader'),'BB_NR_NATIVE_ORIGIN_PREFIX':str(profile/'wine-prefix'),'BB_NR_NATIVE_ORIGIN_WINEDEBUG':'-all,warn+vulkan,err+vulkan','BB_NR_NATIVE_ORIGIN_MODE':args.mode}
+  nr={'BB_NR_NATIVE_ASYNC':'0','BB_NR_NATIVE_ASYNC_PRE_SR':'1','BB_NR_NATIVE_ASYNC_SCENE_FIRST':'1','BB_NR_NATIVE_ASYNC_PRE_SR_PLAY':'1','BB_NR_NATIVE_ASYNC_PRE_SR_SKY':'off','BB_NATIVE_PERSISTENT_HISTORY':'1' if args.sky=='persistent' else '0','BB_NR_NATIVE_ASYNC_PRE_SR_SR_HISTORY':'game_only','BB_NR_NATIVE_ASYNC_PRE_SR_SR_INPUT':'switching','BB_NR_NATIVE_ASYNC_SESSION':args.session,'BB_NR_NATIVE_ASYNC_MODE':args.mode,'BB_NR_NATIVE_ASYNC_RUN_DIR':str(run),'BB_NR_NATIVE_ASYNC_SCENE_ARM':str(run/'native-scene-arm'),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':str(args.source_limit),'BB_NR_NATIVE_ORIGIN_RUN_DIR':str(run),'BB_NR_NATIVE_ORIGIN_HELPER':str(helper),'BB_NR_NATIVE_ORIGIN_WINE':str(ge_files/'lib/wine/x86_64-unix/wine'),'BB_NR_NATIVE_ORIGIN_PRELOADER':str(ge_files/'lib/wine/x86_64-unix/wine-preloader'),'BB_NR_NATIVE_ORIGIN_PREFIX':str(profile/'wine-prefix'),'BB_NR_NATIVE_ORIGIN_WINEDEBUG':'-all,warn+vulkan,err+vulkan','BB_NR_NATIVE_ORIGIN_MODE':args.mode}
   if getattr(args,'pm4_cold_trace',False):nr.update(BB_NR_PM4_COLD_TRACE='1',BB_NR_RESOURCE_TRACE='1')
   if getattr(args,'pm4_producer_context',False):nr['BB_NR_PM4_PRODUCER_CONTEXT']='1'
-  if args.runtime_model_helper:nr['BB_NR_RUNTIME_MODEL']='1'
+  if args.runtime_model_helper or binding:nr['BB_NR_RUNTIME_MODEL']='1'
+  if binding:
+   helper_config=run/'helper-runtime.json';atomic(helper_config,runtime_inputs.helper_config(binding));helper_runtime_config={'path':str(helper_config),'sha256':sha(helper_config)}
+   nr.update(BB_NR_NATIVE_ORIGIN_RUNTIME_CONFIG=str(helper_config),BB_NR_NATIVE_ORIGIN_GE_FILES=str(ge_files),BB_NR_NATIVE_ORIGIN_NGX_DIR=binding['config']['ngx_dir'])
   if args.history_diagnostic:
    if args.sky!='persistent' or args.mode!='resident':raise ValueError('history diagnostic requires persistent resident mode')
    nr.update(BB_NATIVE_HISTORY_DIAGNOSTIC='1',BB_NATIVE_HISTORY_DIAGNOSTIC_FRAMES='3',BB_NATIVE_HISTORY_DIAGNOSTIC_AFTER_CANDIDATE=str(args.diagnostic_after))
   env.update(nr);command=['bash',str(WT/'run.sh')]
-  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper)})
+  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
   with (run/'game.log').open('w') as log:
    if not signals.before_spawn():return 3
    process=subprocess.Popen(command,cwd=WT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
@@ -642,13 +661,13 @@ def launch_supervised(args,signals):
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
  try:validate_pm4_producer_context(a)
  except ValueError as error:p.error(str(error))
  if a.context_recovery and a.reboot_diagnostic:p.error('choose one isolated diagnostic scope')
  if a.command=='preflight':
   with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
-   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);print(json.dumps(preflight(lock),indent=2))
+   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);binding=runtime_inputs.load(a.local_inputs,ROOT) if a.local_inputs else None;print(json.dumps(preflight(lock,runtime_binding=binding),indent=2))
   return 0
  if not a.session:p.error('session required')
  if not 1<=a.seconds<a.watchdog_seconds<=600 or not 1<=a.close_grace<=600 or not 1<=a.source_limit<=216000 or not 1<=a.diagnostic_after<=1000000:p.error('finite current-stage resource budget required')
