@@ -1,5 +1,7 @@
 """Simplified Chinese UI text, keyed by the English fallback."""
 ZH = {
+    "Hold Ctrl/Shift/Alt/GUI, then press a key or mouse button to assign a chord. For a modifier alone, press and release it. Existing bindings stay unchanged.":
+        "按住 Ctrl、Shift、Alt 或 Super，再按键盘或鼠标按钮可设置组合键。单独绑定修饰键时，按下后松开即可。现有绑定保持原样。",
     "Game menu (Options)": "游戏菜单（Options）",
     "Simplified Chinese (game text)": "简体中文（游戏文本）",
     "Traditional Chinese (game text)": "繁体中文（游戏文本）",

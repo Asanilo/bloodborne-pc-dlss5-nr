@@ -111,7 +111,8 @@ static int list_displays(void) {
     return 0;
 }
 
-/* --read-input key|pad: a small window; prints "key <SDL key name>" or "pad <SDL button name>"
+#include "input_capture.h"
+/* --read-input key|pad: a small window; prints "key <modifier+SDL key/mouse name>" or "pad <SDL button name>"
  * (lefttrigger/righttrigger for the triggers) for the first key or gamepad button pressed, the
  * names bbport.ini's key.* and pad.* lines take. Escape, closing it or 15 s: nothing. */
 static int read_input(const char *kind) {
@@ -135,13 +136,14 @@ static int read_input(const char *kind) {
     for (int i = 0; ids && i < count; ++i) SDL_OpenGamepad(ids[i]);
     SDL_free(ids);
     const Uint64 end = SDL_GetTicks() + 15000;
+    BbInputCapture capture = {.modifiers = SDL_GetModState()};
     int done = 0;
     while (!done && SDL_GetTicks() < end) {
         SDL_SetRenderDrawColor(renderer, 24, 24, 28, 255);
         SDL_RenderClear(renderer);
         SDL_SetRenderDrawColor(renderer, 230, 230, 230, 255);
         SDL_RenderDebugText(renderer, 16, 30, prompt);
-        SDL_RenderDebugText(renderer, 16, 50, "Escape: cancel");
+        SDL_RenderDebugText(renderer, 16, 50, "Hold Ctrl/Shift/Alt/GUI for a chord; Escape: cancel");
         SDL_RenderPresent(renderer);
         SDL_Event e;
         while (!done && SDL_WaitEventTimeout(&e, 50)) {
@@ -154,18 +156,16 @@ static int read_input(const char *kind) {
                 SDL_OpenGamepad(e.gdevice.which);
                 break;
             case SDL_EVENT_KEY_DOWN:
-                if (e.key.scancode == SDL_SCANCODE_ESCAPE) {
-                    done = 1;
-                } else if (want_key) {
-                    printf("key %s\n", SDL_GetScancodeName(e.key.scancode));
-                    done = 1;
-                }
-                break;
+            case SDL_EVENT_KEY_UP:
             case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                if (want_key && e.button.button>=1 && e.button.button<=5) {
-                    const char *names[]={"MouseLeft","MouseMiddle","MouseRight","MouseX1","MouseX2"};
-                    printf("key %s\n", names[e.button.button-1]);
-                    done = 1;
+            case SDL_EVENT_WINDOW_FOCUS_LOST:
+                if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) {
+                    done = 1; // Escape cancels controller assignment too.
+                } else if (want_key) {
+                    char name[256];
+                    const int chosen = bb_capture_event(&capture, &e, name, sizeof(name));
+                    if (chosen > 0) printf("key %s\n", name);
+                    if (chosen) done = 1;
                 }
                 break;
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:

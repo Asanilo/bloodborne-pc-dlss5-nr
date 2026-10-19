@@ -602,7 +602,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         page.add(screen)
 
         # Issue #15: the first gamepad SDL found was taken (wheels and other controllers too).
-        controls = Adw.PreferencesGroup(title=tr("Управление"))
+        controls = Adw.PreferencesGroup(title=tr("Управление"), description=tr(
+            "Hold Ctrl/Shift/Alt/GUI, then press a key or mouse button to assign a chord. "
+            "For a modifier alone, press and release it. Existing bindings stay unchanged."))
         self.gamepad_row = Adw.ComboRow(title=tr("Контроллер"))
         # Controller names are long: the selected one is shown in full under the title.
         self.gamepad_row.connect("notify::selected", lambda *_: self.show_gamepad())
