@@ -18,7 +18,7 @@ Native 包装器的 `NR_SOURCE_DEPS_ROOT` 默认是开发根的 `inputs/source-d
 
 输出包含 `build-inputs.json`、源码 HEAD/diff 和 Native 四产物 SHA；Runner只接受 `build/native` 或已核验的 `build/baselines/<完整提交>`。`NR_DEV_ROOT` 只改变构建默认根，不迁移 Runner 的固定 `ROOT/runs` confinement。默认构建隔离旧 P0/Q 实验路径；完整构建不等于实机验收。
 
-`native/tools/nr_dev/prepare_helper.py` 和旧 `helper_runtime/build.py` 现在委托独立 Helper 仓库，可用 `--helper-root` 或 `NR_HELPER_ROOT` 选择已准备源码。Native只保留固定协议副本及 peer 退休验收。Frozen legacy 输入保持只读；只有显式 `prepare_helper.py --legacy-rebuild` 才向全新 `build/convergence/legacy-helper-rebuild/` 子目录回放旧配方，不覆盖原 PE/manifest，也不切换运行产物。
+`native/tools/nr_dev/prepare_helper.py` 和旧 `helper_runtime/build.py` 现在委托独立 Helper 仓库，可用 `--helper-root` 或 `NR_HELPER_ROOT` 选择已准备源码。Native只保留固定协议副本及 peer 退休验收。Legacy配方和部分来源记录仍只读保留，但其运行二进制/部分历史环境已退役；`--legacy-rebuild` 不属于当前构建流程，需先恢复对应历史输入，不能假定完整旧环境仍在。
 
 ## 资源配置
 
@@ -57,7 +57,7 @@ python3 native/tools/nr_dev/play.py \
   --pm4-cold-trace --pm4-producer-context
 ```
 
-`play.py` 固定 resident/persistent，先只读核对 scope 的实际 boot、原 HOLD 摘要、精确 session/请求/诊断开关、build/资源身份和真实前序退休，再启动监督进程。上述7200预算要求匹配已有 resident 正常退休前序；不是通用放宽。`--context-recovery` 使用现有精确 schema，不生成许可、不解决旧故障，也不能复用已消费 session。Runner在持有 GPU 锁后重新检查完整前序、内核、holders 和资源身份，控制动作也复检。新 HOLD 或任何证据漂移都会拒绝。
+`play.py` 固定 resident/persistent，先只读核对 scope 的实际 boot、原 HOLD 摘要、精确 session/请求/诊断开关、build/资源身份和真实前序退休，再启动监督进程。该旧scope已失效，不能直接执行上述命令；新scope仍须匹配真实前序。上述7200预算要求匹配已有 resident 正常退休前序；不是通用放宽。`--context-recovery` 使用现有精确 schema，不生成许可、不解决旧故障，也不能复用已消费 session。Runner在持有 GPU 锁后重新检查完整前序、内核、holders 和资源身份，控制动作也复检。新 HOLD 或任何证据漂移都会拒绝。
 
 没有 `--context-recovery` 时仍走原 `preflight`，旧 HOLD 和当前宿主安全要求继续生效；不能靠省略 scope 进入同一 boot 的未知上下文。普通私有入口默认仍是480秒计划关闭、600秒 watchdog、36000 source 预算。传入 scope 时所有请求参数必须完全匹配，默认预算不会自动套用到受控记录。
 
@@ -76,17 +76,13 @@ SR-only 不调用 start-helper/arm。所有阶段共用真实运行目录和同�
 
 正常退出审计完成、子进程退出且无残留后，Runner自动删除本次 `profile/out` 的7个可再生文件：`boot.bin`、`eboot.elf`、`entry.bin`、`boot-libc.bin`、`boot-linked.bin`、`content.bin`、`patches.bin`。删除前的大小/SHA及执行结果记录在 `result.json.generated_inputs_cleanup`；生成JSON、日志、存档和诊断仍保留。HOLD、watchdog、中断、缺失末用证明或异常文件链接均不自动清理。Native/Helper继续复用选定build，不为每个run复制或重编译。
 
-## Legacy 与回滚
+## 当前部署与已退役的历史构建
 
-省略 `--local-inputs` 仍保留原 legacy Helper `06ac7e6b7260172d`、61项 `inputs/runtime-pins.json` 和旧资源路径。可用 `--legacy-inputs` 显式表达该选择；它与 `--local-inputs` 互斥，不改变默认 PE 或准入。旧3608与c8fb的固定 baseline 继续可用：
+2026-10-19按用户要求仅保留上述Native `5635804`、Helper `7f69c1e556810b2b`和forwarder `9a8251430ccfa68a`。旧 `build/native`、c8fb/3608等二进制及旧Helper组合已退役，Git源码/分支和历史来源记录保留；这些旧路径不再是可用回滚入口。
 
-```bash
-python3 native/tools/nr_dev/play.py --legacy-inputs \
-  --native-build "$PWD/build/baselines/3608e21fa1bb7510103e098acbfaa22b72d985d6"
-# 画质参考可替换为 build/baselines/c8fb9dfdb7d80f444ddfdcf72c6483dba140963f。
-```
+正常试玩必须显式传入上文的 `--native-build` 与 `--local-inputs`。当前CLI仍解析legacy兼容参数，但未部署legacy运行产物，不能把CPU兼容测试当作旧组合仍可启动。旧版需先恢复其完整输入并重建。
 
-该命令仍须当前宿主检查；有未解决 HOLD 时按已有匹配的受控流程执行，不会自动豁免。`--native-build` 只选择 Native 四产物，不是整个系统回滚；Helper、forwarder、模型、GE、系统依赖和 seed 都要匹配对应资源选择。不要给旧 Native 混配新 `--local-inputs`。原 `runtime-pins.json`、Frozen manifest、失败 profile 和历史 HOLD 均保留。
+此前准备的 `context-play-converged-20261019.json` 绑定旧boot `199949cd-b649-4b57-b99f-a502f91a2118`，重启后已失效。上文命令仅展示已验证组合和请求参数；下次执行前必须按现有安全流程准备匹配当前boot的新session/scope，不修改或复用旧许可。本次清理没有创建新GPU许可或启动游戏。
 
 ## 结果与限制
 
