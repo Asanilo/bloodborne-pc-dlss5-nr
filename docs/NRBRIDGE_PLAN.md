@@ -2,6 +2,60 @@
 
 2026-10-15，按用户本轮正式规划执行。本文件记录完整周期、当前目标与阶段验收；运行安全与当前事实仍以开发根 `CURRENT.md` 为唯一现行工程规范。它不授予旧目录删除权，也不替代真实 GPU 退休证据。
 
+## 2026-10-19 工程收敛：三仓库边界与 Sol 独立任务
+
+本节是本轮唯一执行计划，优先于下文画质研发安排；长期五阶段规划保留。本轮不跟进上游0.6、不修亮尾、不制作AppImage、不再去重。目标是先收敛源码归属、依赖和可重建基线，再清理失去依赖的工作空间。Astra负责边界、跨仓接口、合入和GPU验收，Sol负责具体工程执行；普通源码整理、CPU测试与隔离构建连续推进，不逐项请批。
+
+### 三仓库最终责任
+
+| 仓库 / 开发位置 | 应拥有的实现 | 不再承担的职责 |
+|---|---|---|
+| bbport：`nrbridge-dev/native`，源仓库`Asanilo/bloodborne_pc` | 游戏加载/PM4兼容修复，Native Vulkan/FD/末用，四bank持久历史及其Shader，SR/Present，Dear ImGui与typed Runtime Control；`tools/nr_dev`负责构建入口、依赖选择、私人配置/存档、Runner及回归 | Helper模型实现、Helper构建闭包不长期寄居这里；不从design导入历史执行规则 |
+| OptiScaler Helper：拟建立`nrbridge-dev/helper`（同一OptiScaler Git仓库的一个长期工作树，不另建第四仓库） | f527来源的跨进程Helper，NGX/forwarder与shutdown shim、模型参数及排空/重建/ACK、Encode/Resolve源码和生成配方；版本化wire/runtime-model contract及导出测试 | 不接管Native活动视觉历史，不实现第二套游戏UI/Runner，不移植全部上游菜单或实验程序 |
+| `nrbridge-design`：`integration/nrbridge-poc@798eabc9b21c14c9b71df8383b9e7e1952133c5e` | 跨仓架构/接口说明、交接索引、原始PASS/FAIL/HOLD及历史证据引用 | 不作为正常编译源码、启动脚本、资源默认绝对路径或普通运行配额的提供者 |
+
+协议物理真源落在Helper仓库的`nrbridge/protocol/`；Native消费带版本与SHA的导出副本，不跨repo直接include。保持当前wire tuple、runtime-model sidecar、ABI布局、参数版本、排空/退休语义，迁移只改归属/路径。协议变更必须双端测试，不能把仓库移动伪装成新协议。OptiScaler现有production forwarder与dlssnr shader保留原目录；仅NRBridge Helper/协议/单目标构建放`nrbridge/`，不复制整个旧poc树。
+
+### 真实可用与回滚基线（交接时已核验）
+
+- Native工作树/远端：`dev/persistent-visual-history-20261015@66d1c8f8ce8a9542582cef79f6c923d096650ce7`；实际构建源码`3608e21fa1bb7510103e098acbfaa22b72d985d6`、source-diff为空。`build/native/artifacts.sha256`绑定bb-probe、libbbgpu、libbbport_dlss、libnvidia-ngx-dlss.so.310.9.1四项产物，已实查匹配。五轮`dev-gx-owner-*`正常加载/退休，属于有限可靠性回归，不是新的玩家画质验收。
+- 玩家认可画质参考：`c8fb9dfdb7d80f444ddfdcf72c6483dba140963f`，标签`nrbridge-stability-candidate-20261016`与`build/baselines/<SHA>`四项只读产物均保留；e08eacf/9fcd4cc已固定参考同样保留。不得用新的工具build替换参考。
+- 现用Helper：`build/helper-runtime-model/06ac7e6b7260172d/wine_runtime_model.exe`，SHA `34a919c876c3151d7c8b3755a82c65c2a10277592f48f30da62e54b70b055eb3`；build.json SHA `e7ab371cfb5d4f2fd799336065bdb69953106c3c731498a09f7609947aaa1680`。入口/runtime_frame/tests/build脚本现由Native Git跟踪；协议当前为`gpu/shadps4/video_core/renderer_vulkan/native_runtime_model.h`。
+- Helper底座：旧`opti-async-pre-sr-play-worktree@f527d8f2f12d474a66bbb4c1e231d6cd9b673476`；`inputs/helper-f527/manifest.json` SHA `e6d190bf9aba5d557abc041ab72896a17b2a1a2b2056c6482e5c060dda0893e6`锁定15个闭包导出、spec、compiler/SDK。闭包含生成头/SPIR-V，尚不能宣称所有生成过程已脱离旧配方。
+- 必需forwarder来自`dlss5_linux/OptiScaler-Linux-NR/build_out/nr-runtime-poc-20261010`这个独立worktree：`poc/nr-runtime-20261010@eaada4c2667a26947f6b934008870025e3e1cfb5`。`poc/nr_runtime/shutdown_bridge.cpp`、`parameter_abi.h`、`build.py`尚未跟踪；shutdown导出被真实Helper使用，必须先纳入Helper新分支的源码来源。原11个未跟踪文件全部原地保护，不只保护这三个。
+- 旧`build/helper/wine_async_presr_play.exe`实查SHA `c8c9e9ba3d2067e2df3b314f527417e5d81068f0ef74559934fba608b5632527`与其frozen manifest记录不同；现用runtime PE身份匹配。旧PE/manifest原样保留待解释，不能重写manifest消除差异，也不将它当作可删缓存。
+- 必需外部输入：稳定`bloodborne_pc@3630bc52f19babf896447c2f3fc7db2b2a5c37c6`提供sysroot/DLSS SDK；三份thirdparty实际链接`inputs/source-deps`；固定llvm-mingw、GE-Proton11-7、NR模型DLL、系统NGX/驱动615.78.08及系统SDL3/FFmpeg等。`inputs/runtime-pins.json`的61项目前混合构建/运行/历史输入，现状保持；拆分须基于实际加载闭包，不直接删检查。
+- 私有游戏资产目前只读位于`nrbridge-design/game-poc-20261011/playtest/assets/CUSA03173`，seed位于`integration/private-NRTest-seed`；不得复制游戏资产到公开仓库，正式游戏/真实存档只读保护。未来通过显式本地输入配置引用，目录当前位置不必先移动。
+- 完整回滚单元包括Native四产物及来源、Helper PE/build manifest、实际forwarder及来源、模型/GE/系统依赖pins、配置/启动配方、指定私人seed或正常退休存档。`--native-build`只切Native，并非整个系统回滚；旧失败profile不得续玩，所有回滚也须当前GPU/FD安全检查，不能恢复旧boot许可。
+
+### 顺序与删除边界
+
+1. **S0 先固定可用单元与源码缺口。** 为3608e21建立只读四产物baseline，校验来源；生成一个机器可读的本地基线依赖清单（不是新审批体系）。保护现用Helper、forwarder及未跟踪shim；不覆盖原manifest。基线固定完成才允许新编译写其他目录。
+2. **S1 构建输入收敛。** 将Native依赖源码根与sysroot/SDK根分开配置，校验已有`source-deps/*.content.sha256`；默认使用原版本，支持隔离输出。Helper构建身份纳入base manifest、compiler、命令、运行时依赖和全部源码，不再仅对三文件寻址。新产物进入新内容地址；不覆盖现用PE。
+3. **S2 Helper来源闭合。** 按f527建立一个Helper工作树；先以来源SHA纳入现用shim/parameter ABI/单目标forwarder配方，再迁入当前runtime Helper源码及版本化contract，使用原production forwarder/shader。先形成独立构建与CPU协议/退休测试，再让Native调用/消费新产物。仅路径/归属变化，不调整模型、渲染、ABI或生命周期算法。生成spec/shader须有明确来源或重生成配方，不能仅把生成物目录改名就宣称可重建。
+4. **S3 运行输入与历史解耦。** Runner配置显式选择游戏资产、私人seed、GE、sysroot运行库、Helper/forwarder/model及pins；保留默认兼容路径。核对Native内部GE/WINEDLLPATH和runs confinement后再同步迁根。将当前运行必需pins、构建pins、历史来源记录分开；保留原输入记录，异常仍拒绝，历史HOLD不改。design只留文档/证据索引，旧资产可保持原位置只读。
+5. **S4 隔离旧编译路径。** 先抽出仍被正常运行使用的P0退出握手及SR计时，再通过显式build选项隔离P0/Q0/Q1/post-SR transport、shader和调用点。Q0嵌在upscaler、P0状态被窗口/overlay引用，不能按文件名前缀删除。正常pre-SR构建必须无旧分支链接依赖，再考虑源文件移除。
+6. **S5 精确清理。** 解耦通过后，再根据现有清单对实际目标复核Git dirty/untracked/ignored、路径引用与重建配方。正常源码改动、小测试和本轮独占临时输出可连续执行。旧目录删除/worktree退役汇总成一次精确路径清单；此前去重授权不是删除授权。无需证明所有旧二进制原字节重建：固定回滚/独有失败诊断二进制必须保护；普通非基线可再生对象以已验重建配方为准，不把全历史原地启动作为前提。
+
+| 类别 | 本轮处理 |
+|---|---|
+| 可直接清理 | 本轮Sol自建scratch、临时CPU测试二进制/缓存（只在自己的构建目录，保留验收日志/manifest）；不得泛化到全部`/tmp`或历史build |
+| 已有可再生、待精确执行范围 | 既有A对象/CMake缓存、失去引用的旧普通build、完整已整合且无local-only/ignored成果的临时WT；复用已有A/B/C清单，逐目标变更检查后统一申请旧路径删除，不重新做全盘审计 |
+| 明确保留 | `build/native`现用产物、所有固定baseline、现用Helper/forwarder、源码/SDK/sysroot/模型/GE、原始日志/捕获/manifest、FAIL/HOLD/STOP与GPU故障证据、私有存档、脏WT/未跟踪shim |
+| 本轮不动 | 已去重165个prefix、原注册表/证据路径、正式游戏、真实存档、稳定源码树、系统配置；旧空间Btrfs独占估计已过时，不能沿用旧du/extent承诺收益 |
+
+### 给新 Sol 的独立执行交接
+
+**启动读取与位置。** 从`/home/arinp/Code/nrbridge-dev/CURRENT.md`和本节开始；只沿当前构建/运行闭包读源码，不重做全历史审计。以Native `66d1c8f`为收敛前Git锚、实际build3608e21为运行锚。Native临时工作树使用`/home/arinp/Code/nrbridge-dev/worktrees/convergence`，分支`dev/engineering-convergence-20261019`，从主协调交接文档提交创建；不得复用/覆盖现有environment、gpu-banks、shader树。Helper到S2才建立`nrbridge-dev/helper`，分支`dev/nrbridge-helper-convergence-20261019`从f527开始；稳定OptiScaler和旧runtime工作树只读。
+
+**文件所有权。** Astra独占`CURRENT.md`、本规划、design入口/历史记录和主树整合。Sol独占自己的Native临时工作树：S1限`tools/nr_dev/build.sh`、对应build测试、`tools/nr_dev/README.md`的构建段；S2限Helper新树`nrbridge/`及必要原shader/forwarder构建连接、Native `tools/nr_dev/helper_runtime`/`prepare_helper.py`和协议导出连接；S3才接管`runner.py`、`play.py`、context恢复的配置接线和对应测试；S4涉及`gpu/CMakeLists.txt`、upscaler、window/overlay共享退出时由Astra串行审查后实施，不与其他GPU开发并写。构建输出仅`build/convergence/`和新的Helper内容地址；S0仅新增`build/baselines/3608e21fa1bb7510103e098acbfaa22b72d985d6`，不改已有baseline。所有阶段禁止直接写主工作树源码。
+
+**首批已明确交付，先连续完成S0＋S1。** 保存3608e21只读四产物快照并核验，随后做Native构建依赖根参数化与已有依赖清单校验；固定Helper/forwarder及未跟踪源码的身份记录，不搬原件。不得开始删除、GPU路径重构或更改运行时准入。完成首批后提交一个可审查commit及精确diff、验证结果、保留项/下一风险给Astra；Astra审核通过后接续S2→S5，不向用户逐小项请批，也不自行扩展高风险接口范围。
+
+**验收。** 配置默认值保持旧依赖身份；缺失/漂移/路径异常必须在构建或启动副作用之前拒绝。先shell/Python语法和针对路径/漂移的正反测试，再CPU协议/退休与Runner回归；Native在`build/convergence/native`独立冷构建，Helper在新内容地址离线编译，记录源码/命令/工具链/依赖/产物身份。现有baseline/Helper/模型和旧HOLD的哈希不变；不得使用`prepare_helper.py`无参数重导出并覆盖frozen manifest。移动目录需证明正常构建/启动不再依赖旧源码路径；保留游戏资产的显式只读引用可接受。构建通过不冒充GPU/画质通过；GPU仅由Astra按真实宿主条件排他执行，PD/冷诊断不混入旧热性能比较。
+
+**禁止。** 不用`git clean/reset --hard`、不force push、不移除旧worktree或删分支、不覆盖未知文件；不批量stage symlink submodule或私有资产；不改真实存档/游戏/系统依赖；不伪造APPROVED、退休证明或重写旧HOLD；不放松单job、tuple、FD、EXTERNAL、fence、真实末用条件；不改变NR算法/强度/TTL来配合整理。遇真实GPU未知状态暂停受影响运行；CPU及独立工程可继续。遇旧目录删除边界不清或独有成果，只隔离该项并提交精确清单，不让整个工程收敛停摆。
+
 ## 2026-10-19实机进展：加载恢复与NR回归
 
 **2026-10-19重启后实机验证。** 新boot `199949cd-b649-4b57-b99f-a502f91a2118`，用户报告PD供电，sysfs确认USB-C PD（20V/4.5A）；功耗遥测590.01W异常，不用于功耗判断。实际build `3608e21` 在五轮均确认同步交接补丁日志并成功加载Clinic：`dev-gx-owner-sr-01`正常no-peer退出；`dev-gx-owner-off-01`完成24 skip；`dev-gx-owner-skip-01`完成25 skip；`dev-gx-owner-nr-01`完成24 Evaluate（23 captured/1 obsolete）；`dev-gx-owner-capture-01`计划240秒，完成1172 Evaluate（1168 captured/4 obsolete），实际转镜画面已观察。五轮均PASS_NORMAL_TEARDOWN、真实末用证明通过、无残留，退出后完整当前boot内核检查无新增GPU错误。
