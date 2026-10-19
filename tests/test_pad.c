@@ -24,6 +24,138 @@ static void inject(const char *path, const char *tokens) {
     usleep(25000);
 }
 
+static void load_config(const char *path, const char *text) {
+    FILE *f=fopen(path,"w");
+    assert(f);
+    assert(fputs(text,f)>=0);
+    fclose(f);
+    load_bindings();
+}
+
+/* Composite keys: parsed from the real load_bindings/key_down in src/runtime_pad.c, not a copy. */
+static void test_chords(const char *config) {
+    uint8_t keys[512]={0};
+    const unsigned all_mods=MOD_LCTRL|MOD_RCTRL|MOD_LSHIFT|MOD_RSHIFT|
+                            MOD_LALT|MOD_RALT|MOD_LGUI|MOD_RGUI;
+
+    /* Every old default stays a plain binding. */
+    bind_defaults();
+    for (int input=0;input<IN_COUNT;++input)
+        for (int i=0;i<bindings[input].key_count;++i) assert(bindings[input].mods[i]==0);
+    assert(bindings[IN_WALK].keys[0]==SDL_SCANCODE_LCTRL);
+    assert(bindings[IN_CROSS].keys[0]==SDL_SCANCODE_KP_ENTER &&
+           bindings[IN_CROSS].keys[1]==SDL_SCANCODE_SPACE);
+    assert(bindings[IN_OPTIONS].keys[0]==SDL_SCANCODE_ESCAPE);
+
+    /* A plain old config and one single-modifier chord. C alone is still R3, Ctrl+C L3. */
+    load_config(config,"key.cross=X, Space\nkey.l3=Left Ctrl+C\n");
+    assert(bindings[IN_CROSS].key_count==2);
+    assert(bindings[IN_CROSS].keys[0]==SDL_SCANCODE_X && bindings[IN_CROSS].keys[1]==SDL_SCANCODE_SPACE);
+    assert(bindings[IN_CROSS].mods[0]==0 && bindings[IN_CROSS].mods[1]==0);
+    assert(bindings[IN_L3].key_count==1 && bindings[IN_L3].keys[0]==SDL_SCANCODE_C &&
+           bindings[IN_L3].mods[0]==MOD_LCTRL);
+    keys[SDL_SCANCODE_C]=1;
+    assert(key_down(keys,IN_R3) && !key_down(keys,IN_L3));
+    keys[SDL_SCANCODE_LCTRL]=1;
+    assert(key_down(keys,IN_L3) && !key_down(keys,IN_R3));
+    /* The modifiers keep their own independent actions. */
+    memset(keys,0,sizeof keys);
+    keys[SDL_SCANCODE_LSHIFT]=1;
+    assert(key_down(keys,IN_CIRCLE) && !key_down(keys,IN_L3));
+    memset(keys,0,sizeof keys);
+    keys[SDL_SCANCODE_LCTRL]=1;
+    assert(key_down(keys,IN_WALK) && !key_down(keys,IN_L3));
+
+    /* A bare modifier name without '+' remains the plain key binding it always was. */
+    load_config(config,"key.circle=Left Shift\n");
+    assert(bindings[IN_CIRCLE].key_count==1 && bindings[IN_CIRCLE].keys[0]==SDL_SCANCODE_LSHIFT &&
+           bindings[IN_CIRCLE].mods[0]==0);
+
+    /* Two modifiers are more specific than one on the same primary key. */
+    load_config(config,"key.l3=Left Ctrl+C\nkey.l1=Left Ctrl + Left Shift + C\n");
+    assert(bindings[IN_L3].mods[0]==MOD_LCTRL);
+    assert(bindings[IN_L1].mods[0]==(MOD_LCTRL|MOD_LSHIFT));
+    memset(keys,0,sizeof keys);
+    keys[SDL_SCANCODE_C]=1;
+    assert(key_down(keys,IN_R3) && !key_down(keys,IN_L3) && !key_down(keys,IN_L1));
+    keys[SDL_SCANCODE_LCTRL]=1;
+    assert(key_down(keys,IN_L3) && !key_down(keys,IN_R3) && !key_down(keys,IN_L1));
+    keys[SDL_SCANCODE_LSHIFT]=1;
+    assert(key_down(keys,IN_L1) && !key_down(keys,IN_L3) && !key_down(keys,IN_R3));
+    /* The modifiers still do their own actions while their chord is held. */
+    assert(key_down(keys,IN_CIRCLE) && key_down(keys,IN_WALK));
+    keys[SDL_SCANCODE_LCTRL]=0;
+    assert(!key_down(keys,IN_L1) && !key_down(keys,IN_L3) && key_down(keys,IN_R3));
+
+    /* Mouse chords: the old compact name and SDL's spaced name, any case, plus suppression. */
+    load_config(config,"key.square=Left Shift+MouseLeft\nkey.circle=  left shift + Mouse Left  \n");
+    assert(bindings[IN_SQUARE].key_count==1 && bindings[IN_SQUARE].keys[0]==MOUSE_KEY_BASE+0 &&
+           bindings[IN_SQUARE].mods[0]==MOD_LSHIFT);
+    assert(bindings[IN_CIRCLE].key_count==1 && bindings[IN_CIRCLE].keys[0]==MOUSE_KEY_BASE+0 &&
+           bindings[IN_CIRCLE].mods[0]==MOD_LSHIFT);
+    memset(keys,0,sizeof keys);
+    mouse_buttons=SDL_BUTTON_LMASK;
+    assert(!key_down(keys,IN_SQUARE) && !key_down(keys,IN_CIRCLE) && key_down(keys,IN_R1));
+    keys[SDL_SCANCODE_LSHIFT]=1;
+    assert(key_down(keys,IN_SQUARE) && key_down(keys,IN_CIRCLE) && !key_down(keys,IN_R1));
+    mouse_buttons=0; memset(keys,0,sizeof keys);
+    assert(!key_down(keys,IN_SQUARE) && !key_down(keys,IN_R1));
+
+    /* Keypad + stays one primary key, also as the primary of a chord. */
+    load_config(config,"key.l2=Keypad +\nkey.r2=Left Ctrl+Keypad +\n");
+    assert(bindings[IN_L2].keys[0]==SDL_SCANCODE_KP_PLUS && bindings[IN_L2].mods[0]==0);
+    assert(bindings[IN_R2].keys[0]==SDL_SCANCODE_KP_PLUS && bindings[IN_R2].mods[0]==MOD_LCTRL);
+    memset(keys,0,sizeof keys);
+    keys[SDL_SCANCODE_KP_PLUS]=1;
+    assert(key_down(keys,IN_L2) && !key_down(keys,IN_R2));
+    keys[SDL_SCANCODE_LCTRL]=1;
+    assert(key_down(keys,IN_R2) && !key_down(keys,IN_L2));
+
+    /* Full-name case and surrounding spaces; all eight standard modifiers fit in the mask. */
+    load_config(config,"key.touchpad=  lEfT cTrL + c  \n");
+    assert(bindings[IN_TOUCHPAD].key_count==1 && bindings[IN_TOUCHPAD].keys[0]==SDL_SCANCODE_C &&
+           bindings[IN_TOUCHPAD].mods[0]==MOD_LCTRL);
+    load_config(config,"key.options=Left Ctrl+Right Ctrl+Left Shift+Right Shift+"
+                       "Left Alt+Right Alt+Left GUI+Right GUI+K\n");
+    assert(bindings[IN_OPTIONS].key_count==1 && bindings[IN_OPTIONS].keys[0]==SDL_SCANCODE_K &&
+           bindings[IN_OPTIONS].mods[0]==all_mods);
+    /* A ninth modifier is rejected (there are only eight distinct ones). */
+    load_config(config,"key.options=Left Ctrl+Right Ctrl+Left Shift+Right Shift+Left Alt+"
+                       "Right Alt+Left GUI+Right GUI+Left Ctrl+K\n");
+    assert(bindings[IN_OPTIONS].key_count==0);
+
+    /* Invalid and missing primaries, illegal modifiers and duplicate modifiers are rejected. */
+    load_config(config,
+        "key.walk=Left Ctrl+\n"
+        "key.l1=+C\n"
+        "key.r2=Space+C\n"
+        "key.square=F1+C\n"
+        "key.triangle=Left Ctrl+Space+C\n"
+        "key.circle=Left Ctrl+NoSuchKey\n"
+        "key.options=Left Ctrl+Left Shift+\n"
+        "key.l3=Left Ctrl+Left Ctrl\n"
+        "key.touchpad_right=Left Ctrl+Left Ctrl+K\n");
+    assert(bindings[IN_WALK].key_count==0 && bindings[IN_L1].key_count==0 &&
+           bindings[IN_R2].key_count==0 && bindings[IN_SQUARE].key_count==0 &&
+           bindings[IN_TRIANGLE].key_count==0 && bindings[IN_CIRCLE].key_count==0 &&
+           bindings[IN_OPTIONS].key_count==0 && bindings[IN_TOUCHPAD_RIGHT].key_count==0 &&
+           bindings[IN_L3].key_count==0);
+    /* An invalid alternative does not turn into a plain key, and valid ones still load. */
+    load_config(config,"key.square=Space+C, K\n");
+    assert(bindings[IN_SQUARE].key_count==1 && bindings[IN_SQUARE].keys[0]==SDL_SCANCODE_K &&
+           bindings[IN_SQUARE].mods[0]==0);
+    /* Four alternatives at most: the fifth is refused, not stored. */
+    load_config(config,"key.touchpad=A,B,C,D,E\n");
+    assert(bindings[IN_TOUCHPAD].key_count==MAX_BIND);
+    assert(bindings[IN_TOUCHPAD].keys[0]==SDL_SCANCODE_A && bindings[IN_TOUCHPAD].keys[1]==SDL_SCANCODE_B &&
+           bindings[IN_TOUCHPAD].keys[2]==SDL_SCANCODE_C && bindings[IN_TOUCHPAD].keys[3]==SDL_SCANCODE_D);
+
+    /* Name lookup: both mouse spellings, any case, and the complete SDL Keypad names. */
+    assert(key_from_name("MouseLeft")==MOUSE_KEY_BASE && key_from_name("Mouse Left")==MOUSE_KEY_BASE);
+    assert(key_from_name("mouse x2")==MOUSE_KEY_BASE+4);
+    assert(key_from_name("Keypad +")==SDL_SCANCODE_KP_PLUS && key_from_name("keypad +")==SDL_SCANCODE_KP_PLUS);
+}
+
 int main(void) {
     char path[]="/tmp/bbport-pad-test-XXXXXX";
     int fd=mkstemp(path);
@@ -35,7 +167,7 @@ int main(void) {
     int config_fd=mkstemp(config);
     assert(config_fd>=0);
     const char controls[]="upscaler=fsr3\npad.cross=b\npad.circle=a\npad.r2=rightshoulder\n"
-                          "pad.r1=righttrigger\nkey.cross=X, Space\npad.bogus=a\n";
+                          "pad.r1=righttrigger\nkey.cross=X, Space\nkey.l3=Left Ctrl+C\npad.bogus=a\n";
     assert(write(config_fd,controls,sizeof(controls)-1)==(ssize_t)(sizeof(controls)-1));
     close(config_fd);
     setenv("BB_CONFIG",config,1);
@@ -43,6 +175,8 @@ int main(void) {
     /* Only the virtual test controller is a gamepad, whatever is plugged in. */
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT,"0x1d50/0x6189");
     assert(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMEPAD));
+    test_chords(config);
+    load_config(config,controls); /* restore the main config before sampling */
     assert(pad_init()==0 && pad_open(1,0,0,NULL)==1);
     PadData data;
     inject(path,"cross l3 touchpad_left");
@@ -78,6 +212,12 @@ int main(void) {
     host.keys[SDL_SCANCODE_LSHIFT]=1;
     assert(pad_read_state(1,&data)==0 && (data.buttons & BTN_CIRCLE) && !(data.buttons & BTN_OPTIONS));
     host=(BbHostInput){0};
+    /* The chord through the real sampling path: C is R3, Ctrl+C is L3 and not R3. */
+    host.keys[SDL_SCANCODE_C]=1;
+    assert(pad_read_state(1,&data)==0 && (data.buttons & BTN_R3) && !(data.buttons & BTN_L3));
+    host.keys[SDL_SCANCODE_LCTRL]=1;
+    assert(pad_read_state(1,&data)==0 && (data.buttons & BTN_L3) && !(data.buttons & BTN_R3));
+    host=(BbHostInput){0};
 
     SDL_VirtualJoystickTouchpadDesc touch={.nfingers=2};
     SDL_VirtualJoystickDesc desc;
@@ -109,8 +249,12 @@ int main(void) {
     const uint8_t vibration[2]={128,255};
     assert(pad_vibration(1,vibration)==0 && rumble_low==128*257 && rumble_high==65535);
     capture=1;
+    host.keys[SDL_SCANCODE_LCTRL]=1;
+    host.keys[SDL_SCANCODE_C]=1;
+    host.mouse_buttons=SDL_BUTTON_LMASK;
     assert(pad_read_state(1,&data)==0 && data.touch_count==0 && data.buttons==0);
     capture=0;
+    host=(BbHostInput){0};
     assert(SDL_SetJoystickVirtualTouchpad(joystick,0,0,false,0,0,0));
     assert(SDL_SetJoystickVirtualTouchpad(joystick,0,1,false,0,0,0));
     SDL_UpdateJoysticks();
@@ -125,7 +269,8 @@ int main(void) {
     assert(pad_read_state(1,&data)==0);
     assert(data.buttons==(BTN_CROSS|BTN_R2|BTN_R1) && data.r2==255);
     assert(bindings[IN_CROSS].key_count==2 && bindings[IN_CROSS].keys[0]==SDL_SCANCODE_X &&
-           bindings[IN_CROSS].keys[1]==SDL_SCANCODE_SPACE);
+           bindings[IN_CROSS].keys[1]==SDL_SCANCODE_SPACE &&
+           bindings[IN_CROSS].mods[0]==0 && bindings[IN_CROSS].mods[1]==0);
     host.keys[SDL_SCANCODE_W]=1;
     host.keys[SDL_SCANCODE_LCTRL]=1;
     host.mouse_buttons=SDL_BUTTON_LMASK | SDL_BUTTON_MMASK;
@@ -134,6 +279,7 @@ int main(void) {
     assert(data.left_y>64 && data.left_y<128 && data.right_x>128);
     assert((data.buttons & (BTN_R1|BTN_R3))==(BTN_R1|BTN_R3));
     assert(pad_read_state(1,&data)==0 && data.right_x==128);
+    host.keys[SDL_SCANCODE_C]=1;
     host.blocked=1;
     assert(pad_read_state(1,&data)==0 && data.buttons==0 && data.left_y==128);
     host=(BbHostInput){0};
@@ -155,5 +301,5 @@ int main(void) {
     SDL_Quit();
     unlink(path);
     unlink(config);
-    puts("PASS: pad ABI, debug camera chord, left/right clicks, SDL touch coordinates, overlay capture, controls");
+    puts("PASS: pad ABI, debug camera chord, left/right clicks, SDL touch coordinates, overlay capture, controls, composite keys");
 }

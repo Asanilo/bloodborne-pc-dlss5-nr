@@ -7,6 +7,13 @@
  *   Enter Options, Tab left touchpad, Backspace right touchpad,
  *   IJKL d-pad (I up, K down, J left, L right).
  *
+ * A key binding may be a chord, "Left Ctrl+C", comma-separated from plain alternatives as usual.
+ * Up to eight standard modifiers combine with '+': the left/right Ctrl, Shift, Alt and GUI keys.
+ * While a chord is held its primary key's plain bindings do not count (Ctrl+C is L3, not R3 too),
+ * and a chord with more modifiers wins over a less specific one on the same primary key. The
+ * modifiers' own bindings keep working: Shift can still be Circle and enter a "Shift+Mouse Left"
+ * chord. Mouse keys accept the old "MouseLeft" spelling and SDL's spaced "Mouse Left" as well.
+ *
  * Stick neutral: SDL exposes no way to read a pad's calibration and some clones report a
  * biased neutral (a Switch-style pad was seen returning both sticks at a constant ~ +/-16380).
  * The neutral of each axis is taken from a quiet window after the pad opens (SDL returns zero
@@ -292,20 +299,89 @@ static const uint32_t input_buttons[IN_COUNT]={
     BTN_OPTIONS,BTN_TOUCHPAD,0,BTN_UP,BTN_DOWN,BTN_LEFT,BTN_RIGHT,
 };
 #define MAX_BIND 4
+#define MAX_MODS 8
+/* The physical modifiers a chord may use: the standard left/right Ctrl, Shift, Alt and GUI keys.
+ * A bit per key keeps a chord cheap to test; arbitrary keyboard keys are deliberately not
+ * modifiers, and every name is matched without case or surrounding spaces. */
+enum {
+    MOD_LCTRL=1u<<0, MOD_RCTRL=1u<<1, MOD_LSHIFT=1u<<2, MOD_RSHIFT=1u<<3,
+    MOD_LALT=1u<<4, MOD_RALT=1u<<5, MOD_LGUI=1u<<6, MOD_RGUI=1u<<7,
+};
+static const struct { const char *name; unsigned bit; SDL_Scancode key; } modifier_keys[]={
+    {"Left Ctrl",MOD_LCTRL,SDL_SCANCODE_LCTRL}, {"Right Ctrl",MOD_RCTRL,SDL_SCANCODE_RCTRL},
+    {"Left Shift",MOD_LSHIFT,SDL_SCANCODE_LSHIFT}, {"Right Shift",MOD_RSHIFT,SDL_SCANCODE_RSHIFT},
+    {"Left Alt",MOD_LALT,SDL_SCANCODE_LALT}, {"Right Alt",MOD_RALT,SDL_SCANCODE_RALT},
+    {"Left GUI",MOD_LGUI,SDL_SCANCODE_LGUI}, {"Right GUI",MOD_RGUI,SDL_SCANCODE_RGUI},
+};
+_Static_assert(sizeof(modifier_keys)/sizeof(*modifier_keys)==MAX_MODS,"chord modifier bits");
 enum { PAD_LEFT_TRIGGER=SDL_GAMEPAD_BUTTON_COUNT, PAD_RIGHT_TRIGGER }; /* triggers as buttons */
-typedef struct { int key_count, pad_count; int keys[MAX_BIND]; int pad[MAX_BIND]; } Binding;
+/* keys[i] needs every modifier in mods[i] held too (0: a plain key; a chord otherwise). */
+typedef struct { int key_count, pad_count; int keys[MAX_BIND]; unsigned mods[MAX_BIND]; int pad[MAX_BIND]; } Binding;
 static Binding bindings[IN_COUNT];
 static int bindings_ready;
 static uint32_t mouse_buttons;
 static int host_blocked;
 static float mouse_sensitivity=1.0f, keyboard_look_speed=1.0f;
 static int mouse_invert_y;
-/* Mouse tokens share key.* bindings and can be mixed with keyboard alternatives. */
+/* Mouse tokens share key.* bindings and can be mixed with keyboard alternatives. The compact
+ * names are the old bbport spelling; SDL's spaced names ("Mouse Left") are accepted too. */
 #define MOUSE_KEY_BASE 512
 static int mouse_key(const char *name) {
-    static const char *names[]={"MouseLeft","MouseMiddle","MouseRight","MouseX1","MouseX2"};
-    for (int i=0;i<5;++i) if (!SDL_strcasecmp(name,names[i])) return MOUSE_KEY_BASE+i;
+    static const char *const names[]={
+        "MouseLeft","MouseMiddle","MouseRight","MouseX1","MouseX2",
+        "Mouse Left","Mouse Middle","Mouse Right","Mouse X1","Mouse X2",
+    };
+    for (size_t i=0;i<sizeof(names)/sizeof(*names);++i)
+        if (!SDL_strcasecmp(name,names[i])) return MOUSE_KEY_BASE+(int)(i%5);
     return -1;
+}
+/* A key name or mouse token. Scancode names are matched without case (SDL's own lookup is not
+ * guaranteed to be), so a whole chord may be typed in any case. */
+static int key_from_name(const char *name) {
+    const int mouse=mouse_key(name);
+    if (mouse>=0) return mouse;
+    if (!SDL_strcasecmp(name,"Comma")) return SDL_SCANCODE_COMMA;
+    if (!SDL_strcasecmp(name,"Keypad Comma")) return SDL_SCANCODE_KP_COMMA;
+    const SDL_Scancode s=SDL_GetScancodeFromName(name);
+    if (s!=SDL_SCANCODE_UNKNOWN) return (int)s;
+    for (int i=1;i<SDL_SCANCODE_COUNT;++i) {
+        const char *candidate=SDL_GetScancodeName((SDL_Scancode)i);
+        if (candidate && *candidate && !SDL_strcasecmp(name,candidate)) return i;
+    }
+    return -1;
+}
+static unsigned modifier_bit(const char *name) {
+    for (size_t i=0;i<sizeof(modifier_keys)/sizeof(*modifier_keys);++i)
+        if (!SDL_strcasecmp(name,modifier_keys[i].name)) return modifier_keys[i].bit;
+    return 0;
+}
+/* Parse "<modifier>+...+<primary>" in place. A "+" followed by nothing, an unknown modifier or a
+ * duplicate one rejects the whole alternative instead of degrading it to a plain key; "Keypad +"
+ * remains one primary key because "Keypad" is not a modifier. */
+static int parse_key_alternative(char *name, int *key, unsigned *mods) {
+    unsigned mask=0;
+    char *p=name;
+    for (;;) {
+        char *plus=strchr(p,'+');
+        if (!plus) break;
+        char *end=plus;
+        while (end>p && end[-1]==' ') --end;
+        const char saved=*end;
+        *end=0;
+        const unsigned bit=modifier_bit(p);
+        if (!bit) { *end=saved; break; }
+        if (mask & bit) return -1;
+        mask|=bit;
+        *plus=0;
+        p=plus+1;
+        while (*p==' ') ++p;
+    }
+    const int parsed=key_from_name(p);
+    if (parsed<0) return -1;
+    if (parsed<SDL_SCANCODE_COUNT && (mask & modifier_bit(SDL_GetScancodeName((SDL_Scancode)parsed))))
+        return -1; // A modifier cannot also be its own primary key.
+    *key=parsed; *mods=mask;
+    return 0;
 }
 static float input_number(const char *value, float fallback, float lo, float hi) {
     char *end;
@@ -379,10 +455,14 @@ static void load_bindings(void) {
             for (char *end=name+strlen(name); end>name && end[-1]==' ';) *--end=0;
             if (!*name) continue;
             if (keyboard) {
-                const int mouse=mouse_key(name);
-                const int s=mouse>=0 ? mouse : (int)SDL_GetScancodeFromName(name);
-                if (s==SDL_SCANCODE_UNKNOWN) printf("Runtime: controls: unknown key \"%s\" for %s\n",name,line+4);
-                else if (b->key_count<MAX_BIND) b->keys[b->key_count++]=s;
+                char original[512];
+                snprintf(original,sizeof original,"%s",name);
+                int key; unsigned mods;
+                if (parse_key_alternative(name,&key,&mods)!=0)
+                    printf("Runtime: controls: invalid key or chord \"%s\" for %s\n",original,line+4);
+                else if (b->key_count<MAX_BIND) {
+                    b->keys[b->key_count]=key; b->mods[b->key_count]=mods; ++b->key_count;
+                } else printf("Runtime: controls: too many keys for %s (max %d)\n",line+4,MAX_BIND);
             } else {
                 const int button=pad_button_from_name(name);
                 if (button<0) printf("Runtime: controls: unknown gamepad button \"%s\" for %s\n",name,line+4);
@@ -392,10 +472,45 @@ static void load_bindings(void) {
     }
     fclose(f);
 }
+static int key_code_down(const uint8_t *k, int code) {
+    if (code>=MOUSE_KEY_BASE) {
+        const int button=code-MOUSE_KEY_BASE;
+        return button>=0 && button<5 && (mouse_buttons & (1u<<button));
+    }
+    return code>=0 && code<512 && k[code];
+}
+static int modifiers_down(const uint8_t *k, unsigned mods) {
+    for (size_t i=0;i<sizeof(modifier_keys)/sizeof(*modifier_keys);++i)
+        if ((mods & modifier_keys[i].bit) && !(modifier_keys[i].key<512 && k[modifier_keys[i].key])) return 0;
+    return 1;
+}
+/* The most modifiers on an active chord for this primary key. A chord with fewer must wait, so
+ * "Left Ctrl+Left Shift+C" wins over "Left Ctrl+C" and either suppresses plain C. */
+static int chord_depth(const uint8_t *k, int code) {
+    int best=0;
+    for (int input=0;input<IN_COUNT;++input) {
+        const Binding *b=&bindings[input];
+        for (int i=0;i<b->key_count;++i) {
+            const unsigned mods=b->mods[i];
+            if (!mods || b->keys[i]!=code) continue;
+            const int depth=__builtin_popcount(mods);
+            if (depth<=best || !modifiers_down(k,mods)) continue;
+            best=depth;
+        }
+    }
+    return best;
+}
 static int key_down(const uint8_t *k, int input) {
-    for (int i=0;i<bindings[input].key_count;++i) {
-        int key=bindings[input].keys[i];
-        if (key>=MOUSE_KEY_BASE ? (mouse_buttons & (1u<<(key-MOUSE_KEY_BASE))) : k[key]) return 1;
+    const Binding *b=&bindings[input];
+    for (int i=0;i<b->key_count;++i) {
+        const int code=b->keys[i];
+        const unsigned mods=b->mods[i];
+        if (!key_code_down(k,code)) continue;
+        if (mods) {
+            if (!modifiers_down(k,mods)) continue;
+            if (__builtin_popcount(mods)<chord_depth(k,code)) continue;
+        } else if (chord_depth(k,code)) continue;
+        return 1;
     }
     return 0;
 }
