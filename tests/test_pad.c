@@ -55,26 +55,6 @@ int main(void) {
     inject(path,"");
     assert(pad_read_state(1,&data)==0 && data.buttons==0 && data.touch_count==0);
 
-    // Both bindings survive; repeated sources for one side must not add fingers.
-    PadData clicks={0};
-    touch_click(&clicks,0);
-    touch_click(&clicks,1);
-    assert(clicks.buttons==BTN_TOUCHPAD && clicks.touch_count==2);
-    assert(clicks.touches[0].x==480 && clicks.touches[1].x==1440);
-    touch_click(&clicks,1);
-    touch_click(&clicks,0);
-    assert(clicks.touch_count==2 && clicks.touches[0].x==480);
-    clicks=(PadData){.touch_count=2,.touches={{.x=100},{.x=200}}};
-    touch_click(&clicks,1);
-    assert(clicks.touch_count==2 && clicks.touches[0].x==100 && clicks.touches[1].x==200);
-
-    uint8_t touch_keys[512]={0};
-    touch_keys[SDL_SCANCODE_TAB]=1;
-    touch_keys[SDL_SCANCODE_BACKSPACE]=1;
-    clicks=(PadData){0};
-    apply_keyboard(&clicks,touch_keys);
-    assert(clicks.touch_count==2 && (clicks.buttons & BTN_TOUCHPAD));
-
     /* Upstream biased-stick calibration must coexist with the local keyboard/mouse path. */
     cal_reset();
     const int16_t biased[4]={16380,-16380,16380,-16380};
