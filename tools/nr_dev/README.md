@@ -4,10 +4,39 @@
 
 当前推荐显式组合：Native 只读 baseline `563580452e46ea253cecbf75c24ac65579ee031b`、独立 Helper `7f69c1e556810b2b`、forwarder `9a8251430ccfa68a`，资源配置 `localinputs/runtime-s3-20261019.json`。此组合已完成 Clinic SR 正常退出、off/skip 各24个 skip，以及24次真实 Evaluate（23 captured、1 obsolete）的正常退休；完整当前 boot 内核和 holders 检查通过。这是有限加载/传输/退休验证，不代表亮尾修复、热性能或日常发布验收。
 
+## 新接手者先看这里
+
+当前源码是两个仓库的开发分支，不在稳定主分支：
+
+- Native：`https://github.com/Asanilo/bloodborne_pc.git`，分支 `dev/persistent-visual-history-20261015`，本机工作树 `nrbridge-dev/native`。
+- Helper：`https://github.com/Asanilo/OptiScaler-Linux-NR.git`，分支 `dev/nrbridge-helper-convergence-20261019`，本机工作树 `nrbridge-dev/helper`；实际Helper入口及版本化协议在 `nrbridge/`。
+
+**下面是本机已有依赖环境的重建方法，不是新机器clone后即可一键构建。** Native/Helper已分仓构建，但工作区尚未完全可迁移：
+
+| 已准备输入 | 当前默认位置 / 用途 |
+|---|---|
+| 打补丁的FSR、imgui、LibAtrac9及清单 | `inputs/source-deps`；Native编译 |
+| SDK/sysroot及环境导出 | `/home/arinp/Code/bloodborne_pc/out/deps`；Native编译与运行库、Helper Vulkan头 |
+| 锁定LLVM-MinGW | `/home/arinp/Code/dlss5_linux/build/toolchain/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64`；Helper/forwarder编译 |
+| NGX SDK | `/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/build_out/nr-runtime-poc-20261010/external/nvngx_dlss_sdk` |
+| JSON头 | `/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/external/nlohmann` |
+| 游戏、私人seed、模型、GE和系统NGX | 用本地runtime配置显式选择；不是公开Git源码或编译输出 |
+
+先按下节在全新输出目录构建，不覆盖当前baseline。CPU回归从开发根运行：
+
+```bash
+python3 -m unittest discover -s native/tools/nr_dev/tests -p 'test_*.py'
+python3 -m unittest discover -s helper/nrbridge/tests -p 'test_*.py'
+```
+
+Native构建输入可用 `NR_SOURCE_DEPS_ROOT` / `NR_BUILD_ENV_ROOT` 选择；Helper有SDK/编译器目录参数。它们接受相同锁定内容，缺失或漂移会拒绝，不能通过换任意新版依赖来绕过。Native/Helper默认输出及Runner仍有本机绝对路径；异机准备依赖、路径迁移与专有资源配置尚不是自动化安装流程。
+
+本机这两目录还是Git worktree：Native的Git元数据在 `bloodborne_pc/.git`，Helper的在 `dlss5_linux/OptiScaler-Linux-NR/.git`。不能仅因新目录已有源码就删除原主仓库。新的独立clone应从上面两个开发分支建立，而不是复制只有`.git`指针的工作树目录。
+
 ## 构建
 
 ```bash
-# 隔离 Native 输出；不覆盖现用 build/native 或只读 baseline。
+# 隔离 Native 输出；不覆盖只读 baseline，也不自动切换运行选择。
 BB_BUILD_DIR="$PWD/build/convergence/native" bash native/tools/nr_dev/build.sh
 # 独立 Helper 与协议导出；forwarder 单独构建，不替换运行选择。
 python3 helper/nrbridge/build.py
