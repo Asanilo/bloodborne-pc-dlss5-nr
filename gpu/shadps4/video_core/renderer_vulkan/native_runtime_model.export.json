@@ -1,0 +1,27 @@
+{
+  "schema": "nrbridge-native-protocol-copy-v1",
+  "source": {
+    "repository": "Asanilo/OptiScaler-Linux-NR",
+    "commit": "cea5160aab380272dfe52ab2db31691e77531c18",
+    "header": "nrbridge/protocol/native_runtime_model.h",
+    "exporter": "nrbridge/protocol/export.py"
+  },
+  "consumed": [
+    "native_runtime_model.h"
+  ],
+  "export_manifest": {
+    "schema": "nrbridge-protocol-export-v1",
+    "wire_version": 1,
+    "interface_revision": 3,
+    "runtime_model_schema": "nr-runtime-model-v1",
+    "job_model_schema": "nr-runtime-job-model-v1",
+    "exports": {
+      "native_runtime_model.h": "67fa656294fa38c6aca66f011a64211ae9fe79e44aad2f9a93fbe5cfcfcc732b",
+      "pre_sr_wire.h": "bc52ffa09da608b33652a955f00fe9bd3675b2251674cbd09ff8f9f97c0f7067",
+      "effective-spec.json": "671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b",
+      "pre_sr_spec.h": "1e57fbf32d827bf0cb60876e23fbe9ecb52ac0b6160887778c04e13073eaab09"
+    }
+  },
+  "export_manifest_sha256": "068011b16f8a1b85c77200628623895529a90cf2bb380a6a1b45a2b87b09ec03",
+  "update": "Run Helper nrbridge/protocol/export.py --output ABSOLUTE_EXPORT_DIR; verify its source commit and export SHA; import only native_runtime_model.h and refresh this reviewed provenance. Native builds validate this local copy without reading another repository."
+}

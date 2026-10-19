@@ -11,6 +11,8 @@ fail() { echo "nr-dev build: $*" >&2; exit 3; }
 for path in "$ROOT" "$DEPS" "$ENV_ROOT" "$BUILD"; do
  [[ $path == /* ]] || fail "absolute input/output paths required: $path"
 done
+# Verify the in-repository protocol copy before any build/lock/link writes.
+PROTOCOL_PROOF=$(python3 "$WT/tools/nr_dev/check_protocol_export.py" --native-root "$WT")
 DEPS=$(realpath -e -- "$DEPS") || fail 'missing prepared source dependencies'
 ENV_ROOT=$(realpath -e -- "$ENV_ROOT") || fail 'missing SDK/sysroot environment'
 BUILD=$(realpath -m -- "$BUILD")
@@ -84,13 +86,17 @@ git -C "$WT" rev-parse HEAD > "$BUILD/source-head.txt"
 git -C "$WT" diff --ignore-submodules=all --binary HEAD > "$BUILD/source-diff.patch"
 # Record selected inputs and the env's actual exports, not a claim of runtime
 # confinement or a portable sysroot. Runner/GPU paths are configured separately.
-python3 - "$DEPS" "$ENV_ROOT" "$BUILD" "$@" <<'PY'
+python3 - "$DEPS" "$ENV_ROOT" "$BUILD" "$WT" "$PROTOCOL_PROOF" "$@" <<'PY'
 import hashlib,json,os,sys
 from pathlib import Path
-root,env,build=map(Path,sys.argv[1:4])
-files=[env/'bbport-env.sh',*(root/(n+'.content.sha256') for n in ('fsr-vulkan','imgui','LibAtrac9'))]
+root,env,build,wt=map(Path,sys.argv[1:5])
+protocol_proof=json.loads(sys.argv[5])
+protocol_dir=wt/'gpu/shadps4/video_core/renderer_vulkan'
+files=[env/'bbport-env.sh',*(root/(n+'.content.sha256') for n in ('fsr-vulkan','imgui','LibAtrac9')),
+       protocol_dir/'native_runtime_model.h',protocol_dir/'native_runtime_model.export.json',
+       wt/'tools/nr_dev/check_protocol_export.py']
 record={'source_deps_root':str(root),'build_env_root':str(env),'build_dir':str(build),
-        'wrapper_args':sys.argv[4:],'inputs':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in files},
+        'protocol':protocol_proof,'wrapper_args':sys.argv[6:],'inputs':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in files},
         'environment':{key:os.environ.get(key) for key in ('DLSS_SDK_ROOT','VULKAN_INCLUDE','VULKAN_LIBRARY','CMAKE_PREFIX_PATH','CPATH','LIBRARY_PATH','LD_LIBRARY_PATH','PKG_CONFIG_PATH','CC','CXX','BB_BUILD_JOBS','CMAKE_BUILD_PARALLEL_LEVEL','BB_PGO','BB_LTO')}}
 (build/'build-inputs.json').write_text(json.dumps(record,indent=2)+'\n')
 PY
