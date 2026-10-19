@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 ROOT = Path(os.environ.get('NR_DEV_ROOT', '/home/arinp/Code/nrbridge-dev'))
-HELPER = Path(os.environ.get('NR_HELPER_ROOT', '/home/arinp/Code/nrbridge-dev/helper'))
+HELPER = Path(os.environ.get('NR_HELPER_ROOT', '/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/.worktree/nrbridge'))
 
 
 def sha(path):

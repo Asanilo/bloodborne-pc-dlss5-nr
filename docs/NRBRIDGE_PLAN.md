@@ -2,6 +2,16 @@
 
 2026-10-15，按用户本轮正式规划执行。本文件记录完整周期、当前目标与阶段验收；运行安全与当前事实仍以开发根 `CURRENT.md` 为唯一现行工程规范。它不授予旧目录删除权，也不替代真实 GPU 退休证据。
 
+## 2026-10-20 最新用户决定：Native不合主线，Helper合入linux-nr，源码迁至各自worktree
+
+本节覆盖下面早先“原主目录检出开发分支”的备选方案。Native master保持3630bc52，不合入开发分支；日常Native仍检出dev/persistent-visual-history-20261015，工作树已由普通Git move迁到 `/home/arinp/Code/bloodborne_pc/.worktree/nrbridge`。Helper已由linux-nr eaada4c2正常快进接纳f2c8607c，合入前本地检查点tag为 `nrbridge/linux-nr-before-helper-20261020`；日常开发树保持dev/nrbridge-helper-convergence-20261019，已迁到 `/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/.worktree/nrbridge`，后续同范围准备修订正常合回linux-nr。没有改origin/upstream/sky关系、origin默认分支或重写历史。
+
+nrbridge-dev现在只保留锁定依赖、私人配置、安全记录、构建与测试资料；native/helper旧源码路径已不存在，不创建兼容symlink继续维持旧源码中心。历史运行日志及来源记录不改路径，当前运行组合仍5635804/7f69/9a825，不自动选迁移后新编译产物；所有GPU/FD/末用/HOLD约束保持。
+
+迁移前保存两树2288项文件/链接指纹，Git move后逐项相同，普通Git状态干净；原注册worktree身份和开发分支保留。旧位置构建缓存不能当新位置冷构建，另写新输出验证。Helper默认SDK/JSON选择已改为此前校验复制的inputs/workspace-return-20261020，Native Helper委托默认指向新Helper工作树。核心模型/Encode/Evaluate/Resolve、Native渲染及协议未修改。
+
+需要回退源码位置时，先确保两树无独有未提交内容，用普通git worktree move把目标移回原路径，Git负责更新指针，不手改gitdir。linux-nr的旧源码可从检查点另开回退分支；不reset/强推已发布主线。迁移没有切运行构建，运行配置无需回退。当前授权不包含删除gpu-share旧实验、历史故障证据或更换正式游戏/存档；这些保持原样。
+
 ## 2026-10-20 归位现有 Fork：执行顺序与确认边界
 
 用户的新目标覆盖旧“两棵长期nrbridge-dev源码树”布局：Native日常源码回到 `/home/arinp/Code/bloodborne_pc`；完整OptiScaler及 `nrbridge/` 回到 `/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR`；`nrbridge-dev`只作为锁定inputs/localinputs、build、runs和测试资料根。沿用现有Fork与全部remote，不新建仓库/clone，不重写历史/强推。本轮不升级上游、不制作AppImage、不修亮尾；后续两个项目分别跟进上游的规划保留。
