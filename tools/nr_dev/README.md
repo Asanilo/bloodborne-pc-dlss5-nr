@@ -74,6 +74,8 @@ python3 native/tools/nr_dev/runner.py stop "$SESSION"          # 正常关窗请
 
 SR-only 不调用 start-helper/arm。所有阶段共用真实运行目录和同一锁内检查，不依赖私有 analysis 启动脚本。每个 session 独立保存 profile、缓存、Wine prefix、生成 guest、manifest 和日志；游戏资产与正式存档保持只读。默认复制私人 NRTest seed；仅 `PASS_NORMAL_TEARDOWN` 且重新审计通过的旧 dev session 可用 `--continue-session SESSION` 复制私人存档/NR配置到新 run。HOLD 即使另有恢复证据也不能作为续玩来源；受控 scope 当前要求全新 seed，不允许 `--continue-session`。
 
+正常退出审计完成、子进程退出且无残留后，Runner自动删除本次 `profile/out` 的7个可再生文件：`boot.bin`、`eboot.elf`、`entry.bin`、`boot-libc.bin`、`boot-linked.bin`、`content.bin`、`patches.bin`。删除前的大小/SHA及执行结果记录在 `result.json.generated_inputs_cleanup`；生成JSON、日志、存档和诊断仍保留。HOLD、watchdog、中断、缺失末用证明或异常文件链接均不自动清理。Native/Helper继续复用选定build，不为每个run复制或重编译。
+
 ## Legacy 与回滚
 
 省略 `--local-inputs` 仍保留原 legacy Helper `06ac7e6b7260172d`、61项 `inputs/runtime-pins.json` 和旧资源路径。可用 `--legacy-inputs` 显式表达该选择；它与 `--local-inputs` 互斥，不改变默认 PE 或准入。旧3608与c8fb的固定 baseline 继续可用：

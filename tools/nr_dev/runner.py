@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Isolated NR development runner. No legacy approval, ledger or launch quota imports."""
-import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid,importlib.util
+import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid,importlib.util,stat
 from pathlib import Path
 ROOT=Path('/home/arinp/Code/nrbridge-dev');WT=ROOT/'native';OLD=Path('/home/arinp/Code/nrbridge-design/game-poc-20261011')
 GE=Path('/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64')
@@ -9,6 +9,38 @@ runtime_inputs=importlib.util.module_from_spec(_runtime_spec);_runtime_spec.load
 def atomic(p,value):
  t=p.with_suffix('.tmp');t.write_text(json.dumps(value,indent=2)+'\n');t.replace(p)
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
+def retire_generated_inputs(run,result):
+ """Discard only reproducible guest images after actual normal retirement, not saves/evidence."""
+ removed=[]
+ if not (result.get('status')=='PASS_NORMAL_TEARDOWN' and type(result.get('returncode')) is int
+         and result['returncode']==0 and result.get('native_lastuse_proof') is True
+         and result.get('residuals')==[] and result.get('watchdog_expired') is False
+         and result.get('supervisor_interrupted') is False):
+  return {'status':'SKIPPED_NOT_NORMAL_TEARDOWN','removed':removed}
+ try:
+  if run.parent!=ROOT/'runs' or run.resolve()!=run:raise ValueError('noncanonical private run')
+  profile=run/'profile';out=profile/'out'
+  if profile.is_symlink() or out.is_symlink():raise ValueError('generated directory symlink')
+  if not out.exists():return {'status':'NOTHING_TO_RETIRE','removed':removed}
+  pending=[]
+  for name in ('boot.bin','eboot.elf','entry.bin','boot-libc.bin','boot-linked.bin','content.bin','patches.bin'):
+   path=out/name
+   try:info=path.lstat()
+   except FileNotFoundError:continue
+   if not stat.S_ISREG(info.st_mode) or info.st_nlink!=1:raise ValueError('nonprivate generated input: '+name)
+   with path.open('rb') as f:digest=hashlib.file_digest(f,'sha256').hexdigest()
+   pending.append((path,info,{'name':name,'bytes':info.st_size,'sha256':digest}))
+  # Validate the entire allowlist before deleting anything. No recursive directory removal.
+  for path,info,_ in pending:
+   now=path.lstat()
+   if (now.st_dev,now.st_ino,now.st_size,now.st_mtime_ns,now.st_nlink)!=(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,1):
+    raise ValueError('generated input changed during retirement')
+  for path,_,record in pending:path.unlink();removed.append(record)
+  return {'status':'RETIRED','removed':removed,'bytes':sum(r['bytes'] for r in removed),
+          'retained':'generation JSON, logs, saves, diagnostics and Native/Helper builds'}
+ except (OSError,ValueError) as error:
+  # Cleanup failure is separate from already-proven GPU retirement.
+  return {'status':'PARTIAL' if removed else 'RETAINED','removed':removed,'error':str(error)}
 def live(pid):
  p=Path('/proc')/str(pid)
  return {'pid':pid,'start_ticks':int((p/'stat').read_text().rsplit(')',1)[1].split()[19]),'exe':str((p/'exe').resolve())}
@@ -655,9 +687,13 @@ def launch_supervised(args,signals):
    except (OSError,ValueError,KeyError,TypeError) as error:
     retirement={'retirement':'NOT_PROVED','error':str(error)};normal=False;proof=False
    atomic(run/'retirement-audit.json',retirement)
-   atomic(run/'result.json',{'status':'PASS_NORMAL_TEARDOWN' if normal and not held and not signals.interrupted else 'HOLD','returncode':process.returncode,'native_lastuse_proof':proof,'residuals':residual,'watchdog_expired':held,'supervisor_interrupted':signals.interrupted,'received_signals':signals.received,'quality':'NOT_ACCEPTED','performance':'separate actual Present analysis required'})
+   result={'status':'PASS_NORMAL_TEARDOWN' if normal and not held and not signals.interrupted else 'HOLD','returncode':process.returncode,'native_lastuse_proof':proof,'residuals':residual,'watchdog_expired':held,'supervisor_interrupted':signals.interrupted,'received_signals':signals.received,'quality':'NOT_ACCEPTED','performance':'separate actual Present analysis required'}
+   atomic(run/'result.json',result)
    from metrics import measure
    atomic(run/'present-metrics.json',measure(run))
+   if result['status']=='PASS_NORMAL_TEARDOWN':
+    result['generated_inputs_cleanup']=retire_generated_inputs(run,result)
+    atomic(run/'result.json',result)
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
