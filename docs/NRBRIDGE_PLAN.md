@@ -6,13 +6,21 @@
 
 本节是本轮唯一执行计划，优先于下文画质研发安排；长期五阶段规划保留。本轮不跟进上游0.6、不修亮尾、不制作AppImage、不再去重。目标是先收敛源码归属、依赖和可重建基线，再清理失去依赖的工作空间。Astra负责边界、跨仓接口、合入和GPU验收，Sol负责具体工程执行；普通源码整理、CPU测试与隔离构建连续推进，不逐项请批。
 
+### 当前交接进度与下一执行点
+
+S0及Native S1已完成并由Astra整合：执行分支`dev/engineering-convergence-20261019@0ec0b464125af857f0e808d8960f3a9a4b8c092b`，主树对应提交`9fa64a6`。新的`build/baselines/3608e21fa1bb7510103e098acbfaa22b72d985d6`是已通过GPU构建的只读reflink快照，Astra独立通过原Runner构建校验；现用`build/native`未改。单一回滚输入清单为`build/convergence/rollback-inputs.json`（SHA `e00c1d3b3d8cf394d7069065b11370072c7607233fff762d07ec1a6ec00282a1`），包含Helper/forwarder/未跟踪源码、spec、依赖及原件身份。Native包装器新增`NR_SOURCE_DEPS_ROOT`与`NR_BUILD_ENV_ROOT`，已有依赖完整清单/内容漂移在输出副作用前拒绝；它使用已准备的锁定输入，不再隐式复制/补丁/重造锁。140项Python、5项退休及C++协议测试通过，`build/convergence/native`完整独立冷构建通过且干净来源/四产物SHA核验。这里的冷构建指从空输出目录使用既有锁定输入，不代表空机器依赖获取或AppImage完成。
+
+S2a来源缺口已闭合：`helper`工作树/`dev/nrbridge-helper-convergence-20261019`从f527建立，提交`77f023619bde8246a49f07c2d9470cd599614f55`仅新增`nrbridge/forwarder/`。shutdown shim、parameter ABI原字节进入Git，原旧11个未跟踪文件保留。独立单目标forwarder构建产物位于`build/convergence/forwarder/9a8251430ccfa68a/`，Astra实查新旧26项导出名称/ordinal相同；DLL字节不同，仅`BUILD_EXPORTS_PASS`，没有Wine/GPU验收，也未安装或切换默认。旧源码、现用Helper/forwarder、固定产物和历史证据保持不变；design原dirty ledger不归本次提交。
+
+**新Sol续接点是S2b，不重做S0/S1/去重。** 在已建Helper树迁入Native现行runtime-model入口/frame/测试，整理f527 transport/wire/spec与Encode/Resolve来源，建立协议版本化导出及完整Helper构建身份；原Native实现和默认PE先保留。新的Helper先离线独立重建和双端协议回归，再由Astra评审是否进入S3运行接线与GPU验证。README/迁移记录只更新既有文件或模块内必要构建说明，不新增审批/报告体系。本轮新增源码和文档已本地提交，尚未推送；新Helper分支/WT因此不可退役。
+
 ### 三仓库最终责任
 
 | 仓库 / 开发位置 | 应拥有的实现 | 不再承担的职责 |
 |---|---|---|
 | bbport：`nrbridge-dev/native`，源仓库`Asanilo/bloodborne_pc` | 游戏加载/PM4兼容修复，Native Vulkan/FD/末用，四bank持久历史及其Shader，SR/Present，Dear ImGui与typed Runtime Control；`tools/nr_dev`负责构建入口、依赖选择、私人配置/存档、Runner及回归 | Helper模型实现、Helper构建闭包不长期寄居这里；不从design导入历史执行规则 |
-| OptiScaler Helper：拟建立`nrbridge-dev/helper`（同一OptiScaler Git仓库的一个长期工作树，不另建第四仓库） | f527来源的跨进程Helper，NGX/forwarder与shutdown shim、模型参数及排空/重建/ACK、Encode/Resolve源码和生成配方；版本化wire/runtime-model contract及导出测试 | 不接管Native活动视觉历史，不实现第二套游戏UI/Runner，不移植全部上游菜单或实验程序 |
-| `nrbridge-design`：`integration/nrbridge-poc@798eabc9b21c14c9b71df8383b9e7e1952133c5e` | 跨仓架构/接口说明、交接索引、原始PASS/FAIL/HOLD及历史证据引用 | 不作为正常编译源码、启动脚本、资源默认绝对路径或普通运行配额的提供者 |
+| OptiScaler Helper：已建立`nrbridge-dev/helper`（同一OptiScaler Git仓库的一个长期工作树，不另建第四仓库） | f527来源的跨进程Helper，NGX/forwarder与shutdown shim、模型参数及排空/重建/ACK、Encode/Resolve源码和生成配方；版本化wire/runtime-model contract及导出测试 | 不接管Native活动视觉历史，不实现第二套游戏UI/Runner，不移植全部上游菜单或实验程序 |
+| `nrbridge-design`：`integration/nrbridge-poc`（历史交接锚`798eabc9b21c14c9b71df8383b9e7e1952133c5e`） | 跨仓架构/接口说明、交接索引、原始PASS/FAIL/HOLD及历史证据引用 | 不作为正常编译源码、启动脚本、资源默认绝对路径或普通运行配额的提供者 |
 
 协议物理真源落在Helper仓库的`nrbridge/protocol/`；Native消费带版本与SHA的导出副本，不跨repo直接include。保持当前wire tuple、runtime-model sidecar、ABI布局、参数版本、排空/退休语义，迁移只改归属/路径。协议变更必须双端测试，不能把仓库移动伪装成新协议。OptiScaler现有production forwarder与dlssnr shader保留原目录；仅NRBridge Helper/协议/单目标构建放`nrbridge/`，不复制整个旧poc树。
 
