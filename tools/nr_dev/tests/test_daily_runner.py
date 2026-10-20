@@ -25,6 +25,9 @@ class DailyRunner(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self.addCleanup(patch.stopall)
         patch.object(r, 'ROOT', self.root).start()
+        runtime = self.root / 'runtime'; runtime.mkdir(mode=0o700)
+        self.guard = r.daily_session_guard.SessionGuard(runtime_root=runtime)
+        patch.object(r.daily_session_guard, 'SessionGuard', return_value=self.guard).start()
         self.inputs = str(self.root / 'localinputs/version.json')
 
     def args(self, *extra):
@@ -66,7 +69,7 @@ class DailyRunner(unittest.TestCase):
 
     def test_main_daily_preflight_uses_daily_admission_under_lock(self):
         args = r.parse_args(['preflight', '--daily', '--local-inputs', self.inputs])
-        with patch.object(r, 'parse_args', return_value=args), patch.object(r.runtime_inputs, 'load', return_value={'bound': True}), patch.object(r, 'daily_preflight', return_value={'daily': True}) as daily, patch.object(r, 'preflight') as legacy, contextlib.redirect_stdout(io.StringIO()):
+        with patch.object(r, 'parse_args', return_value=args), patch.object(r.runtime_inputs, 'load', return_value={'bound': True}), patch.object(r, 'daily_preflight', return_value={'daily': True}) as daily, patch.object(r, 'preflight') as legacy, patch.object(r.fcntl,'flock'), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(r.main(), 0)
             daily.assert_called_once()
             self.assertEqual(daily.call_args.args[1], {'bound': True})
@@ -89,6 +92,39 @@ class DailyRunner(unittest.TestCase):
         self.assertRaisesRegex(ValueError, 'current-boot HOLD', self.preflight, {'live': {'boot_id': boot}})
         bad = json.dumps({'_BOOT_ID': boot.replace('-', ''), 'MESSAGE': 'NVRM: Xid GPU failure'})
         self.assertRaisesRegex(ValueError, 'GPU driver error', self.preflight, snapshot, bad)
+
+    def test_global_pending_other_home_blocks_actual_daily_preflight(self):
+        self.guard.begin(self.root / 'other-home', 'other-session')
+        original = self.guard.path.read_bytes()
+        self.assertRaisesRegex(ValueError, 'global session pending/HOLD', self.preflight, {})
+        self.assertEqual(self.guard.path.read_bytes(), original)
+
+    def test_global_pending_blocks_finite_and_both_recovery_scopes_before_branch(self):
+        receipt = self.guard.begin(self.root / 'other-home', 'other-session')
+        original = self.guard.path.read_bytes()
+        recovery = [None, argparse.Namespace(context_recovery='/scope'),
+                    argparse.Namespace(context_recovery=None, reboot_diagnostic='/scope')]
+        with patch.object(r,'holders') as holders, patch.object(r,'reboot_diagnostic_preflight') as reboot, patch('context_recovery.check_launch') as isolated:
+            for request in recovery:
+                with self.subTest(request=request), self.assertRaisesRegex(ValueError,'global session pending/HOLD'):
+                    r.preflight(MagicMock(), request)
+            holders.assert_not_called(); reboot.assert_not_called(); isolated.assert_not_called()
+        self.assertEqual(self.guard.path.read_bytes(), original)
+        self.guard.hold(receipt)
+        with patch('context_recovery.check_launch') as isolated:
+            self.assertRaisesRegex(ValueError,'global session pending/HOLD',r.preflight,MagicMock(),recovery[1])
+            isolated.assert_not_called()
+
+    def test_finite_recovery_may_proceed_only_after_boot_changes(self):
+        receipt = self.guard.begin(self.root / 'other-home', 'other-session')
+        previous_boot = '11111111-1111-4111-8111-111111111111'
+        receipt['boot_id'] = previous_boot
+        self.guard.path.write_text(json.dumps(receipt)); self.guard.path.chmod(0o600)
+        request = argparse.Namespace(context_recovery='/scope')
+        with patch.object(r,'holders',return_value=[]), patch('context_recovery.check_launch',return_value={'scope':'CPU'}) as isolated:
+            self.assertEqual(r.preflight(MagicMock(),request),{'scope':'CPU'})
+            isolated.assert_called_once()
+        self.assertEqual(self.guard.read()['state'],'pending')
 
     def test_current_boot_daily_missing_result_cannot_disappear_from_admission(self):
         run = self.root / 'runs/interrupted'; run.mkdir(parents=True)

@@ -12,6 +12,8 @@ _runtime_spec=importlib.util.spec_from_file_location('nr_dev_runtime_inputs',Pat
 runtime_inputs=importlib.util.module_from_spec(_runtime_spec);_runtime_spec.loader.exec_module(runtime_inputs)
 _online_spec=importlib.util.spec_from_file_location('nr_dev_daily_online',Path(__file__).with_name('daily_online.py'))
 daily_online=importlib.util.module_from_spec(_online_spec);_online_spec.loader.exec_module(daily_online)
+_guard_spec=importlib.util.spec_from_file_location('nr_dev_daily_session_guard',Path(__file__).with_name('daily_session_guard.py'))
+daily_session_guard=importlib.util.module_from_spec(_guard_spec);_guard_spec.loader.exec_module(daily_session_guard)
 def atomic(p,value):
  t=p.with_suffix('.tmp');t.write_text(json.dumps(value,indent=2)+'\n');t.replace(p)
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -313,6 +315,7 @@ def daily_preflight(lock,runtime_binding):
   except BlockingIOError:pass
   else:raise ValueError('GPU lock not exclusive')
  if runtime_binding is None:raise ValueError('daily mode requires explicit versioned runtime inputs')
+ guard=daily_session_guard.SessionGuard();guard.admit()
  if holders():raise ValueError('live Native/Helper holders')
  boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
  # Historical failures remain evidence. A current-boot unknown GPU/resource state
@@ -328,7 +331,7 @@ def daily_preflight(lock,runtime_binding):
  verify_runtime_inputs(runtime_binding)
  journal=subprocess.check_output(['journalctl','-k','-b','0','--no-pager','--output=json'],text=True,stderr=subprocess.PIPE,timeout=20)
  check_kernel_journal(journal,boot)
- return {'boot_id':boot,'daily':True,'unresolved_driver_hang':False,'historical_faults_resolved':False,'evidence':['live current-boot kernel check and no current-boot HOLD; exclusive project GPU lock']}
+ return {'boot_id':boot,'daily':True,'boot_session_receipt':str(guard.path),'unresolved_driver_hang':False,'historical_faults_resolved':False,'evidence':['live current-boot kernel check and no current-boot HOLD; exclusive project GPU lock; per-UID boot receipt admits all homes']}
 
 def record_pending_daily_retirement(run):
  # Persist before spawn so a supervisor crash cannot erase this admission gate.
@@ -341,6 +344,9 @@ def daily_failure_reason(run,capture):
  return None
 
 def preflight(lock=None,recovery=None,runtime_binding=None):
+ # All canonical callers hold the project GPU lock, including finite/recovery launches.
+ # A diagnostic scope cannot override another home's same-boot unknown ownership.
+ daily_session_guard.SessionGuard().admit()
  h=holders()
  if h:raise ValueError('live Native/Helper GPU holders: '+json.dumps(h))
  if recovery is not None:
@@ -749,6 +755,9 @@ def launch_supervised(args,signals):
     from daily_log import GameLog
     capture=GameLog(run,None)
    if not signals.before_spawn():return 3
+   if daily:
+    boot_guard=daily_session_guard.SessionGuard()
+    boot_receipt=boot_guard.begin(ROOT,args.session)
    process=subprocess.Popen(command,cwd=WT,env=env,stdout=subprocess.PIPE if daily else log,stderr=subprocess.STDOUT,start_new_session=True)
    if daily:
     capture.pipe=process.stdout;capture.start()
@@ -810,6 +819,13 @@ def launch_supervised(args,signals):
    atomic(run/'present-metrics.json',measure(run))
    if result['status']=='PASS_NORMAL_TEARDOWN':
     result['generated_inputs_cleanup']=retire_generated_inputs(run,result)
+    atomic(run/'result.json',result)
+   if daily:
+    try:
+     if result['status']=='PASS_NORMAL_TEARDOWN':boot_guard.retire(boot_receipt,result)
+     else:boot_guard.hold(boot_receipt)
+    except (OSError,ValueError) as error:
+     result.update(status='HOLD',boot_session_receipt_error=str(error));normal=False
     atomic(run/'result.json',result)
    return 0 if normal and not held and not signals.interrupted else 3
 
