@@ -3,7 +3,7 @@
 # Reuses the audited offline copier; never starts the game or GPU.
 set -euo pipefail
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-POC_ROOT=${BB_GAME_POC_ROOT:-/home/arinp/Code/nrbridge-design/game-poc-20261011}
+POC_ROOT="${BB_GAME_POC_ROOT:-$HOME/Code/nrbridge-design/game-poc-20261011}"
 [[ $(sha256sum "$POC_ROOT/integration/playtest/p0-wire-spec.json" | awk '{print $1}') == 45673c70c172a428078ff9b750c32c87a0a70f3d0ef6bd6fcc09a53f5a290107 ]] || { echo "P0_BUILD BLOCKED canonical pin mismatch" >&2; exit 3; }
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN="$POC_ROOT/bbport/runs/p0-build-$STAMP"

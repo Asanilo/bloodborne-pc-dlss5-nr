@@ -7,13 +7,13 @@ SCENE_FIRST=${BB_NR_NATIVE_ASYNC_SCENE_FIRST-1}
 [[ $SCENE_FIRST == 1 ]] || { echo "NATIVE_ASYNC_LAUNCH BLOCKED play scene-first must be exact1" >&2; exit 2; }
 [[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,62}$ && ( $MODE == resident || $MODE == skipEvaluate ) ]] || exit 2
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-R=/home/arinp/Code/nrbridge-design/game-poc-20261011
+R="$HOME/Code/nrbridge-design/game-poc-20261011"
 RUN="$R/bbport/runs/native-async-game-$SESSION"
 PROFILE="$RUN/profile"
 GAME="$R/playtest/assets/CUSA03173"
 BUILD=$(printenv BB_NATIVE_ASYNC_BUILD_DIR || true)
 [[ -n $BUILD ]] || BUILD="$WT/out"
-GE=/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64
+GE="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64"
 HELPER="$R/opti-async-play-worktree/poc/game_nr/async-play/out/wine_origin_nr_play.exe"
 [[ -f "$PROFILE/.native-async-profile" && $(cat "$PROFILE/.native-async-profile") == "$SESSION" ]] || {
   echo 'NATIVE_ASYNC_LAUNCH BLOCKED private seed marker missing/mismatched' >&2; exit 3;

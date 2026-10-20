@@ -4,8 +4,8 @@
 # complete C1 input snapshot and preserves the previous C0 artifacts before `out/` is rebuilt.
 set -euo pipefail
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-POC_ROOT=${BB_GAME_POC_ROOT:-/home/arinp/Code/nrbridge-design/game-poc-20261011}
-JSON_SOURCE=/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/external/nlohmann/json.hpp
+POC_ROOT="${BB_GAME_POC_ROOT:-$HOME/Code/nrbridge-design/game-poc-20261011}"
+JSON_SOURCE="$HOME/Code/dlss5_linux/OptiScaler-Linux-NR/external/nlohmann/json.hpp"
 JSON_SHA=aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN="$POC_ROOT/bbport/runs/c1-build-$STAMP"

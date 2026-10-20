@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_persistent_history_diagnostic.h"
+#include "native_default_paths.h"
 #include "buffers/buffer.h"
 #include "vulkan/instance.h"
 #include "render/scheduler.h"
@@ -91,7 +92,9 @@ NativePersistentHistoryDiagnostic::Impl::Impl(const Instance& instance,uint64_t 
  if(!run||!id||!*id)throw std::runtime_error("persistent diagnostic current run/session required");
  session=id;
  for(char c:session)if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'))throw std::runtime_error("persistent diagnostic unsafe session identifier");
- const auto root=std::filesystem::canonical("/home/arinp/Code/nrbridge-dev/runs");
+ const auto default_root=NativeDefaultPaths::DevRoot();
+ if(default_root.empty())throw std::runtime_error("persistent diagnostic default private root unavailable");
+ const auto root=std::filesystem::canonical(default_root+"/runs");
  const auto actual=std::filesystem::canonical(run);const auto relative=actual.lexically_relative(root);
  if(relative.empty()||*relative.begin()==".."||relative=="."||actual!=std::filesystem::path(run).lexically_normal())throw std::runtime_error("persistent diagnostic must use isolated canonical new run directory");
  directory=(actual/("persistent-history-diagnostic-"+session+(ui_request?"-capture-"+std::to_string(capture_seq):""))).string();

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_sky_diagnostic.h"
+#include "native_default_paths.h"
 #include "vulkan/instance.h"
 #include "render/scheduler.h"
 #include <nlohmann/json.hpp>
@@ -25,7 +26,8 @@ NativeSkyDiagnostic::NativeSkyDiagnostic(const Instance&i,bool edit):edit(edit){
  const char*r=std::getenv("BB_NR_NATIVE_ASYNC_RUN_DIR"),*s=std::getenv("BB_NR_NATIVE_ASYNC_SESSION");
  if(!r||!s)throw std::invalid_argument("Native cold diagnostic private directory");
  run=r;session=s;
- if(run!="/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/native-async-game-"+session)
+ const auto root=NativeDefaultPaths::LegacyPocRoot();
+ if(root.empty()||run!=root+"/runs/native-async-game-"+session)
   throw std::invalid_argument("Native cold diagnostic private root");
  for(auto&b:buffers)b=std::make_unique<VideoCore::Buffer>(i,0,33177600,
   VideoCore::MemoryType::HostCached,"Native Sky ONCE local-noop source/composite audit");

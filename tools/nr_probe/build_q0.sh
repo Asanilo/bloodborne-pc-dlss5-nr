@@ -3,7 +3,7 @@
 # outputs and snapshots every Q0 compilation input before rebuilding this isolated worktree.
 set -euo pipefail
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-POC_ROOT=${BB_GAME_POC_ROOT:-/home/arinp/Code/nrbridge-design/game-poc-20261011}
+POC_ROOT="${BB_GAME_POC_ROOT:-$HOME/Code/nrbridge-design/game-poc-20261011}"
 STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 RUN="$POC_ROOT/bbport/runs/q0-build-$STAMP"
 mkdir -m 700 -p "$RUN"

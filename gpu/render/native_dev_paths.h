@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <cstdlib>
 #include "native_runtime_model.h"
+#include "native_default_paths.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -16,7 +17,7 @@ inline bool ValidDevSession(std::string_view session) noexcept {
 }
 inline bool ValidDevRun(const std::string& run,const std::string& session) {
  const char* configured=std::getenv("NRBRIDGE_HOME");
- const std::string root=NativeRuntimeModel::Daily()&&configured?configured:"/home/arinp/Code/nrbridge-dev";
+ const std::string root=NativeRuntimeModel::Daily()&&configured?configured:NativeDefaultPaths::DevRoot();
  std::error_code root_error;
  if(root.empty()||root.front()!='/'||std::filesystem::canonical(root,root_error)!=std::filesystem::path(root)||root_error)return false;
  if(!ValidDevSession(session)||run!=root+"/runs/"+session)return false;

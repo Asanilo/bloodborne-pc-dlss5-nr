@@ -2,7 +2,7 @@
 # Managed experimental P0 Quality; Integration owns GPU lock/watchdog and approvals.
 set -euo pipefail
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-POC_ROOT=${BB_GAME_POC_ROOT:-/home/arinp/Code/nrbridge-design/game-poc-20261011}
+POC_ROOT="${BB_GAME_POC_ROOT:-$HOME/Code/nrbridge-design/game-poc-20261011}"
 SESSION=${1:-}
 MODE=${2:-}
 FRAME_COUNT=${3:-}
@@ -26,7 +26,7 @@ WALL=${BB_NR_P0_SERVICE_WALL_SECONDS:-900}
 if [[ $MODE == srOnly ]]; then INITIAL=0; STARTS=0; else [[ $STARTS -ge 1 ]] || exit 2; fi
 RUN="$POC_ROOT/bbport/runs/p0-game-$SESSION"
 PROFILE="$RUN/profile"
-GE=/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64
+GE="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64"
 WINE="$GE/files/lib/wine/x86_64-unix/wine"
 PRELOADER="$GE/files/lib/wine/x86_64-unix/wine-preloader"
 HELPER="$POC_ROOT/opti-worktree/poc/game_nr/playable-quality/out/wine_game_nr_playable.exe"

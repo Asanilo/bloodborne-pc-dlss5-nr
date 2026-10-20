@@ -2,7 +2,7 @@
 # Opt-in continuous C3 resident|skipEvaluate game candidate. Integration owns GPU lock/watchdog.
 set -euo pipefail
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-POC_ROOT=${BB_GAME_POC_ROOT:-/home/arinp/Code/nrbridge-design/game-poc-20261011}
+POC_ROOT="${BB_GAME_POC_ROOT:-$HOME/Code/nrbridge-design/game-poc-20261011}"
 SESSION=${1:-}
 MODE=${2:-}
 FRAME_COUNT=${3:-}
@@ -15,10 +15,10 @@ DIAGNOSTIC_CASE=${4:-}
    ( $MODE == skipEvaluate && $FRAME_COUNT == 4 && $DIAGNOSTIC_CASE == skipEvaluate ) ]] || {
     echo 'C3_LAUNCH BLOCKED mode/frame_count/diagnostic_case mismatch' >&2; exit 3;
 }
-GAME=${BB_GAME_DIR:-/home/arinp/bloodborne/CUSA03173}
+GAME="${BB_GAME_DIR:-$HOME/bloodborne/CUSA03173}"
 RUN="$POC_ROOT/bbport/runs/c3-game-$SESSION"
 PROFILE="$RUN/profile"
-GE=/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64
+GE="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64"
 WINE="$GE/files/lib/wine/x86_64-unix/wine"
 PRELOADER="$GE/files/lib/wine/x86_64-unix/wine-preloader"
 HELPER="$POC_ROOT/opti-worktree/poc/game_nr/c3/out/wine_game_nr_resident.exe"

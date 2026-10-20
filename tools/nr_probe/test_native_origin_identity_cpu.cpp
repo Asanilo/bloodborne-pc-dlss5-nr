@@ -1,11 +1,13 @@
-#include "video_core/renderer_vulkan/native_origin_identity_policy.h"
-#include "video_core/renderer_vulkan/native_async_frontend.h"
+#include "gpu/render/native_origin_identity_policy.h"
+#include "gpu/render/native_async_frontend.h"
+#include "tools/nr_dev/tests/native_default_paths_fixture.h"
 #include <cstdlib>
 #include <iostream>
 using namespace BbNativeAsync::IdentityPolicy;
 unsigned checks=0;
 void need(bool b){++checks;if(!b)std::abort();}
-int main(){
+int main(int argc,char**argv){
+ need(argc==2);
  Expected e{"/private/origin.exe","/private/run","skipEvaluate","session",
    "/pinned/wine","/pinned/wine-preloader"};
  Candidate c{.pid=44,.game=20,.launcher=44,.start_before=123,.start_after=123,
@@ -42,10 +44,15 @@ int main(){
  {auto x=f;x.native_observed=7;need(!SafeAbnormalClose(x));}
  {auto x=f;x.failed=false;need(!SafeAbnormalClose(x));}
  {auto x=f;x.spawned=false;x.reaped=false;need(SafeAbnormalClose(x));}
- // Real controlled managed CPU thread; no game, Wine, filesystem writes or GPU.
+ // Real controlled managed CPU thread; only a temporary root, no game/Wine/GPU.
+ const std::filesystem::path home=std::filesystem::path(argv[1])/"identity-home";
+ const auto legacy=home/"Code/nrbridge-design/game-poc-20261011/bbport";
+ std::filesystem::create_directories(legacy);
+ NativeDefaultPathsFixture::UseHome(home);
+ const auto run=legacy/"runs/native-async-game-cpu-identity-unused-path";
  setenv("BB_NR_NATIVE_ASYNC_SESSION","cpu-identity-unused-path",1);
- setenv("BB_NR_NATIVE_ASYNC_RUN_DIR","/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/native-async-game-cpu-identity-unused-path",1);
- setenv("BB_NR_NATIVE_ASYNC_SCENE_ARM","/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/native-async-game-cpu-identity-unused-path/native-scene-arm",1);
+ setenv("BB_NR_NATIVE_ASYNC_RUN_DIR",run.c_str(),1);
+ setenv("BB_NR_NATIVE_ASYNC_SCENE_ARM",(run/"native-scene-arm").c_str(),1);
  {
   BbNativeAsync::Frontend frontend;frontend.RequestStop();
   const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);

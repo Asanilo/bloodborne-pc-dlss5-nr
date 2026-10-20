@@ -135,7 +135,8 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   chmod((run+"/frames").c_str(),0700);chmod((run+"/frames/bucket-000000").c_str(),0700);
   vk::PhysicalDeviceIDProperties identity{};vk::PhysicalDeviceProperties2 props{.pNext=&identity};instance.GetPhysicalDevice().getProperties2(&props);auto config=W::config_expected(session,mode,Hex(identity.deviceUUID.data()),Hex(identity.driverUUID.data()));config=W::parse(config.dump());W::config(config,session,mode);const auto common=W::common(session,mode);
   const auto runtime_config=Env("BB_NR_NATIVE_ORIGIN_RUNTIME_CONFIG");
-  const auto ge_files=runtime_config.empty()?"/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64/files":Env("BB_NR_NATIVE_ORIGIN_GE_FILES");
+  const auto ge_files=runtime_config.empty()?NativeDefaultPaths::LegacyGeFiles():Env("BB_NR_NATIVE_ORIGIN_GE_FILES");
+  W::need(!ge_files.empty(),"legacy GE default or explicit runtime GE files required");
   const auto ngx_dir=runtime_config.empty()?"/usr/lib64/nvidia/wine":Env("BB_NR_NATIVE_ORIGIN_NGX_DIR");
   W::need(BbNativeAsyncPreSr::ValidHelperRuntimePaths(run,runtime_config,Env("BB_NR_NATIVE_ORIGIN_GE_FILES"),Env("BB_NR_NATIVE_ORIGIN_NGX_DIR")),"runtime paths remain canonical");
   if(!runtime_config.empty())std::printf("%s config=%s ge_files=%s ngx_dir=%s scope=explicit_paths_only_GPU_proof_NONE\n",BbNativeAsyncPreSr::HelperRuntimeConfigVersion,runtime_config.c_str(),ge_files.c_str(),ngx_dir.c_str());

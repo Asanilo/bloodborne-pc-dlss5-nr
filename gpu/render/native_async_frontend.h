@@ -2,6 +2,7 @@
 #pragma once
 #include "native_async_scene_first.h"
 #include "native_async_play.h"
+#include "native_default_paths.h"
 #include <atomic>
 #include <chrono>
 #include <cstdio>
@@ -22,8 +23,9 @@ public:
   const char* s=std::getenv("BB_NR_NATIVE_ASYNC_SESSION");
   if(!r||!p||!s)return;
   const std::string run(r),path(p),session(s);
-  if(path!=run+"/native-scene-arm"||run!=
-    "/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/native-async-game-"+session)return;
+  const auto root=NativeDefaultPaths::LegacyPocRoot();
+  if(root.empty()||path!=run+"/native-scene-arm"||run!=
+    root+"/runs/native-async-game-"+session)return;
   finished.store(false,std::memory_order_release);
   thread=std::jthread([this,path,run,session,scene_first](std::stop_token token){
    struct Finish{std::atomic<bool>& flag;~Finish(){flag.store(true,std::memory_order_release);}} finish{finished};

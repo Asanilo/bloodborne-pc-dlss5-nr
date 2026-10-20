@@ -2,16 +2,16 @@
 # Opt-in one-frame C2 single|skipEvaluate game candidate. Integration owns GPU lock/watchdog.
 set -euo pipefail
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-POC_ROOT=${BB_GAME_POC_ROOT:-/home/arinp/Code/nrbridge-design/game-poc-20261011}
+POC_ROOT="${BB_GAME_POC_ROOT:-$HOME/Code/nrbridge-design/game-poc-20261011}"
 SESSION=${1:-}
 MODE=${2:-}
 [[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,62}$ && ( $MODE == single || $MODE == skipEvaluate ) ]] || {
     echo 'Usage: run_game_c2.sh SESSION single|skipEvaluate' >&2; exit 2;
 }
-GAME=${BB_GAME_DIR:-/home/arinp/bloodborne/CUSA03173}
+GAME="${BB_GAME_DIR:-$HOME/bloodborne/CUSA03173}"
 RUN="$POC_ROOT/bbport/runs/c2-game-$SESSION"
 PROFILE="$RUN/profile"
-GE=/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64
+GE="$HOME/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64"
 WINE="$GE/files/lib/wine/x86_64-unix/wine"
 PRELOADER="$GE/files/lib/wine/x86_64-unix/wine-preloader"
 HELPER="$POC_ROOT/opti/out-c2/wine_game_nr_helper.exe"

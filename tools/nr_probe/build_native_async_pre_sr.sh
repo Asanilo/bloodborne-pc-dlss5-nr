@@ -2,12 +2,12 @@
 # Native-only snapshot/metadata BUILD_ONLY, no Helper/Wine/game/GPU execution.
 set -euo pipefail
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-R=/home/arinp/Code/nrbridge-design/game-poc-20261011
+R="$HOME/Code/nrbridge-design/game-poc-20261011"
 RUN="$R/bbport/runs/native-async-pre-sr-build-$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -m 700 -p "$RUN/source-snapshot"
 mapfile -t INPUTS < <(python3 - "$R/bbport/runs/p0-build-20261012T101054Z/source-sha256.txt" <<'PY'
 import pathlib,sys
-p=pathlib.Path('/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree')
+p=(pathlib.Path.home() / 'Code/nrbridge-design/game-poc-20261011/bbport-worktree')
 for line in pathlib.Path(sys.argv[1]).read_text().splitlines(): print(pathlib.Path(line.split(None,1)[1].strip()).relative_to(p))
 PY
 )
@@ -39,9 +39,9 @@ if [[ $cpu -eq 0 ]];then
  if [[ $cpu -eq 0 ]];then timeout 20s "$RUN/test-native-origin-wire" > "$RUN/wire-tests.json" 2>&1;cpu=$?;fi
 fi
 if [[ $cpu -eq 0 ]];then
- c++ -std=c++20 -Wall -Wextra -Werror -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_origin_identity_cpu.cpp" -o "$RUN/test-native-origin-identity" > "$RUN/identity-build.log" 2>&1
+ c++ -std=c++20 -pthread -Wall -Wextra -Werror -I"$WT" -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_origin_identity_cpu.cpp" -Wl,--wrap=getpwuid_r -o "$RUN/test-native-origin-identity" > "$RUN/identity-build.log" 2>&1
  cpu=$?
- if [[ $cpu -eq 0 ]];then timeout 20s "$RUN/test-native-origin-identity" > "$RUN/identity-tests.json" 2>&1;cpu=$?;fi
+ if [[ $cpu -eq 0 ]];then cpu_scratch=$(mktemp -d "${TMPDIR:-/tmp}/nr-origin-identity.XXXXXX") && timeout 20s "$RUN/test-native-origin-identity" "$cpu_scratch" > "$RUN/identity-tests.json" 2>&1;cpu=$?;fi
 fi
 if [[ $cpu -eq 0 ]];then
  c++ -std=c++20 -Wall -Wextra -Werror -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_edit_diagnostic_cpu.cpp" -o "$RUN/test-native-edit-diagnostic" > "$RUN/edit-diagnostic-build.log" 2>&1
@@ -49,9 +49,9 @@ if [[ $cpu -eq 0 ]];then
  if [[ $cpu -eq 0 ]];then "$RUN/test-native-edit-diagnostic" > "$RUN/edit-diagnostic-tests.json" 2>&1;cpu=$?;fi
 fi
 if [[ $cpu -eq 0 ]];then
- c++ -std=c++20 -pthread -Wall -Wextra -Werror -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_async_scene_first_cpu.cpp" -o "$RUN/test-native-async-scene-first" > "$RUN/scene-first-cpu-build.log" 2>&1
+ c++ -std=c++20 -pthread -Wall -Wextra -Werror -I"$WT" -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_async_scene_first_cpu.cpp" -Wl,--wrap=getpwuid_r -o "$RUN/test-native-async-scene-first" > "$RUN/scene-first-cpu-build.log" 2>&1
  cpu=$?
- if [[ $cpu -eq 0 ]];then timeout 20s "$RUN/test-native-async-scene-first" > "$RUN/scene-first-cpu-tests.json" 2>&1;cpu=$?;fi
+ if [[ $cpu -eq 0 ]];then cpu_scratch=$(mktemp -d "${TMPDIR:-/tmp}/nr-scene-first.XXXXXX") && timeout 20s "$RUN/test-native-async-scene-first" "$cpu_scratch" > "$RUN/scene-first-cpu-tests.json" 2>&1;cpu=$?;fi
 fi
 if [[ $cpu -eq 0 ]];then
  c++ -std=c++20 -Wall -Wextra -Werror -I"$WT/gpu/shadps4" "$WT/tools/nr_probe/test_native_pre_sr_spawn_log_cpu.cpp" -o "$RUN/test-native-pre-sr-spawn-log" > "$RUN/spawn-log-cpu-build.log" 2>&1

@@ -2,12 +2,12 @@
 # Prepare and launch the normal live Quality HDR capture; this script is opt-in.
 set -euo pipefail
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-POC_ROOT=${BB_GAME_POC_ROOT:-/home/arinp/Code/nrbridge-design/game-poc-20261011}
+POC_ROOT="${BB_GAME_POC_ROOT:-$HOME/Code/nrbridge-design/game-poc-20261011}"
 SESSION=${1:-}
 [[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9-]{0,62}$ ]] || {
     echo 'Usage: run_game_q0.sh SESSION' >&2; exit 2;
 }
-GAME=${BB_GAME_DIR:-/home/arinp/bloodborne/CUSA03173}
+GAME="${BB_GAME_DIR:-$HOME/bloodborne/CUSA03173}"
 RUN="$POC_ROOT/bbport/runs/q0-game-$SESSION"
 PROFILE="$RUN/profile"
 [[ -f "$WT/out/bb-probe" && -f "$WT/out/libbbport_dlss.so" ]] || {
