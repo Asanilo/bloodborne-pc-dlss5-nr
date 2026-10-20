@@ -229,6 +229,16 @@ static int game_path(const char *p) {
     return (!strncmp(p,"/app0",5) && (!p[5] || p[5]=='/')) ||
            (!strncmp(p,"/hostapp",8) && (!p[8] || p[8]=='/'));
 }
+/* Mounted add-on data (/addcont0../addcont15 and every subpath) is read-only, like the game
+ * package. The check is textual and needs no mount-table lock. */
+static int addon_path(const char *p) {
+    if (!p || strncmp(p,"/addcont",8)) return 0;
+    const char *q=p+8;
+    if (*q<'0' || *q>'9') return 0;
+    while (*q>='0' && *q<='9') ++q;
+    return !*q || *q=='/';
+}
+static int read_only_path(const char *p) { return game_path(p) || addon_path(p); }
 /* Saves (/savedataN): see File. The copy starts as the old file unless the open truncates. */
 static unsigned temp_serial;
 static int copy_contents(int from,int to) {
@@ -443,7 +453,7 @@ int runtime_file_host_path(const char *guest,char *out,size_t size) {
     return 0;
 }
 static int64_t do_open(const char *guest,int flags,int mode) {
-    if (game_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
+    if (read_only_path(guest) && (flags & (3|0x8|0x200|0x400|0x800))) return -EROFS;
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
@@ -662,7 +672,7 @@ static int64_t do_getdents(int fd,char *buffer,uint64_t size,int64_t *basep) {
     return result;
 }
 static int64_t path_op(const char *guest,int op,int mode) {
-    if (game_path(guest)) return -EROFS;
+    if (read_only_path(guest)) return -EROFS;
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
@@ -672,7 +682,7 @@ static int64_t path_op(const char *guest,int op,int mode) {
     return r;
 }
 static int64_t do_rename(const char *from,const char *to) {
-    if (game_path(from) || game_path(to)) return -EROFS;
+    if (read_only_path(from) || read_only_path(to)) return -EROFS;
     char a[1024],b[1024];
     int e=translate(from,a,sizeof(a));
     if (!e) e=translate(to,b,sizeof(b));
@@ -687,7 +697,7 @@ static int64_t do_ftruncate(int fd,int64_t length) {
     return ftruncate(h,length) ? -errno : 0;
 }
 static int64_t do_truncate(const char *guest,int64_t length) {
-    if (game_path(guest)) return -EROFS;
+    if (read_only_path(guest)) return -EROFS;
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;
@@ -697,6 +707,7 @@ static int64_t do_truncate(const char *guest,int64_t length) {
 }
 static int64_t do_fsync(int fd) { int h=host_fd(fd); if (h<0) return -EBADF; return fsync(h) ? -errno : 0; }
 static int64_t do_access(const char *guest,int mode) {
+    if (read_only_path(guest) && (mode&2)) return -EROFS;
     char path[1024];
     int e=translate(guest,path,sizeof(path));
     if (e) return -e;

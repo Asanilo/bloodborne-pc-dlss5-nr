@@ -64,6 +64,8 @@ void runtime_sema_report(void);
 unsigned runtime_sema_waiters(uint32_t id);
 uintptr_t runtime_time_resolve(const char *name);
 void runtime_content_configure(const uint32_t values[5]);
+/* The loaded title; add-ons live under <user>/addcont/<title>/<label>. */
+void runtime_content_set_title(const char *title);
 uintptr_t runtime_content_resolve(const char *name);
 void runtime_content_report(void);
 /* An import names `nid`: the NID alone decides (the hash of the symbol's name), whatever library

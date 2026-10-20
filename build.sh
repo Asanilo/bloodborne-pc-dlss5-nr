@@ -119,4 +119,6 @@ if [[ ${1:-} == --test ]]; then
     fi
     "$CC" -std=c11 -D_GNU_SOURCE -O2 -g -Wall -Wextra -Werror -I. -Isrc tests/test_content.c src/runtime_content.c -o "$BUILD"/content-test
     "$BUILD"/content-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_dlc_mount.c src/runtime_content.c -o "$BUILD"/dlc-mount-test
+    "$BUILD"/dlc-mount-test
 fi

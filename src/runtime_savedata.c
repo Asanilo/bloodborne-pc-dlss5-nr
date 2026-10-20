@@ -99,7 +99,10 @@ static void bloodborne_sound_hack(void) {
     closedir(dir);
 }
 void runtime_savedata_configure(const char *title) {
-    if (title && *title) snprintf(title_id,sizeof(title_id),"%s",title);
+    if (title && *title) {
+        snprintf(title_id,sizeof(title_id),"%s",title);
+        runtime_content_set_title(title_id);
+    }
     bloodborne_sound_hack();
 }
 

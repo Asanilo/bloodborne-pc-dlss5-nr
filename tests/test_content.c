@@ -16,6 +16,7 @@ int runtime_file_mount(const char *guest,const char *host) {
     fputs("unexpected mount during AppContent query\n",stderr);
     abort();
 }
+void runtime_file_unmount(const char *guest) { (void)guest; }
 typedef int32_t (ABI *Module)(uint16_t);
 typedef int32_t (ABI *Init)(const void *,void *);
 typedef int32_t (ABI *Param)(uint32_t,int32_t *);
@@ -64,6 +65,7 @@ int main(int argc,char **argv) {
     assert((uint32_t)param(0,NULL)==0x80d90002);
     unsigned char entries[48]; memset(entries,0xaa,sizeof(entries));
     struct { uint32_t hits,canary; } h={99,0xabcdef};
+    assert((uint32_t)list(1,NULL,0,&h.hits)==0x80d90002);
     assert(list(0,NULL,0,&h.hits)==0 && h.hits==0 && h.canary==0xabcdef);
     assert(list(0,entries,2,&h.hits)==0 && h.hits==0);
     for (unsigned i=0;i<sizeof(entries);++i) assert(entries[i]==0xaa);
@@ -73,13 +75,22 @@ int main(int argc,char **argv) {
     snprintf(path,sizeof(path),"%s/addcont",user_dir); assert(!mkdir(path,0755));
     snprintf(path,sizeof(path),"%s/addcont/CUSA00900",user_dir); assert(!mkdir(path,0755));
     snprintf(path,sizeof(path),"%s/addcont/CUSA00900/SPEXPANSIONDLC03",user_dir); assert(!mkdir(path,0755));
+    runtime_content_set_title("CUSA00900");
     assert(list(0,NULL,0,&h.hits)==0 && h.hits==1);
     memset(entries,0xaa,sizeof(entries));
     assert(list(0,entries,2,&h.hits)==0 && h.hits==1);
     assert(!strcmp((const char *)entries,"SPEXPANSIONDLC03"));
     uint32_t status; memcpy(&status,entries+20,4); assert(status==4);
     for (unsigned i=24;i<sizeof(entries);++i) assert(entries[i]==0xaa);
-    rmdir(path);
+    snprintf(path,sizeof(path),"%s/addcont/OTHER_TITLE",user_dir); assert(!mkdir(path,0755));
+    snprintf(path,sizeof(path),"%s/addcont/OTHER_TITLE/OTHER_LABEL",user_dir); assert(!mkdir(path,0755));
+    assert(list(0,NULL,0,&h.hits)==0 && h.hits==1);
+    runtime_content_set_title("OTHER_TITLE");
+    assert(list(0,NULL,0,&h.hits)==0 && h.hits==1);
+    runtime_content_set_title("CUSA00900");
+    snprintf(path,sizeof(path),"%s/addcont/OTHER_TITLE/OTHER_LABEL",user_dir); rmdir(path);
+    snprintf(path,sizeof(path),"%s/addcont/OTHER_TITLE",user_dir); rmdir(path);
+    snprintf(path,sizeof(path),"%s/addcont/CUSA00900/SPEXPANSIONDLC03",user_dir); rmdir(path);
     snprintf(path,sizeof(path),"%s/addcont/CUSA00900",user_dir); rmdir(path);
     snprintf(path,sizeof(path),"%s/addcont",user_dir); rmdir(path);
     rmdir(user_dir);
