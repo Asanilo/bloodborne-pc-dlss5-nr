@@ -1,5 +1,31 @@
 """Simplified Chinese UI text, keyed by the English fallback."""
 ZH = {
+    "FSR 4.1.1 DLL conversion unavailable": "暂不支持转换 FSR 4.1.1 DLL",
+    "Unavailable in Preview": "预览版暂不支持",
+    "FSR 4.1.1 DLL conversion is unavailable in NRBridge Preview because it uses a separate GPU workflow. With NR off, you can select FSR 3, TAA or FSR 4.1.1 with prepared resources.": "NRBridge 预览版暂不支持转换 FSR 4.1.1 DLL，该功能使用独立的 GPU 流程。关闭 NR 后，可以选择 FSR 3、TAA 或使用已准备好资源的 FSR 4.1.1。",
+
+    "Enable neural rendering (NR)": "启用神经渲染（NR）",
+    "Native mouse camera": "原生鼠标视角",
+    "Turn off to use the joystick mouse compatibility path": "关闭后使用鼠标模拟摇杆兼容模式",
+    "NR requires DLSS Quality, 1920×1080, 16:9 or Auto, object motion and jitter on; memory Auto uses the validated old model.": "NR 需要 DLSS 清晰度优先、1920×1080、16:9 或自动，并启用物体运动向量和抖动；内存模型“自动”使用已验证的旧模型。",
+    "NR runtime inputs": "NR 运行环境",
+    "Wine / GE files": "Wine／GE 文件目录",
+    "NR model (nvngx_dlssnr.dll)": "NR 模型（nvngx_dlssnr.dll）",
+    "NGX Wine DLL directory": "NGX Wine DLL 目录",
+    "System libnvidia-ngx.so": "系统 libnvidia-ngx.so",
+    "Choose": "选择",
+    "Save and validate NR inputs": "保存并校验 NR 运行环境",
+    "Updates the selected paths and keeps existing saves and seed": "更新所选路径，保留现有存档和种子",
+    "Save and validate": "保存并校验",
+    "Advanced runtime identity": "高级：运行组件版本",
+    "Could not save NR inputs: {} ": "无法保存 NR 运行环境：{}",
+    "NR inputs saved and validated": "NR 运行环境已保存并通过校验",
+    "Enable NR after entering gameplay": "进入游戏场景后开启 NR",
+    "Confirm that you can see and control your character in the actual game scene.": "请确认已经进入实际游戏场景，可以看到并控制角色。",
+    "I am in the game scene": "已进入可控制的游戏场景",
+    "Session is on HOLD; keep this launcher open for safe recovery.": "本轮处于 HOLD 状态，请保持启动器开启以便安全恢复。",
+    "Close the game normally and wait for retirement before closing the launcher.": "请正常关闭游戏并等待安全退出，再关闭启动器。",
+
     "Hold Ctrl/Shift/Alt/GUI, then press a key or mouse button to assign a chord. For a modifier alone, press and release it. Existing bindings stay unchanged.":
         "按住 Ctrl、Shift、Alt 或 Super，再按键盘或鼠标按钮可设置组合键。单独绑定修饰键时，按下后松开即可。现有绑定保持原样。",
     "Game menu (Options)": "游戏菜单（Options）",

@@ -22,6 +22,7 @@ import time
 from pathlib import Path
 from bbport_assets import fsr411_problem
 from bbport_i18n import language, set_language, tr
+import nrbridge_launcher as nrbridge
 
 import gi
 
@@ -41,7 +42,12 @@ from patches import external_patches  # noqa: E402
 PACKAGED = bool(os.environ.get("BB_PREBUILT"))
 DATA_DIR = Path(os.environ.get("BB_DATA_DIR", PORT_DIR))
 CONFIG_DIR = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "bbport-launcher"
-CONFIG_FILE = CONFIG_DIR / "settings.json"
+CONFIG_FILE = Path(os.environ.get("BB_LAUNCHER_SETTINGS",
+    os.environ.get("NRBRIDGE_LAUNCHER_SETTINGS", CONFIG_DIR / "settings.json")))
+CONFIG_DIR = CONFIG_FILE.parent
+NRBRIDGE = nrbridge.active()
+NR_FSR411_LIMIT = ("FSR 4.1.1 DLL conversion is unavailable in NRBridge Preview because it uses a separate GPU workflow. "
+                  "With NR off, you can select FSR 3, TAA or FSR 4.1.1 with prepared resources.")
 MAX_LOG_LINES = 5000
 # The memory model (run.sh: BB_PC_MODEL): "auto" is the new one on every GPU (0.6), or either by
 # hand. The new one goes through the layer's memory module on
@@ -174,6 +180,8 @@ PREUPLOAD = [("Обычная", "", "Без лишней видеопамяти"
              ("Выключена", "0")]
 
 DEFAULTS = {
+    "nrbridge_enabled": True,
+    "nrbridge_native_mouse": True,
     "ui_language": "",
     "game_dir": "" if PACKAGED else str(PORT_DIR.parent / "CUSA03173"),
     "user_dir": "",
@@ -305,6 +313,7 @@ def save_ini(values, lines):
     for key, value in values.items():
         if key not in written and value is not None:
             out.append(f"{key}={value}")
+    ini_path().parent.mkdir(parents=True, exist_ok=True)
     ini_path().write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
@@ -612,6 +621,12 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.ini, self.ini_lines = load_ini()
         self.process = None
         self.stream = None
+        self.nr_session = None
+        self.nr_result = None
+        self.nr_waiting_scene = False
+        self.nr_stopping = False
+        self.nr_setup_working = False
+        self.nr_stop_request = None
         self.fsr411_build = None  # tools/fsr4cap/build_assets.sh while it runs
         self.build()
         self.connect("close-request", self.on_close)
@@ -625,6 +640,10 @@ class LauncherWindow(Adw.ApplicationWindow):
         header.set_title_widget(switcher)
         self.launch_button = Gtk.Button()
         self.launch_button.connect("clicked", self.on_launch)
+        if NRBRIDGE:
+            self.nr_arm_button = Gtk.Button(label=tr("Enable NR after entering gameplay"), sensitive=False)
+            self.nr_arm_button.connect("clicked", self.on_nr_scene_ready)
+            header.pack_end(self.nr_arm_button)
         header.pack_end(self.launch_button)
         toolbar.add_top_bar(header)
 
@@ -657,11 +676,197 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.launch_button.add_css_class("destructive-action" if running else "suggested-action")
         # The game and an FSR 4.1.1 build do not run together (both want the GPU, the build
         # replaces the assets the game reads).
-        self.launch_button.set_sensitive(self.fsr411_build is None)
+        self.launch_button.set_sensitive(self.fsr411_build is None and
+            not self.nr_setup_working and not (NRBRIDGE and nrbridge.result_is_hold(self.nr_result)))
+        if NRBRIDGE:
+            self.nr_arm_button.set_sensitive(running and self.nr_waiting_scene and not self.nr_stopping)
+            if hasattr(self, "nr_apply_button"):
+                self.nr_apply_button.set_sensitive(not running and not self.nr_setup_working
+                    and not nrbridge.result_is_hold(self.nr_result))
         if hasattr(self, "fsr411_button"):
-            self.fsr411_button.set_sensitive(not running)
+            self.fsr411_button.set_sensitive(not NRBRIDGE and not running)
 
     # --- settings page -------------------------------------------------------------------
+
+    def build_nrbridge_group(self):
+        group = Adw.PreferencesGroup(title="NRBridge", description=tr(
+            "NR requires DLSS Quality, 1920×1080, 16:9 or Auto, object motion and jitter on; memory Auto uses the validated old model."))
+        self.nr_enabled_row = Adw.SwitchRow(title=tr("Enable neural rendering (NR)"),
+            active=self.settings.get("nrbridge_enabled", True))
+        group.add(self.nr_enabled_row)
+        self.nr_mouse_row = Adw.SwitchRow(title=tr("Native mouse camera"),
+            subtitle=tr("Turn off to use the joystick mouse compatibility path"),
+            active=self.settings.get("nrbridge_native_mouse", True))
+        group.add(self.nr_mouse_row)
+        group.add(Adw.ActionRow(title=tr("FSR 4.1.1 DLL conversion unavailable"),
+            subtitle=tr(NR_FSR411_LIMIT)))
+        self.nr_dependency_rows = {}
+        runtime = nrbridge.read_runtime()
+        values = nrbridge.dependency_values(runtime, self.settings)
+        self.nr_dependency_values = values
+        inputs = Adw.ExpanderRow(title=tr("NR runtime inputs"), expanded=False)
+        for key, title, folder in (
+                ("ge_files", "Wine / GE files", True),
+                ("model", "NR model (nvngx_dlssnr.dll)", False),
+                ("ngx_dir", "NGX Wine DLL directory", True),
+                ("system_ngx", "System libnvidia-ngx.so", False)):
+            row = Adw.ActionRow(title=tr(title), subtitle=str(values.get(key) or tr("not chosen")))
+            row.add_suffix(flat_button("document-open-symbolic", tr("Choose"),
+                lambda _b, k=key, t=title, f=folder: self.choose_nr_dependency(k, t, f)))
+            inputs.add_row(row)
+            self.nr_dependency_rows[key] = row
+        apply_row = Adw.ActionRow(title=tr("Save and validate NR inputs"),
+            subtitle=tr("Updates the selected paths and keeps existing saves and seed"))
+        self.nr_apply_button = Gtk.Button(label=tr("Save and validate"), valign=Gtk.Align.CENTER)
+        self.nr_apply_button.connect("clicked", self.save_nr_dependencies)
+        apply_row.add_suffix(self.nr_apply_button)
+        inputs.add_row(apply_row)
+        group.add(inputs)
+        identity = Adw.ExpanderRow(title=tr("Advanced runtime identity"), expanded=False)
+        try:
+            manifest = json.loads(nrbridge.bundle_manifest().read_text())
+        except (OSError, ValueError):
+            manifest = {}
+        for key in ("native", "helper", "forwarder"):
+            record = manifest.get(key, {})
+            text = record.get("source") or record.get("source_commit") or record.get("build_id") or "—"
+            identity.add_row(Adw.ActionRow(title=key.title(), subtitle=str(text)))
+        group.add(identity)
+        return group
+
+    def choose_nr_dependency(self, key, title, folder):
+        if self.process or nrbridge.result_is_hold(self.nr_result) or self.nr_setup_working:
+            self.alert("NRBridge", tr("Close the game normally and wait for retirement before closing the launcher."))
+            return
+        if folder:
+            self.choose_folder(tr(title), self.nr_dependency_values.get(key) or nrbridge.home(),
+                               lambda value: self.set_nr_dependency(key, value))
+            return
+        dialog = Gtk.FileDialog(title=tr(title))
+        def finish(dialog, result):
+            try:
+                selected = dialog.open_finish(result)
+            except GLib.Error:
+                return
+            if selected and selected.get_path():
+                self.set_nr_dependency(key, selected.get_path())
+        dialog.open(self, None, finish)
+
+    def set_nr_dependency(self, key, value):
+        self.nr_dependency_values[key] = value
+        self.nr_dependency_rows[key].set_subtitle(value)
+
+    def save_nr_dependencies(self, _button):
+        if self.process or self.nr_setup_working or nrbridge.result_is_hold(self.nr_result):
+            return
+        values = dict(self.nr_dependency_values, game_dir=self.settings.get("game_dir", ""))
+        self.nr_setup_working = True
+        self.nr_apply_button.set_sensitive(False)
+        self.update_launch_button()
+        def worker():
+            message = None
+            try:
+                nrbridge.save_dependencies(values)
+            except (Exception, SystemExit) as error:
+                message = str(error)
+            GLib.idle_add(finish, message)
+        def finish(error):
+            self.nr_setup_working = False
+            self.nr_apply_button.set_sensitive(True)
+            self.update_launch_button()
+            if error is not None:
+                self.alert("NRBridge", tr("Could not save NR inputs: {} ").format(error))
+            else:
+                self.nr_dependency_values = nrbridge.dependency_values(nrbridge.read_runtime(), self.settings)
+                for key, row in self.nr_dependency_rows.items():
+                    row.set_subtitle(str(self.nr_dependency_values.get(key) or ""))
+                self.toasts.add_toast(Adw.Toast(title=tr("NR inputs saved and validated")))
+            return False
+        threading.Thread(target=worker, daemon=True).start()
+
+    def start_nrbridge(self):
+        if self.nr_setup_working or nrbridge.result_is_hold(self.nr_result):
+            self.alert("NRBridge", tr("Session is on HOLD; keep this launcher open for safe recovery."))
+            return
+        session = nrbridge.session_name()
+        try:
+            command = nrbridge.player_command(self.settings, self.ini, session=session,
+                settings_path=CONFIG_FILE, ini_path=ini_path(), data_dir=DATA_DIR)
+        except ValueError as error:
+            self.alert("NRBridge", str(error))
+            return
+        launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE |
+            Gio.SubprocessFlags.STDERR_MERGE | Gio.SubprocessFlags.STDIN_PIPE)
+        env = nrbridge.launch_environment(settings_path=CONFIG_FILE,
+            ini_path=ini_path(), data_dir=DATA_DIR)
+        launcher.set_environ([f"{key}={value}" for key, value in env.items()])
+        launcher.set_cwd(str(PORT_DIR))
+        try:
+            self.process = launcher.spawnv(command)
+        except GLib.Error as error:
+            self.alert("NRBridge", tr("Не удалось запустить: {}").format(error.message))
+            return
+        self.nr_session = session
+        self.nr_result = None
+        self.nr_waiting_scene = False
+        self.nr_stopping = False
+        self.log_view.get_buffer().set_text("")
+        self.stream = Gio.DataInputStream.new(self.process.get_stdout_pipe())
+        self.read_line()
+        self.process.wait_async(None, self.on_exit)
+        self.update_launch_button()
+        self.stack.set_visible_child_name("log")
+
+    def on_nr_scene_ready(self, _button):
+        if not self.process or not self.nr_waiting_scene or self.nr_stopping:
+            return
+        dialog = Adw.AlertDialog(heading=tr("Enable NR after entering gameplay"), body=tr(
+            "Confirm that you can see and control your character in the actual game scene."))
+        dialog.add_response("cancel", tr("Отмена"))
+        dialog.add_response("ready", tr("I am in the game scene"))
+        def response(_dialog, answer):
+            if answer != "ready" or not self.process or self.nr_stopping:
+                return
+            try:
+                self.process.get_stdin_pipe().write_all(b"\n", None)
+            except GLib.Error as error:
+                self.alert("NRBridge", str(error))
+                return
+            self.nr_waiting_scene = False
+            self.update_launch_button()
+        dialog.connect("response", response)
+        dialog.present(self)
+
+    def stop_nrbridge(self):
+        if not self.nr_session or self.nr_stopping:
+            return
+        launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE |
+            Gio.SubprocessFlags.STDERR_MERGE)
+        env = nrbridge.launch_environment(settings_path=CONFIG_FILE,
+            ini_path=ini_path(), data_dir=DATA_DIR)
+        launcher.set_environ([f"{key}={value}" for key, value in env.items()])
+        try:
+            request = launcher.spawnv(nrbridge.stop_command(self.nr_session))
+        except GLib.Error as error:
+            self.alert("NRBridge", str(error))
+            return
+        self.nr_stop_request = request
+        self.nr_stopping = True
+        self.update_launch_button()
+        def finished(process, result):
+            self.nr_stop_request = None
+            try:
+                _ok, output, _err = process.communicate_utf8_finish(result)
+                if output:
+                    self.append_log(output)
+                if not process.get_successful():
+                    self.nr_stopping = False
+                    self.update_launch_button()
+            except GLib.Error as error:
+                self.nr_stopping = False
+                self.update_launch_button()
+                self.append_log(str(error) + "\n")
+        request.communicate_utf8_async(None, None, finished)
 
     def build_settings_page(self):
         page = Adw.PreferencesPage()
@@ -672,6 +877,8 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.ui_language_row.connect("notify::selected", self.on_ui_language)
         launcher.add(self.ui_language_row)
         page.add(launcher)
+        if NRBRIDGE:
+            page.add(self.build_nrbridge_group())
 
         game = Adw.PreferencesGroup(title=tr("Игра"))
         self.game_row = Adw.ActionRow(title=tr("Папка игры (CUSA03173)"))
@@ -706,7 +913,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         game.add(self.backup_row)
         logs = Adw.ActionRow(title=tr("Logs and frame times"))
         logs.add_suffix(flat_button("folder-open-symbolic", tr("Open logs folder"),
-                                   lambda _b: open_folder(self, DATA_DIR / "logs")))
+                                   lambda _b: open_folder(self, self.logs_dir())))
         game.add(logs)
         managers = Adw.ActionRow(title=tr("Steam / Lutris"), subtitle=tr("Native Linux; uses launch.sh --play"))
         managers.add_suffix(flat_button("document-save-symbolic", tr("Export manager entries"), self.export_managers))
@@ -1016,6 +1223,9 @@ class LauncherWindow(Adw.ApplicationWindow):
     def game_dir(self):
         return Path(self.settings["game_dir"]).expanduser()
 
+    def logs_dir(self):
+        return nrbridge.logs_directory(self.nr_session) if NRBRIDGE else DATA_DIR / "logs"
+
     def user_dir(self):
         return Path(self.settings["user_dir"]).expanduser() if self.settings["user_dir"] \
             else DATA_DIR / "user"
@@ -1271,6 +1481,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         not found."""
         current = self.settings.get("gpu", "")
         gpus = connected_gpus()
+        self.nr_gpu_indices = {name: index for index, _vendor, _kind, name, _best in gpus}
         best = [name for _index, _vendor, _kind, name, is_best in gpus if is_best]
         auto = tr("Авто") + (f" ({best[0]})" if best else "")
         choices = [(auto, "")]
@@ -1296,6 +1507,10 @@ class LauncherWindow(Adw.ApplicationWindow):
         s["gamepad_name"] = self.gamepad_row.names[self.gamepad_row.get_selected()]
         s["display"] = combo_value(self.display_row)
         s["gpu"] = combo_value(self.gpu_row)
+        if NRBRIDGE:
+            s["nrbridge_gpu_id"] = self.nr_gpu_indices.get(s["gpu"]) if s["gpu"] else None
+            s["nrbridge_enabled"] = self.nr_enabled_row.get_active()
+            s["nrbridge_native_mouse"] = self.nr_mouse_row.get_active()
         s["skip_network_choice"] = self.skip_network_row.get_active()
         s["language"] = combo_value(self.language_row)
         s["fullscreen"] = self.fullscreen_row.get_active()
@@ -1812,6 +2027,9 @@ class LauncherWindow(Adw.ApplicationWindow):
             self.stack.set_visible_child_name("online")
             return
         self.store()
+        if NRBRIDGE:
+            self.start_nrbridge()
+            return
         self.log_view.get_buffer().set_text("")
         launcher = Gio.SubprocessLauncher.new(
             Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
@@ -1840,10 +2058,16 @@ class LauncherWindow(Adw.ApplicationWindow):
         if line is None:
             return
         self.append_log(line + "\n")
+        if NRBRIDGE and "按 Enter 开启 NR" in line:
+            self.nr_waiting_scene = True
+            self.update_launch_button()
         self.read_line()
 
     def stop_game(self):
         if not self.process:
+            return
+        if NRBRIDGE:
+            self.stop_nrbridge()
             return
         pid = int(self.process.get_identifier())
         try:
@@ -1853,6 +2077,8 @@ class LauncherWindow(Adw.ApplicationWindow):
         GLib.timeout_add_seconds(3, self.kill_if_running, pid)
 
     def kill_if_running(self, pid):
+        if NRBRIDGE:
+            return False
         if self.process:
             try:
                 os.killpg(pid, signal.SIGKILL)
@@ -1867,12 +2093,21 @@ class LauncherWindow(Adw.ApplicationWindow):
             pass
         status = process.get_exit_status() if process.get_if_exited() else -1
         self.process = None
+        if NRBRIDGE:
+            self.nr_result = nrbridge.read_result(nrbridge.home(), self.nr_session)
+            self.nr_waiting_scene = False
+            self.nr_stopping = False
+            if nrbridge.result_is_hold(self.nr_result):
+                self.alert("NRBridge", tr("Session is on HOLD; keep this launcher open for safe recovery."))
         self.update_launch_button()
         self.update_game_status()
         self.refresh_backups()
         self.append_log(tr("\n— игра завершилась (код {}) —\n").format(status))
 
     def on_close(self, _window):
+        if NRBRIDGE and (self.nr_setup_working or self.nr_stop_request is not None or not nrbridge.can_close(self.process is not None, self.nr_result)):
+            self.alert("NRBridge", tr("Close the game normally and wait for retirement before closing the launcher."))
+            return True
         self.store()
         if self.process:
             self.stop_game()
@@ -1883,6 +2118,11 @@ class LauncherWindow(Adw.ApplicationWindow):
     # --- FSR 4.1.1 from the user's DLL -----------------------------------------------------
 
     def update_fsr411_row(self, progress=None):
+        if NRBRIDGE:
+            self.fsr411_button.set_label(tr("Unavailable in Preview"))
+            self.fsr411_button.set_sensitive(False)
+            self.fsr411_row.set_subtitle(tr(NR_FSR411_LIMIT))
+            return
         building = self.fsr411_build is not None
         self.fsr411_button.set_label(tr("Отменить") if building else tr("Выбрать DLL…"))
         if progress:
@@ -1998,6 +2238,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         dialog.open(self, None, finish)
 
     def on_fsr411_button(self, _button):
+        if NRBRIDGE:
+            self.alert("NRBridge", tr(NR_FSR411_LIMIT))
+            return
         if self.fsr411_build:
             self.stop_fsr411_build()
             return
@@ -2005,6 +2248,9 @@ class LauncherWindow(Adw.ApplicationWindow):
                         self.on_fsr411_dll)
 
     def on_fsr411_dll(self, upscaler, loader=None):
+        if NRBRIDGE:
+            self.alert("NRBridge", tr(NR_FSR411_LIMIT))
+            return
         import dll_info
         self.settings["fsr411_dll_dir"] = str(Path(upscaler).parent)
         status, problem, details = dll_info.inspect(upscaler, loader)
@@ -2055,6 +2301,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.start_fsr411_build(upscaler, details.get("loader"))
 
     def start_fsr411_build(self, upscaler, loader):
+        if NRBRIDGE:
+            self.alert("NRBridge", tr(NR_FSR411_LIMIT))
+            return
         command, env = fsr411_build_command(upscaler, loader)
         launcher = Gio.SubprocessLauncher.new(
             Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE)
@@ -2090,6 +2339,9 @@ class LauncherWindow(Adw.ApplicationWindow):
         stream.read_line_async(GLib.PRIORITY_DEFAULT, None, self.on_fsr411_line)
 
     def stop_fsr411_build(self):
+        if NRBRIDGE:
+            self.alert("NRBridge", tr(NR_FSR411_LIMIT))
+            return
         pid = int(self.fsr411_build.get_identifier())
         self.fsr411_cancelled = True
         try:
@@ -2131,6 +2383,8 @@ class LauncherApp(Adw.Application):
     def do_activate(self):
         window = self.get_active_window() or LauncherWindow(self)
         window.present()
+        if NRBRIDGE and os.environ.pop("BB_NRBRIDGE_AUTOPLAY", None):
+            GLib.idle_add(lambda: window.start_game() and False)
 
 
 def play():
@@ -2142,12 +2396,35 @@ def play():
     if not (Path(settings["game_dir"]).expanduser() / "eboot.bin").is_file():
         print("bbport: choose the game folder in the launcher first", file=sys.stderr)
         return 1
+    if NRBRIDGE:
+        ini, _lines = load_ini()
+        if settings.get("gpu"):
+            indices = {name: index for index, _vendor, _kind, name, _best in connected_gpus()}
+            settings["nrbridge_gpu_id"] = indices.get(settings["gpu"])
+            save_settings(settings)
+        try:
+            command = nrbridge.player_command(settings, ini, settings_path=CONFIG_FILE,
+                ini_path=ini_path(), data_dir=DATA_DIR)
+        except ValueError as error:
+            print("NRBridge: " + str(error), file=sys.stderr)
+            return 2
+        # A desktop --play launch needs the same observed-scene control and mount owner.
+        # Reuse the complete launcher, then launch its managed child on activation.
+        if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
+            os.environ["BB_NRBRIDGE_AUTOPLAY"] = "1"
+            return LauncherApp().run([sys.argv[0]])
+        os.execvpe(sys.executable, command, nrbridge.launch_environment(
+            settings_path=CONFIG_FILE, ini_path=ini_path(), data_dir=DATA_DIR))
+        return 0
     os.chdir(PORT_DIR)
     os.execvpe("bash", ["bash", str(PORT_DIR / "run.sh")], game_environment(settings))
 
 
 def build_fsr411(arguments):
     """--build-fsr411 <upscaler DLL> [loader DLL]: the launcher's FSR 4.1.1 build, without a window."""
+    if NRBRIDGE:
+        print("NRBridge: " + tr(NR_FSR411_LIMIT), file=sys.stderr)
+        return 2
     if not 1 <= len(arguments) <= 2:
         print("usage: --build-fsr411 <amd_fidelityfx_upscaler_dx12.dll> [loader DLL]", file=sys.stderr)
         return 1

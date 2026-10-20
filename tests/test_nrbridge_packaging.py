@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -277,7 +278,9 @@ class FreshHomeTest(unittest.TestCase):
                 args.ngx_dir = str(fixture["ngx"])
                 args.system_ngx = str(fixture["system_ngx"])
                 args.sysroot_lib = str(fixture["sysroot"])
-                entry.setup(args)
+                with mock.patch.object(entry, "DEPENDENCY_LOCK", root / "fixture-gpu.lock"), \
+                     mock.patch.object(entry, "dependency_guard", return_value=mock.Mock()):
+                    entry.setup(args)
                 self.assertTrue((home / "runs").is_dir())
                 self.assertFalse((home / "runs").is_symlink())
                 self.assertEqual(
@@ -611,6 +614,79 @@ class PinGenerationTest(unittest.TestCase):
             self.assertIn(str(tree / "a"), names)
             self.assertIn(str(required), names)
             self.assertTrue(all(len(item["sha256"]) == 64 for item in pins))
+
+
+class AppRunInstalledLayoutTest(unittest.TestCase):
+    def run_apprun(self, markers=("ini", "settings"), overrides=None, image_directory="packages", via_symlink=True):
+        with tempfile.TemporaryDirectory(prefix="nrbridge AppRun ") as directory:
+            root = Path(directory) / "installed root"
+            package = root / image_directory / "preview.AppImage"
+            package.parent.mkdir(parents=True)
+            package.write_text("fixture image")
+            current = root / "runtime/current"
+            current.parent.mkdir()
+            current.symlink_to(package)
+            if "ini" in markers:
+                (root / "bbport.ini").write_text("upscaler=dlss\n")
+            if "settings" in markers:
+                config = root / "config/bbport-launcher/settings.json"
+                config.parent.mkdir(parents=True)
+                config.write_text('{}')
+            app = Path(directory) / "extracted AppDir"
+            interpreter = app / "usr/bin/python3.14"
+            interpreter.parent.mkdir(parents=True)
+            # Shell stand-in records the real generated AppRun environment without
+            # loading Python/GTK, the coordinator, account state or any GPU code.
+            interpreter.write_text(
+                '#!/bin/sh\n'
+                'printf "%s\\0" "${BB_DATA_DIR-unset}" "${BB_CONFIG-unset}" '
+                '"${XDG_CONFIG_HOME-unset}" "${NRBRIDGE_HOME-unset}"\n')
+            interpreter.chmod(0o755)
+            build.write_apprun(app)
+            keys = ("BB_DATA_DIR", "BB_CONFIG", "XDG_CONFIG_HOME", "NRBRIDGE_HOME")
+            env = {key: value for key, value in os.environ.items() if key not in keys}
+            env.update(APPIMAGE=str(current if via_symlink else package), HOME=str(Path(directory) / "user-home"),
+                       XDG_DATA_HOME=str(Path(directory) / "fresh-data"),
+                       XDG_CACHE_HOME=str(Path(directory) / "cache"))
+            env.update(overrides or {})
+            completed = subprocess.run([str(app / "AppRun"), "--check"], env=env,
+                capture_output=True, check=True, timeout=10)
+            values = completed.stdout.decode().split('\0')
+            self.assertEqual(values[-1], '')
+            self.assertFalse((root / 'data').exists(), 'discovery must not create or migrate player data')
+            return root, dict(zip(keys, values[:-1])), env
+
+    def test_direct_installed_image_and_runtime_symlink_keep_original_paths(self):
+        for via_symlink in (False, True):
+            with self.subTest(via_symlink=via_symlink):
+                root, actual, _env = self.run_apprun(via_symlink=via_symlink)
+                self.assertEqual(actual, {
+                    "BB_DATA_DIR": str(root / "data"), "BB_CONFIG": str(root / "bbport.ini"),
+                    "XDG_CONFIG_HOME": str(root / "config"), "NRBRIDGE_HOME": str(root / "data/nrbridge"),
+                })
+
+    def test_explicit_environment_values_win_independently(self):
+        explicit = {"BB_DATA_DIR": "/chosen/data", "BB_CONFIG": "/chosen/bbport.ini",
+                    "XDG_CONFIG_HOME": "/chosen/config", "NRBRIDGE_HOME": "/chosen/nr-home"}
+        _root, actual, _env = self.run_apprun(overrides=explicit)
+        self.assertEqual(actual, explicit)
+        empty = dict.fromkeys(explicit, "")
+        _root, actual, _env = self.run_apprun(overrides=empty)
+        self.assertEqual(actual, empty)
+        root, actual, _env = self.run_apprun(overrides={"BB_CONFIG": "/chosen/bbport.ini"})
+        self.assertEqual(actual["BB_CONFIG"], "/chosen/bbport.ini")
+        self.assertEqual(actual["BB_DATA_DIR"], str(root / "data"))
+        self.assertEqual(actual["NRBRIDGE_HOME"], str(root / "data/nrbridge"))
+
+    def test_missing_markers_or_noninstalled_location_use_standalone_defaults(self):
+        for markers, image_directory in (((), "packages"), (("ini",), "packages"),
+                (("settings",), "packages"), (("ini", "settings"), "downloads")):
+            with self.subTest(markers=markers, image_directory=image_directory):
+                _root, actual, env = self.run_apprun(markers=markers, image_directory=image_directory)
+                self.assertEqual(actual["BB_DATA_DIR"], "unset")
+                self.assertEqual(actual["BB_CONFIG"], "unset")
+                self.assertEqual(actual["XDG_CONFIG_HOME"], "unset")
+                self.assertEqual(actual["NRBRIDGE_HOME"], env["XDG_DATA_HOME"] + "/bbport/nrbridge-home")
 
 
 class PackagingSourceTest(unittest.TestCase):

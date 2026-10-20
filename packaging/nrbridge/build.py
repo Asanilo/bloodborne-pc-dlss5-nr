@@ -658,7 +658,27 @@ if [ ! -r "${SSL_CERT_FILE:-}" ]; then
         if [ -r "$bundle" ]; then export SSL_CERT_FILE="$bundle"; break; fi
     done
 fi
-export NRBRIDGE_HOME="${NRBRIDGE_HOME:-${XDG_DATA_HOME:-$HOME/.local/share}/bbport/nrbridge-home}"
+# Direct launches from an existing installed packages/ layout share its
+# original settings and saves. Markers distinguish it from standalone files;
+# each explicitly supplied environment value still wins independently.
+if [ -n "${APPIMAGE:-}" ]; then
+    NR_IMAGE_REAL=$(readlink -f -- "$APPIMAGE" 2>/dev/null || true)
+    case "$NR_IMAGE_REAL" in
+        *.AppImage)
+            NR_PACKAGE_DIR=$(dirname -- "$NR_IMAGE_REAL")
+            NR_INSTALL_ROOT=$(dirname -- "$NR_PACKAGE_DIR")
+            if [ -f "$NR_IMAGE_REAL" ] && [ "$(basename -- "$NR_PACKAGE_DIR")" = packages ] &&
+               [ -f "$NR_INSTALL_ROOT/bbport.ini" ] &&
+               [ -f "$NR_INSTALL_ROOT/config/bbport-launcher/settings.json" ]; then
+                export BB_DATA_DIR="${BB_DATA_DIR-$NR_INSTALL_ROOT/data}"
+                export BB_CONFIG="${BB_CONFIG-$NR_INSTALL_ROOT/bbport.ini}"
+                export XDG_CONFIG_HOME="${XDG_CONFIG_HOME-$NR_INSTALL_ROOT/config}"
+                export NRBRIDGE_HOME="${NRBRIDGE_HOME-$NR_INSTALL_ROOT/data/nrbridge}"
+            fi
+            ;;
+    esac
+fi
+export NRBRIDGE_HOME="${NRBRIDGE_HOME-${XDG_DATA_HOME:-$HOME/.local/share}/bbport/nrbridge-home}"
 export BB_PREBUILT=1
 exec "$APPDIR/usr/bin/python3.14" "$APPDIR/usr/share/bbport/launcher/nrbridge_entry.py" "$@"
 """

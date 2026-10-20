@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import fcntl
 import importlib.util
 import json
 import os
@@ -113,6 +114,92 @@ def canonical(value: str, *, directory: bool = False) -> Path:
     if not directory and not path.is_file():
         die(f"file missing: {value}")
     return path
+
+
+def canonical_option(value: str, *, directory: bool = False) -> Path:
+    """A launcher-supplied path that may not exist yet.
+
+    The root tools perform the authoritative whitelist/snapshot checks; this
+    only refuses relative paths, symlinks and newline/colon injection so the
+    value forwarded to play.py is unambiguous.
+    """
+    if not isinstance(value, str) or not value or "\x00" in value or "\n" in value or ":" in value:
+        die(f"unsafe path (absolute, no ':' or newline): {value!r}")
+    path = Path(value).expanduser()
+    if not path.is_absolute() or path.resolve() != path or path.is_symlink():
+        die(f"canonical absolute path required: {value}")
+    if directory and path.exists() and not path.is_dir():
+        die(f"not a directory: {value}")
+    return path
+
+
+def launcher_settings_path() -> Path:
+    return Path(
+        os.environ.get(
+            "NRBRIDGE_LAUNCHER_SETTINGS",
+            os.environ.get("BB_LAUNCHER_SETTINGS", os.environ.get("NRBRIDGE_ONLINE_CONFIG",
+            str(Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+                / "bbport-launcher/settings.json"))),
+        )
+    ).expanduser()
+
+
+def desktop_launcher_path() -> Path:
+    return Path(__file__).resolve().with_name("bbport_launcher.py")
+
+
+def desktop_launcher(args) -> int:
+    """Hand a desktop launch to the full bbport launcher.
+
+    The entry stays in the same process (exec), so the AppImage/FUSE mount
+    lives exactly as long as the launcher window.  The package manifest is
+    what activates NRBridge in the full launcher; ordinary source checkouts
+    keep their old launch path.
+    """
+    launcher = desktop_launcher_path()
+    if not launcher.is_file():
+        die(f"full bbport launcher missing: {launcher}")
+    home = canonical_home(args.home or DEFAULT_HOME)
+    env = dict(os.environ)
+    settings = (
+        canonical_option(args.launcher_settings)
+        if getattr(args, "launcher_settings", None)
+        else launcher_settings_path()
+    )
+    ini_value = (
+        getattr(args, "launcher_ini", None)
+        or os.environ.get("BB_CONFIG")
+        or str((Path(os.environ.get("BB_DATA_DIR", "")) if os.environ.get("BB_DATA_DIR") else home / "player-data") / "bbport.ini")
+    )
+    data_value = (
+        getattr(args, "player_data_dir", None)
+        or os.environ.get("BB_DATA_DIR")
+        or str(home / "player-data")
+    )
+    ini = canonical_option(ini_value)
+    data = canonical_option(data_value, directory=True)
+    env.update(
+        {
+            "BB_NRBRIDGE_ACTIVE": "1",
+            "NRBRIDGE_APP": str(APP),
+            "NRBRIDGE_ENTRY": str(Path(__file__).resolve()),
+            "NRBRIDGE_HOME": str(home),
+            "NRBRIDGE_LAUNCHER_SETTINGS": str(settings),
+            "BB_LAUNCHER_SETTINGS": str(settings),
+            "NRBRIDGE_LAUNCHER_INI": str(ini),
+            "BB_CONFIG": str(ini),
+            "NRBRIDGE_PLAYER_DATA_DIR": str(data),
+            "BB_DATA_DIR": str(data),
+        }
+    )
+    if settings.name == "settings.json" and settings.parent.name == "bbport-launcher":
+        env["XDG_CONFIG_HOME"] = str(settings.parent.parent)
+    os.chdir(str(APP))
+    command = [sys.executable, str(launcher)]
+    if getattr(args, "play", False):
+        command.append("--play")
+    os.execve(sys.executable, command, env)
+    return 0
 
 
 def pe_dll(path: Path) -> bool:
@@ -425,11 +512,43 @@ def generate_pins(runtime_inputs, config: dict, required: list[Path], trees: lis
     return [pins[name] for name in sorted(pins)]
 
 
+DEPENDENCY_LOCK = Path("/tmp/nrbridge-poc-gpu.lock")
+
+
+def dependency_guard():
+    path = TOOLS / "daily_session_guard.py"
+    spec = importlib.util.spec_from_file_location("nrbridge_dependency_guard", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module.SessionGuard()
+
+
 def write_config(home: Path, sel: dict[str, Path], runtime_inputs, *, force: bool = False) -> Path:
+    """Update inputs only while no managed session owns the GPU/runtime trees."""
+    with DEPENDENCY_LOCK.open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise ValueError("A managed GPU session is running; close it normally before updating NR inputs") from None
+        # Admission is read-only. A diagnostic approval never bypasses a boot HOLD.
+        dependency_guard().admit()
+        return _write_config_unlocked(home, sel, runtime_inputs, force=force)
+
+
+def _write_config_unlocked(home: Path, sel: dict[str, Path], runtime_inputs, *, force: bool = False) -> Path:
+    ensure_runs(home)
     localinputs = home / "localinputs"
     localinputs.mkdir(parents=True, exist_ok=True)
-    seed = stage_seed(home)
     config_path = localinputs / "runtime.json"
+    # Dependency edits preserve the selected seed byte-for-byte. In particular,
+    # do not create a synthetic marker or rewrite its manifest on readback/save.
+    if config_path.is_file() and not force:
+        existing = json.loads(config_path.read_text())
+        seed = canonical(existing["seed"], directory=True)
+        canonical(str(seed / "manifest.json"))
+    else:
+        seed = stage_seed(home)
     pins_path = localinputs / "runtime-pins.json"
     helper = stage_helper(home, replace=force)
     build = stage_native(home, replace=force)
@@ -725,13 +844,7 @@ def record_run(home: Path, session: str) -> dict:
 
 
 def launcher_online_settings() -> Path:
-    return Path(
-        os.environ.get(
-            "NRBRIDGE_ONLINE_CONFIG",
-            str(Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
-                / "bbport-launcher/settings.json"),
-        )
-    ).expanduser()
+    return launcher_settings_path()
 
 
 def online_choice(args) -> tuple[str, Path | None, bool]:
@@ -749,7 +862,9 @@ def online_choice(args) -> tuple[str, Path | None, bool]:
         die(f"unknown online pool: {pool}")
     if pool == "offline":
         return "offline", None, False
-    account_value = getattr(args, "online_account_config", None)
+    account_value = getattr(args, "online_account_config", None) or getattr(
+        args, "launcher_settings", None
+    )
     account = Path(account_value).expanduser() if account_value else launcher_online_settings()
     if not account.is_absolute() or account.resolve() != account or account.is_symlink():
         die(f"online account configuration must be a canonical file: {account}")
@@ -800,7 +915,32 @@ def daily(args) -> int:
         )
     session = args.session or ("nrbridge-" + time.strftime("%Y%m%d-%H%M%S"))
     build = home / "build/baselines" / info["native"]["source"]
-    continuation = choose_continuation(home, args)
+    launcher_settings = (
+        canonical_option(args.launcher_settings)
+        if getattr(args, "launcher_settings", None)
+        else None
+    )
+    launcher_ini = (
+        canonical_option(args.launcher_ini)
+        if getattr(args, "launcher_ini", None)
+        else None
+    )
+    player_data = (
+        canonical_option(args.player_data_dir, directory=True)
+        if getattr(args, "player_data_dir", None)
+        else None
+    )
+    # A private test session from an earlier preview is never continued just
+    # because the packaged launcher supplied its settings.  The runner takes
+    # the player's user_dir from that settings file and makes its own private
+    # copy; only a real normal retirement writes back.  An explicit
+    # --continue-session still wins.
+    if launcher_settings and not getattr(args, "continue_session", None) and not getattr(
+        args, "new_game", False
+    ):
+        continuation = None
+    else:
+        continuation = choose_continuation(home, args)
     pool, online_account, bbsc = online_choice(args)
     command = [
         sys.executable,
@@ -813,6 +953,14 @@ def daily(args) -> int:
         "--native-build",
         str(build),
     ]
+    if launcher_settings:
+        command += ["--launcher-settings", str(launcher_settings)]
+    if launcher_ini:
+        command += ["--launcher-ini", str(launcher_ini)]
+    if player_data:
+        command += ["--player-data-dir", str(player_data)]
+    if getattr(args, "sr_only", False):
+        command.append("--sr-only")
     if continuation:
         command += ["--continue-session", continuation]
     if getattr(args, "joystick_mouse", False):
@@ -836,6 +984,15 @@ def daily(args) -> int:
     env["NRBRIDGE_HOME"] = str(home)
     env["BB_PREBUILT"] = "1"
     env.setdefault("PYTHON", sys.executable)
+    if launcher_settings:
+        env["NRBRIDGE_LAUNCHER_SETTINGS"] = str(launcher_settings)
+        env["BB_LAUNCHER_SETTINGS"] = str(launcher_settings)
+    if launcher_ini:
+        env["NRBRIDGE_LAUNCHER_INI"] = str(launcher_ini)
+        env["BB_CONFIG"] = str(launcher_ini)
+    if player_data:
+        env["NRBRIDGE_PLAYER_DATA_DIR"] = str(player_data)
+        env["BB_DATA_DIR"] = str(player_data)
     if args.print_command:
         # Paths only; the online file is named, its contents are not read here.
         print(" ".join(command))
@@ -863,6 +1020,10 @@ def main(argv=None) -> int:
     parser.add_argument("--setup", action="store_true")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--daily", action="store_true")
+    parser.add_argument("--play", action="store_true",
+                        help="play with the full launcher saved settings through the managed coordinator")
+    parser.add_argument("--build-fsr411", nargs="*",
+                        help="unavailable in the managed NRBridge Preview")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--game-dir")
     parser.add_argument("--ge-files")
@@ -881,12 +1042,23 @@ def main(argv=None) -> int:
                         help="canonical launcher settings JSON; the runner copies only the pool whitelist")
     parser.add_argument("--bbsc", action="store_true", help="enable shadnet BBSC hooks")
     parser.add_argument("--offline", action="store_true", help="force the default offline pool")
+    parser.add_argument("--launcher-settings",
+                        help="canonical launcher settings.json forwarded to play.py")
+    parser.add_argument("--launcher-ini",
+                        help="canonical bbport.ini forwarded to play.py")
+    parser.add_argument("--player-data-dir",
+                        help="canonical player data directory forwarded to play.py")
+    parser.add_argument("--sr-only", action="store_true",
+                        help="do not start the Helper; the runner owns the SR-only path")
     parser.add_argument("--no-terminal", action="store_true")
     parser.add_argument("--print-command", action="store_true")
     args = parser.parse_args(argv)
     if args.home is None:
         args.home = DEFAULT_HOME
     args.home = Path(args.home).expanduser()
+    if args.build_fsr411 is not None:
+        die("FSR 4.1.1 DLL conversion is unavailable in NRBridge Preview (separate GPU workflow). "
+            "NRBridge 预览版暂不支持转换 FSR 4.1.1 DLL；关闭 NR 后仍可使用准备好的资源。", 2)
     if args.check:
         check(args)
         return 0
@@ -895,11 +1067,15 @@ def main(argv=None) -> int:
         return 0
     if args.daily or args.print_command:
         return daily(args)
-    # A desktop launch with a display opens the small setup/status window; it
-    # still hands the actual session to --daily in a terminal.  Headless use
-    # falls back to the terminal entry.
+    if args.play:
+        return desktop_launcher(args)
+    # A desktop launch from the packaged NRBridge opens the full bbport
+    # launcher (the package manifest activates the NRBridge group there).
+    # The old small setup window is only a source-checkout fallback.
     if os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
         os.environ["NRBRIDGE_HOME"] = str(args.home)
+        if BUNDLE_MANIFEST.is_file():
+            return desktop_launcher(args)
         try:
             import nrbridge_gui
         except Exception as error:

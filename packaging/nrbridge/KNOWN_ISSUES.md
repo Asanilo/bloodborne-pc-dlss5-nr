@@ -53,6 +53,23 @@ limited acceptance below does not make this preview "stable".
   Real 谏言/messages and online/THD/BBSC remain unverified; do not mark them as
   passed.
 
+## Full launcher and player saves
+
+- The original Settings / Online / Log pages are retained, with an NRBridge
+  section for NR, native mouse, checked local dependencies and artifact identity.
+  NR activation still requires confirming that the actual game scene is visible.
+- The selected INI (including bindings), language, Mods/patches and save directory
+  are passed to the managed runner. Incompatible NR settings are rejected with an
+  explanation; turn NR off to use the ordinary upscaler settings.
+- Player saves run from a locked private copy. Only proven normal teardown can
+  sync progress back, with the original launcher's backups and restore lock.
+  An abnormal exit or save-sync error keeps the private progress for recovery.
+- FSR 4.1.1 DLL conversion is unavailable in this Preview: its separate GPU
+  workflow is not admitted by the NRBridge lifecycle. Prepared resources can be
+  selected with NR off; this does not claim FSR GPU acceptance.
+- The installed `packages/` layout is discovered only with the existing INI and
+  launcher-settings markers. Explicit environment paths take precedence.
+
 ## Packaging
 
 - The old `6753999` / `7f69` package is `--check`-only: it has no
@@ -62,5 +79,5 @@ limited acceptance below does not make this preview "stable".
 - `BUILD_ONLY` in the bundle/build report is packaging metadata. External
   real-NR acceptance is recorded separately and is not implied by that field.
 - The AppImage mount only lives while the AppRun process lives. The GTK launcher
-  now tracks terminal/Online child processes and refuses to close while one is
-  running; forcibly killing the GUI still unmounts the image.
+  retains its managed game child and refuses to close until it exits normally;
+  a HOLD also blocks GUI close. Forcibly killing the GUI still unmounts the image.
