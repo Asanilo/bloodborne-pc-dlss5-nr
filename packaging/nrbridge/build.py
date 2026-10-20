@@ -27,7 +27,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from closure import collect  # noqa: E402
+from closure import _is_project_owned, collect  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_NATIVE_SHA = "c91bf9467604c36d70d97dd200844ae1ac8e8428"
@@ -586,6 +586,9 @@ def build_closure(app: Path, patchelf: str, native: Path, online: Path) -> dict[
         roots.append(loader)
     roots.extend(gtk_roots)
     copied = collect(roots, libdir, search, verbose=False)
+    leaked = sorted(path.name for path in libdir.iterdir() if _is_project_owned(path.name))
+    if leaked:
+        fail(f"project-owned libraries leaked into the generic closure: {leaked}")
     print(f"runtime closure: {len(set(copied.values()))} host libraries copied")
     # Runtime search: our own libraries, then the host.  Patch only ELFs that
     # still name a development tree; rewriting an unrelated system library's
@@ -758,9 +761,16 @@ def static_verify(app: Path) -> None:
     for path in app.rglob("*"):
         if path.name.lower() in forbidden_names:
             fail(f"forbidden private artifact in image: {path}")
-    # 3. Every bundled executable must resolve with the private libdir first.
+    # 3. Project-owned GPU/net/DLSS libraries stay in the Native build tree.
+    # A copy under the generic libdir would win through the runner's
+    # LD_LIBRARY_PATH and bypass the pinned source mapping.
+    libdir = app / "usr/lib/bbport"
+    leaked = sorted(path.name for path in libdir.iterdir() if _is_project_owned(path.name))
+    if leaked:
+        fail(f"project-owned libraries in the generic library directory: {leaked}")
+    # 4. Every bundled executable must resolve with the private libdir first.
     env = dict(os.environ)
-    env["LD_LIBRARY_PATH"] = str(app / "usr/lib/bbport")
+    env["LD_LIBRARY_PATH"] = str(libdir)
     for rel in (
         "usr/share/bbport/bin/bb-probe",
         "usr/share/bbport/bin/gpu/libbbgpu.so",
@@ -777,6 +787,15 @@ def static_verify(app: Path) -> None:
         for line in result.stdout.splitlines():
             if any(needle in line for needle in forbidden):
                 fail(f"{rel}: resolves into a historical build path: {line.strip()}")
+        # The Native loader and its online modules must resolve from the
+        # staged Native build tree, never from the generic closure copy.
+        if rel == "usr/share/bbport/bin/bb-probe":
+            gpu = app / "usr/share/bbport/bin/gpu/libbbgpu.so"
+            if f"libbbgpu.so => {gpu}" not in result.stdout:
+                fail(
+                    "bb-probe does not resolve libbbgpu.so from its own gpu tree "
+                    f"(expected {gpu})\n{result.stdout}"
+                )
 
 
 def write_build_report(app: Path, args, bundle: dict, target: Path | None) -> None:

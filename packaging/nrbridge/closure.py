@@ -64,6 +64,21 @@ DRIVER_PREFIXES = (
     "libvulkan",
 )
 
+# The Native baseline owns these libraries.  They are staged next to the
+# executables that load them (``bin/gpu`` and ``bin``) and their identity is
+# pinned by the Native build provenance.  A second copy in the generic
+# ``usr/lib/bbport``/home ``lib`` closure would shadow that pinned copy through
+# the runner's ``LD_LIBRARY_PATH`` and be rejected when the runner checks the
+# source mapping.  Dependencies *of* these libraries still belong in the
+# closure; the libraries themselves never do.
+PROJECT_LIBRARY_PREFIXES = (
+    "libbbgpu.so",
+    "libbbnet.so",
+    "libbbnet20.so",
+    "libbbport_dlss.so",
+    "libnvidia-ngx-dlss.so",
+)
+
 _LDD = re.compile(r"^\s*(\S+)\s+=>\s+(\S+)\s+\(0x[0-9a-fA-F]+\)\s*$")
 
 
@@ -74,6 +89,11 @@ class ClosureError(RuntimeError):
 def _is_denied(name: str) -> bool:
     base = Path(name).name
     return base in GLIBC or base.startswith(DRIVER_PREFIXES)
+
+
+def _is_project_owned(name: str) -> bool:
+    """True for a library that the Native build itself stages and owns."""
+    return Path(name).name.startswith(PROJECT_LIBRARY_PREFIXES)
 
 
 def _ldd(path: Path, search: list[Path]) -> list[tuple[str, str]]:
@@ -145,6 +165,12 @@ def collect(
             if _is_denied(needed) or _is_denied(resolved):
                 continue
             resolved_path = Path(resolved).resolve()
+            if _is_project_owned(needed) or _is_project_owned(resolved_path):
+                # Scan the owner for ordinary dependencies, but never copy it:
+                # the Native build's own pinned copy must remain the one loaded.
+                if resolved_path not in seen_sources:
+                    queue.append((resolved_path, [dest, *source_search]))
+                continue
             alias = dest / Path(needed).name
             real = dest / resolved_path.name
             _copy(resolved_path, real)

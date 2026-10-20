@@ -4,7 +4,10 @@
 No GPU, Wine, account, game asset or private configuration is touched here.
 """
 import importlib.util
+import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -58,10 +61,270 @@ class ClosurePolicyTest(unittest.TestCase):
             self.assertTrue(closure._is_denied(name), name)
 
     def test_ordinary_payload_libraries_are_bundled(self):
-        for name in ("libgtk-4.so.1", "libadwaita-1.so.0", "libbbgpu.so",
+        for name in ("libgtk-4.so.1", "libadwaita-1.so.0",
                      "libprotobuf.so.36.1.0", "libavformat.so.63",
                      "libminiupnpc.so.21", "libstdc++.so.6"):
             self.assertFalse(closure._is_denied(name), name)
+
+    def test_project_owned_libraries_are_never_generic_payload(self):
+        for name in ("libbbgpu.so", "libbbnet.so", "libbbnet20.so",
+                     "libbbport_dlss.so", "libnvidia-ngx-dlss.so.310.9.1"):
+            self.assertTrue(closure._is_project_owned(name), name)
+            self.assertTrue(entry._is_project_library(name), name)
+        for name in ("libgtk-4.so.1", "libprotobuf.so.36.1.0",
+                     "libnvidia-glcore.so.615.78.08"):
+            self.assertFalse(closure._is_project_owned(name), name)
+
+
+@unittest.skipUnless(shutil.which("gcc"), "gcc is required for the real ELF test")
+class RealElfClosureTest(unittest.TestCase):
+    def _gcc(self, *arguments):
+        result = subprocess.run(
+            ["gcc", *map(str, arguments)], capture_output=True, text=True
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_project_libraries_are_scanned_but_not_copied(self):
+        # Real shared objects and the host ldd: no mocked dependency output.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            gpu = source / "gpu"
+            gpu.mkdir(parents=True)
+            (source / "dep.c").write_text("int dep(void) { return 7; }\n")
+            (gpu / "gpu.c").write_text(
+                "extern int dep(void); int gpu(void) { return dep(); }\n"
+            )
+            (gpu / "net.c").write_text(
+                "extern int gpu(void); int net(void) { return gpu(); }\n"
+            )
+            (source / "main.c").write_text(
+                "extern int net(void); extern int dep(void);\n"
+                "int main(void) { return net() + dep() > 0 ? 0 : 1; }\n"
+            )
+            self._gcc("-shared", "-fPIC", "-Wl,-soname,libdep.so",
+                      "-o", source / "libdep.so", source / "dep.c")
+            self._gcc("-shared", "-fPIC", "-Wl,-soname,libbbgpu.so",
+                      "-o", gpu / "libbbgpu.so", gpu / "gpu.c",
+                      "-L", source, "-Wl,--no-as-needed", "-ldep")
+            self._gcc("-shared", "-fPIC", "-Wl,-soname,libbbnet20.so",
+                      "-o", gpu / "libbbnet20.so", gpu / "net.c",
+                      "-L", gpu, "-Wl,--no-as-needed", "-lbbgpu",
+                      "-L", source, "-ldep")
+            self._gcc("-o", source / "main", source / "main.c",
+                      "-L", gpu, "-L", source,
+                      "-Wl,-rpath-link," + str(gpu),
+                      "-Wl,-rpath-link," + str(source),
+                      "-Wl,--no-as-needed", "-lbbnet20", "-ldep")
+            dest = root / "lib"
+            dest.mkdir()
+            copied = closure.collect(
+                [source / "main"], dest, [gpu, source]
+            )
+            # The owner libraries are not duplicated...
+            self.assertFalse((dest / "libbbgpu.so").exists())
+            self.assertFalse((dest / "libbbnet20.so").exists())
+            self.assertNotIn("libbbgpu.so", copied)
+            self.assertNotIn("libbbnet20.so", copied)
+            # ...but their ordinary dependency is still collected because the
+            # excluded owner is scanned transitively.
+            self.assertTrue((dest / "libdep.so").is_file())
+            self.assertIn("libdep.so", copied)
+
+
+def _write_pe(path: Path) -> None:
+    data = bytearray(0x100)
+    data[:2] = b"MZ"
+    data[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    data[0x80:0x84] = b"PE\0\0"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+
+
+def _make_fresh_home_fixture(root: Path) -> dict[str, Path]:
+    """A structurally valid package/home fixture for the real setup path."""
+    app = root / "app"
+    bundle = app / "nrbridge"
+    provenance = app / "build-provenance"
+    gpu = app / "bin/gpu"
+    gpu.mkdir(parents=True)
+    bundle.mkdir(parents=True)
+    provenance.mkdir(parents=True)
+    staged = {
+        "bb-probe": b"probe",
+        "gpu/libbbgpu.so": b"gpu",
+        "libbbport_dlss.so": b"bridge",
+        "libnvidia-ngx-dlss.so.1": b"ngx",
+    }
+    for name, payload in staged.items():
+        path = app / "bin" / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    (app / "bin/gpu/libbbnet.so").write_bytes(b"net")
+    (app / "bin/gpu/libbbnet20.so").write_bytes(b"net20")
+    (provenance / "source-head.txt").write_text("a" * 40 + "\n")
+    (provenance / "source-diff.patch").write_text("")
+    (provenance / "artifacts.sha256").write_text(
+        "\n".join(f"{build.sha256(app / 'bin' / name)}  {name}" for name in staged)
+        + "\n"
+    )
+    helper = bundle / "wine_runtime_model.exe"
+    helper.write_bytes(b"MZ" + b"\0" * 64)
+    exports = {}
+    for name in ("native_runtime_model.h", "pre_sr_wire.h",
+                 "pre_sr_spec.h", "effective-spec.json"):
+        exports[name] = "d" * 64
+    helper_manifest = {
+        "schema": "nrbridge-helper-build-v1",
+        "status": "BUILD_ONLY_PASS",
+        "source_head": "c" * 40,
+        "artifact": str(helper),
+        "artifact_sha256": build.sha256(helper),
+        "protocol": {
+            "wire_version": 1,
+            "interface_revision": 4,
+            "runtime_model_schema": "nr-runtime-model-v1",
+            "job_model_schema": "nr-runtime-job-model-v1",
+            "exports": exports,
+            "export_manifest_sha256": "e" * 64,
+        },
+    }
+    (bundle / "helper-build.json").write_text(json.dumps(helper_manifest))
+    forwarder = bundle / "forwarder/nvngx.dll_dlssnr.dll"
+    forwarder.parent.mkdir(parents=True)
+    forwarder.write_bytes(b"MZ" + b"\1" * 64)
+    (app / "nrbridge-bundle.json").write_text(json.dumps({
+        "schema": "bbport-nrbridge-bundle-v1",
+        "build_status": "BUILD_ONLY",
+        "daily_ready": True,
+        "native": {"source": "a" * 40, "daily_portable": True},
+        "helper": {
+            "build_id": "b" * 16,
+            "artifact_sha256": build.sha256(helper),
+            "protocol": {"wire_version": 1, "interface_revision": 4},
+        },
+        "forwarder": {
+            "build_id": "c" * 16,
+            "artifact_sha256": build.sha256(forwarder),
+        },
+    }))
+    tools = app / "tools/nr_dev"
+    tools.mkdir(parents=True)
+    for source in (ROOT / "tools/nr_dev").glob("*.py"):
+        shutil.copy2(source, tools / source.name)
+
+    game = root / "game"
+    game.mkdir()
+    (game / "eboot.bin").write_bytes(b"eboot")
+    ge = root / "ge"
+    wine = ge / "lib/wine/x86_64-unix"
+    wine.mkdir(parents=True)
+    (wine / "wine").write_bytes(b"wine")
+    (wine / "wine-preloader").write_bytes(b"preloader")
+    ngx = root / "ngx"
+    ngx.mkdir()
+    (ngx / "nvngx.dll").write_bytes(b"nvngx")
+    (ngx / "_nvngx.dll").write_bytes(b"_nvngx")
+    model = root / "model.dll"
+    _write_pe(model)
+    system_ngx = root / "libnvidia-ngx.so.999"
+    system_ngx.write_bytes(b"system-ngx")
+    sysroot = root / "sysroot"
+    sysroot.mkdir()
+    (sysroot / "libfmt.so.12").write_bytes(b"host-fmt")
+    return {
+        "app": app, "bundle": bundle, "game": game, "ge": ge,
+        "ngx": ngx, "model": model, "system_ngx": system_ngx,
+        "sysroot": sysroot,
+    }
+
+
+class FreshHomeTest(unittest.TestCase):
+    def test_runs_rejects_non_directory_and_symlink(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory) / "home"
+            home.mkdir()
+            (home / "runs").write_text("not a directory")
+            with self.assertRaises(SystemExit):
+                entry.ensure_runs(home)
+            (home / "runs").unlink()
+            target = Path(directory) / "target"
+            target.mkdir()
+            (home / "runs").symlink_to(target)
+            with self.assertRaises(SystemExit):
+                entry.ensure_runs(home)
+
+    def test_fresh_home_setup_creates_runs_for_the_real_runner_mkdir(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = _make_fresh_home_fixture(root)
+            home = root / "data/nrbridge-home"
+            old = (entry.APP, entry.BUNDLE, entry.TOOLS,
+                   entry.BUNDLE_MANIFEST, entry._BUNDLE_CACHE)
+            old_home = os.environ.get("NRBRIDGE_HOME")
+            entry.APP = fixture["app"]
+            entry.BUNDLE = fixture["bundle"]
+            entry.TOOLS = fixture["app"] / "tools/nr_dev"
+            entry.BUNDLE_MANIFEST = fixture["app"] / "nrbridge-bundle.json"
+            entry._BUNDLE_CACHE = None
+            try:
+                args = type("Args", (), {})()
+                args.home = home
+                args.force = False
+                args.game_dir = str(fixture["game"])
+                args.ge_files = str(fixture["ge"])
+                args.model = str(fixture["model"])
+                args.ngx_dir = str(fixture["ngx"])
+                args.system_ngx = str(fixture["system_ngx"])
+                args.sysroot_lib = str(fixture["sysroot"])
+                entry.setup(args)
+                self.assertTrue((home / "runs").is_dir())
+                self.assertFalse((home / "runs").is_symlink())
+                self.assertEqual(
+                    entry.project_libraries(home / "lib"), []
+                )
+                # Reproduce the exact runner operation that used to fail on a
+                # fresh home because home/runs did not exist.
+                environment = dict(os.environ)
+                environment["NRBRIDGE_HOME"] = str(home)
+                result = subprocess.run(
+                    [sys.executable, "-c",
+                     "import runner; run = runner.checked_run('fresh-cpu'); "
+                     "run.mkdir(mode=0o700); print(run)"],
+                    cwd=str(ROOT / "tools/nr_dev"), env=environment,
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue((home / "runs/fresh-cpu").is_dir())
+            finally:
+                (entry.APP, entry.BUNDLE, entry.TOOLS,
+                 entry.BUNDLE_MANIFEST, entry._BUNDLE_CACHE) = old
+                if old_home is None:
+                    os.environ.pop("NRBRIDGE_HOME", None)
+                else:
+                    os.environ["NRBRIDGE_HOME"] = old_home
+
+
+class LibraryMigrationTest(unittest.TestCase):
+    def test_stage_libs_refuses_project_source_and_stale_destination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            home = root / "home"
+            home.mkdir()
+            clean = root / "clean"
+            clean.mkdir()
+            (clean / "libfmt.so.12").write_bytes(b"fmt")
+            entry.stage_libs(home, clean, replace=False)
+            self.assertTrue((home / "lib/libfmt.so.12").is_file())
+            (home / "lib/libbbgpu.so").write_bytes(b"stale")
+            with self.assertRaises(SystemExit):
+                entry.stage_libs(home, clean, replace=False)
+            leaked = root / "leaked"
+            leaked.mkdir()
+            (leaked / "libbbgpu.so").write_bytes(b"project")
+            with self.assertRaises(SystemExit):
+                entry.stage_libs(home, leaked, replace=False)
+
 
 
 class EntryValidationTest(unittest.TestCase):

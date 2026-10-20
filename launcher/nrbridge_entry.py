@@ -32,6 +32,17 @@ APP = Path(os.environ.get("NRBRIDGE_APP", Path(__file__).resolve().parent.parent
 BUNDLE = APP / "nrbridge"
 TOOLS = APP / "tools/nr_dev"
 BUNDLE_MANIFEST = APP / "nrbridge-bundle.json"
+# Keep in sync with packaging/nrbridge/closure.py.  These libraries belong to
+# the checked Native build and are staged under build/baselines/<sha>/gpu and
+# build/baselines/<sha>/; a copy in the generic home/lib closure would shadow
+# the pinned source through the runner's LD_LIBRARY_PATH.
+PROJECT_LIBRARY_PREFIXES = (
+    "libbbgpu.so",
+    "libbbnet.so",
+    "libbbnet20.so",
+    "libbbport_dlss.so",
+    "libnvidia-ngx-dlss.so",
+)
 DEFAULT_HOME = Path(
     os.environ.get("NRBRIDGE_HOME", "")
     or (Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "bbport/nrbridge-home")
@@ -227,6 +238,53 @@ def validate_selection(args) -> dict[str, Path]:
     }
 
 
+def _is_project_library(name: str) -> bool:
+    return Path(name).name.startswith(PROJECT_LIBRARY_PREFIXES)
+
+
+def project_libraries(root: Path) -> list[str]:
+    if not root.is_dir():
+        return []
+    return sorted(path.name for path in root.iterdir() if _is_project_library(path.name))
+
+
+def canonical_home(value: Path) -> Path:
+    home = Path(value).expanduser()
+    if not home.is_absolute() or home.resolve() != home or home.is_symlink():
+        die(f"NRBRIDGE_HOME must be a canonical absolute path: {home}")
+    return home
+
+
+def ensure_runs(home: Path) -> Path:
+    """Create the runner's canonical runs directory on a fresh home.
+
+    The runner does ``(home/'runs'/session).mkdir(mode=0o700)`` without
+    ``parents=True``, so ``runs`` itself must exist and must not be a symlink
+    or a regular file that happens to share the name.
+    """
+    runs = home / "runs"
+    if runs.is_symlink():
+        die(f"refusing symlinked runs directory: {runs}", 3)
+    if runs.exists() and not runs.is_dir():
+        die(f"runs path is not a directory: {runs}", 3)
+    runs.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if runs.is_symlink() or runs.resolve() != runs or not runs.is_dir():
+        die(f"runs directory is not canonical: {runs}", 3)
+    return runs
+
+
+def verify_private_library_dir(home: Path) -> None:
+    stale = project_libraries(home / "lib")
+    if stale:
+        die(
+            f"stale project-owned libraries in {home / 'lib'}: {', '.join(stale)}; "
+            "this home was created by an older package. Move those duplicate "
+            "libraries aside and refresh the home's active runtime pins before "
+            "launching. Do not use --setup --force: it re-creates the empty seed.",
+            3,
+        )
+
+
 def safe_copy_tree(src: Path, dst: Path, *, replace: bool) -> None:
     if dst.exists():
         if not replace:
@@ -299,6 +357,18 @@ def stage_forwarder(home: Path) -> Path:
 
 def stage_libs(home: Path, source: Path, *, replace: bool) -> Path:
     dest = home / "lib"
+    leaked = project_libraries(source)
+    if leaked:
+        die(f"packaged library closure contains project-owned libraries: {leaked}")
+    stale = project_libraries(dest)
+    if stale and not replace:
+        die(
+            f"stale project-owned libraries in {dest}: {', '.join(stale)}; "
+            "this home predates the fixed package. Migrate it manually "
+            "(duplicates aside, then refresh the active pins). Do not use "
+            "--setup --force: it re-creates the empty seed.",
+            3,
+        )
     if dest.is_dir() and not replace:
         return dest
     safe_copy_tree(source, dest, replace=replace)
@@ -427,13 +497,10 @@ def write_config(home: Path, sel: dict[str, Path], runtime_inputs, *, force: boo
 
 
 def setup(args) -> Path:
-    if args.home is None:
-        args.home = DEFAULT_HOME
-    args.home = Path(args.home).expanduser().absolute()
-    home = args.home
-    if home.resolve() != home or home.is_symlink():
-        die(f"NRBRIDGE_HOME must be a canonical path: {home}")
+    home = canonical_home(args.home or DEFAULT_HOME)
+    args.home = home
     home.mkdir(parents=True, exist_ok=True)
+    ensure_runs(home)
     config = home / "localinputs/runtime.json"
     if config.is_file() and not args.force:
         log(f"configuration already exists: {config}")
@@ -483,6 +550,7 @@ def check(args) -> None:
     config = home / "localinputs/runtime.json"
     if not config.is_file():
         die(f"no configuration at {config}; run --setup", 3)
+    verify_private_library_dir(home)
     try:
         binding = runtime_inputs.load(config, home)
     except Exception as error:  # the validator raises ValueError with a precise reason
@@ -709,7 +777,7 @@ def runner_supports_online() -> bool:
 
 
 def daily(args) -> int:
-    home = Path(args.home or DEFAULT_HOME).expanduser()
+    home = canonical_home(args.home or DEFAULT_HOME)
     config = home / "localinputs/runtime.json"
     if not config.is_file():
         if sys.stdin.isatty():
@@ -717,6 +785,8 @@ def daily(args) -> int:
             setup(args)
         else:
             die(f"no configuration at {config}; run this AppImage with --setup in a terminal", 3)
+    ensure_runs(home)
+    verify_private_library_dir(home)
     info = bundle_info()
     if not info.get("daily_ready", False):
         marker = bool(info["native"].get("daily_portable", False))
