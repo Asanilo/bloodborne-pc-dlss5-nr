@@ -92,6 +92,27 @@ int main() {
     BbSettings::Load();
     assert(s.upscaler == BbSettings::UpscalerFsr3);
     unsetenv("BB_UPSCALER");
+    // A fixed-1080p private profile: an explicit 16:9 choice must survive SetMonitor, even when
+    // SDL reports a portrait monitor. Auto alone re-fits and writes the monitor's aspect.
+    {
+        std::ofstream config(path, std::ios::trunc);
+        config << "aspect_ratio=16:9\noutput_res=1920x1080\n";
+    }
+    const BbSettings::OutputSize previous_monitor = BbSettings::Monitor();
+    BbSettings::Load();
+    assert(s.aspect == BbSettings::Aspect16x9);
+    assert(s.output_res == BbSettings::PackSize({1920, 1080}));
+    BbSettings::SetMonitor(1440, 2560);
+    assert(BbSettings::Monitor() == (BbSettings::OutputSize{1440, 2560}));
+    assert(BbSettings::CurrentOutput() == (BbSettings::OutputSize{1920, 1080}));
+    assert(s.output_res == BbSettings::PackSize({1920, 1080}));
+    assert(Read(path) == "aspect_ratio=16:9\noutput_res=1920x1080\n");
+    // SetMonitor has no "unknown" reset; restore a known monitor for any later checks.
+    if (previous_monitor.width > 0 && previous_monitor.height > 0) {
+        BbSettings::SetMonitor(previous_monitor.width, previous_monitor.height);
+    } else {
+        BbSettings::SetMonitor(1920, 1080);
+    }
     unsetenv("BB_MENU_LANGUAGE");
     unlink(path);
     std::puts("PASS: settings save keeps other keys, menu position, inherited/explicit menu language");
