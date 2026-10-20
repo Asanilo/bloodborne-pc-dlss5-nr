@@ -1,3 +1,54 @@
+# Full launcher / daily installation — 2026-10-21
+
+Implementation commits: a9e2275 (settings/save transaction), fd389ae (full UI/package).
+Runtime remains Native **c91bf9467604c36d70d97dd200844ae1ac8e8428**,
+Helper source713f8ac9 / PE1eddac56e4de26c0, forwarder9a825; no new Native build.
+
+- Original Settings / Online / Log, Chinese UI, bindings, Mods, patches and save
+  management remain in the full launcher. NR/native mouse default on; joystick
+  fallback and explicit scene confirmation remain. Settings/dependency edits are
+  read back and forwarded to the managed runner; incompatible NR choices reject.
+- Saves use the original launcher locks/backups, a per-run private copy and sync
+  only after actual normal retirement. Copy/backup/swap faults and external save
+  changes preserve private progress. Runtime game selection preserves old pins
+  and seeds, including inventories larger than128KiB.
+- CPU:271 tools,54 NRBridge frontend/packaging,8 original-launcher tests PASS.
+  Astra confirmed managed normal-close/mount lifetime and the FSR conversion
+  guard. FSR4.1.1 DLL conversion stays explicitly unavailable in Preview; prepared
+  resources with NR off remain selectable, without a new FSR acceptance claim.
+- Exact r4 AppImage full Chinese GUI / SR-only loaded private Clinic300 echoes,
+  installed native camera and exited normally with private save sync. Independent
+  r4 NR run reloaded that synced copy, displayed actual NR history, finalized572
+  jobs (569captured/3obsolete/0skip), Feature create/release1/1, and passed
+  PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP. No residual project holders,
+  current-boot kernel PASS and global receipt retired. Formal saves unchanged.
+- Installed package: `/home/arinp/bloodborne/packages/Bloodborne-bbport-x86_64.AppImage`,
+  SHA256 `2ed34e9881bdfa081431c9022bb384c221795a139135f809b72ea54c94a483c1`.
+  `runtime/current` -> `releases/20261020T160000Z-nrbridge-c91bf94`;
+  `runtime/previous` -> old6ad9496e release. Old package renamed
+  `Bloodborne-bbport-x86_64.pre-nrbridge-20261021.AppImage`.
+  Old runtime retained **in place**, without duplicate backup:37of56 files differ
+  from/are absent in the old AppImage, so it cannot reconstruct that local release.
+- Existing `launch.sh`, INI, launcher settings and15formal save files were unchanged
+  at deployment. Installed entry --check passed and the full Chinese GUI visibly
+  reads the existing game/save paths. New managed home is `data/nrbridge`; game,
+  GE, NR model and NGX stay external. No history/workspace cleanup was performed.
+
+Start `/home/arinp/bloodborne/launch.sh` or the installed AppImage. Click Start,
+then confirm **进入游戏场景后开启 NR** once the actual scene is visible.
+Online login/messages/bloodstains/phantoms remain untested; no automatic login.
+NR flicker/bright tails and limited broad-scene/endurance/controller/DLC coverage
+remain known issues. Earlier611s evidence remains applicable to identical runtime
+bytes; this shorter UI integration check does not claim another long soak.
+
+Evidence: Fork `out/launcher-integration-20261020/` (tests, screenshots, deployment,
+old-runtime comparison) and normal-home `runs/nrbridge-20261020-235038-35f26d25`,
+`runs/full-launcher-nr-20261020`. Source rollback uses normal revert; installed
+rollback requires normal retirement/no current-boot HOLD, then restoring the old
+package/current link from deployment.json. Old stable5635804/7f69/9a825 remains.
+
+The following is the earlier runtime acceptance snapshot, retained as evidence.
+
 # NRBridge Preview — 2026-10-20 post-reboot acceptance
 
 Native runtime source: **c91bf9467604c36d70d97dd200844ae1ac8e8428**.

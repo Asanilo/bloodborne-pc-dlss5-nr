@@ -1,5 +1,12 @@
 # NRBridge 构建与私有运行入口
 
+2026-10-21 日常 Preview 已接回完整启动器：本机直接用 `/home/arinp/bloodborne/launch.sh`，
+读取原配置、改键、语言、Mod与存档目录，默认原生鼠标和NR；进入真实场景后点开启NR。
+当前实际Native仍c91bf94，Helper1eddac56/forwarder9a825；源码后续提交不是新GPU构建。
+玩家存档经锁与备份复制到私人会话，只在正常GPU退休后同步回所选目录；异常保留副本。
+普通游玩不使用下面的诊断seed/continue命令。完整入口与有限实机验收见
+[Preview状态](../../docs/NRBRIDGE_PREVIEW_STATUS.md)。
+
 现行工程规范见开发根 `CURRENT.md`，阶段、历史故障和画质证据见 [NRBRIDGE_PLAN](../../docs/NRBRIDGE_PLAN.md)。本页只说明当前入口，不把旧运行报告当成启动指令。当前源码工作树已回到各自Fork的 `.worktree/nrbridge`；`nrbridge-dev`仅作依赖/构建/私人运行数据根。先设置：
 
 ```bash
