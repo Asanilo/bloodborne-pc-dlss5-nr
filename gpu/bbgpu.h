@@ -85,6 +85,9 @@ uint64_t bbgpu_camera_state(void);
 /* Patches the loaded image before the game runs (image still writable): libGnm entry hooks. */
 void bbgpu_patch_image(unsigned char *image, uint64_t size);
 typedef struct { uint64_t address, size, flags; } BbGpuSegment;
+/* Pre-writer snapshot: original camera FNV/segments/site and FPS call sequence. */
+void bbgpu_prepare_mouse_image(unsigned char *image, uint64_t size,
+                               const BbGpuSegment *segments, uint64_t count);
 /* Startup-only native-mouse installer; needs the real segment coverage, not image_size alone. */
 void bbgpu_patch_mouse_image(unsigned char *image, uint64_t size,
                              const BbGpuSegment *segments, uint64_t count);

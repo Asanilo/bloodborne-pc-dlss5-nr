@@ -385,31 +385,49 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbFrameRate::PatchImage(image, size);
 }
 
+static bool MouseOverlapRefused() {
+    const char* requested = std::getenv("BB_NATIVE_MOUSE");
+    if (!requested || std::strcmp(requested, "1") != 0) return false;
+    const char* online = std::getenv("BB_ONLINE");
+    const char* camera_probe = std::getenv("BB_RE_CAMERA");
+    const char* entry_probe = std::getenv("BB_RE_ENTRY");
+    if ((online && online[0] == '1') || (camera_probe && camera_probe[0] == '1') ||
+        (entry_probe && entry_probe[0])) {
+        std::printf("NATIVE_MOUSE status=refused: overlapping online/diagnostic camera writer; "
+                    "default=off runtime_validation=not_claimed\n");
+        return true;
+    }
+    return false;
+}
+
+extern "C" void bbgpu_prepare_mouse_image(unsigned char* image, uint64_t size,
+                                         const BbGpuSegment* segments, uint64_t count) {
+    if (MouseOverlapRefused()) return;
+    const char* requested = std::getenv("BB_NATIVE_MOUSE");
+    if (!requested || std::strcmp(requested, "1") != 0 || !segments || count > 64) return;
+    BbMouseLook::Segment ranges[64];
+    for (uint64_t i = 0; i < count; ++i)
+        ranges[i] = {segments[i].address, segments[i].size, segments[i].flags};
+    if (!BbMouseLook::PreAttest(image, size, ranges, count,
+                                BbFrameRate::CameraRedirectSequence()))
+        std::printf("NATIVE_MOUSE status=%s default=off runtime_validation=not_claimed\n",
+                    BbMouseLook::Status());
+}
+
 extern "C" void bbgpu_patch_mouse_image(unsigned char* image, uint64_t size,
                                         const BbGpuSegment* segments, uint64_t count) {
     const char* requested = std::getenv("BB_NATIVE_MOUSE");
-    const bool enabled = requested && std::strcmp(requested, "1") == 0;
-    if (enabled) {
-        // These writers can change the exact camera function/site the candidate verifies.
-        // Refuse before publishing anything; the normal stick path remains available.
-        const char* online = std::getenv("BB_ONLINE");
-        const char* camera_probe = std::getenv("BB_RE_CAMERA");
-        const char* entry_probe = std::getenv("BB_RE_ENTRY");
-        if ((online && online[0] == '1') ||
-            (camera_probe && camera_probe[0] == '1') ||
-            (entry_probe && entry_probe[0])) {
-            std::printf("NATIVE_MOUSE status=refused: overlapping online/diagnostic camera writer; "
-                        "default=off runtime_validation=not_claimed\n");
-            return;
-        }
-    }
+    if (MouseOverlapRefused()) return;
     BbMouseLook::Segment ranges[64];
+    BbFrameRate::CameraRedirectProof proof{};
+    const bool have_proof = BbFrameRate::CameraRedirectProofs(&proof);
     if (!segments || count > 64) {
-        BbMouseLook::PatchImage(image, size, nullptr, 0);
+        BbMouseLook::PatchImageWithProof(image, size, nullptr, 0, have_proof ? &proof : nullptr);
     } else {
         for (uint64_t i = 0; i < count; ++i)
             ranges[i] = {segments[i].address, segments[i].size, segments[i].flags};
-        BbMouseLook::PatchImage(image, size, ranges, count);
+        BbMouseLook::PatchImageWithProof(image, size, ranges, count,
+                                         have_proof ? &proof : nullptr);
     }
     if (requested)
         std::printf("NATIVE_MOUSE status=%s default=off runtime_validation=not_claimed\n",

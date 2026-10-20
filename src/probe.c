@@ -699,6 +699,7 @@ int main(int argc, char **argv) {
     runtime_net_image_mapped(image, size); /* online modules that read the original code */
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
     if (!cpu_only) {
+        bbgpu_prepare_mouse_image(image, size, segments, ns);
         bbgpu_patch_image(image, size);
         bbgpu_patch_mouse_image(image, size, segments, ns);
     }

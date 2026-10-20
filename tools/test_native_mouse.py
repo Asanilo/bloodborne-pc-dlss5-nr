@@ -23,6 +23,10 @@ def main():
     subprocess.run([sys.executable, str(root / 'tests/pm4/native_mouse_gate_test.py')], check=True)
     subprocess.run([sys.executable, str(root / 'tests/native_mouse_edges.py'),
                     *(['--sanitize'] if args.sanitize != 'none' else [])], check=True)
+    private_image = os.environ.get('BB_NATIVE_MOUSE_IMAGE')
+    subprocess.run([sys.executable, str(root / 'tests/test_native_mouse_fps_real.py'),
+                    *(['--sanitize'] if args.sanitize != 'none' else []),
+                    *(['--image', private_image] if private_image else [])], check=True)
     sanitizer = [] if args.sanitize == 'none' else [
         '-fsanitize=' + args.sanitize, '-fno-omit-frame-pointer']
     common = ['-I' + str(root), '-pthread', '-g', '-O1', '-UNDEBUG', *sanitizer]
@@ -38,6 +42,7 @@ def main():
         ('stub', ['tests/test_native_mouse_stub.cpp', *module, *fixture], True),
         ('xstate', ['tests/test_native_mouse_xstate.cpp', *module,
                     'tests/native_mouse_xstate_fixture.S'], True),
+        ('fps-redirect', ['tests/test_native_mouse_fps_redirect.cpp', *module], True),
         ('input', ['tests/test_native_mouse_input.cpp', *module], True),
         ('host-input', ['tests/test_host_input.cpp'], True),
         ('pad', ['tests/test_pad.c'], False),
@@ -61,7 +66,9 @@ def main():
                     'gpu/shim/bbport_guest_hooks.h', 'src/probe.c',
                     'gpu/shim/native_mouse_stub_template.S', 'tools/check_native_mouse_stub.py',
                     'tools/test_native_mouse.py', 'tests/pm4/native_mouse_gate_test.py',
-                    'tests/native_mouse_edges.py'}
+                    'tests/native_mouse_edges.py', 'tests/test_native_mouse_fps_redirect.cpp',
+                    'tests/test_native_mouse_fps_real.cpp', 'tests/test_native_mouse_fps_real.py',
+                    'gpu/shim/bbport_frame_rate.cpp', 'gpu/shim/bbport_frame_rate.h'}
     for _, sources, _ in cases:
         proof_inputs.update(sources)
     record['inputs'] = {name: hashlib.sha256((root / name).read_bytes()).hexdigest()
@@ -76,6 +83,8 @@ def main():
         else:
             command += ['-Wno-unused-function']
         command += [*sources, '-o', str(binary)]
+        if name == 'fps-redirect':
+            command.append('-Wl,--wrap=mprotect')
         if not cpp:
             command += ['-lSDL3', '-lm']
         item = {'name': name, 'build_command': command, 'sources': {

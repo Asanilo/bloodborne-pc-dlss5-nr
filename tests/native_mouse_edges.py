@@ -100,13 +100,20 @@ int main(){
 #include <cstring>
 #include <cstdint>
 #include "gpu/bbgpu.h"
+#include "gpu/shim/bbport_frame_rate.h"
 static unsigned published;
+namespace BbFrameRate {
+bool CameraRedirectProofs(CameraRedirectProof*){return false;}
+std::uint64_t CameraRedirectSequence(){return 0;}
+}
 namespace BbMouseLook {
 struct Segment {uint64_t address,size,flags;};
 void PatchImage(unsigned char*,uint64_t,const Segment*,uint64_t){++published;}
+void PatchImageWithProof(unsigned char*,uint64_t,const Segment*,uint64_t,
+                         const BbFrameRate::CameraRedirectProof*){++published;}
 const char* Status(){return "TEST";}
 }
-''' + function(bridge, 'extern "C" void bbgpu_patch_mouse_image(') + '\n' + \
+''' + function(bridge, 'static bool MouseOverlapRefused()') + '\n' + function(bridge, 'extern "C" void bbgpu_patch_mouse_image(') + '\n' + \
         function(net, 'int runtime_net_enabled(') + r'''
 int main(){
  BbGpuSegment seg{}; bbgpu_patch_mouse_image(nullptr,0,&seg,1);

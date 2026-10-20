@@ -8,6 +8,24 @@
 #include <cstdint>
 
 namespace BbFrameRate {
+/// Record-only proof for the two camera RIP-disp redirects. PatchImage clears it at entry;
+/// entries are recorded only after the actual writer succeeds, and Getter returns a copy only
+/// once both are complete. No Live values or game behavior are exposed.
+struct CameraRedirectEntry {
+    std::uint64_t site = 0, next = 0, constant = 0, target = 0;
+    std::uint32_t original_disp = 0, written_disp = 0, field_offset = 0;
+    std::uint8_t original[8] = {}, written[8] = {};
+    bool applied = false;
+};
+struct CameraRedirectProof {
+    std::uint64_t image = 0, size = 0, sequence = 0;
+    CameraRedirectEntry entry[2];
+    bool complete = false;
+};
+/// Copy of the last PatchImage's complete two-site proof; false if cleared/incomplete.
+bool CameraRedirectProofs(CameraRedirectProof* out);
+/// Last PatchImage call sequence (read-only; for binding a pre-writer snapshot to this call).
+std::uint64_t CameraRedirectSequence();
 /// Installs the hooks (at load, before the game runs: bbgpu_patch_image).
 void PatchImage(unsigned char* image, std::uint64_t size);
 /// Whether the hooks run the game's frame rate: the video out then shows a frame as soon as the

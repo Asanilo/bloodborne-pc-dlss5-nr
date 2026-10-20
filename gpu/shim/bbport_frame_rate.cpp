@@ -60,6 +60,13 @@ struct alignas(64) Live {
     float decay08 = 0.8f;             ///< 0.8 per 30 FPS frame
     float cloth = 1.0f;               ///< cloth constraints' stiffness
 };
+static_assert(offsetof(Live, approach30) == 32, "camera approach30 offset");
+static_assert(offsetof(Live, approach10) == 36, "camera approach10 offset");
+static constexpr std::uint64_t kCameraSite30 = 0x143e2b2;
+static constexpr std::uint64_t kCameraSite10 = 0x143af8c;
+static CameraRedirectProof camera_proof{};
+static std::uint64_t camera_proof_sequence = 0;
+
 Live* live = nullptr;
 int base_rate = 0;               /// the launched mode's rate (with BB_FPS_LIMIT)
 std::atomic<int> live_limit{0};
@@ -174,6 +181,24 @@ void Writable(u64 address, std::size_t size) {
     mprotect(reinterpret_cast<void*>(start), address + size - start, PROT_READ | PROT_WRITE | PROT_EXEC);
 }
 
+void record_camera_redirect(const Redirect& r, const std::uint8_t original[8],
+                           const std::uint8_t written[8], std::uint64_t next,
+                           std::uint64_t target) {
+    const int index = r.site == kCameraSite10 ? 0 : r.site == kCameraSite30 ? 1 : -1;
+    if (index < 0) return;
+    CameraRedirectEntry& e = camera_proof.entry[index];
+    e.site = r.site;
+    e.next = next;
+    e.constant = r.constant;
+    e.target = target;
+    std::memcpy(&e.original_disp, original + 4, 4);
+    std::memcpy(&e.written_disp, written + 4, 4);
+    e.field_offset = static_cast<std::uint32_t>(r.value);
+    std::memcpy(e.original, original, 8);
+    std::memcpy(e.written, written, 8);
+    e.applied = true;
+}
+
 /// The instruction at `r.site` reads `r.constant` RIP-relative (a VEX instruction, no immediate
 /// after the operand): it reads the live value instead.
 bool RedirectOperand(const Redirect& r) {
@@ -193,8 +218,20 @@ bool RedirectOperand(const Redirect& r) {
     const std::int64_t to = std::int64_t(reinterpret_cast<u64>(live) + r.value) - std::int64_t(next);
     if (to != std::int32_t(to)) return false;
     const std::int32_t to32 = std::int32_t(to);
+    std::uint8_t original[8] = {};
+    const bool camera_site = r.site == kCameraSite10 || r.site == kCameraSite30;
+    // Record-only: an unexpected instruction shape still takes the original writer path; it
+    // merely leaves the proof incomplete so the mouse installer fails closed.
+    const bool recordable = camera_site && length == 8 && disp_at == 4;
+    if (recordable) std::memcpy(original, code, 8);
     Writable(reinterpret_cast<u64>(code + disp_at), 4);
     std::memcpy(code + disp_at, &to32, 4);
+    if (recordable) {
+        std::uint8_t written[8] = {};
+        std::memcpy(written, code, 8);
+        record_camera_redirect(r, original, written, next,
+                               reinterpret_cast<u64>(live) + r.value);
+    }
     return true;
 }
 
@@ -315,7 +352,12 @@ u8* MapNear(int prot) {
 }
 } // namespace
 
-void PatchImage(unsigned char* image, std::uint64_t) {
+void PatchImage(unsigned char* image, std::uint64_t size) {
+    // Every entry invalidates the previous proof, including disabled/failed early returns.
+    camera_proof = {};
+    camera_proof.image = reinterpret_cast<std::uint64_t>(image);
+    camera_proof.size = size;
+    camera_proof.sequence = ++camera_proof_sequence;
     // BB_FPS (run.sh, the launcher's frame rate): uncap (default), 60 or 90 (the same, at most that
     // many frames a second), 30 (the game's own). BB_FRAME_HOOKS=0: the community's frame rate
     // patches instead (scripts/patches.py; comparisons).
@@ -359,6 +401,7 @@ void PatchImage(unsigned char* image, std::uint64_t) {
             std::printf("Frame rate: %#llx is not the expected code, left as it is\n", (unsigned long long)r.site);
         }
     }
+    camera_proof.complete = camera_proof.entry[0].applied && camera_proof.entry[1].applied;
     mprotect(stub_page, StubPageSize, PROT_READ | PROT_EXEC);
     std::printf("Frame rate: free (hooks, no patches): the game steps by each frame's time "
                 "(1/%.0f..1/30 s); %d fixed steps, %d of %zu per-frame values follow the frame's "
@@ -366,6 +409,15 @@ void PatchImage(unsigned char* image, std::uint64_t) {
                 1.0f / live->shortest, steps, redirected, std::size(Redirects),
                 run == 1 ? "by speed" : run == 2 ? "by speed (a Sprint Fix patch did it already)"
                                                  : "unchanged (not found)");
+}
+
+bool CameraRedirectProofs(CameraRedirectProof* out) {
+    if (out == nullptr || !camera_proof.complete) return false;
+    *out = camera_proof;
+    return true;
+}
+std::uint64_t CameraRedirectSequence() {
+    return camera_proof_sequence;
 }
 
 bool Unlocked() {

@@ -5,6 +5,7 @@
 // the camera site and leaves all runtime consumption to that stub.
 
 #include "bbport_mouse_look.h"
+#include "bbport_frame_rate.h"
 
 #include <atomic>
 #include <climits>
@@ -12,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <vector>
 
 #if defined(__linux__) && defined(__x86_64__) && defined(__LP64__)
 #include <cpuid.h>
@@ -39,6 +41,27 @@ constexpr unsigned char kSiteBytes[16] = {
     0xc5, 0xf8, 0x28, 0x95, 0x10, 0xfc, 0xff, 0xff,
     0xc5, 0xe8, 0x59, 0xc9,
 };
+
+// BbFrameRate's two camera RIP-disp writers, fixed by this image.
+constexpr std::uint64_t kFpsSite10 = 0x143af8c;
+constexpr std::uint64_t kFpsSite30 = 0x143e2b2;
+constexpr std::uint64_t kFpsConstant10 = 0x4925e68;
+constexpr std::uint64_t kFpsConstant30 = 0x4925e94;
+constexpr unsigned char kFpsOriginal10[8] = {0xc5, 0xf2, 0x59, 0x0d, 0xd4, 0xae, 0x4e, 0x03};
+constexpr unsigned char kFpsOriginal30[8] = {0xc5, 0xfa, 0x10, 0x15, 0xda, 0x7b, 0x4e, 0x03};
+
+struct Preflight {
+    bool valid = false;
+    unsigned char* image = nullptr;
+    std::size_t size = 0;
+    std::vector<Segment> segments;
+    std::vector<unsigned char> camera;
+    unsigned char site[16] = {};
+    std::uint64_t fps_sequence = 0;
+};
+Preflight g_preflight;
+BbFrameRate::CameraRedirectProof g_post_proof{};
+bool g_post = false;
 
 // Bytes generated from gpu/shim/native_mouse_stub_template.S.  The final 16 bytes are the two
 // 64-bit patch slots (mailbox pointer, continuation pointer).
@@ -232,7 +255,8 @@ bool overlaps(std::uint64_t a_start, std::uint64_t a_end, std::uint64_t b_start,
 }
 
 const char* validate_image(unsigned char* image, std::size_t size, const Segment* segments,
-                           std::size_t count, const InstallProfile& profile) noexcept {
+                           std::size_t count, const InstallProfile& profile,
+                           bool check_camera = true) noexcept {
     if (image == nullptr || size == 0) return "failed: null or empty image";
     if (segments == nullptr || count == 0) return "failed: no segments";
     if (!valid_profile(profile)) return "failed: invalid profile";
@@ -282,8 +306,9 @@ const char* validate_image(unsigned char* image, std::size_t size, const Segment
 
     const unsigned char* camera = image + profile.camera_start;
     const unsigned char* constants = image + profile.constants_start;
-    if (fnv1a64(camera, static_cast<std::size_t>(profile.camera_end - profile.camera_start)) !=
-        profile.camera_fnv1a64)
+    if (check_camera &&
+        fnv1a64(camera, static_cast<std::size_t>(profile.camera_end - profile.camera_start)) !=
+            profile.camera_fnv1a64)
         return "failed: camera FNV mismatch";
     if (fnv1a64(constants,
                 static_cast<std::size_t>(profile.constants_end - profile.constants_start)) !=
@@ -291,6 +316,84 @@ const char* validate_image(unsigned char* image, std::size_t size, const Segment
         return "failed: constants FNV mismatch";
     if (std::memcmp(image + profile.site_start, profile.site_bytes, 16) != 0)
         return "failed: site signature mismatch";
+    return nullptr;
+}
+
+bool same_segments(const Segment* segments, std::size_t count) noexcept {
+    if (count != g_preflight.segments.size()) return false;
+    for (std::size_t i = 0; i < count; ++i)
+        if (segments[i].address != g_preflight.segments[i].address ||
+            segments[i].size != g_preflight.segments[i].size ||
+            segments[i].flags != g_preflight.segments[i].flags)
+            return false;
+    return true;
+}
+
+const char* validate_post(unsigned char* image, std::size_t size, const Segment* segments,
+                          std::size_t count, const InstallProfile& profile,
+                          const BbFrameRate::CameraRedirectProof* proof) noexcept {
+    if (!g_preflight.valid || image != g_preflight.image || size != g_preflight.size ||
+        !same_segments(segments, count))
+        return "failed: pre/post image or segment identity mismatch";
+    const char* invalid = validate_image(image, size, segments, count, profile, false);
+    if (invalid != nullptr) return invalid;
+    const std::size_t camera_size =
+        static_cast<std::size_t>(profile.camera_end - profile.camera_start);
+    if (g_preflight.camera.size() != camera_size ||
+        std::memcmp(image + profile.site_start, g_preflight.site, 16) != 0)
+        return "failed: preflight site/camera snapshot mismatch";
+    const std::size_t off10 = static_cast<std::size_t>(kFpsSite10 - kCameraStart);
+    const std::size_t off30 = static_cast<std::size_t>(kFpsSite30 - kCameraStart);
+    std::size_t changed = 0;
+    for (std::size_t i = 0; i < camera_size; ++i) {
+        if (image[profile.camera_start + i] == g_preflight.camera[i]) continue;
+        const bool allowed = (i >= off10 + 4 && i < off10 + 8) ||
+                             (i >= off30 + 4 && i < off30 + 8);
+        if (!allowed) return "failed: camera changed outside the two FPS disps";
+        ++changed;
+    }
+    if (changed == 0) {
+        g_post = false;
+        return nullptr;
+    }
+    if (proof == nullptr || !proof->complete ||
+        !proof->entry[0].applied || !proof->entry[1].applied)
+        return "failed: partial or missing FPS redirect proof";
+    if (proof->image != reinterpret_cast<std::uint64_t>(image) || proof->size != size ||
+        proof->sequence != g_preflight.fps_sequence + 1)
+        return "failed: FPS proof is not from this install";
+    const BbFrameRate::CameraRedirectEntry* e10 = nullptr;
+    const BbFrameRate::CameraRedirectEntry* e30 = nullptr;
+    for (const auto& e : proof->entry) {
+        if (e.site == kFpsSite10) e10 = &e;
+        if (e.site == kFpsSite30) e30 = &e;
+    }
+    if (e10 == nullptr || e30 == nullptr) return "failed: FPS proof sites missing";
+    const auto check = [&](const BbFrameRate::CameraRedirectEntry* e, std::size_t off,
+                           std::uint64_t constant, std::uint32_t field) -> const char* {
+        if (!e->applied || e->next != reinterpret_cast<std::uint64_t>(image) + e->site + 8 ||
+            e->constant != constant || e->field_offset != field ||
+            std::memcmp(e->original, g_preflight.camera.data() + off, 8) != 0 ||
+            std::memcmp(e->written, image + e->site, 8) != 0)
+            return "failed: FPS proof bytes/site mismatch";
+        std::uint32_t original_disp = 0, written_disp = 0;
+        std::memcpy(&original_disp, g_preflight.camera.data() + off + 4, 4);
+        std::memcpy(&written_disp, image + e->site + 4, 4);
+        if (e->original_disp != original_disp || e->written_disp != written_disp)
+            return "failed: FPS proof displacement mismatch";
+        if (e->target !=
+            e->next + static_cast<std::int64_t>(static_cast<std::int32_t>(e->written_disp)))
+            return "failed: FPS proof target does not follow the checked rel32";
+        return nullptr;
+    };
+    if (const char* e = check(e10, off10, kFpsConstant10, 36)) return e;
+    if (const char* e = check(e30, off30, kFpsConstant30, 32)) return e;
+    if (e10->target != e30->target + 4) return "failed: FPS targets are not one Live base";
+    // Do not require all 8 bytes to differ numerically: a rewritten displacement can
+    // coincidentally share a byte (or all bytes) with the original. The full proof bytes and
+    // both applied bits above are the authority.
+    g_post_proof = *proof;
+    g_post = true;
     return nullptr;
 }
 
@@ -330,13 +433,16 @@ TestSeam::Artifact install_impl(unsigned char* image, std::size_t size, const Se
                                 BbNativeMouse::Mailbox* mailbox,
                                 TestSeam::Fault fault = TestSeam::Fault::None,
                                 TestSeam::Capability capability =
-                                    TestSeam::Capability::Supported) noexcept {
+                                    TestSeam::Capability::Supported,
+                                bool post_validated = false) noexcept {
     TestSeam::Artifact artifact{};
     if (mailbox == nullptr) {
         artifact.status = "failed: null mailbox";
         return artifact;
     }
-    const char* invalid = validate_image(image, size, segments, count, profile);
+    const char* invalid = post_validated
+                              ? validate_post(image, size, segments, count, profile, &g_post_proof)
+                              : validate_image(image, size, segments, count, profile);
     if (invalid != nullptr) {
         artifact.status = invalid;
         return artifact;
@@ -425,9 +531,17 @@ TestSeam::Artifact install_impl(unsigned char* image, std::size_t size, const Se
         return artifact;
     }
 
-    // All validation, mapping and RX publication succeeded.  Perform the final mailbox epoch
-    // transition under its gate BEFORE publishing the site; if that gate rejects (fatal/epoch
-    // exhausted), the site remains completely unchanged and the stub mapping is released.
+    // RX is now in place.  Revalidate the same branch that admitted the image: the original
+    // path checks full camera+constants+site; the redirected path checks proof+diff+constants+
+    // site.  The test harness injects here with --wrap=mprotect.
+    invalid = post_validated
+                  ? validate_post(image, size, segments, count, profile, &g_post_proof)
+                  : validate_image(image, size, segments, count, profile);
+    if (invalid != nullptr) {
+        munmap(mapping, mapping_size);
+        artifact.status = invalid;
+        return artifact;
+    }
     if (std::memcmp(site, profile.site_bytes, 16) != 0) {
         munmap(mapping, mapping_size);
         artifact.status = "failed: site changed during install";
@@ -477,12 +591,56 @@ bool monotonic_us(void*, std::uint64_t* out) noexcept {
 
 } // namespace
 
-void PatchImage(unsigned char* image, std::size_t size, const Segment* segments,
-                std::size_t count) {
+bool pre_attest_impl(unsigned char* image, std::size_t size, const Segment* segments,
+                     std::size_t count, const InstallProfile& profile,
+                     std::uint64_t fps_sequence, bool check_fps_sites) {
+    g_preflight = {};
+    g_post = false;
+    const char* invalid = validate_image(image, size, segments, count, profile);
+    if (invalid != nullptr) {
+        set_status(invalid);
+        return false;
+    }
+    if (check_fps_sites) {
+        const auto fps_site_ok = [&](std::uint64_t site, const unsigned char expected[8],
+                                     std::uint64_t constant) {
+            unsigned char* code = image + site;
+            if (std::memcmp(code, expected, 8) != 0) return false;
+            std::int32_t disp = 0;
+            std::memcpy(&disp, code + 4, 4);
+            return reinterpret_cast<std::uintptr_t>(code + 8) +
+                       static_cast<std::intptr_t>(disp) ==
+                   reinterpret_cast<std::uintptr_t>(image + constant);
+        };
+        if (!fps_site_ok(kFpsSite10, kFpsOriginal10, kFpsConstant10) ||
+            !fps_site_ok(kFpsSite30, kFpsOriginal30, kFpsConstant30)) {
+            set_status("failed: FPS camera site/signature mismatch");
+            return false;
+        }
+    }
+    g_preflight.image = image;
+    g_preflight.size = size;
+    g_preflight.segments.assign(segments, segments + count);
+    g_preflight.camera.assign(image + profile.camera_start, image + profile.camera_end);
+    std::memcpy(g_preflight.site, image + profile.site_start, sizeof(g_preflight.site));
+    g_preflight.fps_sequence = fps_sequence;
+    g_preflight.valid = true;
+    return true;
+}
+
+bool PreAttest(unsigned char* image, std::size_t size, const Segment* segments,
+               std::size_t count, std::uint64_t fps_sequence) {
+    if (!env_enabled()) return false;
+    return pre_attest_impl(image, size, segments, count, kProductionProfile, fps_sequence, true);
+}
+
+void PatchImageWithProof(unsigned char* image, std::size_t size, const Segment* segments,
+                         std::size_t count,
+                         const BbFrameRate::CameraRedirectProof* proof) {
     ModuleState expected = ModuleState::Idle;
     if (!g_state.compare_exchange_strong(expected, ModuleState::Installing,
                                          std::memory_order_acq_rel)) {
-        return; // already installed/disabled/failed/installing: never clobber it
+        return;
     }
     if (!env_enabled()) {
         g_state.store(ModuleState::Disabled, std::memory_order_release);
@@ -495,9 +653,22 @@ void PatchImage(unsigned char* image, std::size_t size, const Segment* segments,
         set_status(supported);
         return;
     }
+    const char* invalid = nullptr;
+    bool post = false;
+    if (g_preflight.valid) {
+        invalid = validate_post(image, size, segments, count, kProductionProfile, proof);
+        post = g_post;
+    } else {
+        invalid = validate_image(image, size, segments, count, kProductionProfile);
+    }
+    if (invalid != nullptr) {
+        g_state.store(ModuleState::Failed, std::memory_order_release);
+        set_status(invalid);
+        return;
+    }
     TestSeam::Artifact artifact =
         install_impl(image, size, segments, count, kProductionProfile, &g_mailbox,
-                     TestSeam::Fault::None, TestSeam::Capability::Supported);
+                     TestSeam::Fault::None, TestSeam::Capability::Supported, post);
     if (!artifact.ok) {
         g_state.store(ModuleState::Failed, std::memory_order_release);
         set_status(artifact.status);
@@ -505,6 +676,11 @@ void PatchImage(unsigned char* image, std::size_t size, const Segment* segments,
     }
     g_state.store(ModuleState::Installed, std::memory_order_release);
     set_status("installed");
+}
+
+void PatchImage(unsigned char* image, std::size_t size, const Segment* segments,
+                std::size_t count) {
+    PatchImageWithProof(image, size, segments, count, nullptr);
 }
 
 std::uint64_t Epoch() {
@@ -556,13 +732,15 @@ namespace TestSeam {
 
 Artifact InstallForTest(unsigned char* image, std::size_t size, const Segment* segments,
                         std::size_t count, const Profile& profile,
-                        BbNativeMouse::Mailbox* mailbox, Fault fault, Capability capability) {
+                        BbNativeMouse::Mailbox* mailbox, Fault fault, Capability capability,
+                        bool post_validated) {
     const InstallProfile converted = {
         profile.camera_start, profile.camera_end, profile.constants_start, profile.constants_end,
         profile.site_start, profile.camera_fnv1a64, profile.constants_fnv1a64, profile.site_bytes,
         profile.site_size,
     };
-    return install_impl(image, size, segments, count, converted, mailbox, fault, capability);
+    return install_impl(image, size, segments, count, converted, mailbox, fault, capability,
+                        post_validated);
 }
 
 void UninstallForTest(Artifact& artifact) {
@@ -577,6 +755,28 @@ void UninstallForTest(Artifact& artifact) {
     artifact.page_size = 0;
     artifact.ok = false;
     artifact.status = "uninstalled";
+}
+
+bool PreAttestForTest(unsigned char* image, std::size_t size, const Segment* segments,
+                      std::size_t count, const Profile& profile, std::uint64_t fps_sequence,
+                      bool check_fps_sites) {
+    const InstallProfile converted = {
+        profile.camera_start, profile.camera_end, profile.constants_start, profile.constants_end,
+        profile.site_start, profile.camera_fnv1a64, profile.constants_fnv1a64, profile.site_bytes,
+        profile.site_size,
+    };
+    return pre_attest_impl(image, size, segments, count, converted, fps_sequence, check_fps_sites);
+}
+
+const char* ValidatePostForTest(unsigned char* image, std::size_t size, const Segment* segments,
+                                std::size_t count, const Profile& profile,
+                                const BbFrameRate::CameraRedirectProof* proof) {
+    const InstallProfile converted = {
+        profile.camera_start, profile.camera_end, profile.constants_start, profile.constants_end,
+        profile.site_start, profile.camera_fnv1a64, profile.constants_fnv1a64, profile.site_bytes,
+        profile.site_size,
+    };
+    return validate_post(image, size, segments, count, converted, proof);
 }
 
 bool PatchImageForTest(unsigned char* image, std::size_t size, const Segment* segments,

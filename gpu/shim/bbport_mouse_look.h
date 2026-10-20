@@ -11,6 +11,8 @@
 
 #include "native_mouse_mailbox.h"
 
+namespace BbFrameRate { struct CameraRedirectProof; }
+
 namespace BbMouseLook {
 
 struct Segment {
@@ -21,6 +23,13 @@ struct Segment {
 
 void PatchImage(unsigned char* image, std::size_t size, const Segment* segments,
                 std::size_t count);
+/// Before the DLC/FrameRate image writers: validate and snapshot the original camera range.
+bool PreAttest(unsigned char* image, std::size_t size, const Segment* segments,
+               std::size_t count, std::uint64_t fps_sequence);
+/// Production install after the writers; proof may be null when the camera is unredirected.
+void PatchImageWithProof(unsigned char* image, std::size_t size, const Segment* segments,
+                         std::size_t count,
+                         const BbFrameRate::CameraRedirectProof* proof);
 
 std::uint64_t Epoch();
 void SetCapture(bool active);
@@ -87,11 +96,18 @@ struct Artifact {
 Artifact InstallForTest(unsigned char* image, std::size_t size, const Segment* segments,
                         std::size_t count, const Profile& profile,
                         BbNativeMouse::Mailbox* mailbox, Fault fault = Fault::None,
-                        Capability capability = Capability::Supported);
+                        Capability capability = Capability::Supported,
+                        bool post_validated = false);
 void UninstallForTest(Artifact& artifact);
 bool Rel32ForTest(std::uintptr_t from_after_instruction, std::uintptr_t target,
                   std::int32_t& displacement);
 bool ValidateProductionCameraForTest(const unsigned char* camera, std::size_t size);
+bool PreAttestForTest(unsigned char* image, std::size_t size, const Segment* segments,
+                      std::size_t count, const Profile& profile, std::uint64_t fps_sequence,
+                      bool check_fps_sites);
+const char* ValidatePostForTest(unsigned char* image, std::size_t size, const Segment* segments,
+                                std::size_t count, const Profile& profile,
+                                const BbFrameRate::CameraRedirectProof* proof);
 void ForceModuleInstalledForTest();
 void ResetModuleStateForTest();
 
