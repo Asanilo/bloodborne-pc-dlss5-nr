@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_sky_diagnostic.h"
-#include "vk_instance.h"
-#include "vk_scheduler.h"
+#include "vulkan/instance.h"
+#include "render/scheduler.h"
 #include <nlohmann/json.hpp>
 #include <cstdio>
 #include <cstdlib>

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_async_pre_sr_origin_gpu.h"
-#include "vk_scheduler.h"
+#include "render/scheduler.h"
 #include "native_async_pre_sr_policy.h"
 #include <stdexcept>
 namespace Vulkan {

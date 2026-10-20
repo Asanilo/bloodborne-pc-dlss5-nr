@@ -6,9 +6,9 @@
 #include "native_visual_transition.h"
 #include "native_persistent_history_spv.h"
 #include "bbgpu/shaders/native_sky_convert_comp.h"
-#include "vk_instance.h"
-#include "vk_scheduler.h"
-#include "vk_shader_util.h"
+#include "vulkan/instance.h"
+#include "render/scheduler.h"
+#include "vulkan/shader_module.h"
 #include <algorithm>
 #include <array>
 #include <atomic>

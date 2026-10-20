@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_async_pre_sr_return.h"
-#include "vk_instance.h"
-#include "vk_scheduler.h"
-#include "vk_shader_util.h"
+#include "vulkan/instance.h"
+#include "render/scheduler.h"
+#include "vulkan/shader_module.h"
 #include "bbgpu/shaders/native_async_pre_sr_return_comp.h"
 #include "bbgpu/shaders/native_async_pre_sr_masked_return_comp.h"
 #include <stdexcept>

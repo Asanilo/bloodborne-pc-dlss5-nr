@@ -4,7 +4,7 @@
 #include "native_origin_play_wire.h"
 #include "native_async_play.h"
 #include "native_origin_identity_policy.h"
-#include "vk_instance.h"
+#include "vulkan/instance.h"
 #include <algorithm>
 #include <array>
 #include <cerrno>

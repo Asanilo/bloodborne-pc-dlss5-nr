@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "nr_runtime_capture.h"
 #include "native_async_pre_sr_diagnostic_policy.h"
-#include "vk_instance.h"
-#include "vk_scheduler.h"
+#include "vulkan/instance.h"
+#include "render/scheduler.h"
 #include <filesystem>
 #include <mutex>
 #include <map>

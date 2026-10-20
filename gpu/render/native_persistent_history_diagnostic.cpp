@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_persistent_history_diagnostic.h"
 #include "buffers/buffer.h"
-#include "vk_instance.h"
-#include "vk_scheduler.h"
+#include "vulkan/instance.h"
+#include "render/scheduler.h"
 #include <nlohmann/json.hpp>
 #include <atomic>
 #include <bit>

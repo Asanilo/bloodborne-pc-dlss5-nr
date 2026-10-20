@@ -5,7 +5,7 @@
 #include "native_async_pre_sr_play_wire.h"
 #include "native_async_pre_sr_policy.h"
 #include "native_origin_identity_policy.h"
-#include "vk_instance.h"
+#include "vulkan/instance.h"
 #include <algorithm>
 #include <array>
 #include <cerrno>

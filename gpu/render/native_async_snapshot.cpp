@@ -2,8 +2,8 @@
 #include "native_async_snapshot.h"
 #include "native_async_play.h"
 #include "native_origin_owner.h"
-#include "vk_instance.h"
-#include "vk_scheduler.h"
+#include "vulkan/instance.h"
+#include "render/scheduler.h"
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>

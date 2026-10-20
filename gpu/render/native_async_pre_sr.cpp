@@ -3,8 +3,8 @@
 #include "nr_runtime_capture.h"
 #include "native_async_pre_sr_policy.h"
 #include "native_async_pre_sr_origin_owner.h"
-#include "vk_instance.h"
-#include "vk_scheduler.h"
+#include "vulkan/instance.h"
+#include "render/scheduler.h"
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>

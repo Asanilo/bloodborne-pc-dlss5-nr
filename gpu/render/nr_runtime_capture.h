@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "native_persistent_history.h"
-#include "vk_common.h"
+#include "vulkan/vk_common.h"
 namespace Vulkan {
 class Instance;class Scheduler;
 struct RuntimeOutputProgress{unsigned sr_complete=0,present_complete=0,presented=0;bool failed=false;};

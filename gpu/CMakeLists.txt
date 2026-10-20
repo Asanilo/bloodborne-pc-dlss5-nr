@@ -227,6 +227,9 @@ target_compile_definitions(bbgpu PRIVATE IMGUI_IMPL_VULKAN_NO_PROTOTYPES
 set_source_files_properties(shim/bbport_overlay.cpp PROPERTIES
     OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/fonts/DejaVuSans.ttf")
 target_include_directories(bbgpu PRIVATE . shim layer games cp ${SHADER_INCLUDE} third_party/gcn/include third_party/half/include)
+# NR control JSON remains independent of the optional online package discovery.
+# Retain the existing vendored 3.12.0 header and MIT license after shadps4 removal.
+target_include_directories(bbgpu PRIVATE third_party/nlohmann/include)
 if (WIN32)
     target_include_directories(bbgpu PUBLIC platform/win32/include)
 endif()

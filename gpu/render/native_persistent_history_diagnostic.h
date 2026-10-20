@@ -3,7 +3,7 @@
 #include "native_async_state.h"
 #include "native_persistent_history.h"
 #include "native_persistent_history_shader.h"
-#include "vk_common.h"
+#include "vulkan/vk_common.h"
 #include <memory>
 namespace Vulkan {
 class Instance; class Scheduler;

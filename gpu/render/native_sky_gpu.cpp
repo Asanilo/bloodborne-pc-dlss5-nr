@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_sky_gpu.h"
 #include "native_sky_r2_spv.h"
-#include "vk_instance.h"
-#include "vk_scheduler.h"
-#include "vk_shader_util.h"
+#include "vulkan/instance.h"
+#include "render/scheduler.h"
+#include "vulkan/shader_module.h"
 #include "bbgpu/shaders/native_sky_convert_comp.h"
 #include <cstring>
 #include <stdexcept>
