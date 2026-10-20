@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from closure import collect  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_NATIVE_SHA = "66b4a1a5463303701ff50bb9ac0ecc9caffcc9ae"
+DEFAULT_NATIVE_SHA = "c91bf9467604c36d70d97dd200844ae1ac8e8428"
 DEFAULT_HELPER_BUILD = "1eddac56e4de26c0"
 DEFAULT_FORWARDER_BUILD = "9a8251430ccfa68a"
 PYTHON_VERSION = "3.14"

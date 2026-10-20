@@ -1,18 +1,18 @@
 # bbport NRBridge 私人 AppImage Preview
 
 这是私有 NRBridge AppImage Preview 的打包入口。当前默认输入是 Native
-`66b4a1a5463303701ff50bb9ac0ecc9caffcc9ae`、Helper PE
+`c91bf9467604c36d70d97dd200844ae1ac8e8428`、Helper PE
 `1eddac56e4de26c0`（源码 `713f8ac9`；wire 1 / interface_revision 4 / 64-slot
 daily；PE `b372b1f1…`）、forwarder `9a8251430ccfa68a`。打包器
 **不在代码里校验这些固定值**：它读取所选
 Native 的 `source-head.txt`/`artifacts.sha256`/`build-inputs.json`、Helper 的
 `build.json` 和 forwarder 的 `build.json`，按其中实际 manifest 核验身份、协议和
 SHA，并把结果写入 AppImage 的 `nrbridge-bundle.json` 供 launcher 读取。后续新
-Native/Helper（wire 2、interface_revision 4、64 槽 daily）只需传显式路径。
+Native/Helper（导出 wire 1 / revision 4，daily bootstrap wire 2 / 64 槽）只需传显式路径。
 
 它不是公开发布物：游戏、存档、凭据、专有 NR 模型（`nvngx_dlssnr.dll`）、Wine/GE
 均不进入 AppImage。旧验证产物只读，打包只复制、不覆盖。已知问题见
-[KNOWN_ISSUES.md](KNOWN_ISSUES.md)（着色闪、F8 SR 观察、退出阻塞 await fix、
+[KNOWN_ISSUES.md](KNOWN_ISSUES.md)（着色闪、F8 SR 观察、菜单排空修复待重启实机验收、
 online 未登录未验收）。
 
 ## 构建
@@ -26,7 +26,7 @@ bash packaging/nrbridge/appimage.sh --skip-appimage
 工具只落在 `out/tools/`（appimagetool + 私有 venv 里的 patchelf），不装系统。
 默认读取：
 
-- Native：`/home/arinp/Code/nrbridge-dev/build/baselines/66b4a1a...`
+- Native：`/home/arinp/Code/nrbridge-dev/build/baselines/c91bf94...`
 - Helper：`build/helper-runtime-model/1eddac56e4de26c0/wine_runtime_model.exe`
 - forwarder：`build/convergence/forwarder/9a8251430ccfa68a/nvngx.dll_dlssnr.dll`
 - 在线库：`out/online-deps-20261020/root/usr/lib`
@@ -82,7 +82,7 @@ AppImage 的 `AppRun` 调用 `launcher/nrbridge_entry.py`。它创建可写数�
 
 ```bash
 tools/nr_dev/play.py --daily --local-inputs <home>/localinputs/runtime.json \
-    --native-build <home>/build/baselines/66b4a1a...
+    --native-build <home>/build/baselines/c91bf94...
 ```
 
 它不另造生命周期、预算或退休规则。首次需要显式选择：
@@ -115,6 +115,8 @@ AppImage SHA 另写在 `out/nrbridge-appimage/build-report.json`，不进入发�
 
 ## 当前最小缺口
 
-当前新包使用 Native `66b4a1a`（含 `NRBRIDGE_NATIVE_DAILY_RING64_V2`）与 Helper
+当前新包使用 Native `c91bf94`（含 `NRBRIDGE_NATIVE_DAILY_RING64_V2`）与 Helper
 `1eddac56`（revision 4），`daily_ready=true`。旧 6753999/7f69 包仍可 `--check`，
 但 `daily` 会被拒绝；不要用旧包宣称 daily 可运行。
+
+此私人闭包按本机 CachyOS 构建，部分依赖需要 GLIBC 2.44；旧发行版兼容性未验证。本机无 Nix，本候选采用上游组成和裁剪规则收集 ELF 闭包，没有声称完成 Nix bundler 验收。
