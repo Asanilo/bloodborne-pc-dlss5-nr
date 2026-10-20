@@ -2,7 +2,10 @@
 
 本候选从 gameplay `7265d3b6ec2ea80afd4fbe1a94d9f323acdd3887` 正常 merge
 上游 `8185b88d80573fa300595d5c54450183b4109935`；分支 `sync/upstream-0.6`。
-这是 BUILD_ONLY 集成候选，尚未完成冷构建及真实游戏/GPU 验收，不能替代运行基线。
+已完成 CPU、空输出完整冷构建及四阶段受控 GPU 回归，收回 NRBridge 开发主线。
+实际验证的 Native 源码是 `4b4fdcc664fc5259a291a0a422db25a5e02cc35c`；
+`0d073d6` 仅修正验证 profile 为 16:9，后续文档提交不冒充新的 Native 产物。
+旧稳定运行组合不覆盖、不自动切换；本次是有限集成验收，不是发布或长期稳定性验收。
 
 ## 合并与本地职责
 
@@ -20,7 +23,7 @@
 | 鼠标 | 保留上游源码；安装入口编译期关闭，`BB_NATIVE_MOUSE=1` 也回退摇杆。独立 `5ab490f` 候选未叠加 |
 
 Astra 已定点复核 CP/GNM/sampler、NR 末用、owner pump、Present、observer ABI 和冷诊断迁移。
-检查仅覆盖源码与 CPU 行为，不能证明实际 GPU 生命周期或游戏手感。
+另已独立复核下述实际 GPU 证据；鼠标手感仍不通过，原生候选保持独立。
 
 ## 已完成 CPU 验证
 
@@ -36,20 +39,62 @@ Astra 已定点复核 CP/GNM/sampler、NR 末用、owner pump、Present、observ
 `tests/pm4/present_identity_test.py`。详细执行日志位于本机隔离 `out/upstream-06-integration-20261020`
 与集成树 `out/cpu-merge`、`out/cp-ownership-review`，不提交生成二进制。
 
-## 验收与回退
+## 冷构建与实际 GPU 验证
 
-原 Native `5635804` / Helper `7f69` / forwarder `9a825`、其产物和私人配置保持不变。
-当前 boot 与旧安全记录不匹配，既有 preflight 拒绝复用旧 scope；GPU 前须核对当前 kernel、holders、
-历史 HOLD 和精确候选身份，按既有流程建立新的受控 scope，不修改准入门槛。
+新空目录 `nrbridge-dev/build/baselines/4b4fdcc664fc5259a291a0a422db25a5e02cc35c`
+完成全部 Native 构建，来源 diff 为空，四产物及 provenance 已只读固定。Helper 未修改，
+协议 wire1/interface3 与锁定导出 SHA 一致；CPU Native 195/195、Helper 11/11。
+额外实际 runtime/rwlock/sema 六项、launcher/save 十二项通过，未把零测试命令当覆盖。
+可选 online 库因缺 nlohmann_json CMake package、miniupnpc 未构建；在线和真实 DLC 挂载未验收。
 
-随后分别完成 SR-only、NR、输入/菜单/存档/正常退出，再由玩家确认鼠标手感。
+同一实际 Native `4b4fdcc`、Helper `7f69`、forwarder `9a825`，在 boot
+`54bbe091-3e4f-4fdf-abf3-4505c72a7f71` 经既有排他 Runner 和真实前序递进执行：
+
+| session 前缀（均后缀 `-4b4fdcc-20261020`） | 实际工作负载 | 结果 |
+| --- | --- | --- |
+| `sync06-sr` | SR-only，加载 Clinic、菜单、摇杆注入 | 正常 no-peer 退出；本轮 Auto 宽高比不适配外接屏 |
+| `sync06-skip1080` | off/skip，120 admitted sources，24 skip | 正常退休，Native 末用 22136 完成 |
+| `sync06-persist-skip` | persistent/skip，120 sources，24 skip | 正常退休，Native 末用 23988 完成 |
+| `sync06-resident` | persistent/resident，120 sources，24 Evaluate；23 captured / 1 obsolete / 0 skip | 正常退休，Native 末用 28538 完成 |
+
+四轮均 `PASS_NORMAL_TEARDOWN`，实际退出后 kernel 检查通过、holders 为空，无 watchdog/信号/残留。
+Helper 轮均有真实 GPU/FD 退休及 Feature create/release 1/1、正常 shutdown/wait0。
+Astra 重审 resident 原始 job/model ACK、23 个 candidate、141 次 cache-selected SR 读取及成功 Present，
+无重复 source 或关联失败；两个 persistent slot 在 28536/28538 完成后销毁，后续 1845 次 SR 均为 raw。
+未发现阻止合回开发分支的回归；这不关闭历史 PM4/Xid31/float HOLD，也不证明画质或热性能改善。
+
+固定私有 profile 为 16:9 后，日志确认 scene1280×720 → output1920×1080。
+玩家确认外接屏已铺满、菜单/场景正常，WASD/鼠标可操作；**鼠标视角仍不跟手**。
+启动闪动仅报告在窗口出现/铺开期间，进入菜单后正常；未定位或宣称修复闪动根因。
+键盘提示是上游按最后输入设备切换的行为；真实 PS 手柄提示切换未验收。
+Continue 私有存档加载通过；真实存档写入后重载、更多场景与长会话仍待验收。
+
+原始证据保留于数据根 `runs/sync06-*`；汇总、构建身份与截图在 Fork
+`out/upstream-06-integration-20261020/`。四个 scope 已消费，不能重复启动；后续 GPU 仍按现有安全流程。
+
+## 鼠标与回退
+
+原 Native `5635804` / Helper `7f69` / forwarder `9a825`、产物及私人配置不变。
 Astra 已比较上游相机与独立 epoch 候选：上游超时后返回摇杆但仍发布 native pending，存在重复消费；
 失焦/菜单未清 pending，consumer 未自行验时；状态保存及安全发布检查也弱于候选。
 因此本次单独关闭安装门槛。实际安装块与 producer CPU 夹具覆盖 unset/空/0/1/01/true：
 installer 零调用、站点 canary 不变、producer 返回摇杆且不入队，Astra 复跑通过。
 后续只整合一套 Hook，保留候选三态归属、epoch、consumer 超时/heartbeat、状态与发布检查；
 还须适配上游 capture/wheel/自由相机。不能复用候选 CPU 证明覆盖上游 Hook，也不能声称手感已验收。
-正式验收前不合回 NRBridge、不退役 gameplay/sync/mouse、不切换稳定产物、不制作 AppImage。
+原生鼠标候选 `5ab490f` 已正常推送到 Fork；本次不合入该候选、不默认启用原生 Hook、不制作 AppImage。
 
-回退只需继续使用既有稳定组合；本次只在独立集成分支和输出目录工作。
+回退只需继续使用既有稳定组合；新开发源码与原运行选择分开记录，不覆盖旧只读产物。
 如需从未来已合入的分支撤销 merge，应正常 `git revert -m 1 <merge>`，不重写共享历史。
+
+## 分支收敛与剩余验收
+
+上游 merge `4fd3ad6` 的第一父是 gameplay `7265d3b`，其祖先完整保留原 NRBridge 和复合键等成果。
+验收后正常快进 NRBridge 开发分支；master、testing、Helper 和 upstream 引用不变。
+已正常删除 19 个本地、18 个远端废弃 `poc/*` 引用，没有建立归档标签或改写共享历史。
+已合入的 gameplay/sync 引用随后正常退役；鼠标 `5ab490f` 独立保留。
+本轮不删除旧构建/runs；有独有 CPU 证据的集成目录保留 detached，鼠标工作树及其代理 cwd 保留。
+其它历史 dev 引用中仍有独有研究成果，本轮未扩大删除范围。
+
+下一轮 AppImage 尚需独立处理依赖闭包与可选 online 构建、路径/打包验证，补更多场景、
+存档写入重载、手柄、正常退出与长期回归。鼠标需单独整合唯一 Hook 的安全修复并经 CPU、
+受控实机和玩家手感验收；未验收前沿用摇杆路径。bbport 与 OptiScaler 继续分别跟进各自上游。

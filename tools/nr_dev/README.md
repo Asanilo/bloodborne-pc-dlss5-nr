@@ -10,7 +10,13 @@ cd /home/arinp/Code/nrbridge-dev
 
 以下命令从该数据根执行。
 
-当前推荐显式组合：Native 只读 baseline `563580452e46ea253cecbf75c24ac65579ee031b`、独立 Helper `7f69c1e556810b2b`、forwarder `9a8251430ccfa68a`，资源配置 `localinputs/runtime-s3-20261019.json`。此组合已完成 Clinic SR 正常退出、off/skip 各24个 skip，以及24次真实 Evaluate（23 captured、1 obsolete）的正常退休；完整当前 boot 内核和 holders 检查通过。这是有限加载/传输/退休验证，不代表亮尾修复、热性能或日常发布验收。
+当前推荐显式组合：Native 只读 baseline `563580452e46ea253cecbf75c24ac65579ee031b`、独立 Helper `7f69c1e556810b2b`、forwarder `9a8251430ccfa68a`，资源配置 `localinputs/runtime-s4-20261020.json`。此组合已完成 Clinic SR 正常退出、off/skip 各24个 skip，以及24次真实 Evaluate（23 captured、1 obsolete）的正常退休；对应历史 boot 的内核和 holders 检查通过。这是有限加载/传输/退休验证，不代表亮尾修复、热性能或日常发布验收。
+
+2026-10-20 上游 0.6 已收回 NRBridge 开发分支；新增有限 GPU 验证产物为
+`build/baselines/4b4fdcc664fc5259a291a0a422db25a5e02cc35c`，不自动替换上述稳定运行选择。
+其空输出完整冷构建、四阶段 SR/NR 正常退休及 Astra 审计通过；详细身份与限制见
+[集成记录](../../docs/UPSTREAM_06_INTEGRATION.md)。后续工具/文档 HEAD 与实际 Native4b4fdcc 区分。
+私有受控 profile 显式16:9；上游原生相机 Hook 仍编译期关闭，鼠标候选独立保留，当前摇杆鼠标仍有不跟手反馈。
 
 ## 新接手者先看这里
 
@@ -62,7 +68,7 @@ Native 包装器的 `NR_SOURCE_DEPS_ROOT` 默认是开发根的 `inputs/source-d
 ```bash
 # 只读 CPU 校验；不打开 GPU 锁或运行 Wine。
 python3 "$NATIVE_SRC/tools/nr_dev/prepare_runtime_inputs.py" \
-  --check "$PWD/localinputs/runtime-s3-20261019.json"
+  --check "$PWD/localinputs/runtime-s4-20261020.json"
 ```
 
 新配置显式选择只读游戏资产、私人 seed、GE `files`、sysroot 库目录、Helper PE/manifest、forwarder/model、实际系统 NGX `.so` 及 NGX Wine DLL 目录。配置和私人绝对路径只放开发根 `localinputs/`，不提交游戏、模型、存档或生成的运行 pins。公开格式见 [runtime-inputs.template.json](runtime-inputs.template.json)。需要建立另一个配置时，填写模板后封存到全新文件：
@@ -83,7 +89,7 @@ python3 "$NATIVE_SRC/tools/nr_dev/prepare_runtime_inputs.py" \
 
 ```bash
 NATIVE="$PWD/build/baselines/563580452e46ea253cecbf75c24ac65579ee031b"
-INPUTS="$PWD/localinputs/runtime-s3-20261019.json"
+INPUTS="$PWD/localinputs/runtime-s4-20261020.json"
 # 协调方准备该新scope后，仅在session尚未使用时执行。
 SESSION=play-converged-20261019
 SCOPE="$PWD/inputs/context-$SESSION.json"

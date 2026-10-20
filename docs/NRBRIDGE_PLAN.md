@@ -2,6 +2,24 @@
 
 2026-10-15，按用户本轮正式规划执行。本文件记录完整周期、当前目标与阶段验收；运行安全与当前事实仍以开发根 `CURRENT.md` 为唯一现行工程规范。它不授予旧目录删除权，也不替代真实 GPU 退休证据。
 
+## 2026-10-20 上游 0.6 集成收口（最新）
+
+本节覆盖以下历史阶段的“不跟进上游”限制。以 gameplay7265d3b 为第一父，正常 merge
+正式 upstream8185b88（merge4fd3ad6），保留 NRBridge、复合键、中文及存档功能；155 个初始冲突已解决。
+普通适配由 DS High 执行，CP/GNM、资源末用、Present、ABI 与真实退休由 Astra 定点审计。
+CPU、实际4b4fdcc空输出完整冷构建和 SR-only → off/skip → persistent/skip → resident
+四阶段受控回归已完成，Astra 最终未发现阻止合回 NR 开发分支的回归。
+resident24次 Evaluate，23captured/1obsolete，Native28538实际完成；全部正常退出及退出后 kernel/holders 检查通过。
+本次正常收回 dev/persistent-visual-history-20261015；master、testing、Helper 不变。
+
+实际 Native 仍4b4fdcc，后续0d073d6只改验证profile为16:9，文档HEAD不冒充新产物。
+稳定5635804/7f69/9a825和运行配置不覆盖、不自动切换。历史HOLD仍未解决；无画质、热性能、长期稳定性新结论。
+玩家确认1080铺满、菜单/场景正常、键鼠可操作，但鼠标不跟手仍在；上游原生Hook安装编译期off，
+独立5ab490f已推送并保留，后续只整合一套Hook且默认启用须经玩家验收。
+真实存档写入重载、PS手柄、更多场景/长会话、在线与DLC仍未完整实机验收；可选online缺依赖未构建。
+19本地/18远端旧poc引用已正常退役，不删旧runs/构建或故障证据，不制作AppImage。
+细节、证据和回退见 [UPSTREAM_06_INTEGRATION](UPSTREAM_06_INTEGRATION.md)。
+
 ## 2026-10-20 最新用户决定：Native不合主线，Helper合入linux-nr，源码迁至各自worktree
 
 本节覆盖下面早先“原主目录检出开发分支”的备选方案。Native master保持3630bc52，不合入开发分支；日常Native仍检出dev/persistent-visual-history-20261015，工作树已由普通Git move迁到 `/home/arinp/Code/bloodborne_pc/.worktree/nrbridge`。Helper已由linux-nr eaada4c2正常快进接纳f2c8607c，合入前本地检查点tag为 `nrbridge/linux-nr-before-helper-20261020`；日常开发树保持dev/nrbridge-helper-convergence-20261019，已迁到 `/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/.worktree/nrbridge`，后续同范围准备修订正常合回linux-nr。没有改origin/upstream/sky关系、origin默认分支或重写历史。
