@@ -641,6 +641,10 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.stack.add_titled_with_icon(self.build_log_page(), "log", tr("Журнал"),
                                         "utilities-terminal-symbolic")
         self.log_view.get_buffer().set_text(log_text)
+        # The NRBridge preview can open the existing Online page directly so
+        # Discord sign-in never needs a hand-typed settings.json path.
+        if os.environ.get("BB_LAUNCHER_PAGE") == "online":
+            self.stack.set_visible_child_name("online")
         self.update_launch_button()
         self.update_game_status()
         self.update_user_status()
