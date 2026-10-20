@@ -1,17 +1,29 @@
 #ifndef BB_RUNTIME_H
 #define BB_RUNTIME_H
+#include <string.h>
 #include <time.h>
 #include <stdint.h>
 #include <stddef.h>
-#ifndef _WIN32
 #include <setjmp.h>
 /* Recovery point for speculative guest memory reads on this thread (probe.c fault handler). */
 extern __thread sigjmp_buf *runtime_fault_recover;
 /* Restarts the game (in-game settings menu, render resolution change). */
 const char *runtime_restart_block_reason(void);
 void runtime_restart(void);
-#endif
 #define ABI __attribute__((sysv_abi))
+/* The clock of the runtime's condition variable deadlines: monotonic on Linux; winpthreads'
+ * conditions take only CLOCK_REALTIME deadlines. */
+#ifdef _WIN32
+#define RUNTIME_COND_CLOCK CLOCK_REALTIME
+#else
+#define RUNTIME_COND_CLOCK CLOCK_MONOTONIC
+#endif
+/* A local time's offset east of UTC, seconds (Windows' struct tm has no tm_gmtoff). */
+#ifdef _WIN32
+#define RUNTIME_TM_GMTOFF(t) bb_gmtoff(&(t))
+#else
+#define RUNTIME_TM_GMTOFF(t) ((t).tm_gmtoff)
+#endif
 typedef void (ABI *GuestCallback)(void);
 void runtime_start(uint64_t capabilities);
 uintptr_t runtime_resolve(const char *name, int is_data);
@@ -21,10 +33,13 @@ uintptr_t runtime_mutex_resolve(const char *name);
 void runtime_mutex_report(void);
 uintptr_t runtime_memory_resolve(const char *name);
 void runtime_memory_report(void);
+/* Reserves the guest's address range (Windows; probe.c, first thing). */
+void runtime_memory_reserve(void);
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size);
 /* The CPU is about to write the range outside guest code (a file read): tells the GPU side. */
 void runtime_memory_note_write(uintptr_t address, uint64_t size);
 void runtime_memory_note_cpu_write(uintptr_t address, uint64_t size);
+void runtime_memory_prepare_cpu_write(uintptr_t address, uint64_t size);
 /* bbport (frame stats): a guest thread was blocked `ns` in the runtime (0 cond, 1 mutex, 2 sema, 3 sleep). */
 void runtime_wait_note(int kind, uint64_t ns);
 void runtime_wait_report(double frames);
@@ -51,6 +66,13 @@ uintptr_t runtime_time_resolve(const char *name);
 void runtime_content_configure(const uint32_t values[5]);
 uintptr_t runtime_content_resolve(const char *name);
 void runtime_content_report(void);
+/* An import names `nid`: the NID alone decides (the hash of the symbol's name), whatever library
+ * letters the game's import carries (pthread_mutex_lock is libScePosix's in one game, libkernel's
+ * in another). */
+static inline int runtime_nid_is(const char *name, const char *nid) {
+    const size_t length = strcspn(name, "#");
+    return length == strlen(nid) && !strncmp(name, nid, length);
+}
 typedef struct { const char *name; void *function; } RuntimeExport;
 #define RUNTIME_LOOKUP(table, nid) runtime_lookup(table, sizeof(table)/sizeof(*(table)), nid)
 const char *runtime_symbol(const char *nid);
@@ -58,6 +80,18 @@ uintptr_t runtime_lookup(const RuntimeExport *table, size_t count, const char *n
 uintptr_t runtime_kernel_resolve(const char *name);
 uintptr_t runtime_file_resolve(const char *name);
 uintptr_t runtime_services_resolve(const char *name);
+/* Online play (runtime_net.c, BB_ONLINE=1): the online module answers the network and PSN imports. */
+void runtime_net_configure(const char *app0, const char *serial, const char *title, const char *version);
+int runtime_net_enabled(void);
+int runtime_net_symbol(const char *symbol);
+uintptr_t runtime_net_resolve(const char *name);
+void runtime_net_image_ready(uintptr_t base, uint64_t size);
+void runtime_net_image_mapped(uint8_t *image, uint64_t size);
+void runtime_net_start(void);
+__attribute__((noreturn)) void runtime_thread_exit(void *value);
+/* Guest threads for host code (the online module's NP threads); 0 or a positive errno value. */
+int32_t runtime_thread_spawn(void **thread, void *(ABI *entry)(void *), void *argument, uint64_t stack, const char *name);
+int32_t runtime_thread_join_spawned(void *thread, void **result);
 void runtime_file_report(void);
 void runtime_file_configure(const char *app0, const char *user);
 int runtime_file_mount(const char *guest, const char *host);
@@ -88,4 +122,16 @@ void runtime_savedata_configure(const char *title);
 uintptr_t runtime_savedata_resolve(const char *name);
 void runtime_savedata_report(void);
 void runtime_thread_attach_host(const char *name);
+/* The game's libc.prx where it was linked (image + module base), 0 before or without it. */
+extern uintptr_t runtime_libc_base;
+/* What other games need beyond Bloodborne's set (runtime_compat.c). */
+uintptr_t runtime_compat_resolve(const char *name);
+void runtime_compat_report(void);
+/* NGS2 voices mixed to the game's render buffers (runtime_ngs2.c). */
+uintptr_t runtime_ngs2_resolve(const char *name);
+void runtime_ngs2_report(void);
+/* The USB toy pad behind sceUsbd (runtime_toypad.c). */
+uintptr_t runtime_toypad_resolve(const char *name);
+void runtime_toypad_lights(uint32_t out[3]);
+void runtime_toypad_report(void);
 #endif

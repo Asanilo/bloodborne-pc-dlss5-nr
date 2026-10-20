@@ -13,6 +13,10 @@
 # visible: on RDNA4. BB_FSR4CAP_FP8=1: also elsewhere, through GE-Proton's FP16 emulation of FP8
 # matrices (RDNA3: DXIL_SPIRV_CONFIG=wmma_rdna3_workaround), to test the variant; 0: never.
 # Without it the INT8 set is built all the same.
+# AMD's DLL offers FSR 4.1 only on GPUs it knows: where it offers FSR 3/2 alone (e.g. the ROG
+# Ally's Z1 Extreme, an RDNA3 APU), each Proton build is tried once more with the GPU reported as
+# an RX 7800 XT (DXVK_CONFIG). The recording only captures the passes; they run on the real GPU.
+# BB_FSR4CAP_SPOOF=0 turns this off.
 # Exit status 3 when no Proton build is installed (or none has its Steam runtime), 5 when the
 # upscaler did not run, 8 on NixOS with neither umu-run nor nix-shell to get it (nor, in the
 # AppImage, the user's systemd to run the recording on the host).
@@ -26,10 +30,14 @@ done_count=0
 # FHS environment) from nix-shell instead. The AppImage hides the host's /nix behind its own store
 # (nix-shell and umu-run included): there the recording runs on the host, started through the
 # user's systemd (systemd-run --user; the work folder, under $HOME, is seen from both sides), and
-# the AppImage's own tools translate the passes afterwards.
+# the AppImage's own tools translate the passes afterwards. On other distributions too, from the
+# AppImage: Steam's runtime (pressure-vessel's bwrap) cannot create its namespaces inside the
+# AppImage's own (SteamOS: "No permissions to create a new namespace"). The host unit gets the
+# display: on SteamOS the user's systemd has none, and Proton then waits without an error.
 # BB_FSR4CAP_RUNNER=steam: Steam's runtime anyway (inside an FHS environment such as steam-run).
-if [[ -e /etc/NIXOS && ${BB_FSR4CAP_RUNNER:-} != steam ]] && ! command -v umu-run >/dev/null; then
-    if command -v nix-shell >/dev/null && [[ -z ${BB_FSR4CAP_UMU_SHELL:-} ]]; then
+if [[ ( -e /etc/NIXOS || -n ${BB_PREBUILT:-} ) && ${BB_FSR4CAP_RUNNER:-} != steam ]] &&
+   ! command -v umu-run >/dev/null; then
+    if [[ -e /etc/NIXOS ]] && command -v nix-shell >/dev/null && [[ -z ${BB_FSR4CAP_UMU_SHELL:-} ]]; then
         nixpkgs=()
         nix-instantiate --find-file nixpkgs >/dev/null 2>&1 || nixpkgs=(-I nixpkgs=channel:nixos-unstable)
         echo "NixOS: umu-launcher from nix-shell (the first time it is downloaded, ~1.7 GB)"
@@ -38,14 +46,15 @@ if [[ -e /etc/NIXOS && ${BB_FSR4CAP_RUNNER:-} != steam ]] && ! command -v umu-ru
     fi
     if [[ -z ${BB_FSR4CAP_ON_HOST:-} ]] && command -v systemd-run >/dev/null &&
        systemctl --user show-environment >/dev/null 2>&1; then
-        echo "NixOS: recording on the host (systemd-run --user), outside the AppImage"
+        echo "Recording on the host (systemd-run --user), outside the AppImage"
         host=$R/host
         rm -rf "$host"
         mkdir -p "$host"
         cp -- "$(dirname -- "$0")/capture_all.sh" "$(dirname -- "$0")/proton.sh" "$host/"
         unit=bbport-fsr4cap-$$
         settings=()
-        for name in PROTONPATH FSR4CAP_VERSION BB_FSR4CAP_FP8 VKD3D_DISABLE_EXTENSIONS WINEDEBUG; do
+        for name in PROTONPATH FSR4CAP_VERSION BB_FSR4CAP_FP8 BB_FSR4CAP_SPOOF VKD3D_DISABLE_EXTENSIONS \
+                    WINEDEBUG DXVK_CONFIG DISPLAY WAYLAND_DISPLAY XAUTHORITY; do
             if [[ -n ${!name+set} ]]; then settings+=("--setenv=$name=${!name}"); fi
         done
         # A login shell: the user's PATH (nix-shell) and NIX_PATH.
@@ -60,8 +69,8 @@ if [[ -e /etc/NIXOS && ${BB_FSR4CAP_RUNNER:-} != steam ]] && ! command -v umu-ru
         rm -rf "$host"
         exit "$status"
     fi
-    echo "On NixOS the recording needs umu-launcher: install it, or Nix's nix-shell to fetch it" \
-         "(and, in the AppImage, the user's systemd to start it on the host)." >&2
+    echo "The recording needs umu-launcher (on NixOS: install it, or Nix's nix-shell to fetch it)," \
+         "or, in the AppImage, the user's systemd to start it on the host." >&2
     exit 8
 fi
 rm -f "$R/.direct" # from an earlier build: the container is tried again
@@ -97,16 +106,43 @@ progress() {
         "$([[ $variant == fp8 ]] && echo 'FP8: ')" "$(tail -1 "$R/fsr4cap.log" 2>/dev/null || true)"
 }
 
+# An RX 9000 (RDNA4: Navi 48 and 44) among this PC's GPUs.
+rdna4_present() {
+    local id
+    for id in /sys/class/drm/card*/device/device; do
+        case $(cat "$id" 2>/dev/null) in
+            0x7550|0x7551|0x7590|0x7591) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 # The Proton build: the first under which the DLL starts FSR 4.1 (the first size's capture).
 first=(1920x1080 1920x1080)
 failures=()
 no_runtime=0
 chosen=
+spoof="dxgi.customVendorId = 1002; dxgi.customDeviceId = 747e"
 for candidate in "${candidates[@]}"; do
     export PROTONPATH=$candidate
     echo "Proton: $PROTONPATH"
     status=0
     capture "${first[@]}" || status=$?
+    if [[ $status != 0 && $status != 3 && ${BB_FSR4CAP_SPOOF:-1} != 0 &&
+          $(tail -1 "$R/fsr4cap.log" 2>/dev/null || true) == "no version matching"* ]]; then
+        # Not a wrong detection (issue #186): the DLL did not offer FSR 4.1 to this GPU's id under
+        # this Proton build; it is asked again under an RX 7800 XT's id (INT8 passes, which every
+        # RX 7000/9000 runs).
+        echo "  The DLL did not offer FSR 4.1 to this GPU's id under this Proton; again under an RX 7800 XT's id"
+        previous=${DXVK_CONFIG-}
+        spoofed_from=$previous
+        export DXVK_CONFIG="${previous:+$previous; }$spoof"
+        status=0
+        capture "${first[@]}" || status=$?
+        if [[ $status != 0 ]]; then
+            if [[ -n $previous ]]; then export DXVK_CONFIG=$previous; else unset DXVK_CONFIG; fi
+        fi
+    fi
     if [[ $status == 0 ]]; then
         chosen=$candidate
         break
@@ -140,6 +176,14 @@ fp8=0
 if [[ ${BB_FSR4CAP_FP8:-auto} != 0 ]]; then
     [[ ${BB_FSR4CAP_FP8:-auto} != 1 ]] || fp8_config=wmma_rdna3_workaround
     variant=fp8
+    # Recorded under the RX 7800 XT's id (above) on an RX 9000: that id gets no FP8 passes; they
+    # are asked for under an RX 9070 XT's id (issue #186).
+    fp8_spoof_restore=
+    if [[ ${DXVK_CONFIG-} == *"$spoof"* ]] && rdna4_present; then
+        fp8_spoof_restore=$DXVK_CONFIG
+        export DXVK_CONFIG="${spoofed_from:+$spoofed_from; }dxgi.customVendorId = 1002; dxgi.customDeviceId = 7550"
+        echo "FP8 variant: asked for under an RX 9070 XT's id (this PC has an RX 9000)"
+    fi
     shaders() { (cd "$1" 2>/dev/null && ls cs_*.dxil 2>/dev/null); }
     if capture "${first[@]}" &&
        [[ $(shaders "$R/fp8/capture_${first[0]}_${first[1]}") != "$(shaders "$R/capture_${first[0]}_${first[1]}")" ]]; then
@@ -150,6 +194,7 @@ if [[ ${BB_FSR4CAP_FP8:-auto} != 0 ]]; then
         rm -rf "$R/fp8"
         echo "FP8 variant: not offered on this GPU (RDNA4 only), INT8 only"
     fi
+    [[ -z $fp8_spoof_restore ]] || export DXVK_CONFIG=$fp8_spoof_restore
     variant=int8
 fi
 

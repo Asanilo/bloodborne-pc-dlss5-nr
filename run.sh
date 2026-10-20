@@ -48,9 +48,13 @@ if [[ ${BB_SAVE_LOG:-} == 1 && ${BB_LOG_ACTIVE:-0} != 1 ]]; then
     export BB_FRAME_STATS=1 BB_FRAME_LOG=${BB_FRAME_LOG:-$logs/$stamp.frames.csv}
     export BB_READBACK_LOG=${BB_READBACK_LOG:-$logs/$stamp.readbacks.csv}
     echo "Log: $logs/$stamp.log"
-    exec 3>"$logs/$stamp.log"
+    # A descriptor bash picks (10 and up), not 3: the AppImage's runtime keeps its mount for as
+    # long as the program holds an inherited pipe (the first free descriptor, 3); with --play
+    # this script replaced the launcher, and closing that pipe unmounted the store under it
+    # ("python3: Software caused connection abort").
+    exec {log_fd}>"$logs/$stamp.log"
     # Bash builtins only (the AppImage's PATH has no tee).
-    exec > >(while IFS= read -r line || [[ -n $line ]]; do printf '%s\n' "$line"; printf '%s\n' "$line" >&3; done) 2>&1
+    exec > >(while IFS= read -r line || [[ -n $line ]]; do printf '%s\n' "$line"; printf '%s\n' "$line" >&$log_fd; done) 2>&1
 fi
 if [[ -z ${PYTHON:-} ]]; then
     PYTHON=$(command -v python3 || true)
@@ -87,8 +91,10 @@ if [[ ${BB_AUTO_RENDER_RES:-} == 1 ]]; then
     unset BB_RENDER_RES BB_OUTPUT_RES BB_AUTO_RENDER_RES
 fi
 # BB_RENDER_RES=WxH explicitly sets the game's render resolution (a patch at start).
-# Frame rate: BB_FPS=uncap (default; delta-time patch, vblank 480 Hz, frames shown at once),
-# 60/90 (fixed-timestep patches) or 30 (unpatched). BB_PATCHES adds patch names ("a;b").
+# Frame rate: BB_FPS=uncap (default; hooks in the game's code, gpu/shim/bbport_frame_rate.cpp:
+# each frame's real time; vblank 480 Hz, frames shown at once; BB_FRAME_HOOKS=0: the patches),
+# 60/90 (the same hooks, at most 60/90 frames a second) or 30 (the game's own). BB_PATCHES adds
+# patch names ("a;b").
 fps=${BB_FPS:-uncap}
 # bbport.ini output_res other than 1080p (720p for the Steam Deck, 1440p, 2160p): the whole game
 # renders at the preset's size of the output (a patch), the upscaler fills the output, the UI is
@@ -98,6 +104,10 @@ fps=${BB_FPS:-uncap}
 # and scene targets are copied back: much slower on the Steam Deck and older GPUs). Chosen by
 # BB_LIVE_RES=0/1, else bbport.ini live_resolution=0/1/auto (auto: the GPU check, strong
 # discrete GPUs get them); off when unset. 1080p output and TAA always use the live path.
+# The GPU tools (bb-gpu-capabilities: the game's GPU, its live resolution support).
+if [[ -n ${BB_PROBE:-} ]]; then caps=$(dirname -- "$BB_PROBE")/bb-gpu-capabilities
+elif [[ -n ${BB_PREBUILT:-} ]]; then caps=bin/bb-gpu-capabilities
+else caps=out/bb-gpu-capabilities; fi
 if [[ -z ${BB_RENDER_RES:-} ]]; then
     read -r scaled_render scaled_output < <("$PYTHON" scripts/patches.py --print-scaled --settings "$BB_CONFIG") || true
 fi
@@ -111,9 +121,6 @@ if [[ -n ${scaled_output:-} ]]; then
         done < "$BB_CONFIG"
     fi
     if [[ $live == auto ]]; then
-        if [[ -n ${BB_PROBE:-} ]]; then caps=$(dirname -- "$BB_PROBE")/bb-gpu-capabilities
-        elif [[ -n ${BB_PREBUILT:-} ]]; then caps=bin/bb-gpu-capabilities
-        else caps=out/bb-gpu-capabilities; fi
         live=$("$caps" --live-resolution 2> >(while IFS= read -r line; do
             [[ $line == *MANGOHUD* ]] || printf '%s\n' "$line"; done >&2)) || live=0
     fi
@@ -133,18 +140,43 @@ fi
 # VRAM), 0 = off. BB_GUEST_GPU_MEMORY=1 puts guest direct memory in GPU-visible dma-buf chunks
 # (BB_GUEST_IN_PLACE below implies it: it commits all allocated memory up front and rules out BB_UFFD).
 export BB_PREUPLOAD=${BB_PREUPLOAD:-1}
-# Memory model and translation. BB_PC_MODEL=1 (the launcher's "New memory and translation model",
-# experimental, off by default) selects how a PC release would work: the GPU uses the game's
-# memory where it is (GPU-visible system memory) and keeps the data it reads often in VRAM, the
-# command processor's work is translated rather than emulated (BB_GUEST_IN_PLACE=1 and what
-# depends on it). AMD GPUs keep the game's memory in a sparse arena; others (NVIDIA: its sparse
-# binding stalls the GPU for seconds) get the layer's memory module, which binds the game's memory
-# in place and keeps VRAM copies without sparse binding (BB_LAYER_MEMORY=1/0 chooses by hand).
-# 0 (default): the model of 0.3 (VRAM copies of the game's memory, write tracking), with the fixes
-# made since. BB_GUEST_IN_PLACE set by hand overrides it.
+# Memory model and translation. BB_PC_MODEL=1 (the launcher's "Memory model": "Auto" gives it to
+# every GPU; BB_PC_MODEL=1/0 by hand) selects how a PC release would
+# work: the GPU uses the game's memory where it is (GPU-visible system memory) and keeps the data
+# it reads often in VRAM, the command processor's work is translated rather than emulated
+# (BB_GUEST_IN_PLACE=1 and what depends on it). Every GPU gets the layer's memory module, which
+# binds the game's memory in place and keeps VRAM copies without sparse binding (NVIDIA's sparse
+# binding stalls the GPU for seconds; on AMD it is faster than the sparse arena too);
+# BB_LAYER_MEMORY=0: AMD's sparse arena, as before 0.52.
+# 0: the model of 0.3 (VRAM copies of the game's memory, write tracking),
+# with the fixes made since. BB_GUEST_IN_PLACE set by hand overrides it.
 # BB_AS_0_3=1 (the launcher's developer switch "Synchronisation as in 0.3"): what changed since the
 # 0.3 release is reverted for comparisons: the 0.3 memory model, WRITE_DATA/DMA waiting for every
 # host copy, the scheduler's concurrent recording check.
+# The game's GPU (vendor ID and name), for the choices below that depend on it.
+gpu_vendor= gpu_name=
+if [[ -z ${BB_PC_MODEL:-} || ( ${BB_AUTO_NOHIZ:-1} != 0 && -z ${RADV_DEBUG:-} ) ]]; then
+    IFS=$'\t' read -r gpu_vendor gpu_name < <("$caps" --device 2> /dev/null) || true
+fi
+# Memory model left to the port: the new one on every GPU (0.6). It goes through the layer's memory
+# module: no sparse binding of the game's memory, so nothing NVIDIA-specific stalls; a driver that
+# fails the startup checks (BbGuestMemory::Usable) still falls back to VRAM copies by itself.
+if [[ -z ${BB_PC_MODEL:-} ]]; then
+    export BB_PC_MODEL=1
+    echo "Memory model: new (${gpu_name:-GPU unknown}; BB_PC_MODEL=0: the 0.3 model)"
+fi
+# GCN 3-5 under RADV (Polaris, Vega and their APUs): with HiZ, depth compression showed black
+# halos and missing geometry (issues #54, #99); RADV_DEBUG=nohiz fixed it at some cost. Set
+# unless RADV_DEBUG is the user's, BB_AUTO_NOHIZ=0: off.
+if [[ ${BB_AUTO_NOHIZ:-1} != 0 && -z ${RADV_DEBUG:-} && $gpu_name == *"(RADV "* ]]; then
+    for chip in TONGA ICELAND CARRIZO FIJI STONEY POLARIS VEGA RAVEN RENOIR; do
+        if [[ $gpu_name == *"(RADV $chip"* ]]; then
+            export RADV_DEBUG=nohiz
+            echo "RADV: $gpu_name: RADV_DEBUG=nohiz (depth compression artifacts on GCN 3-5; BB_AUTO_NOHIZ=0: off)"
+            break
+        fi
+    done
+fi
 if [[ ${BB_AS_0_3:-0} == 1 ]]; then
     export BB_GUEST_IN_PLACE=0 BB_HOST_COPY_WAITS=all BB_PRODUCER_CHECK=1
 fi
@@ -158,27 +190,11 @@ if [[ ${MANGOHUD:-0} == 1 ]]; then
         echo "MangoHud: Steam's performance overlay is on; the in-game MangoHud stays off"
         unset MANGOHUD
         export DISABLE_MANGOHUD=1
-    else
-        # The system's own MangoHud (and its config) is used when there is one: the bundled one
-        # (the AppImage's, /nix/store/...-mangohud-.../share on XDG_DATA_DIRS) is taken off the
-        # layer search path. Disabling it by layer name (0.3, 0.4) also disabled the system's one,
-        # which usually has the same name: no MangoHud at all (issue #66). Bash builtins only.
-        bundled=() others=()
-        IFS=: read -r -a data_dirs <<< "${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
-        for dir in "${data_dirs[@]}"; do
-            if [[ $dir == */nix/store/*-mangohud-*/share ]]; then bundled+=("$dir"); else others+=("$dir"); fi
-        done
-        system_mangohud=0
-        for dir in "${XDG_DATA_HOME:-$HOME/.local/share}" /etc/xdg /etc "${others[@]}"; do
-            for manifest in "$dir"/vulkan/implicit_layer.d/*.json; do
-                [[ -f $manifest && $(< "$manifest") == *'"VK_LAYER_MANGOHUD'* ]] && system_mangohud=1
-            done
-        done
-        if [[ ${#bundled[@]} -gt 0 && $system_mangohud == 1 ]]; then
-            echo "MangoHud: the system's MangoHud is used"
-            export XDG_DATA_DIRS=$(IFS=:; echo "${others[*]}")
-        fi
-        unset bundled others data_dirs dir manifest system_mangohud
+    elif grep -qs '"VK_LAYER_MANGOHUD' /usr/share/vulkan/implicit_layer.d/*.json \
+            /etc/vulkan/implicit_layer.d/*.json \
+            "${XDG_DATA_HOME:-$HOME/.local/share}"/vulkan/implicit_layer.d/*.json; then
+        # The system's own MangoHud (and its config) is used; the bundled one is skipped.
+        export VK_LOADER_LAYERS_DISABLE=${VK_LOADER_LAYERS_DISABLE:+$VK_LOADER_LAYERS_DISABLE,}VK_LAYER_MANGOHUD_overlay_64_x86_64
     fi
 fi
 # Write tracking with userfaultfd write-protection instead of mprotect (no address-space write lock:
@@ -194,7 +210,7 @@ export BB_COPY_GPU_BUFFERS=${BB_COPY_GPU_BUFFERS:-1}
 # up to BB_GPU_WRITE_TWINS_MAX bytes per page) does not wait for the GPU (BufferCache twins).
 export BB_GPU_WRITE_TWINS=${BB_GPU_WRITE_TWINS:-1} BB_GPU_WRITE_TWINS_MAX=${BB_GPU_WRITE_TWINS_MAX:-65536}
 if [[ -z ${BB_VBLANK_HZ:-} ]]; then
-    case $fps in uncap) export BB_VBLANK_HZ=480 ;; 90) export BB_VBLANK_HZ=90 ;; *) export BB_VBLANK_HZ=60 ;; esac
+    case $fps in uncap) export BB_VBLANK_HZ=1000 ;; 90) export BB_VBLANK_HZ=90 ;; *) export BB_VBLANK_HZ=60 ;; esac
 fi
 # FSR 4: faster post passes next to the downloaded ones (incremental; tools/fsr4_optimize.sh).
 if [[ -z ${BB_PREBUILT:-} && -d fsr4_shaders ]] && command -v spirv-cross >/dev/null; then
@@ -208,6 +224,70 @@ else
 fi
 if [[ ${BB_STARTUP_CHECK:-1} == 1 && -x $(dirname -- "$probe")/bb-gpu-capabilities ]]; then
     "$PYTHON" scripts/diagnostics.py "$probe" "$(dirname -- "$probe")/bb-gpu-capabilities"
+fi
+# Online play (BB_ONLINE=1, launcher: Online; the online module gpu/bbnet): the game's own server
+# goes to the community server, summon signs to the shadNet WebAPI (scripts/online.py).
+if [[ ${BB_ONLINE:-0} == 1 && -f scripts/online.py ]]; then
+    # The shadPS4 0.20 module (gpu/bbnet20) answers both pools: Seamless Hunt (shadNet with BBSC) and
+    # The Hunter's Dream (BB_NET_BACKEND=thd, without BBSC). BB_NET_GEN=19: the older shadp2p module
+    # (gpu/bbnet) with BBSC, kept as a fallback.
+    export BB_NET_GEN=${BB_NET_GEN:-20}
+    if [[ ${BB_NET_BACKEND:-} == thd ]]; then
+        BB_NET_GEN=20
+        unset BB_BBSC
+    fi
+    if [[ $BB_NET_GEN == 20 && -z ${BB_NET_MODULE:-} ]]; then
+        if [[ -n ${BB_PREBUILT:-} ]]; then BB_NET_MODULE=$PWD/bin/gpu/libbbnet20.so; else BB_NET_MODULE=$PWD/out/gpu/libbbnet20.so; fi
+        export BB_NET_MODULE
+    fi
+    export BB_SHADNET_SERVER=${BB_SHADNET_SERVER:-play.seamlesshunt.com:31313}
+    # HTTPS needs CA certificates: OpenSSL from Nix looks only in its own store path (the
+    # packaged wrapper brings a bundle; from source the system's is taken).
+    if [[ ! -r ${SSL_CERT_FILE:-} ]]; then
+        for bundle in "${NIX_SSL_CERT_FILE:-}" /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt /etc/ssl/cert.pem /etc/ssl/ca-bundle.pem; do
+            [[ -n $bundle && -r $bundle ]] && { export SSL_CERT_FILE=$bundle; break; }
+        done
+    fi
+    [[ -n ${BB_SHADNET_WEBAPI:-} ]] || export BB_SHADNET_WEBAPI=http://${BB_SHADNET_SERVER%:*}:31315
+    # BBSC: its game server on this PC when the server's own does not answer (online.py
+    # bbsc-local). It lives as long as the game: a watcher stops it when this process (exec'd into
+    # the game below) is gone. Messages and bloodstains are then this PC's only.
+    if [[ ${BB_BBSC:-0} == 1 && -f scripts/bbsc_gameserver/bbsc_gameserver.py ]]; then
+        bbsc_shadnet=$("$PYTHON" scripts/online.py bbsc-local) || bbsc_shadnet=
+        if [[ -n $bbsc_shadnet ]]; then
+            bbsc_dir=${BB_USER_DIR:-$data/user}/bbsc
+            mkdir -p "$bbsc_dir/logs"
+            game_pid=$$
+            if ! (exec 3<>/dev/tcp/127.0.0.1/20443) 2>/dev/null; then
+                ( "$PYTHON" scripts/bbsc_gameserver/bbsc_gameserver.py --shadnet "$bbsc_shadnet" \
+                      --host 127.0.0.1 --port 20443 --relay-port 0 --no-bbhost --no-playlog \
+                      --data "$bbsc_dir/online-data.json" --log-dir "$bbsc_dir/logs" \
+                      > "$bbsc_dir/logs/gameserver-console.log" 2>&1 &
+                  server_pid=$!
+                  while kill -0 "$game_pid" 2>/dev/null && kill -0 "$server_pid" 2>/dev/null; do sleep 2; done
+                  kill "$server_pid" 2>/dev/null ) &
+                echo "Co-op: BBSC game server on 127.0.0.1:20443 (summons -> $bbsc_shadnet:31315)"
+            else
+                echo "Co-op: a game server answers on 127.0.0.1:20443 already: used"
+            fi
+            export BB_COMMUNITY_SERVER=http://127.0.0.1
+        fi
+    fi
+    user_data=${BB_USER_DIR:-$data/user}
+    if [[ ${BB_NET_BACKEND:-} == thd ]]; then
+        # The Hunter's Dream (bbhost's protocol): the account comes from the launcher's Discord sign-in.
+        if [[ -z ${BB_THD_TOKEN:-} || -z ${BB_THD_ONLINE_ID:-} ]]; then
+            echo "The Hunter's Dream: not signed in (launcher: Online -> Sign in with Discord)." >&2; exit 1
+        fi
+        thd_out=$("$PYTHON" scripts/online.py thd-overrides --user "$user_data") || exit 1
+        SHADPS4_HTTP_HOST_OVERRIDES_JSON=$(sed -n 1p <<<"$thd_out")
+        thd_base=$(sed -n 2p <<<"$thd_out")
+        export SHADPS4_HTTP_HOST_OVERRIDES_JSON BB_THD_SERVER=${BB_THD_SERVER:-$thd_base:18671} BB_THD_AUTH=${BB_THD_AUTH:-$thd_base}
+        unset BB_SHADNET_SERVER BB_SHADNET_WEBAPI BB_SHADNET_NPID BB_SHADNET_PASSWORD BB_SHADNET_TOKEN
+    else
+        SHADPS4_HTTP_HOST_OVERRIDES_JSON=$("$PYTHON" scripts/online.py overrides --user "$user_data") || true
+        export SHADPS4_HTTP_HOST_OVERRIDES_JSON
+    fi
 fi
 probe_args=("$out/boot-linked.bin" --content-profile "$out/content.bin" --patches "$out/patches.bin" --app0 "$game" --user "${BB_USER_DIR:-$data/user}" --timeout "${BB_TIMEOUT:-0}" "$@")
 if [[ -n ${mod_game:-} ]]; then

@@ -23,6 +23,11 @@ LIBRARY_DIRS = (
     Path("/usr/lib64"), Path("/lib64"), Path("/usr/lib"), Path("/lib"),
     Path("/run/opengl-driver/lib"),
 )
+# The host's EGL vendor files (glvnd). The package's own glvnd looks only in its own store.
+EGL_VENDOR_DIRS = (
+    Path("/usr/share/glvnd/egl_vendor.d"), Path("/etc/glvnd/egl_vendor.d"),
+    Path("/usr/local/share/glvnd/egl_vendor.d"),
+)
 
 
 def elf64(path):
@@ -57,7 +62,23 @@ def host_nvidia(manifest_dirs, library_dirs):
     return None
 
 
-def configure(env, manifest_dirs=MANIFEST_DIRS, library_dirs=LIBRARY_DIRS):
+def configure(env, manifest_dirs=MANIFEST_DIRS, library_dirs=LIBRARY_DIRS,
+              egl_dirs=EGL_VENDOR_DIRS):
+    # Steam's Game Mode starts non-Steam shortcuts in pressure-vessel, which sets these to its
+    # own proxy ICDs and layers: not the user's choice, and with them the bundled loader finds
+    # no VK_KHR_surface (#172). Dropped, so the bundled or host drivers are found as usual.
+    if any("/pressure-vessel/" in env.get(name, "")
+           for name in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "VK_IMPLICIT_LAYER_PATH")):
+        for name in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "VK_IMPLICIT_LAYER_PATH",
+                     "VK_ADD_LAYER_PATH", "VK_LAYER_PATH", "VK_LOADER_LAYERS_ENABLE"):
+            env.pop(name, None)
+        # Its library aliases would shadow the drivers' own dependencies too.
+        kept = [d for d in env.get("LD_LIBRARY_PATH", "").split(":")
+                if d and "/pressure-vessel/" not in d]
+        if kept:
+            env["LD_LIBRARY_PATH"] = ":".join(kept)
+        else:
+            env.pop("LD_LIBRARY_PATH", None)
     # Both overrides belong to the user; VK_DRIVER_FILES takes precedence over
     # VK_ICD_FILENAMES. In particular don't replace an explicit Lavapipe setup.
     if env.get("VK_DRIVER_FILES") or env.get("VK_ICD_FILENAMES"):
@@ -86,11 +107,19 @@ def configure(env, manifest_dirs=MANIFEST_DIRS, library_dirs=LIBRARY_DIRS):
     # NVIDIA dlopens versioned shader/compiler libraries at runtime, so expose
     # the driver's siblings as well as its ICD. Never link generic host libs.
     sources = [driver]
-    for pattern in ("libnvidia-*.so*", "libGLX_nvidia.so*", "libEGL_nvidia.so*"):
-        sources.extend(sorted(driver.parent.glob(pattern)))
+    # libcuda.so.1 is the driver's too: with DLSS loaded, NGX has the driver load it, and without it
+    # vkCreateDevice fails (#135). The ICD's own directory first, then the host's library
+    # directories: Debian puts the ICD in nvidia/current/ but libnvidia-glsi/-tls/-glcore one
+    # level up (#205). The first file of each name wins.
+    for directory in dict.fromkeys((driver.parent, *library_dirs)):
+        for pattern in ("libnvidia-*.so*", "libGLX_nvidia.so*", "libEGL_nvidia.so*",
+                        "libcuda.so*"):
+            sources.extend(sorted(directory.glob(pattern)))
+    names = set()
     for source in sources:
-        if not elf64(source):
+        if source.name in names or not elf64(source):
             continue
+        names.add(source.name)
         link = libraries / source.name
         try:
             link.symlink_to(source.resolve())
@@ -105,6 +134,14 @@ def configure(env, manifest_dirs=MANIFEST_DIRS, library_dirs=LIBRARY_DIRS):
     env["VK_DRIVER_FILES"] = str(manifest) + (":" + bundled if bundled else "")
     env["LD_LIBRARY_PATH"] = str(libraries) + (
         ":" + env["LD_LIBRARY_PATH"] if env.get("LD_LIBRARY_PATH") else "")
+    # #107: NVIDIA's ICD gave no vkCreateInstance on some hosts (a GTX 1650 laptop on CachyOS)
+    # until glvnd saw the host's EGL vendor files, NVIDIA's first; the package's glvnd only looks
+    # in its own store. The user's own list, or BB_NVIDIA_EGL=0, keeps it as it is.
+    if not env.get("__EGL_VENDOR_LIBRARY_FILENAMES") and env.get("BB_NVIDIA_EGL") != "0":
+        vendors = [p for d in egl_dirs for p in sorted(d.glob("*.json"))]
+        vendors.sort(key=lambda p: "nvidia" not in p.name.lower())
+        if any("nvidia" in p.name.lower() for p in vendors):
+            env["__EGL_VENDOR_LIBRARY_FILENAMES"] = ":".join(str(p) for p in vendors)
     return f"Vulkan: host NVIDIA driver {driver}; bundled AMD/Intel also available"
 
 
@@ -175,10 +212,13 @@ def main():
     if "--vulkan-info" in sys.argv[1:]:
         tool = os.environ.get("BB_VULKANINFO", "vulkaninfo")
         os.environ.setdefault("VK_LOADER_DEBUG", "error,warn,driver")
-        for key in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "LD_LIBRARY_PATH"):
-            print(f"{key}={os.environ.get(key, '')}", file=sys.stderr, flush=True)
+        # Everything on stdout, with the summary: one file for an issue report (#107: the report
+        # went to stderr and was missing from saved output).
+        for key in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "LD_LIBRARY_PATH",
+                    "__EGL_VENDOR_LIBRARY_FILENAMES"):
+            print(f"{key}={os.environ.get(key, '')}", flush=True)
         for line in nvidia_report(os.environ, tool):
-            print(line, file=sys.stderr, flush=True)
+            print(line, flush=True)
         os.execvpe(tool, [tool, "--summary"], os.environ)
     os.execvpe(sys.argv[1], sys.argv[1:], os.environ)
 

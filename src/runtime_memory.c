@@ -13,14 +13,13 @@
 #include <limits.h>
 #include <pthread.h>
 #include <time.h>
-#ifndef _WIN32
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <unistd.h>
 /* sceKernelGetDirectMemorySize on retail PS4: 5056 MiB. BB_DMEM_MB raises it (the resolution
  * patches above 1080p need about 4 GiB more; run.sh sets it). */
-static uint64_t pool_size_bytes(void) {
+static uint64_t game_pool_bytes(void) {
     static uint64_t size;
     if (!size) {
         const char *env = getenv("BB_DMEM_MB");
@@ -30,7 +29,22 @@ static uint64_t pool_size_bytes(void) {
     }
     return size;
 }
+/* bbport: direct memory past the game's size, for the port's own guest allocations
+ * (runtime_extra_direct_map: the render resource cache's larger backing). The game neither sees
+ * nor allocates it. BB_DMEM_EXTRA_MB (0..2048, default 512). */
+static uint64_t extra_pool_bytes(void) {
+    static int64_t size=-1;
+    if (size<0) {
+        const char *env = getenv("BB_DMEM_EXTRA_MB");
+        uint64_t mb = env ? strtoull(env, NULL, 10) : 512;
+        if (mb > 2048) mb = 2048;
+        size = (int64_t)(mb * 1024 * 1024);
+    }
+    return (uint64_t)size;
+}
+static uint64_t pool_size_bytes(void) { return game_pool_bytes() + extra_pool_bytes(); }
 #define POOL_SIZE pool_size_bytes()
+#define GAME_POOL_SIZE game_pool_bytes()
 #define FLEXIBLE_SIZE (UINT64_C(448) * 1024 * 1024)
 #define PAGE UINT64_C(16384)
 #define USER_MIN UINT64_C(0x1000000000)
@@ -136,8 +150,14 @@ static int host_prot(int prot) {
 /* Direct memory occupies [0,POOL_SIZE) of the memfd, flexible memory [POOL_SIZE,+FLEX_SPAN). */
 static int pool(void) {
     if (pool_fd>=0) return 0;
+#ifdef _WIN32
+    /* A pagefile-backed section (gpu/platform/win32/posix_memory.cpp). */
+    pool_fd=bb_section_create(POOL_SIZE+FLEX_SPAN);
+    if (pool_fd<0) return -1;
+#else
     pool_fd=memfd_create("bb-guest-memory", MFD_CLOEXEC);
     if (pool_fd<0 || ftruncate(pool_fd,(off_t)(POOL_SIZE+FLEX_SPAN))) return -1;
+#endif
     void *view=mmap(NULL,POOL_SIZE+FLEX_SPAN,PROT_READ|PROT_WRITE,MAP_SHARED|MAP_NORESERVE,pool_fd,0);
     if (view==MAP_FAILED) return -1;
     backing_base=view;
@@ -342,6 +362,9 @@ static void drop_range(uintptr_t start, uintptr_t end) {
     }
     vma_erase(i,n);
 }
+/* bbport: write traps (runtime_memory_trap, below), kept across the game's own changes. */
+static void trap_reapply(uintptr_t start, uintptr_t end);
+static void trap_forget(uintptr_t start, uintptr_t end);
 /* Places a host mapping; with MAP_FIXED it replaces what the guest had there. */
 static int32_t place(void **inout, uint64_t size, int prot, int flags, uint64_t alignment,
                      int kind, int type, uint64_t phys) {
@@ -358,6 +381,7 @@ static int32_t place(void **inout, uint64_t size, int prot, int flags, uint64_t 
         : mmap((void *)address,size,PROT_NONE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE|MAP_FIXED,-1,0);
     if (mapped==MAP_FAILED) return NO_MEMORY;
     drop_range(address,address+size);
+    trap_forget(address,address+size); /* a new mapping starts without traps */
     if (vma_insert(vma_index(address),(Vma){address,address+size,kind,prot,type,phys})) return NO_MEMORY;
     if (kind==KIND_FLEXIBLE) flexible_bytes+=size;
     if (kind!=KIND_RESERVED) queue_hook(HOOK_MAP,address,size);
@@ -380,13 +404,13 @@ static int direct_range_allocated(uint64_t phys, uint64_t size) {
     return 1;
 }
 
-static ABI uint64_t direct_size(void) { return POOL_SIZE; }
+static ABI uint64_t direct_size(void) { return GAME_POOL_SIZE; }
 static ABI int32_t direct_allocate(int64_t low, int64_t high, uint64_t size,
                                   uint64_t alignment, int type, int64_t *out) {
     if (!alignment) alignment = PAGE;
     if (!out || low < 0 || high < 0 || !size || size % PAGE || !valid_alignment(alignment) || type < 0 || type > 10)
         return INVALID;
-    uint64_t end = (uint64_t)high < POOL_SIZE ? (uint64_t)high : POOL_SIZE;
+    uint64_t end = (uint64_t)high < GAME_POOL_SIZE ? (uint64_t)high : GAME_POOL_SIZE;
     if ((uint64_t)low >= end || size > end - (uint64_t)low) return NO_SPACE;
     write_lock();
     if (pool()) { write_unlock(); return NO_MEMORY; }
@@ -410,6 +434,37 @@ static ABI int32_t direct_allocate(int64_t low, int64_t high, uint64_t size,
     write_unlock();
     printf("Runtime: direct allocation offset=0x%" PRIx64 ", size=%" PRIu64 " bytes, type=%d\n", start, size, type);
     return 0;
+}
+/* bbport: `size` bytes of direct memory past the game's size (extra_pool_bytes), mapped for the
+ * CPU and the GPU (read and write) at an address of the runtime's choosing; the GPU side is told
+ * as of a game mapping. 0 or the error. */
+static int32_t map_direct_locked(void **out, uint64_t size, int prot, int flags, int64_t physical, uint64_t alignment);
+int runtime_extra_direct_map(uint64_t size, uint64_t alignment, void **out) {
+    if (!out || !size || size % PAGE || !valid_alignment(alignment)) return INVALID;
+    write_lock();
+    if (pool()) { write_unlock(); return NO_MEMORY; }
+    const uint64_t end=POOL_SIZE;
+    uint64_t start=align_up(GAME_POOL_SIZE,alignment);
+    int slot=-1;
+    for (int i=0;i<LIMIT;++i) if (!blocks[i].used) { slot=i; break; }
+    for (;;) {
+        if (slot<0 || start>end || size>end-start) { write_unlock(); return NO_SPACE; }
+        int overlap=0;
+        for (int i=0;i<LIMIT;++i) {
+            const Block b=blocks[i];
+            if (b.used && start<b.start+b.size && b.start<start+size) { start=align_up(b.start+b.size,alignment); overlap=1; break; }
+        }
+        if (!overlap) break;
+    }
+    blocks[slot]=(Block){start,size,3,1};
+    ensure_chunks(start,size);
+    *out=NULL;
+    const int32_t result=map_direct_locked(out,size,0x33,0,(int64_t)start,alignment);
+    if (result) blocks[slot].used=0;
+    write_unlock();
+    flush_hooks();
+    if (!result) printf("Runtime: port direct memory %p, size=%" PRIu64 " (past the game's %" PRIu64 " MiB)\n", *out, size, GAME_POOL_SIZE>>20);
+    return result;
 }
 static int32_t map_direct_locked(void **out, uint64_t size, int prot, int flags, int64_t physical, uint64_t alignment) {
     if (!alignment) alignment=PAGE;
@@ -446,6 +501,7 @@ static int32_t unmap_locked(uintptr_t start, uint64_t size) {
         if (munmap((void *)a,b-a)) return INVALID;
     }
     drop_range(start,end);
+    trap_forget(start,end);
     return 0;
 }
 static ABI int32_t direct_unmap(void *address, uint64_t size) {
@@ -551,6 +607,7 @@ static int32_t protect_locked(uintptr_t start, uint64_t size, int prot, int type
     start&=~(uintptr_t)(PAGE-1);
     if ((prot & ~0x37) || !covered(start,end,0)) return INVALID;
     if (mprotect((void *)start,end-start,host_prot(prot))) return INVALID;
+    trap_reapply(start,end); /* pages with write traps stay read-only */
     int error; size_t i=carve(start,end,&error);
     if (error) return NO_MEMORY;
     for (; i<vma_count && vmas[i].start<end; ++i) { vmas[i].prot=prot; if (type>=0) vmas[i].type=type; }
@@ -609,6 +666,27 @@ static ABI int32_t direct_memory_type(uint64_t phys, int *type, void **start, vo
     read_unlock();
     return ACCESS;
 }
+/* The direct memory allocation containing `offset` (or, flags & 1, the next one after it). */
+typedef struct { int64_t start, end; int32_t memory_type; } DirectQueryInfo;
+static ABI int32_t direct_query(int64_t offset, int flags, DirectQueryInfo *info, uint64_t size) {
+    if (!info || size < sizeof(DirectQueryInfo) || offset < 0) return INVALID;
+    read_lock();
+    int best=-1;
+    for (int i=0;i<LIMIT;++i) {
+        if (!blocks[i].used) continue;
+        if (blocks[i].start>=GAME_POOL_SIZE) continue; /* the port's own (runtime_extra_direct_map) */
+        const uint64_t at=(uint64_t)offset;
+        if (at>=blocks[i].start && at-blocks[i].start<blocks[i].size) { best=i; break; }
+        if ((flags & 1) && blocks[i].start>at && (best<0 || blocks[i].start<blocks[best].start)) best=i;
+    }
+    if (best>=0) {
+        info->start=(int64_t)blocks[best].start;
+        info->end=(int64_t)(blocks[best].start+blocks[best].size);
+        info->memory_type=blocks[best].type;
+    }
+    read_unlock();
+    return best>=0 ? 0 : (int32_t)UINT32_C(0x80020002); /* ENOENT */
+}
 static ABI int32_t batch_map2(BatchEntry *entries, int count, int *processed, int flags) {
     if (!entries || count<0) return INVALID;
     int32_t result=0; int done=0;
@@ -641,29 +719,43 @@ static const RuntimeExport exports[]={
     {"sceKernelReleaseFlexibleMemory",release_flexible}, {"sceKernelReserveVirtualRange",reserve_range},
     {"sceKernelMprotect",kernel_mprotect}, {"sceKernelQueryMemoryProtection",query_protection},
     {"sceKernelVirtualQuery",virtual_query}, {"sceKernelGetDirectMemoryType",direct_memory_type},
+    {"sceKernelDirectMemoryQuery",direct_query},
     {"sceKernelBatchMap",batch_map}, {"sceKernelBatchMap2",batch_map2},
     {"mmap",posix_mmap},
 };
 uintptr_t runtime_memory_resolve(const char *name) {
     /* Direct-memory NIDs are exercised by test_runtime.c before names are loaded. */
-    if (!strcmp(name, "pO96TwzOm5E#p#J")) return (uintptr_t)direct_size;
-    if (!strcmp(name, "rTXw65xmLIA#p#J")) return (uintptr_t)direct_allocate;
-    if (!strcmp(name, "L-Q3LEjIbgA#p#J")) return (uintptr_t)direct_map;
-    if (!strcmp(name, "MBuItvba6z8#p#J")) return (uintptr_t)direct_release;
-    if (!strcmp(name, "cQke9UuBQOk#p#J")) return (uintptr_t)direct_unmap;
+    if (runtime_nid_is(name, "pO96TwzOm5E")) return (uintptr_t)direct_size;
+    if (runtime_nid_is(name, "rTXw65xmLIA")) return (uintptr_t)direct_allocate;
+    if (runtime_nid_is(name, "L-Q3LEjIbgA")) return (uintptr_t)direct_map;
+    if (runtime_nid_is(name, "MBuItvba6z8")) return (uintptr_t)direct_release;
+    if (runtime_nid_is(name, "cQke9UuBQOk")) return (uintptr_t)direct_unmap;
     return RUNTIME_LOOKUP(exports,name);
 }
 /* Host-owned memory the guest can see (image, stacks, trampolines) lives in
  * [LOW_MIN, USER_MIN): PS4 code packs pointers into 40-bit fields. */
 #define LOW_MIN UINT64_C(0x0800000000)
 static uintptr_t low_next=LOW_MIN;
+/* The guest's address range, reserved before anything else can land there (Windows: one
+ * placeholder the game's mappings replace in; Linux needs nothing). */
+void runtime_memory_reserve(void) {
+#ifdef _WIN32
+    if (bb_reserve_arena(USER_MIN,USER_MAX)) exit(21);
+#endif
+}
 void *runtime_low_map(size_t size, int prot) {
+#ifdef _WIN32
+    const uint64_t granule=UINT64_C(65536); /* VirtualAlloc places allocations at 64 KiB */
+#else
+    const uint64_t granule=PAGE;
+#endif
     size=align_up(size,PAGE);
     write_lock();
     void *p=MAP_FAILED;
+    low_next=align_up(low_next,granule);
     while (low_next+size<=USER_MIN) {
         p=mmap((void *)low_next,size,prot,MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED_NOREPLACE,-1,0);
-        low_next+=size+PAGE; /* unmapped gap catches overruns */
+        low_next=align_up(low_next+size+PAGE,granule); /* unmapped gap catches overruns */
         if (p!=MAP_FAILED) break;
     }
     write_unlock();
@@ -784,6 +876,94 @@ void runtime_memory_note_cpu_write(uintptr_t address, uint64_t size) {
             return;
         }
     }
+}
+/* bbport: write traps the GPU side keeps on guest pages, by reason (bits: a VRAM copy of the page,
+ * an image made from it, ...). A page with any reason is read-only for the game even where its
+ * own protection allows writes; the fault goes to the GPU library's handlers, and each clears
+ * only its own reason. One owner for these protections: the layer's VRAM copies and the texture
+ * cache trap the same pages, and one's unprotect must not drop the other's trap. Reasons from 16 up
+ * trap reads too (no access: the page's data is newer elsewhere, a VRAM copy). Lock order: the
+ * runtime's lock, then trap_mutex (as kernel_mprotect, which keeps the traps). */
+#define TRAP_LIMIT (1ull<<40)
+#define TRAP_NO_ACCESS 0xf0u
+static uint8_t *trap_reasons; /* one byte per 4 KiB page below TRAP_LIMIT (reserved, not committed) */
+static pthread_mutex_t trap_mutex=PTHREAD_MUTEX_INITIALIZER;
+/* A page's trap level: 0 none, 1 read-only, 2 no access. */
+static int trap_level(uint8_t reasons) { return !reasons ? 0 : (reasons & TRAP_NO_ACCESS) ? 2 : 1; }
+/* The pages [a, b) to the game's protection, without write at level 1, without access at 2
+ * (runtime lock held). */
+static void trap_apply(uintptr_t a, uintptr_t b, int level) {
+    for (size_t i=vma_index(a); i<vma_count && vmas[i].start<b; ++i) {
+        if (vmas[i].kind==KIND_RESERVED) continue;
+        const uintptr_t s=vmas[i].start>a ? vmas[i].start : a, e=vmas[i].end<b ? vmas[i].end : b;
+        const int prot=host_prot(vmas[i].prot);
+        mprotect((void *)s,e-s,level==2 ? PROT_NONE : level ? (prot & ~PROT_WRITE) : prot);
+    }
+}
+/* No traps in [start, end) any more: a mapping replaced or gone (runtime lock held). */
+static void trap_forget(uintptr_t start, uintptr_t end) {
+    if (!trap_reasons || start>=TRAP_LIMIT) return;
+    if (end>TRAP_LIMIT) end=TRAP_LIMIT;
+    pthread_mutex_lock(&trap_mutex);
+    memset(trap_reasons+(start>>12),0,((end+4095)>>12)-(start>>12));
+    pthread_mutex_unlock(&trap_mutex);
+}
+/* Pages with traps in [start, end) read-only (or no access) again after the game changed their
+ * protection (runtime lock held). */
+static void trap_reapply(uintptr_t start, uintptr_t end) {
+    if (!trap_reasons || start>=TRAP_LIMIT) return;
+    if (end>TRAP_LIMIT) end=TRAP_LIMIT;
+    pthread_mutex_lock(&trap_mutex);
+    uintptr_t run=0; int run_level=0;
+    for (uintptr_t p=start>>12; p<(end+4095)>>12; ++p) {
+        const int level=trap_level(trap_reasons[p]);
+        if (run && level!=run_level) { trap_apply(run,p<<12,run_level); run=0; }
+        if (level && !run) { run=p<<12; run_level=level; }
+    }
+    if (run) trap_apply(run,end,run_level);
+    pthread_mutex_unlock(&trap_mutex);
+}
+void runtime_memory_trap(uintptr_t address, uint64_t size, unsigned reason, int on) {
+    if (!size || address>=TRAP_LIMIT) return;
+    if (!trap_reasons) {
+        void *bytes=mmap(NULL,TRAP_LIMIT>>12,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANONYMOUS|MAP_NORESERVE,-1,0);
+        if (bytes==MAP_FAILED) { perror("bbport: write trap table"); return; }
+        uint8_t *expected=NULL;
+        if (!__atomic_compare_exchange_n(&trap_reasons,&expected,(uint8_t *)bytes,0,__ATOMIC_ACQ_REL,__ATOMIC_ACQUIRE))
+            munmap(bytes,TRAP_LIMIT>>12);
+    }
+    uintptr_t end=address+size>TRAP_LIMIT ? TRAP_LIMIT : address+size;
+    read_lock();
+    pthread_mutex_lock(&trap_mutex);
+    /* Runs of pages whose trap level changes, one mprotect each. */
+    uintptr_t run=0; int run_level=0;
+    const uintptr_t first=address>>12, last=(end-1)>>12;
+    for (uintptr_t p=first; p<=last; ++p) {
+        const uint8_t old=trap_reasons[p], now=on ? (uint8_t)(old|reason) : (uint8_t)(old & ~reason);
+        if (old!=now) trap_reasons[p]=now;
+        const int level=trap_level(now), change=trap_level(old)!=level;
+        if (run && (!change || level!=run_level)) { trap_apply(run,p<<12,run_level); run=0; }
+        if (change && !run) { run=p<<12; run_level=level; }
+    }
+    if (run) trap_apply(run,(last+1)<<12,run_level);
+    pthread_mutex_unlock(&trap_mutex);
+    read_unlock();
+}
+/* bbport: a libc write about to land on pages with write traps: the GPU side is told first and
+ * lifts its traps, instead of the write faulting (a fault handler waits for the draws the GPU
+ * thread has queued; libc copies into small textures every frame made the game's frames late).
+ * Its announcement after the write (runtime_memory_note_cpu_write) stays as it was. */
+void runtime_memory_prepare_cpu_write(uintptr_t address, uint64_t size) {
+    const uint8_t *table=__atomic_load_n(&trap_reasons,__ATOMIC_ACQUIRE);
+    if (!table || !size || address>=TRAP_LIMIT || !hook_cpu_write) return;
+    uint64_t last=(address+size-1)>>12;
+    if (last>=(TRAP_LIMIT>>12)) last=(TRAP_LIMIT>>12)-1;
+    for (uint64_t p=address>>12; p<=last; ++p)
+        if (__atomic_load_n(&table[p],__ATOMIC_RELAXED)) { hook_cpu_write(address,size); return; }
+}
+unsigned runtime_memory_trap_reasons(uintptr_t address) {
+    const uint8_t *table=__atomic_load_n(&trap_reasons,__ATOMIC_ACQUIRE);
+    return table && address<TRAP_LIMIT ? __atomic_load_n(&table[address>>12],__ATOMIC_ACQUIRE) : 0;
 }
 /* bbport: where direct memory at a guest address lives (BB_GUEST_IN_PLACE: the GPU uses the game's
  * memory where it is): its offset in direct memory and the end of the mapping, which is contiguous
@@ -944,9 +1124,3 @@ void runtime_memory_report(void) {
     printf("Runtime: flexible maps=%zu, in use=%" PRIu64 ", protects=%zu, queries=%zu, regions=%zu\n",
            flexible_maps, flexible_bytes, protects, queries, vma_count);
 }
-#else
-void *runtime_low_map(size_t size, int prot) { (void)size; (void)prot; return NULL; }
-uintptr_t runtime_memory_resolve(const char *name) { (void)name; return 0; }
-int runtime_memory_is_mapped(uintptr_t address, uint64_t size) { (void)address; (void)size; return 0; }
-void runtime_memory_report(void) { puts("Runtime: Windows direct-memory backend not implemented"); }
-#endif

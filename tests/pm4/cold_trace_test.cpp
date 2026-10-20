@@ -2,6 +2,7 @@
 #include <cassert>
 #include <string>
 #include <fstream>
+#include <vector>
 #include <sys/mman.h>
 static unsigned context_calls=0;
 static bool known_context=true,failed_context=false;
@@ -27,7 +28,8 @@ int main(int argc,char**){
  std::array<uint32_t,15> broken{0xc00a1000,0,0xc0016900,0x358,0,0xc0016900,0x367,0,0xc0016900,0x376,0,0xc0016900,0x385,0,0xc0086900};
  auto bad=BbPm4Cold::Validate(broken);assert(!bad.valid&&bad.offset==12&&bad.word==0x385);
  auto legal=broken;legal[12]=0xc0016900;legal[13]=0x385;legal[14]=0;assert(BbPm4Cold::Validate(legal).valid);
- std::array<uint32_t,1> one_nop{0xffff1000};assert(BbPm4Cold::Validate(one_nop).valid);
+ std::array<uint32_t,1> one_nop{0xffff1000};assert(!BbPm4Cold::Validate(one_nop).valid);
+ std::vector<uint32_t> full_nop(16385);full_nop[0]=0xffff1000;assert(BbPm4Cold::Validate(full_nop).valid);
  std::array<uint32_t,2> short_packet{0xc0086900,0};assert(!BbPm4Cold::Validate(short_packet).valid);
  const auto original=BbPm4Cold::Digest(legal);legal[13]++;assert(original!=BbPm4Cold::Digest(legal));
  auto& records=BbPm4Cold::Records();

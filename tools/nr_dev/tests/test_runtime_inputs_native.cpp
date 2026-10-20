@@ -1,6 +1,6 @@
 // CPU-only resource path/argv wiring. No Vulkan/Wine dependency.
-#include "gpu/shadps4/video_core/renderer_vulkan/native_dev_paths.h"
-#include "gpu/shadps4/video_core/renderer_vulkan/native_origin_identity_policy.h"
+#include "gpu/render/native_dev_paths.h"
+#include "gpu/render/native_origin_identity_policy.h"
 #include <cassert>
 #include <fstream>
 #include <iostream>

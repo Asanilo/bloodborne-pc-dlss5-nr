@@ -9,6 +9,13 @@
 /* The user folder add-ons are listed from (runtime_file.c in the game): a temporary one here. */
 static char user_dir[64]="/tmp/bbport-content-test-XXXXXX";
 const char *runtime_file_user_dir(void) { return user_dir; }
+/* These lifecycle/list tests must not mount files as a side effect. The actual
+ * mount table is exercised separately by test_file_mods.c. */
+int runtime_file_mount(const char *guest,const char *host) {
+    (void)guest; (void)host;
+    fputs("unexpected mount during AppContent query\n",stderr);
+    abort();
+}
 typedef int32_t (ABI *Module)(uint16_t);
 typedef int32_t (ABI *Init)(const void *,void *);
 typedef int32_t (ABI *Param)(uint32_t,int32_t *);
@@ -23,7 +30,7 @@ int main(int argc,char **argv) {
     Param param=GET(Param,"99b82IKXpH4#c#d");
     List list=GET(List,"xnd8BJzAxmk#c#d");
     assert(load && loaded && unload && init && param && list);
-    assert(!runtime_content_resolve("g8cM39EUZ6o#I#J"));
+    assert(runtime_content_resolve("g8cM39EUZ6o#I#J")); /* any library letters (runtime_nid_is) */
     if (argc>1 && !strcmp(argv[1],"--missing")) { load(0xb4); return 99; }
     const uint32_t profile[]={1,13,0x80000000,0,7};
     runtime_content_configure(profile);

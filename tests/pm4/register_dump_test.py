@@ -18,7 +18,7 @@ class RegisterDumpTest(unittest.TestCase):
         # New diagnostic output may not introduce unsafe formatting/allocation.
         for token in ('malloc(', 'calloc(', 'printf(', 'snprintf(', 'fwrite(', 'pthread_', 'bbgpu_'):
             self.assertNotIn(token, dump)
-        self.assertEqual(dump.count('process_vm_readv('), 1)  # existing frame walk only
+        self.assertEqual(dump.count('process_vm_readv('), 3)  # bounded pointer, stack, frame reads
         harness = r'''
 #define _GNU_SOURCE
 #include <stdint.h>
@@ -32,10 +32,21 @@ static uintptr_t exe_base=0x2000;
 /* Isolate the existing frame-read OS dependency: permit only the two explicitly
  * owned synthetic frames. Sandbox policy may deny real process_vm_readv. */
 static uintptr_t test_frames[2][2];
+static const uintptr_t guest_pointer=UINT64_C(0x800001000), guest_stack=UINT64_C(0x800002000);
+static uint64_t pointer_words[8], stack_words[24];
 static ssize_t synthetic_read(pid_t pid,const struct iovec *local,unsigned long lc,
                               const struct iovec *remote,unsigned long rc,unsigned long flags) {
-    if(pid!=getpid() || lc!=1 || rc!=1 || flags || local->iov_len!=sizeof(test_frames[0]) ||
-       remote->iov_len!=sizeof(test_frames[0]))return -1;
+    if(pid!=getpid() || lc!=1 || rc!=1 || flags || local->iov_len!=remote->iov_len)return -1;
+    if(remote->iov_base==(void *)guest_pointer && remote->iov_len==sizeof(pointer_words)) {
+        memcpy(local->iov_base,pointer_words,sizeof(pointer_words)); return sizeof(pointer_words);
+    }
+    const uintptr_t address=(uintptr_t)remote->iov_base;
+    if(address>=guest_stack && address-guest_stack<sizeof(stack_words) &&
+       !(address&7) && remote->iov_len==sizeof(uint64_t)) {
+        memcpy(local->iov_base,&stack_words[(address-guest_stack)/8],sizeof(uint64_t));
+        return sizeof(uint64_t);
+    }
+    if(remote->iov_len!=sizeof(test_frames[0]))return -1;
     if(remote->iov_base!=test_frames[0] && remote->iov_base!=test_frames[1])return -1;
     memcpy(local->iov_base,remote->iov_base,sizeof(test_frames[0]));
     return sizeof(test_frames[0]);
@@ -63,6 +74,12 @@ int main(int argc,char **argv) {
         test_frames[0][1]=0x5678;
         uc.uc_mcontext.gregs[REG_RBP]=(greg_t)(uintptr_t)&test_frames[0][0];
     }
+    if(argc>3) {
+        for(unsigned i=0;i<8;++i)pointer_words[i]=UINT64_C(0xabc0000000000000)+i;
+        for(unsigned i=0;i<24;++i)stack_words[i]=UINT64_C(0xdef0000000000000)+i;
+        uc.uc_mcontext.gregs[REG_RDI]=(greg_t)guest_pointer;
+        uc.uc_mcontext.gregs[REG_RSP]=(greg_t)guest_stack;
+    }
     int fds[2]; if(pipe(fds))return 10;
     if(dup2(fds[1],2)<0)return 11;
     close(fds[1]);
@@ -86,6 +103,7 @@ int main(int argc,char **argv) {
             full = subprocess.run([str(exe)], capture_output=True, check=True, text=True, timeout=5).stdout
             null = subprocess.run([str(exe), 'null'], capture_output=True, check=True, text=True, timeout=5).stdout
             chain = subprocess.run([str(exe), 'null', 'chain'], capture_output=True, check=True, text=True, timeout=5).stdout
+            memory = subprocess.run([str(exe), 'null', 'chain', 'memory'], capture_output=True, check=True, text=True, timeout=5).stdout
         # Per-thread records retain full high bits, and existing RDI/frame syntax.
         tid = re.search(r'tid=([0-9a-f]{16})', full).group(1)
         for i, name in enumerate(('rax', 'rbx', 'rcx', 'rdx', 'rsi', 'rsp', 'rbp', 'r12', 'r15')):
@@ -104,6 +122,10 @@ int main(int argc,char **argv) {
         self.assertRegex(chain, r'rip=0000000000005678 image-relative=0000000000004678 host-relative=0000000000003678\n')
         self.assertEqual(chain.count(' rip='), 2)
         self.assertTrue(all(len(line) < 160 for line in full.splitlines()))
+        self.assertEqual(memory.count(' at 0000000800001000+'), 8)
+        self.assertIn('+56=abc0000000000007\n', memory)
+        self.assertEqual(memory.count(' stack+'), 24)
+        self.assertIn('stack+184=def0000000000017\n', memory)
 
 
 if __name__ == '__main__':

@@ -18,6 +18,15 @@ EBOOT_BASE=0x400000
 # half speed (the game's wall detector measured distance per frame, a 30 FPS rule).
 FPS_PRESETS={'30':[],'60':['60 FPS++'],'90':['90 FPS++','Sprint Fix (High FPS)'],
              'uncap':['Uncap FPS++','Sprint Fix (High FPS)']}
+# Above 30 FPS the frame rate is done by hooks in the game's code (gpu/shim/bbport_frame_rate.cpp:
+# 60 and 90 are the same as uncap, at most that many frames a second): no patches. The patches
+# only with BB_FRAME_HOOKS=0 (comparisons).
+
+
+def fps_patches(fps, env=os.environ):
+    if fps!='30' and env.get('BB_FRAME_HOOKS','1')!='0':
+        return []
+    return FPS_PRESETS[fps]
 # Upscaler presets (bbport.ini "preset", the in-game menu): output / render size ratio. The game
 # then renders at 1920x1080 / ratio and the port's temporal upscaler restores the output size.
 OUTPUT_SIZE=(1920,1080)
@@ -36,6 +45,7 @@ EFFECTS={
     'effect_game_aa':('Disable AA',None),
     'effect_dynamic_shadows':('Disable Dynamic Light Shadows (perf increase)',None),
     'effect_ssr':(None,'Enable Screen Space Reflections (READ NOTE)'),
+    'effect_bloom':('Disable Bloom',None),
     'skip_intro':(None,'Skip Intro'),
     'debug_camera':(None,'Restore Debug Camera'),
     'debug_menu':(None,'Restore Debug Menu (READ NOTES)'),
@@ -69,6 +79,14 @@ def language_patches(env=os.environ):
 
 def skip_network_choice(env=os.environ):
     return env.get('BB_SKIP_NETWORK_CHOICE','1')!='0'
+
+
+# Two per-frame GX command heaps: the game writes through NULL when a 256 KiB heap fills (#162).
+GX_COMMAND_HEAP='Larger GX Per-Frame Command Heap'
+
+
+def gx_command_heap(env=os.environ):
+    return env.get('BB_GX_COMMAND_HEAP','1')!='0'
 
 
 def intel_tonemap_fix(env=os.environ, cpuinfo='/proc/cpuinfo'):
@@ -138,10 +156,22 @@ def validate_patch_requirements(names, game):
     return names
 
 
-def effect_patches(settings):
+# Effects the engine switches live (gpu/shim bbport_guest_hooks.cpp, "game effects switched live"):
+# they get no startup patch, the engine writes the same bytes from the settings (and again on
+# every change in the menu). BB_HOT_EFFECTS=0: the patches at start, as before.
+HOT_EFFECTS={'effect_chromatic_aberration','effect_dof','effect_motion_blur','effect_ssao',
+             'effect_game_aa','effect_dynamic_shadows','effect_bloom'}
+# SSR also changes the size of a resource allocated by the renderer constructor
+# (0x22c428d). Applying only its shader/pass switches corrupts the scene; apply
+# the complete community patch before construction, and require a restart.
+
+
+def effect_patches(settings, env=os.environ):
     names=[]
+    hot=env.get('BB_HOT_EFFECTS','1')!='0'
     for key,(off,on) in EFFECTS.items():
         if key not in settings: continue
+        if hot and key in HOT_EFFECTS: continue
         name=on if settings[key]=='1' else off
         if name: names.append(name)
     lod=MODEL_LOD.get(settings.get('model_lod','0'))
@@ -264,7 +294,9 @@ def compile_patches(xml, names, app_version, segments):
 
 
 # Third-party patch files (shadPS4/GoldHEN XML) in the data directory's patches/ folder.
-BLOODBORNE_IDS={'CUSA00207','CUSA00208','CUSA00900','CUSA01363','CUSA03173','CUSA03023'}
+# The retail releases (scripts/game_check.py SUPPORTED_TITLES): one 1.09 executable.
+BLOODBORNE_IDS={'CUSA00900','CUSA00207','CUSA00208','CUSA00299','CUSA01363',
+                'CUSA03179','CUSA03173','CUSA03014','CUSA03023'}
 
 
 def external_patches(directory, app_version='01.09', exclude=Path(__file__).resolve().parent.parent/'patches/Bloodborne.xml'):
@@ -348,13 +380,15 @@ def main():
         size=render_size(settings)
         if size: print(f'{size[0]}x{size[1]}')
         return
-    names=FPS_PRESETS[a.fps]+[n.strip() for n in a.extra.split(';') if n.strip()]
+    names=fps_patches(a.fps)+[n.strip() for n in a.extra.split(';') if n.strip()]
     names+=[n for n in effect_patches(read_settings(a.settings)) if n not in names]
     if intel_tonemap_fix() and INTEL_TONEMAP not in names:
         names.append(INTEL_TONEMAP)
     if skip_network_choice() and SKIP_NETWORK_CHOICE not in names:
         names.append(SKIP_NETWORK_CHOICE)
     names += [name for name in language_patches() if name not in names]
+    if gx_command_heap() and GX_COMMAND_HEAP not in names:
+        names.append(GX_COMMAND_HEAP)
     names=validate_patch_requirements(names,a.game_dir)
     segments=eboot_segments((a.out/'eboot.elf').read_bytes())
     writes=compile_patches(a.xml,names,a.app_version,segments)

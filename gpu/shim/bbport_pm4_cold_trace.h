@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "bbport_gnm_hooks.h"
+#include "cp/cp_pm4.h"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -19,7 +20,7 @@ inline bool Enabled(){static const bool on=[] {const char* v=std::getenv("BB_NR_
 struct Framing {bool valid=true;size_t offset=0;uint32_t word=0;const char* reason="complete";};
 inline Framing Validate(std::span<const uint32_t> words){
  for(size_t at=0;at<words.size();){const auto h=words[at];const unsigned type=h>>30;size_t n=1;
-  if(type==3)n=((((h>>16)&0x3fffu)+1)&0x3fffu)+1; // exact local NumWords()+header, including single-word NOP padding
+  if(type==3)n=size_t(BbCp::Header{h}.BodyWords())+1; // actual upstream decoder count, without 14-bit wrap
   else if(type!=2)return {false,at,h,"non_type2_type3"};
   if(n>words.size()-at)return {false,at,h,"packet_exceeds_submission"};
   at+=n;

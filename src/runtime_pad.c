@@ -1,18 +1,20 @@
 /* libScePad on SDL3 gamepads and the keyboard. SDL events are pumped by the window thread
  * (gpu/shim/window.cpp); here state is only sampled.
  *
- * Keyboard layout (also with a gamepad connected: both drive the game):
- *   WASD left stick, arrow keys right stick, Space Cross, LShift Circle,
- *   E Square, Q Triangle, 1 L1, 3 R1, R L2, F R2, Z L3, C R3,
- *   Enter Options, Tab left touchpad, Backspace right touchpad,
- *   IJKL d-pad (I up, K down, J left, L right).
- *
- * A key binding may be a chord, "Left Ctrl+C", comma-separated from plain alternatives as usual.
- * Up to eight standard modifiers combine with '+': the left/right Ctrl, Shift, Alt and GUI keys.
- * While a chord is held its primary key's plain bindings do not count (Ctrl+C is L3, not R3 too),
- * and a chord with more modifiers wins over a less specific one on the same primary key. The
- * modifiers' own bindings keep working: Shift can still be Circle and enter a "Shift+Mouse Left"
- * chord. Mouse keys accept the old "MouseLeft" spelling and SDL's spaced "Mouse Left" as well.
+ * Keyboard layout (Dark Souls III's on PC, with the player's changes; also with a gamepad
+ * connected: both drive the game):
+ *   WASD left stick, IJKL right stick (the camera), Space the dodge (a short Circle press: never a
+ *   run), Left Shift the run (Circle held), Shift + Space the jump (Circle let go and pressed again
+ *   while running), F and Enter Cross
+ *   (interact, confirm), Q Triangle (blood vial), E L1 (transform the weapon), Tab and R Square
+ *   (the quick item), C R3 (lock-on), Left Ctrl L3, Escape Options (the menu; Circle, the way back, while a game menu is open), G left touchpad
+ *   (gestures), Backspace right touchpad; the d-pad on 1 (left: the left hand's weapon), 2 (right:
+ *   the right hand's), 3 (up), 4 (down) and the arrow keys.
+ *   Mouse (once the game window is clicked; F1 or leaving the window releases it): look (the
+ *   right stick), Left R1 (attack), Shift+Left R2, Right L2 (the gun), Middle R3, side buttons R2
+ *   (X1) and L1 (X2), wheel the d-pad's up/down (quick items).
+ *   A binding may be a chord, "Left Shift+Mouse Left": while it is held, the second key's plain
+ *   bindings do not count (Shift+Left is R2, not R2 and R1).
  *
  * Stick neutral: SDL exposes no way to read a pad's calibration and some clones report a
  * biased neutral (a Switch-style pad was seen returning both sticks at a constant ~ +/-16380).
@@ -33,6 +35,7 @@
 #define _GNU_SOURCE
 #include "runtime.h"
 #include "gpu/bbgpu.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -40,7 +43,6 @@
 #include <time.h>
 #include <SDL3/SDL.h>
 #include <sys/stat.h>
-#include <math.h>
 
 #define ERR_INVALID_ARG ((int32_t)0x80920001)
 #define ERR_INVALID_HANDLE ((int32_t)0x80920003)
@@ -205,10 +207,12 @@ static uint8_t stick_axis(int axis,int16_t raw) {
 static uint16_t touch_axis(float v, int max) {
     return (uint16_t)(v<=0.0f ? 0 : v>=1.0f ? max : (int)(v*max+0.5f));
 }
+/* A finger on the left or right half of the touchpad (both keys: two fingers). */
 static void touch_click(PadData *d, int right) {
     d->buttons|=BTN_TOUCHPAD;
-    d->touch_count=1;
-    d->touches[0]=(PadTouch){.x=right ? 1440 : 480,.y=471,.id=0};
+    const uint16_t x=right ? 1440 : 480;
+    for (int i=0;i<d->touch_count;++i) if (d->touches[i].x==x) return;
+    if (d->touch_count<2) d->touches[d->touch_count++]=(PadTouch){.x=x,.y=471,.id=0};
 }
 
 /* BB_GAMEPAD (the launcher's controller choice): its SDL GUID, or part of its name. Issue #15:
@@ -264,8 +268,10 @@ static void report_guest_heap(void) {
     const uint64_t now=now_us();
     if (!enabled || now-last<5000000) return;
     last=now;
-    const uint8_t *stub=(const uint8_t *)(0x800000000ull+0x56e0000+0x1f8c0);
-    if (stub[0]!=0xff || stub[1]!=0x25) return; /* another libc */
+    /* Bloodborne's libc.prx (another game's libc has its exports elsewhere). */
+    if (!runtime_libc_base) return;
+    const uint8_t *stub=(const uint8_t *)(runtime_libc_base+0x1f8c0);
+    if (runtime_libc_base!=0x800000000ull+0x56e0000 || stub[0]!=0xff || stub[1]!=0x25) return;
     ABI int (*stats)(MallocManagedSize *)=(ABI int (*)(MallocManagedSize *))(uintptr_t)stub;
     MallocManagedSize m={.size=sizeof(m),.version=1};
     const int result=stats(&m);
@@ -287,12 +293,12 @@ enum {
     IN_CROSS, IN_CIRCLE, IN_SQUARE, IN_TRIANGLE, IN_L1, IN_R1, IN_L2, IN_R2, IN_L3, IN_R3,
     IN_OPTIONS, IN_TOUCHPAD, IN_TOUCHPAD_RIGHT, IN_UP, IN_DOWN, IN_LEFT, IN_RIGHT,
     IN_MOVE_UP, IN_MOVE_DOWN, IN_MOVE_LEFT, IN_MOVE_RIGHT, IN_LOOK_UP, IN_LOOK_DOWN, IN_LOOK_LEFT,
-    IN_LOOK_RIGHT, IN_WALK, IN_COUNT
+    IN_LOOK_RIGHT, IN_SPRINT, IN_DODGE, IN_WALK, IN_COUNT
 };
 static const char *const input_names[IN_COUNT]={
     "cross","circle","square","triangle","l1","r1","l2","r2","l3","r3","options","touchpad",
     "touchpad_right","up","down","left","right","move_up","move_down","move_left","move_right",
-    "look_up","look_down","look_left","look_right","walk",
+    "look_up","look_down","look_left","look_right","sprint","dodge","walk",
 };
 static const uint32_t input_buttons[IN_COUNT]={
     BTN_CROSS,BTN_CIRCLE,BTN_SQUARE,BTN_TRIANGLE,BTN_L1,BTN_R1,BTN_L2,BTN_R2,BTN_L3,BTN_R3,
@@ -314,32 +320,78 @@ static const struct { const char *name; unsigned bit; SDL_Scancode key; } modifi
     {"Left GUI",MOD_LGUI,SDL_SCANCODE_LGUI}, {"Right GUI",MOD_RGUI,SDL_SCANCODE_RGUI},
 };
 _Static_assert(sizeof(modifier_keys)/sizeof(*modifier_keys)==MAX_MODS,"chord modifier bits");
+/* Mouse buttons and the wheel in key.<input> lines ("Mouse Left", "Wheel Down", ...): codes past
+ * SDL's scancodes. They count only while the window holds the mouse for looking (gpu/shim
+ * window.cpp): a click that takes the mouse is not an attack. The compact names are the old
+ * bbport spelling; both spellings map to the same code. */
+enum { MOUSE_KEY=SDL_SCANCODE_COUNT, MOUSE_WHEEL_UP=MOUSE_KEY+SDL_BUTTON_X2+1, MOUSE_WHEEL_DOWN };
+static const struct { const char *name; int code; } mouse_keys[]={
+    {"Mouse Left",MOUSE_KEY+SDL_BUTTON_LEFT}, {"Mouse Right",MOUSE_KEY+SDL_BUTTON_RIGHT},
+    {"Mouse Middle",MOUSE_KEY+SDL_BUTTON_MIDDLE}, {"Mouse X1",MOUSE_KEY+SDL_BUTTON_X1},
+    {"Mouse X2",MOUSE_KEY+SDL_BUTTON_X2}, {"Wheel Up",MOUSE_WHEEL_UP}, {"Wheel Down",MOUSE_WHEEL_DOWN},
+    {"MouseLeft",MOUSE_KEY+SDL_BUTTON_LEFT}, {"MouseRight",MOUSE_KEY+SDL_BUTTON_RIGHT},
+    {"MouseMiddle",MOUSE_KEY+SDL_BUTTON_MIDDLE}, {"MouseX1",MOUSE_KEY+SDL_BUTTON_X1},
+    {"MouseX2",MOUSE_KEY+SDL_BUTTON_X2},
+};
 enum { PAD_LEFT_TRIGGER=SDL_GAMEPAD_BUTTON_COUNT, PAD_RIGHT_TRIGGER }; /* triggers as buttons */
 /* keys[i] needs every modifier in mods[i] held too (0: a plain key; a chord otherwise). */
 typedef struct { int key_count, pad_count; int keys[MAX_BIND]; unsigned mods[MAX_BIND]; int pad[MAX_BIND]; } Binding;
 static Binding bindings[IN_COUNT];
 static int bindings_ready;
-static uint32_t mouse_buttons;
-static int host_blocked;
-static float mouse_sensitivity=1.0f, keyboard_look_speed=1.0f;
-static int mouse_invert_y;
-/* Mouse tokens share key.* bindings and can be mixed with keyboard alternatives. The compact
- * names are the old bbport spelling; SDL's spaced names ("Mouse Left") are accepted too. */
-#define MOUSE_KEY_BASE 512
-static int mouse_key(const char *name) {
-    static const char *const names[]={
-        "MouseLeft","MouseMiddle","MouseRight","MouseX1","MouseX2",
-        "Mouse Left","Mouse Middle","Mouse Right","Mouse X1","Mouse X2",
+
+static void bind_defaults(void) {
+    /* The header comment's layout. */
+    enum { NONE=0, SHIFT_KEY=SDL_SCANCODE_LSHIFT, SHIFT_MOD=MOD_LSHIFT };
+    static const struct { int input; int key; unsigned mod; } keys[]={
+        {IN_DODGE,SDL_SCANCODE_SPACE,NONE}, {IN_SPRINT,SHIFT_KEY,NONE}, {IN_CROSS,SDL_SCANCODE_F,NONE},
+        {IN_CROSS,SDL_SCANCODE_RETURN,NONE}, {IN_TRIANGLE,SDL_SCANCODE_Q,NONE},
+        {IN_L1,SDL_SCANCODE_E,NONE}, {IN_SQUARE,SDL_SCANCODE_TAB,NONE}, {IN_SQUARE,SDL_SCANCODE_R,NONE},
+        {IN_R3,SDL_SCANCODE_C,NONE}, {IN_L3,SDL_SCANCODE_LCTRL,NONE},
+        {IN_OPTIONS,SDL_SCANCODE_ESCAPE,NONE}, {IN_TOUCHPAD,SDL_SCANCODE_G,NONE},
+        {IN_TOUCHPAD_RIGHT,SDL_SCANCODE_BACKSPACE,NONE},
+        {IN_LEFT,SDL_SCANCODE_1,NONE}, {IN_RIGHT,SDL_SCANCODE_2,NONE}, {IN_UP,SDL_SCANCODE_3,NONE},
+        {IN_DOWN,SDL_SCANCODE_4,NONE},
+        {IN_UP,SDL_SCANCODE_UP,NONE}, {IN_DOWN,SDL_SCANCODE_DOWN,NONE}, {IN_LEFT,SDL_SCANCODE_LEFT,NONE},
+        {IN_RIGHT,SDL_SCANCODE_RIGHT,NONE},
+        {IN_MOVE_UP,SDL_SCANCODE_W,NONE}, {IN_MOVE_DOWN,SDL_SCANCODE_S,NONE},
+        {IN_MOVE_LEFT,SDL_SCANCODE_A,NONE}, {IN_MOVE_RIGHT,SDL_SCANCODE_D,NONE},
+        {IN_LOOK_UP,SDL_SCANCODE_I,NONE}, {IN_LOOK_DOWN,SDL_SCANCODE_K,NONE},
+        {IN_LOOK_LEFT,SDL_SCANCODE_J,NONE}, {IN_LOOK_RIGHT,SDL_SCANCODE_L,NONE},
+        {IN_R1,MOUSE_KEY+SDL_BUTTON_LEFT,NONE}, {IN_R2,MOUSE_KEY+SDL_BUTTON_LEFT,SHIFT_MOD},
+        {IN_L2,MOUSE_KEY+SDL_BUTTON_RIGHT,NONE},
+        {IN_R3,MOUSE_KEY+SDL_BUTTON_MIDDLE,NONE}, {IN_R2,MOUSE_KEY+SDL_BUTTON_X1,NONE},
+        {IN_L1,MOUSE_KEY+SDL_BUTTON_X2,NONE},
+        {IN_UP,MOUSE_WHEEL_UP,NONE}, {IN_DOWN,MOUSE_WHEEL_DOWN,NONE},
     };
-    for (size_t i=0;i<sizeof(names)/sizeof(*names);++i)
-        if (!SDL_strcasecmp(name,names[i])) return MOUSE_KEY_BASE+(int)(i%5);
-    return -1;
+    static const struct { int input, button; } pads[]={
+        {IN_CROSS,SDL_GAMEPAD_BUTTON_SOUTH}, {IN_CIRCLE,SDL_GAMEPAD_BUTTON_EAST},
+        {IN_SQUARE,SDL_GAMEPAD_BUTTON_WEST}, {IN_TRIANGLE,SDL_GAMEPAD_BUTTON_NORTH},
+        {IN_L1,SDL_GAMEPAD_BUTTON_LEFT_SHOULDER}, {IN_R1,SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER},
+        {IN_L2,PAD_LEFT_TRIGGER}, {IN_R2,PAD_RIGHT_TRIGGER},
+        {IN_L3,SDL_GAMEPAD_BUTTON_LEFT_STICK}, {IN_R3,SDL_GAMEPAD_BUTTON_RIGHT_STICK},
+        {IN_OPTIONS,SDL_GAMEPAD_BUTTON_START},
+        {IN_TOUCHPAD,SDL_GAMEPAD_BUTTON_BACK}, {IN_TOUCHPAD,SDL_GAMEPAD_BUTTON_TOUCHPAD},
+        {IN_UP,SDL_GAMEPAD_BUTTON_DPAD_UP}, {IN_DOWN,SDL_GAMEPAD_BUTTON_DPAD_DOWN},
+        {IN_LEFT,SDL_GAMEPAD_BUTTON_DPAD_LEFT}, {IN_RIGHT,SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
+    };
+    memset(bindings,0,sizeof bindings);
+    for (size_t i=0;i<sizeof(keys)/sizeof(*keys);++i) {
+        Binding *b=&bindings[keys[i].input];
+        b->mods[b->key_count]=keys[i].mod; b->keys[b->key_count++]=keys[i].key;
+    }
+    for (size_t i=0;i<sizeof(pads)/sizeof(*pads);++i) {
+        Binding *b=&bindings[pads[i].input]; b->pad[b->pad_count++]=pads[i].button;
+    }
 }
-/* A key name or mouse token. Scancode names are matched without case (SDL's own lookup is not
- * guaranteed to be), so a whole chord may be typed in any case. */
+static int pad_button_from_name(const char *name) {
+    if (!SDL_strcasecmp(name,"lefttrigger")) return PAD_LEFT_TRIGGER;
+    if (!SDL_strcasecmp(name,"righttrigger")) return PAD_RIGHT_TRIGGER;
+    const SDL_GamepadButton b=SDL_GetGamepadButtonFromString(name);
+    return b==SDL_GAMEPAD_BUTTON_INVALID ? -1 : (int)b;
+}
 static int key_from_name(const char *name) {
-    const int mouse=mouse_key(name);
-    if (mouse>=0) return mouse;
+    for (size_t i=0;i<sizeof(mouse_keys)/sizeof(*mouse_keys);++i)
+        if (!SDL_strcasecmp(name,mouse_keys[i].name)) return mouse_keys[i].code;
     if (!SDL_strcasecmp(name,"Comma")) return SDL_SCANCODE_COMMA;
     if (!SDL_strcasecmp(name,"Keypad Comma")) return SDL_SCANCODE_KP_COMMA;
     const SDL_Scancode s=SDL_GetScancodeFromName(name);
@@ -354,6 +406,11 @@ static unsigned modifier_bit(const char *name) {
     for (size_t i=0;i<sizeof(modifier_keys)/sizeof(*modifier_keys);++i)
         if (!SDL_strcasecmp(name,modifier_keys[i].name)) return modifier_keys[i].bit;
     return 0;
+}
+static int modifier_scancode(unsigned mods) {
+    for (size_t i=0;i<sizeof(modifier_keys)/sizeof(*modifier_keys);++i)
+        if (mods & modifier_keys[i].bit) return (int)modifier_keys[i].key;
+    return -1;
 }
 /* Parse "<modifier>+...+<primary>" in place. A "+" followed by nothing, an unknown modifier or a
  * duplicate one rejects the whole alternative instead of degrading it to a plain key; "Keypad +"
@@ -378,71 +435,51 @@ static int parse_key_alternative(char *name, int *key, unsigned *mods) {
     }
     const int parsed=key_from_name(p);
     if (parsed<0) return -1;
-    if (parsed<SDL_SCANCODE_COUNT && (mask & modifier_bit(SDL_GetScancodeName((SDL_Scancode)parsed))))
-        return -1; // A modifier cannot also be its own primary key.
+    if (parsed<SDL_SCANCODE_COUNT &&
+        (mask & modifier_bit(SDL_GetScancodeName((SDL_Scancode)parsed))))
+        return -1;
     *key=parsed; *mods=mask;
     return 0;
 }
-static float input_number(const char *value, float fallback, float lo, float hi) {
-    char *end;
-    float n=strtof(value,&end);
-    return end==value || !isfinite(n) ? fallback : n<lo ? lo : n>hi ? hi : n;
-}
 
-static void bind_defaults(void) {
-    static const struct { int input; SDL_Scancode key; } keys[]={
-        {IN_WALK,SDL_SCANCODE_LCTRL}, {IN_CROSS,SDL_SCANCODE_KP_ENTER},
-        {IN_OPTIONS,SDL_SCANCODE_ESCAPE}, {IN_CROSS,SDL_SCANCODE_SPACE}, {IN_CIRCLE,SDL_SCANCODE_LSHIFT}, {IN_SQUARE,SDL_SCANCODE_E},
-        {IN_TRIANGLE,SDL_SCANCODE_Q}, {IN_L1,SDL_SCANCODE_1}, {IN_R1,SDL_SCANCODE_3},
-        {IN_L2,SDL_SCANCODE_R}, {IN_R2,SDL_SCANCODE_F}, {IN_L3,SDL_SCANCODE_Z}, {IN_R3,SDL_SCANCODE_C},
-        {IN_OPTIONS,SDL_SCANCODE_RETURN}, {IN_TOUCHPAD,SDL_SCANCODE_TAB},
-        {IN_TOUCHPAD_RIGHT,SDL_SCANCODE_BACKSPACE},
-        {IN_UP,SDL_SCANCODE_I}, {IN_DOWN,SDL_SCANCODE_K}, {IN_LEFT,SDL_SCANCODE_J}, {IN_RIGHT,SDL_SCANCODE_L},
-        {IN_MOVE_UP,SDL_SCANCODE_W}, {IN_MOVE_DOWN,SDL_SCANCODE_S}, {IN_MOVE_LEFT,SDL_SCANCODE_A},
-        {IN_MOVE_RIGHT,SDL_SCANCODE_D}, {IN_LOOK_UP,SDL_SCANCODE_UP}, {IN_LOOK_DOWN,SDL_SCANCODE_DOWN},
-        {IN_LOOK_LEFT,SDL_SCANCODE_LEFT}, {IN_LOOK_RIGHT,SDL_SCANCODE_RIGHT},
-    };
-    static const struct { int input, button; } pads[]={
-        {IN_CROSS,SDL_GAMEPAD_BUTTON_SOUTH}, {IN_CIRCLE,SDL_GAMEPAD_BUTTON_EAST},
-        {IN_SQUARE,SDL_GAMEPAD_BUTTON_WEST}, {IN_TRIANGLE,SDL_GAMEPAD_BUTTON_NORTH},
-        {IN_L1,SDL_GAMEPAD_BUTTON_LEFT_SHOULDER}, {IN_R1,SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER},
-        {IN_L2,PAD_LEFT_TRIGGER}, {IN_R2,PAD_RIGHT_TRIGGER},
-        {IN_L3,SDL_GAMEPAD_BUTTON_LEFT_STICK}, {IN_R3,SDL_GAMEPAD_BUTTON_RIGHT_STICK},
-        {IN_OPTIONS,SDL_GAMEPAD_BUTTON_START},
-        {IN_TOUCHPAD,SDL_GAMEPAD_BUTTON_BACK}, {IN_TOUCHPAD,SDL_GAMEPAD_BUTTON_TOUCHPAD},
-        {IN_UP,SDL_GAMEPAD_BUTTON_DPAD_UP}, {IN_DOWN,SDL_GAMEPAD_BUTTON_DPAD_DOWN},
-        {IN_LEFT,SDL_GAMEPAD_BUTTON_DPAD_LEFT}, {IN_RIGHT,SDL_GAMEPAD_BUTTON_DPAD_RIGHT},
-    };
-    memset(bindings,0,sizeof bindings);
-    for (size_t i=0;i<sizeof(keys)/sizeof(*keys);++i) {
-        Binding *b=&bindings[keys[i].input]; b->keys[b->key_count++]=keys[i].key;
-    }
-    bindings[IN_R1].keys[bindings[IN_R1].key_count++]=MOUSE_KEY_BASE;
-    bindings[IN_L2].keys[bindings[IN_L2].key_count++]=MOUSE_KEY_BASE+2;
-    bindings[IN_R3].keys[bindings[IN_R3].key_count++]=MOUSE_KEY_BASE+1;
-    for (size_t i=0;i<sizeof(pads)/sizeof(*pads);++i) {
-        Binding *b=&bindings[pads[i].input]; b->pad[b->pad_count++]=pads[i].button;
-    }
-}
-static int pad_button_from_name(const char *name) {
-    if (!SDL_strcasecmp(name,"lefttrigger")) return PAD_LEFT_TRIGGER;
-    if (!SDL_strcasecmp(name,"righttrigger")) return PAD_RIGHT_TRIGGER;
-    const SDL_GamepadButton b=SDL_GetGamepadButtonFromString(name);
-    return b==SDL_GAMEPAD_BUTTON_INVALID ? -1 : (int)b;
-}
+/* Mouse look (bbport.ini): mouse_look=0 leaves the mouse alone; mouse_sensitivity (default 1:
+ * ~1000 pixels/s turn the camera at full speed), mouse_invert_y=1. */
+static int mouse_look=1, mouse_invert_y;
+static float mouse_sensitivity=1.0f;
+/* Existing launcher profiles keep this independent right-stick keyboard multiplier.
+ * walk is accepted when explicitly bound; fresh profiles retain upstream sprint/dodge defaults. */
+static float keyboard_look_speed=1.0f;
 /* key.<input>= / pad.<input>= lines of the settings file. */
+/* Motion emulation (apply_motion): -1 unknown yet, from bbport.ini pad_motion; BB_PAD_MOTION wins. */
+static int motion_enabled = -1;
 static void load_bindings(void) {
     bind_defaults();
+    mouse_look=1; mouse_invert_y=0; mouse_sensitivity=1.0f; keyboard_look_speed=1.0f;
     const char *path=getenv("BB_CONFIG");
     FILE *f=path ? fopen(path,"r") : NULL;
     if (!f) return;
     char line[512];
     while (fgets(line,sizeof line,f)) {
-        if (!strncmp(line,"mouse_sensitivity=",18)) mouse_sensitivity=input_number(line+18,1,0.05f,10);
-        if (!strncmp(line,"keyboard_look_speed=",20)) keyboard_look_speed=input_number(line+20,1,0.1f,1);
-        if (!strncmp(line,"mouse_invert_y=",15)) mouse_invert_y=atoi(line+15)!=0;
         const int keyboard=!strncmp(line,"key.",4), pad=!strncmp(line,"pad.",4);
         char *eq=strchr(line,'=');
+        if (eq && !keyboard && !pad) {
+            const char *value=eq+1;
+            if (!strncmp(line,"mouse_look=",11)) mouse_look=atoi(value)!=0;
+            else if (!strncmp(line,"pad_motion=",11) && motion_enabled<0) motion_enabled=atoi(value)!=0;
+            else if (!strncmp(line,"mouse_invert_y=",15)) mouse_invert_y=atoi(value)!=0;
+            else if (!strncmp(line,"keyboard_look_speed=",20)) {
+                char *end;
+                const float v=strtof(value,&end);
+                if (end!=value) {
+                    end+=strspn(end," \t\r\n");
+                    if (!*end && v>=0.1f && v<=1.0f) keyboard_look_speed=v;
+                }
+            } else if (!strncmp(line,"mouse_sensitivity=",18)) {
+                const float v=strtof(value,NULL);
+                if (v>=0.05f && v<=20.0f) mouse_sensitivity=v;
+            }
+            continue;
+        }
         if ((!keyboard && !pad) || !eq) continue;
         *eq=0;
         int input=-1;
@@ -472,16 +509,35 @@ static void load_bindings(void) {
     }
     fclose(f);
 }
-static int key_code_down(const uint8_t *k, int code) {
-    if (code>=MOUSE_KEY_BASE) {
-        const int button=code-MOUSE_KEY_BASE;
-        return button>=0 && button<5 && (mouse_buttons & (1u<<button));
+/* The mouse while the window holds it: buttons, and the wheel as short presses (one per notch,
+ * each held and released for a few frames so the game sees it). */
+static SDL_MouseButtonFlags mouse_buttons;
+static int host_blocked;
+static int wheel_pending[2], wheel_phase[2]; /* [up, down]; phase: 0 idle, else press/release */
+static uint64_t wheel_until[2];
+static void mouse_wheel_step(uint64_t now, int up, int down) {
+    wheel_pending[0]+=up; wheel_pending[1]+=down;
+    for (int i=0;i<2;++i) {
+        if (wheel_pending[i]>8) wheel_pending[i]=8;
+        if (wheel_phase[i] && now<wheel_until[i]) continue;
+        if (wheel_phase[i]==1) { wheel_phase[i]=2; wheel_until[i]=now+60000; } /* released */
+        else if (wheel_pending[i]>0) { --wheel_pending[i]; wheel_phase[i]=1; wheel_until[i]=now+60000; }
+        else wheel_phase[i]=0;
     }
-    return code>=0 && code<512 && k[code];
+}
+static int mouse_key_down(int code) {
+    if (code==MOUSE_WHEEL_UP) return wheel_phase[0]==1;
+    if (code==MOUSE_WHEEL_DOWN) return wheel_phase[1]==1;
+    return (mouse_buttons & SDL_BUTTON_MASK(code-MOUSE_KEY))!=0;
+}
+static int key_code_down(const uint8_t *k, int code) {
+    if (code>=MOUSE_KEY) return mouse_key_down(code);
+    return code>=0 && code<SDL_SCANCODE_COUNT && k[code];
 }
 static int modifiers_down(const uint8_t *k, unsigned mods) {
     for (size_t i=0;i<sizeof(modifier_keys)/sizeof(*modifier_keys);++i)
-        if ((mods & modifier_keys[i].bit) && !(modifier_keys[i].key<512 && k[modifier_keys[i].key])) return 0;
+        if ((mods & modifier_keys[i].bit) &&
+            !(modifier_keys[i].key<SDL_SCANCODE_COUNT && k[modifier_keys[i].key])) return 0;
     return 1;
 }
 /* The most modifiers on an active chord for this primary key. A chord with fewer must wait, so
@@ -527,21 +583,110 @@ static int pad_value(SDL_Gamepad *g, int input) {
     return value;
 }
 
-/* key held for the negative / positive direction: the stick all the way, else the gamepad's. */
-static uint8_t key_axis(uint8_t value, int negative, int positive) {
-    return negative || positive ? (uint8_t)(128+(positive-negative)*127) : value;
+/* The keys as a stick. A digital key would be the stick thrown to its stop at once, and the
+ * diagonal the corner of the square (1.41 long): the game's character then snaps to the new
+ * direction and slips into a run. Here the keys give a direction on the unit circle (a diagonal
+ * is as long as one key), and the stick follows it as a real thumb does: its length ramps
+ * (BB_KEY_RISE_MS 70, BB_KEY_FALL_MS 45) and its angle turns at BB_KEY_TURN_DPS (1100 degrees
+ * a second) the short way round, so a reversal sweeps through the sides, not through a dead
+ * centre. A stick almost at rest takes the new angle at once. */
+typedef struct { float angle, mag; uint64_t last_us; } KeyStick;
+static float key_tunable(const char *name, float def) {
+    const char *env=getenv(name);
+    if (!env || !*env) return def;
+    const float v=(float)atof(env);
+    return v>0 ? v : def;
 }
+static int key_stick(KeyStick *st, uint64_t now, int left, int right, int up, int down, uint8_t *x, uint8_t *y) {
+    static float rise_ms, fall_ms, turn_dps;
+    if (rise_ms==0) {
+        rise_ms=key_tunable("BB_KEY_RISE_MS",70.0f); fall_ms=key_tunable("BB_KEY_FALL_MS",45.0f);
+        turn_dps=key_tunable("BB_KEY_TURN_DPS",1100.0f);
+    }
+    const int tx=(right?1:0)-(left?1:0), ty=(down?1:0)-(up?1:0);
+    float dt=st->last_us && now>st->last_us ? (float)(now-st->last_us)*1e-6f : 0.0f;
+    st->last_us=now;
+    if (dt>0.05f) dt=0.05f;
+    const float target_mag=(tx || ty) ? 1.0f : 0.0f;
+    if (tx || ty) {
+        const float target=atan2f((float)ty,(float)tx);
+        if (st->mag<0.12f) st->angle=target;
+        else {
+            float diff=target-st->angle;
+            while (diff>(float)M_PI) diff-=2.0f*(float)M_PI;
+            while (diff<-(float)M_PI) diff+=2.0f*(float)M_PI;
+            const float step=turn_dps*(float)M_PI/180.0f*dt;
+            st->angle += diff>step ? step : diff<-step ? -step : diff;
+        }
+    }
+    const float rate=target_mag>st->mag ? 1.0f/(rise_ms*1e-3f) : 1.0f/(fall_ms*1e-3f);
+    const float dm=rate*dt;
+    st->mag += target_mag>st->mag ? (target_mag-st->mag<dm ? target_mag-st->mag : dm)
+                                  : -(st->mag-target_mag<dm ? st->mag-target_mag : dm);
+    if (st->mag<0.003f) { st->mag=0; return 0; }
+    const float fx=cosf(st->angle)*st->mag, fy=sinf(st->angle)*st->mag;
+    int vx=128+(int)lroundf(fx*127.0f), vy=128+(int)lroundf(fy*127.0f);
+    *x=(uint8_t)(vx<0 ? 0 : vx>255 ? 255 : vx);
+    *y=(uint8_t)(vy<0 ? 0 : vy>255 ? 255 : vy);
+    return 1;
+}
+static KeyStick move_stick, look_stick;
+/* Circle from the keyboard. Dodge (Space) is a short press whatever the key does: held, it would
+ * be the run (the game tells a tap from a hold by the time). Sprint (Left Shift) holds Circle: the
+ * run. Both together, Space while Shift is held, is the jump: Circle let go for a moment and pressed
+ * again while the run goes on, as a gamepad's B is. While a game menu is open they do nothing, and
+ * Escape is Circle (back) instead of Options. */
+#define DODGE_PULSE_US 90000u
+/* The jump, Shift + Space: the way the player gets it with the keys alone, Space twice while
+ * running: Circle let go, pressed, let go, then held again (the run goes on). One press of it
+ * only let go and pressed once, which stopped the run and gave no jump. BB_JUMP_GAP_MS (70) is
+ * each pause, BB_JUMP_TAP_MS (70) the press between them. */
+static uint64_t dodge_pulse_until, jump_start_us;
+static uint32_t jump_gap_us, jump_tap_us;
+static int dodge_was_down;
+static int keyboard_circle(const uint8_t *k, uint64_t now, int menu) {
+    if (!jump_gap_us) {
+        jump_gap_us=(uint32_t)(key_tunable("BB_JUMP_GAP_MS",70.0f)*1000.0f);
+        jump_tap_us=(uint32_t)(key_tunable("BB_JUMP_TAP_MS",70.0f)*1000.0f);
+    }
+    const int dodge=key_down(k,IN_DODGE), sprint=key_down(k,IN_SPRINT);
+    if (menu) { dodge_was_down=dodge; dodge_pulse_until=jump_start_us=0; return 0; }
+    const int jumping=jump_start_us && now<jump_start_us+2u*jump_gap_us+jump_tap_us;
+    if (dodge && !dodge_was_down && !jumping) {
+        if (sprint) { jump_start_us=now; dodge_pulse_until=0; }
+        else { dodge_pulse_until=now+DODGE_PULSE_US; jump_start_us=0; }
+    }
+    dodge_was_down=dodge;
+    if (jump_start_us && now<jump_start_us+2u*jump_gap_us+jump_tap_us) {
+        const uint64_t t=now-jump_start_us;
+        return t>=jump_gap_us && t<jump_gap_us+jump_tap_us; /* low, the press, low */
+    }
+    return sprint || now<dodge_pulse_until;
+}
+
+
 static void apply_keyboard(PadData *d, const uint8_t *k) {
-    for (int i=IN_CROSS;i<=IN_RIGHT;++i)
-        if (i!=IN_TOUCHPAD && i!=IN_TOUCHPAD_RIGHT && key_down(k,i)) d->buttons|=input_buttons[i];
+    const int menu=bbgpu_pointer_wanted()!=0;
+    /* The way back in a game menu is Escape; Options opens the menu at other times. A press that
+     * began outside a menu is Options for as long as it is held: the menu it opens must not take
+     * the same press for its way back (it opened and closed at once). */
+    static int options_latched;
+    if (!key_down(k,IN_OPTIONS)) options_latched=0;
+    else if (!menu) options_latched=1;
+    for (int i=IN_CROSS;i<=IN_RIGHT;++i) {
+        if (i==IN_TOUCHPAD || i==IN_TOUCHPAD_RIGHT || !key_down(k,i)) continue;
+        d->buttons |= (i==IN_OPTIONS && menu && !options_latched) ? BTN_CIRCLE : input_buttons[i];
+    }
+    if (keyboard_circle(k,d->timestamp,menu)) d->buttons|=BTN_CIRCLE;
     if (key_down(k,IN_TOUCHPAD)) touch_click(d,0);
     if (key_down(k,IN_TOUCHPAD_RIGHT)) touch_click(d,1);
     if (key_down(k,IN_L2)) d->l2=255;
     if (key_down(k,IN_R2)) d->r2=255;
-    d->left_x=key_axis(d->left_x,key_down(k,IN_MOVE_LEFT),key_down(k,IN_MOVE_RIGHT));
-    d->left_y=key_axis(d->left_y,key_down(k,IN_MOVE_UP),key_down(k,IN_MOVE_DOWN));
-    d->right_x=key_axis(d->right_x,key_down(k,IN_LOOK_LEFT),key_down(k,IN_LOOK_RIGHT));
-    d->right_y=key_axis(d->right_y,key_down(k,IN_LOOK_UP),key_down(k,IN_LOOK_DOWN));
+    /* A gamepad's stick is kept while no key moves it. */
+    key_stick(&move_stick,d->timestamp,key_down(k,IN_MOVE_LEFT),key_down(k,IN_MOVE_RIGHT),
+              key_down(k,IN_MOVE_UP),key_down(k,IN_MOVE_DOWN),&d->left_x,&d->left_y);
+    key_stick(&look_stick,d->timestamp,key_down(k,IN_LOOK_LEFT),key_down(k,IN_LOOK_RIGHT),
+              key_down(k,IN_LOOK_UP),key_down(k,IN_LOOK_DOWN),&d->right_x,&d->right_y);
     if (key_down(k,IN_WALK)) {
         if (key_down(k,IN_MOVE_LEFT) || key_down(k,IN_MOVE_RIGHT)) d->left_x=128+((int)d->left_x-128)*0.4f;
         if (key_down(k,IN_MOVE_UP) || key_down(k,IN_MOVE_DOWN)) d->left_y=128+((int)d->left_y-128)*0.4f;
@@ -550,32 +695,425 @@ static void apply_keyboard(PadData *d, const uint8_t *k) {
     if (key_down(k,IN_LOOK_UP) || key_down(k,IN_LOOK_DOWN)) d->right_y=128+((int)d->right_y-128)*keyboard_look_speed;
 }
 
-static uint8_t mouse_axis(float delta, float seconds, uint8_t fallback) {
-    if (delta==0) return fallback;
-    float v=delta*mouse_sensitivity*0.10f/seconds;
-    // Compensate the game's right-stick dead zone without storing residual motion.
-    v += v>0 ? 24 : -24;
-    return (uint8_t)(v>127 ? 255 : v<-128 ? 0 : 128+v);
+/* Mouse look: the game turns its camera at a rate set by the right stick, so the stick follows
+ * the mouse's speed. Each sample adds the motion since the last one and the sum decays over
+ * LOOK_TAU (linearly per sample: the level a steady speed holds, speed * gain * LOOK_TAU, is the
+ * same at any frame rate). ~1000 pixels/s reach full deflection at sensitivity 1. The game ignores
+ * small deflections, so a moving mouse starts past them (BB_MOUSE_DEADZONE, default 16 of 127):
+ * slow aiming still turns the camera. While the mouse moves it replaces the right stick. */
+#define LOOK_TAU_US 60000.0f
+static float look_x, look_y;
+static uint64_t look_last_us;
+static uint8_t look_axis(float value, uint8_t stick, int deadzone) {
+    if (value>-0.5f && value<0.5f) return stick;
+    const float magnitude=value<0 ? -value : value;
+    const float out=deadzone+magnitude*(127-deadzone)/127.0f;
+    const int v=128+(int)(value<0 ? -out : out);
+    return (uint8_t)(v<0 ? 0 : v>255 ? 255 : v);
 }
+/* Native mouse look (gpu/shim bbport_guest_hooks.cpp): the camera's own update takes the turn, as
+ * far as the mouse moved: MOUSE_RAD_PER_PIXEL at sensitivity 1 (1000 pixels: 1.5 rad, 86 degrees).
+ * The stick below only without that hook (another game version, BB_NATIVE_MOUSE=0). */
+#define MOUSE_RAD_PER_PIXEL 0.0015f
+static void apply_mouse_look(PadData *d, double dx, double dy, uint64_t now, int captured) {
+    /* The free camera (patch) takes the mouse through the right stick below. */
+    if (captured && (dx!=0 || dy!=0) && !bbgpu_free_camera()) {
+        const float k=MOUSE_RAD_PER_PIXEL*mouse_sensitivity;
+        /* The camera's pitch grows as it rises (looking down): the mouse moving down (dy > 0)
+           looks down, as the stick pushed down does. */
+        if (bbgpu_camera_look((float)dx*k,(float)(mouse_invert_y ? -dy : dy)*k)) dx=dy=0;
+    }
+    float dt=look_last_us && now>look_last_us ? (float)(now-look_last_us) : 0.0f;
+    look_last_us=now;
+    if (!captured) { look_x=look_y=0; return; }
+    if (dt>LOOK_TAU_US) dt=LOOK_TAU_US;
+    static int deadzone=-1;
+    if (deadzone<0) {
+        const char *env=getenv("BB_MOUSE_DEADZONE");
+        deadzone=env && *env ? atoi(env) : 16;
+        if (deadzone<0 || deadzone>100) deadzone=16;
+    }
+    const float gain=127.0f/(1000.0f*LOOK_TAU_US/1e6f)*mouse_sensitivity, decay=1.0f-dt/LOOK_TAU_US;
+    look_x=look_x*decay+(float)dx*gain;
+    look_y=look_y*decay+(float)(mouse_invert_y ? -dy : dy)*gain;
+    look_x=look_x<-127 ? -127 : look_x>127 ? 127 : look_x;
+    look_y=look_y<-127 ? -127 : look_y>127 ? 127 : look_y;
+    d->right_x=look_axis(look_x,d->right_x,deadzone);
+    d->right_y=look_axis(look_y,d->right_y,deadzone);
+}
+
+/* Button prompts (gpu/ bbport_button_prompts: the game's key guide icons drawn for the device in
+ * use): the device whose input came last. 0 a PlayStation pad (the game's own icons), 1 another
+ * gamepad (its labels), 2 the keyboard and mouse. The generation changes with the device, the pad
+ * type and the bindings. */
+static int prompt_device=-1;
+static SDL_GamepadType prompt_pad_type=SDL_GAMEPAD_TYPE_UNKNOWN;
+static unsigned prompt_generation=1;
+static void prompt_note(SDL_Gamepad *g, int pad_active, int keyboard_active) {
+    int device=prompt_device;
+    const SDL_GamepadType type=g ? SDL_GetGamepadType(g) : SDL_GAMEPAD_TYPE_UNKNOWN;
+    const int playstation=type==SDL_GAMEPAD_TYPE_PS3 || type==SDL_GAMEPAD_TYPE_PS4 || type==SDL_GAMEPAD_TYPE_PS5;
+    if (keyboard_active) device=2;
+    else if (g && (pad_active || device<0)) device=playstation ? 0 : 1;
+    else if (device<0) device=2;
+    if (device!=prompt_device || (device!=2 && type!=prompt_pad_type)) {
+        prompt_device=device;
+        if (device!=2) prompt_pad_type=type;
+        __atomic_add_fetch(&prompt_generation,1,__ATOMIC_RELAXED);
+    }
+}
+static int stick_moved(uint8_t v) { return v<128-48 || v>128+48; }
+int runtime_pad_prompt_device(void) {
+    return __atomic_load_n(&prompt_device,__ATOMIC_RELAXED);
+}
+unsigned runtime_pad_prompt_generation(void) {
+    return __atomic_load_n(&prompt_generation,__ATOMIC_RELAXED);
+}
+/* Mouse look on (bbport.ini mouse_look): the right stick's prompt is the mouse. */
+int runtime_pad_mouse_look(void) {
+    return __atomic_load_n(&mouse_look,__ATOMIC_RELAXED);
+}
+/* A key's name for a prompt icon: short (an icon is a key cap), arrows as arrows. */
+static void key_label(int code, char *out, int size) {
+    static const struct { const char *sdl, *label; } names[]={
+        {"Left Shift","Shift"}, {"Right Shift","RShift"}, {"Left Ctrl","Ctrl"}, {"Right Ctrl","RCtrl"},
+        {"Left Alt","Alt"}, {"Right Alt","AltGr"}, {"Return","Enter"}, {"Keypad Enter","Enter"},
+        {"Backspace","Bksp"}, {"Escape","Esc"}, {"CapsLock","Caps"}, {"Delete","Del"},
+        {"Insert","Ins"}, {"PageUp","PgUp"}, {"PageDown","PgDn"}, {"Up","\xe2\x86\x91"},
+        {"Down","\xe2\x86\x93"}, {"Left","\xe2\x86\x90"}, {"Right","\xe2\x86\x92"},
+    };
+    const char *name=SDL_GetScancodeName((SDL_Scancode)code);
+    if (!name || !*name) name="?";
+    for (size_t i=0;i<sizeof(names)/sizeof(*names);++i)
+        if (!strcmp(name,names[i].sdl)) { name=names[i].label; break; }
+    if (!strncmp(name,"Keypad ",7)) { snprintf(out,size,"Num%s",name+7); return; }
+    snprintf(out,size,"%s",name);
+}
+/* The prompt of PS input `name` (input_names: cross ... look_right) on the device in use: its
+ * label (UTF-8) in `label`; with prefer_mouse, a bound mouse button before a key (mouse look on).
+ * Returns the kind: 0 none (the game's own icon stays), 'K' a key,
+ * 'M' a mouse button (Left Right Middle X1 X2, Wheel Up, Wheel Down), 'F' a face button (A B X Y),
+ * 'S' a shoulder or trigger (LB RB LT RT; L R ZL ZR), 'C' another round button or a stick (LS RS
+ * Menu View ...). */
+int runtime_pad_prompt(const char *name, int prefer_mouse, char *label, int size) {
+    if (!name || !label || size<2) return 0;
+    label[0]=0;
+    int input=-1;
+    for (int i=0;i<IN_COUNT;++i) if (!strcmp(name,input_names[i])) input=i;
+    if (input<0) return 0;
+    pthread_mutex_lock(&lock);
+    if (!bindings_ready) { load_bindings(); bindings_ready=1; }
+    const int device=prompt_device;
+    const Binding b=bindings[input];
+    /* Circle has no key of its own: the way back in a game menu is Escape (Options' key). */
+    const Binding keyboard_b=input==IN_CIRCLE && bindings[input].key_count==0 ? bindings[IN_OPTIONS] : bindings[input];
+    const int look=mouse_look;
+    const SDL_GamepadType type=prompt_pad_type;
+    pthread_mutex_unlock(&lock);
+    if (device==2) {
+        int key=-1, mouse=-1; unsigned key_mod=0, mouse_mod=0;
+        for (int i=0;i<keyboard_b.key_count;++i) {
+            if (keyboard_b.keys[i]>=MOUSE_KEY) { if (mouse<0) { mouse=keyboard_b.keys[i]; mouse_mod=keyboard_b.mods[i]; } }
+            else if (key<0) { key=keyboard_b.keys[i]; key_mod=keyboard_b.mods[i]; }
+        }
+        /* A chord's modifier as a prefix: Shift as its arrow (R2: "⇧Left"). */
+        char prefix[16]="";
+        const unsigned mod=mouse>=0 && ((look && prefer_mouse) || key<0) ? mouse_mod : key_mod;
+        if (mod) {
+            if (mod & MOD_LSHIFT) snprintf(prefix,sizeof prefix,"\xe2\x87\xa7");
+            else { key_label(modifier_scancode(mod),prefix,(int)sizeof(prefix)-1); strcat(prefix,"+"); }
+        }
+        /* With mouse look the hand is on the mouse: its button first (R1: Left), unless a key
+           cluster is drawn (prefer_mouse 0: the d-pad's keys, not the wheel). */
+        if (mouse>=0 && ((look && prefer_mouse) || key<0)) {
+            for (size_t i=0;i<sizeof(mouse_keys)/sizeof(*mouse_keys);++i)
+                if (mouse_keys[i].code==mouse)
+                    snprintf(label,size,"%s%s",prefix,mouse_keys[i].name+(strncmp(mouse_keys[i].name,"Mouse ",6) ? 0 : 6));
+            return 'M';
+        }
+        if (key<0) return 0;
+        char name[32];
+        key_label(key,name,sizeof name);
+        snprintf(label,size,"%s%s",prefix,name);
+        return 'K';
+    }
+    if (device!=1) return 0; /* a PlayStation pad: the game's own icons */
+    const int nintendo=type==SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_PRO ||
+                       type==SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_LEFT ||
+                       type==SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT ||
+                       type==SDL_GAMEPAD_TYPE_NINTENDO_SWITCH_JOYCON_PAIR;
+    if (input>=IN_MOVE_UP) { snprintf(label,size,"%s",input<IN_LOOK_UP ? "LS" : "RS"); return 'C'; }
+    if (b.pad_count==0) return 0;
+    const int button=b.pad[0];
+    switch (button) {
+    case SDL_GAMEPAD_BUTTON_SOUTH: case SDL_GAMEPAD_BUTTON_EAST:
+    case SDL_GAMEPAD_BUTTON_WEST: case SDL_GAMEPAD_BUTTON_NORTH: {
+        static const char *const by_position[]={"A","B","X","Y"};
+        const SDL_GamepadButtonLabel l=SDL_GetGamepadButtonLabelForType(type,(SDL_GamepadButton)button);
+        const char *text=l==SDL_GAMEPAD_BUTTON_LABEL_A ? "A" : l==SDL_GAMEPAD_BUTTON_LABEL_B ? "B"
+                        : l==SDL_GAMEPAD_BUTTON_LABEL_X ? "X" : l==SDL_GAMEPAD_BUTTON_LABEL_Y ? "Y"
+                        : by_position[button-SDL_GAMEPAD_BUTTON_SOUTH];
+        snprintf(label,size,"%s",text);
+        return 'F';
+    }
+    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: snprintf(label,size,"%s",nintendo ? "L" : "LB"); return 'S';
+    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: snprintf(label,size,"%s",nintendo ? "R" : "RB"); return 'S';
+    case PAD_LEFT_TRIGGER: snprintf(label,size,"%s",nintendo ? "ZL" : "LT"); return 'S';
+    case PAD_RIGHT_TRIGGER: snprintf(label,size,"%s",nintendo ? "ZR" : "RT"); return 'S';
+    case SDL_GAMEPAD_BUTTON_LEFT_STICK: snprintf(label,size,"LS"); return 'C';
+    case SDL_GAMEPAD_BUTTON_RIGHT_STICK: snprintf(label,size,"RS"); return 'C';
+    case SDL_GAMEPAD_BUTTON_START: snprintf(label,size,"%s",nintendo ? "+" : "Menu"); return 'C';
+    case SDL_GAMEPAD_BUTTON_BACK: snprintf(label,size,"%s",nintendo ? "-" : "View"); return 'C';
+    case SDL_GAMEPAD_BUTTON_MISC1: snprintf(label,size,"Share"); return 'C';
+    case SDL_GAMEPAD_BUTTON_TOUCHPAD: snprintf(label,size,"Pad"); return 'C';
+    default: return 0; /* the d-pad: the game's icons fit any pad */
+    }
+}
+static void quat_mul(const float a[4], const float b[4], float out[4]) { /* x y z w */
+    out[0]=a[3]*b[0]+a[0]*b[3]+a[1]*b[2]-a[2]*b[1];
+    out[1]=a[3]*b[1]-a[0]*b[2]+a[1]*b[3]+a[2]*b[0];
+    out[2]=a[3]*b[2]+a[0]*b[1]-a[1]*b[0]+a[2]*b[3];
+    out[3]=a[3]*b[3]-a[0]*b[0]-a[1]*b[1]-a[2]*b[2];
+}
+/* The world's up (0, 1, 0) in the frame of the controller turned by q (q's inverse applied). */
+static void up_in_frame(const float q[4], float out[3]) {
+    const float x=q[0], y=q[1], z=q[2], w=q[3];
+    out[0]=2.0f*(x*y+w*z);
+    out[1]=1.0f-2.0f*(x*x+z*z);
+    out[2]=2.0f*(y*z-w*x);
+}
+
+/* ---- Motion for controllers without sensors -------------------------------------------------
+ * Games read the DualShock 4's sensors: one asks to hold the controller sideways like a
+ * spray can, shake it and aim by tilting it. Keyboard and mouse:
+ *   G               take the can (the controller held sideways), G again to put it away;
+ *   the mouse       aims while the can is held (the camera does not turn meanwhile);
+ *   left button     sprays (R2) while the can is held;
+ *   H, held         shakes the can;
+ *   T               brings the aim back to the middle;
+ *   Tab + the mouse  a finger on the touchpad moved by the mouse (swipes: "swipe the touchpad to
+ *                    open the door"); Tab + Backspace two fingers ("push the car": both, then
+ *                    the mouse up).
+ * A pad without sensors (Xbox): View is a modifier, View + A the can, View + B shaking, the right
+ * stick aims while the can is held; View + the right stick otherwise swipes the touchpad that
+ * way with one finger, View + the left stick with two (one on each half); a short press of View
+ * alone is the touchpad, on release.
+ * Reported consistently: the orientation quaternion, gravity in the controller's frame (1 g up
+ * when flat, plus the shake) and the angular velocity of the aim. On for the games that need it:
+ * bbport.ini pad_motion=1 (or BB_PAD_MOTION=1); elsewhere nothing changes. */
+static struct {
+    int view_held, view_used, prev_a, prev_g, sideways, shaking;
+    float yaw, pitch, prev_yaw, prev_pitch; /* the aim, radians */
+    uint64_t last_us, click_until_us;
+    /* A swipe from the right stick: the finger goes from one side of the touchpad (0..1919 x
+     * 0..942) through the middle to the other, in the stick's direction. */
+    int swiping, swipe_fingers;
+    float swipe_x, swipe_y, swipe_end_x, swipe_end_y;
+    /* Tab + the mouse: how far the mouse has moved the finger since Tab went down. */
+    float drag_x, drag_y;
+} motion;
+
+static int motion_on(void) {
+    static int env_checked;
+    if (!env_checked) {
+        env_checked=1;
+        const char *env=getenv("BB_PAD_MOTION");
+        if (env && *env) motion_enabled=env[0]=='1';
+        if (motion_enabled>0)
+            printf("Pad: motion emulation on (G: spray can, mouse aims, left button sprays, H shakes, "
+                   "Tab+mouse swipes the touchpad, Tab+Backspace two fingers; pad: View+A, View+B, "
+                   "right stick, View+right stick swipes, View+left stick two fingers)\n");
+    }
+    return motion_enabled>0;
+}
+static void set_sideways(int on) {
+    motion.sideways=on; motion.yaw=motion.pitch=motion.prev_yaw=motion.prev_pitch=0.0f;
+    if (on) bbgpu_mouse_capture(); /* the mouse aims now: it must not leave the window */
+    printf("Pad: motion: %s\n",on ? "spray can taken (controller sideways)" : "spray can put away");
+}
+/* The aim from screen directions: the controller is held rolled 90 degrees, so the turn that
+ * moves the game's aim across the screen is its pitch, and up and down its yaw. `right` and `up`
+ * in radians. */
+static void aim_screen(float right, float up);
+static void aim(float dyaw, float dpitch) {
+    const float limit=0.61f; /* 35 degrees each way: further, the game's aim leaves the picture */
+    motion.yaw=fmaxf(-limit,fminf(limit,motion.yaw+dyaw));
+    motion.pitch=fmaxf(-limit,fminf(limit,motion.pitch+dpitch));
+}
+
+/* The pad's part: View as the modifier, the right stick aiming at up to 120 degrees a second. */
+static void motion_from_pad(PadData *d, SDL_Gamepad *g, float dt) {
+    const int view=SDL_GetGamepadButton(g,SDL_GAMEPAD_BUTTON_BACK);
+    const int real_touchpad=SDL_GetGamepadButton(g,SDL_GAMEPAD_BUTTON_TOUCHPAD);
+    const int a=(d->buttons & BTN_CROSS)!=0, b=(d->buttons & BTN_CIRCLE)!=0;
+    if (view) {
+        if (!motion.view_held) { motion.view_held=1; motion.view_used=0; motion.prev_a=a; }
+        if (a && !motion.prev_a) { set_sideways(!motion.sideways); motion.view_used=1; }
+        if (b) { motion.shaking=1; motion.view_used=1; }
+        motion.prev_a=a;
+        /* View is the modifier while held: neither a touchpad press nor A or B for the game. */
+        d->buttons&=~(uint32_t)(BTN_CROSS|BTN_CIRCLE);
+        if (!real_touchpad) d->buttons&=~(uint32_t)BTN_TOUCHPAD;
+    } else if (motion.view_held) {
+        motion.view_held=0;
+        if (!motion.view_used) motion.click_until_us=d->timestamp+120000; /* a tap: the touchpad */
+    }
+    if (!view && d->timestamp<motion.click_until_us) d->buttons|=BTN_TOUCHPAD;
+    if (motion.sideways) {
+        const float rx=((int)d->right_x-128)/127.0f, ry=((int)d->right_y-128)/127.0f;
+        if (fabsf(rx)>0.05f || fabsf(ry)>0.05f) {
+            aim_screen(rx*1.2f*dt,-ry*1.2f*dt);
+            if (view) motion.view_used=1;
+        }
+        d->right_x=d->right_y=128;
+    } else if (view) {
+        /* View + the right stick: a one-finger swipe that way, a quarter of a second across the
+         * touchpad; View + the left stick: two fingers (one on each half) moved that way. */
+        const float rx=((int)d->right_x-128)/127.0f, ry=((int)d->right_y-128)/127.0f;
+        const float lx=((int)d->left_x-128)/127.0f, ly=((int)d->left_y-128)/127.0f;
+        const int two=sqrtf(rx*rx+ry*ry)<=0.5f && sqrtf(lx*lx+ly*ly)>0.5f;
+        const float sx=two ? lx : rx, sy=two ? ly : ry;
+        const float len=sqrtf(sx*sx+sy*sy);
+        if (len>0.5f) {
+            if (!motion.swiping || motion.swipe_fingers!=(two ? 2 : 1)) {
+                const float dx=sx/len, dy=sy/len;
+                const float reach_x=two ? 400.0f : 800.0f; /* each finger stays on its half */
+                motion.swiping=1;
+                motion.swipe_fingers=two ? 2 : 1;
+                motion.swipe_x=960.0f-dx*reach_x; motion.swipe_y=471.0f-dy*400.0f;
+                motion.swipe_end_x=960.0f+dx*reach_x; motion.swipe_end_y=471.0f+dy*400.0f;
+            }
+            const float step=6400.0f*dt;
+            const float ex=motion.swipe_end_x-motion.swipe_x, ey=motion.swipe_end_y-motion.swipe_y;
+            const float left=sqrtf(ex*ex+ey*ey);
+            if (left>step && left>0.0f) {
+                motion.swipe_x+=ex/left*step; motion.swipe_y+=ey/left*step;
+            } else {
+                motion.swipe_x=motion.swipe_end_x; motion.swipe_y=motion.swipe_end_y;
+            }
+            const uint16_t y=(uint16_t)fmaxf(0.0f,fminf(942.0f,motion.swipe_y));
+            if (motion.swipe_fingers==2) {
+                /* The pair's middle follows the swipe; the fingers 960 apart. */
+                d->touch_count=0;
+                d->touches[d->touch_count++]=(PadTouch){
+                    .x=(uint16_t)fmaxf(0.0f,fminf(1919.0f,motion.swipe_x-480.0f)),.y=y,.id=0};
+                d->touches[d->touch_count++]=(PadTouch){
+                    .x=(uint16_t)fmaxf(0.0f,fminf(1919.0f,motion.swipe_x+480.0f)),.y=y,.id=1};
+            } else if (d->touch_count<2) {
+                d->touches[d->touch_count++]=(PadTouch){
+                    .x=(uint16_t)fmaxf(0.0f,fminf(1919.0f,motion.swipe_x)),.y=y,.id=0};
+            }
+            motion.view_used=1;
+        } else {
+            motion.swiping=0;
+        }
+        d->right_x=d->right_y=128; /* not the camera */
+        d->left_x=d->left_y=128;   /* nor walking */
+    }
+    if (!view) motion.swiping=0;
+}
+
+/* The keyboard's and mouse's part: G takes or puts away the can, H shakes, the mouse aims and its
+ * left button sprays while the can is held (the mouse then neither turns the camera nor
+ * attacks). */
+static void motion_from_desktop(PadData *d, const uint8_t *k, double *mouse_dx, double *mouse_dy,
+                                int captured) {
+    const int g_key=k && k[SDL_SCANCODE_G];
+    if (g_key && !motion.prev_g) set_sideways(!motion.sideways);
+    motion.prev_g=g_key;
+    if (k && k[SDL_SCANCODE_H]) motion.shaking=1;
+    /* Tab (the touchpad key) held: the mouse moves the finger it put down (a swipe). */
+    if ((key_down(k,IN_TOUCHPAD) || key_down(k,IN_TOUCHPAD_RIGHT)) && d->touch_count>0) {
+        if (captured) {
+            motion.drag_x+=(float)*mouse_dx*2.0f;
+            motion.drag_y+=(float)*mouse_dy*2.0f;
+            *mouse_dx=*mouse_dy=0; /* not the camera */
+        }
+        for (int i=0;i<d->touch_count;++i) {
+            PadTouch *t=&d->touches[i];
+            t->x=(uint16_t)fmaxf(0.0f,fminf(1919.0f,(float)t->x+motion.drag_x));
+            t->y=(uint16_t)fmaxf(0.0f,fminf(942.0f,(float)t->y+motion.drag_y));
+        }
+    } else {
+        motion.drag_x=motion.drag_y=0.0f;
+    }
+    if (!motion.sideways) return;
+    if (k && k[SDL_SCANCODE_T]) motion.yaw=motion.pitch=0.0f; /* the aim back to the middle */
+    if (captured) {
+        const float per_pixel=0.0012f*mouse_sensitivity; /* ~800 pixels across the 70 degrees */
+        aim_screen((float)*mouse_dx*per_pixel,-(float)*mouse_dy*per_pixel);
+        *mouse_dx=*mouse_dy=0; /* not the camera */
+    }
+    if (captured && (mouse_buttons & SDL_BUTTON_LMASK)) {
+        d->buttons&=~(uint32_t)BTN_R1; /* the left button's usual attack */
+        d->buttons|=BTN_R2;
+        d->r2=255;
+    }
+}
+
+static void aim_screen(float right, float up) { aim(up, -right); }
+
+/* The state the game reads, from the can and the aim. */
+static void motion_report(PadData *d, float dt) {
+    const float s=0.70710678f;
+    /* The can: rolled 90 degrees about the controller's front-back axis; then the aim. */
+    const float roll[4]={0.0f,0.0f,motion.sideways ? s : 0.0f,motion.sideways ? s : 1.0f};
+    const float yawq[4]={0.0f,sinf(motion.yaw*0.5f),0.0f,cosf(motion.yaw*0.5f)};
+    const float pitchq[4]={sinf(motion.pitch*0.5f),0.0f,0.0f,cosf(motion.pitch*0.5f)};
+    float tilt[4], q[4];
+    quat_mul(yawq,pitchq,tilt);
+    quat_mul(roll,tilt,q);
+    for (int i=0;i<4;++i) d->orientation[i]=q[i];
+    float up[3];
+    up_in_frame(q,up);
+    for (int i=0;i<3;++i) d->acceleration[i]=up[i];
+    if (motion.shaking) {
+        /* 2.5 g back and forth along the controller's long axis, 8 times a second. */
+        d->acceleration[0]+=2.5f*sinf((float)(d->timestamp%1000000)*1e-6f*2.0f*3.14159265f*8.0f);
+    }
+    d->angular_velocity[0]=dt>0.0f ? (motion.pitch-motion.prev_pitch)/dt : 0.0f;
+    d->angular_velocity[1]=dt>0.0f ? (motion.yaw-motion.prev_yaw)/dt : 0.0f;
+    d->angular_velocity[2]=0.0f;
+    motion.prev_yaw=motion.yaw; motion.prev_pitch=motion.pitch;
+}
+
 static void sample_host(PadData *d) {
     report_guest_heap();
     memset(d,0,sizeof(*d));
     d->left_x=d->left_y=d->right_x=d->right_y=128;
     d->orientation[3]=1.0f;
+    d->acceleration[1]=1.0f; /* 1 g up: the controller lying flat (zeros read as free fall) */
     d->connected=1; d->connected_count=connected_count ? connected_count : 1;
     d->timestamp=now_us();
+    const float motion_dt=motion.last_us && d->timestamp>motion.last_us
+                              ? (float)(d->timestamp-motion.last_us)*1e-6f : 0.0f;
+    motion.last_us=d->timestamp;
+    motion.shaking=0;
     SDL_Gamepad *g=current_gamepad();
-    if (!bindings_ready) { load_bindings(); bindings_ready=1; }
+    if (!bindings_ready) { load_bindings(); bindings_ready=1; bbgpu_mouse_look_enable(mouse_look); }
     BbHostInput host={0};
     bbgpu_read_host_input(&host);
-    static uint64_t last_sample;
-    float seconds=(d->timestamp-last_sample)/1000000.0f;
-    last_sample=d->timestamp;
-    if (seconds<0.001f) seconds=0.001f;
-    if (seconds>0.1f) seconds=0.1f;
     host_blocked=host.blocked;
-    if (host_blocked || bbgpu_overlay_captures_input()) return;
-    mouse_buttons=host.mouse_buttons;
+    double mouse_dx=host.mouse_x, mouse_dy=host.mouse_y;
+    const int captured=host.mouse_captured;
+    if (host.blocked || bbgpu_overlay_captures_input()) {
+        mouse_buttons=0;
+        memset(wheel_pending,0,sizeof(wheel_pending));
+        memset(wheel_phase,0,sizeof(wheel_phase));
+        memset(wheel_until,0,sizeof(wheel_until));
+        move_stick=(KeyStick){0}; look_stick=(KeyStick){0};
+        dodge_was_down=0; dodge_pulse_until=jump_start_us=0;
+        apply_mouse_look(d,0,0,d->timestamp,0); /* menu/focus: neutral input */
+        return;
+    }
+    mouse_buttons=captured ? host.mouse_buttons : 0;
+    if (!captured) {
+        memset(wheel_pending,0,sizeof(wheel_pending));
+        memset(wheel_phase,0,sizeof(wheel_phase));
+        memset(wheel_until,0,sizeof(wheel_until));
+    }
+    mouse_wheel_step(d->timestamp,host.wheel_up,host.wheel_down);
+    const uint8_t *k=host.keys;
     if (g) {
         int touch_right=0;
         for (int i=IN_CROSS;i<=IN_RIGHT;++i) {
@@ -605,32 +1143,33 @@ static void sample_host(PadData *d) {
                 }
             }
         }
+        if (motion_on()) motion_from_pad(d,g,motion_dt);
         // Back/Select on pads without a touch surface is a left-side click.
         if ((d->buttons & BTN_TOUCHPAD) && !d->touch_count) touch_click(d,0);
         if (touch_right) touch_click(d,1);
     }
-    apply_keyboard(d,host.keys);
-    d->right_x=mouse_axis(host.mouse_x,seconds,d->right_x);
-    d->right_y=mouse_axis(host.mouse_y*(mouse_invert_y ? -1 : 1),seconds,d->right_y);
-    if (getenv("BB_INPUT_TRACE")) {
-        static uint64_t last;
-        static unsigned polls, moving;
-        ++polls;
-        moving += host.mouse_x!=0 || host.mouse_y!=0;
-        if (d->timestamp-last>250000) {
-            printf("Input: pad polls=%u mouse_samples=%u delta=%.2f,%.2f right=%u,%u dt=%.4f\n",
-                polls,moving,host.mouse_x,host.mouse_y,d->right_x,d->right_y,seconds);
-            last=d->timestamp; polls=moving=0;
-        }
+    const int pad_active=g && (d->buttons || d->l2>30 || d->r2>30 || d->touch_count ||
+                               stick_moved(d->left_x) || stick_moved(d->left_y) ||
+                               stick_moved(d->right_x) || stick_moved(d->right_y));
+    int keyboard_active=(captured && (mouse_dx*mouse_dx+mouse_dy*mouse_dy>9.0)) ||
+                        (mouse_buttons!=0);
+    for (int i=0;i<IN_COUNT && !keyboard_active;++i) keyboard_active=key_down(k,i);
+    prompt_note(g,pad_active,keyboard_active);
+    apply_keyboard(d,k); /* the bound mouse buttons too */
+    if (motion_on()) {
+        motion_from_desktop(d,k,&mouse_dx,&mouse_dy,captured);
+        motion_report(d,motion_dt);
     }
+    apply_mouse_look(d,mouse_dx,mouse_dy,d->timestamp,captured);
 }
 
 /* BB_PAD_FILE=<file>: scripted input for automated runs. The file holds whitespace-separated
  * tokens, re-read when it changes: button names (cross circle square triangle l1 r1 l2 r2 l3 r3
  * options touchpad touchpad_left touchpad_right up down left right) are held while listed;
  * touchpad defaults to a left-side click; lx= ly= rx= ry= (0..255) override
- * the sticks. An empty file releases everything. */
-static struct { uint32_t buttons; int stick[4]; int touch_side; } injected={0,{-1,-1,-1,-1},-1};
+ * the sticks; mdx= mdy= move the mouse that many pixels at every pad read, as if the window held
+ * it (mouse look tests). An empty file releases everything. */
+static struct { uint32_t buttons; int stick[4]; int touch_side; float mouse[2]; } injected={0,{-1,-1,-1,-1},-1,{0,0}};
 static int replay_armed;      /* 1 while a BB_PAD_REPLAY recording plays, 2 once it ended */
 static uint64_t replay_start; /* 0: (re)start at the next sample */
 static void read_inject(void) {
@@ -656,6 +1195,7 @@ static void read_inject(void) {
     injected.buttons=0;
     injected.touch_side=-1;
     for (int i=0;i<4;++i) injected.stick[i]=-1;
+    injected.mouse[0]=injected.mouse[1]=0;
     char token[64];
     while (fscanf(f,"%63s",token)==1) {
         if (!strcmp(token,"replay") && replay_armed!=1) { replay_armed=1; replay_start=0; } /* BB_PAD_REPLAY */
@@ -665,6 +1205,8 @@ static void read_inject(void) {
         }
         for (size_t i=0;i<sizeof(names)/sizeof(*names);++i) if (!strcmp(token,names[i].name)) injected.buttons|=names[i].ps;
         for (int i=0;i<4;++i) if (!strncmp(token,sticks[i],3)) { int v=atoi(token+3); injected.stick[i]=v<0 ? 0 : v>255 ? 255 : v; }
+        if (!strncmp(token,"mdx=",4)) injected.mouse[0]=(float)atof(token+4);
+        if (!strncmp(token,"mdy=",4)) injected.mouse[1]=(float)atof(token+4);
     }
     fclose(f);
     printf("Runtime: pad file: buttons 0x%x sticks %d %d %d %d\n",injected.buttons,
@@ -766,6 +1308,11 @@ static void sample(PadData *d) {
     if (injected.buttons & BTN_R2) d->r2=255;
     uint8_t *axes[4]={&d->left_x,&d->left_y,&d->right_x,&d->right_y};
     for (int i=0;i<4;++i) if (injected.stick[i]>=0) *axes[i]=(uint8_t)injected.stick[i];
+    if (injected.mouse[0]!=0 || injected.mouse[1]!=0)
+        apply_mouse_look(d,injected.mouse[0],injected.mouse[1],d->timestamp,1);
+    /* Game modules (a menu pointer's presses). */
+    const uint8_t sticks[4]={d->left_x,d->left_y,d->right_x,d->right_y};
+    bbgpu_filter_pad(&d->buttons,sticks);
     touch_ids(d);
 }
 
@@ -773,9 +1320,10 @@ static ABI int32_t pad_init(void) { pthread_mutex_lock(&lock); initialized=1; pt
 static ABI int32_t pad_open(int32_t user, int32_t type, int32_t index, const void *param) {
     (void)param;
     if (!initialized) return ERR_NOT_INITIALIZED;
-    if (user!=1) return ERR_INVALID_ARG;
-    if (type!=0 && type!=2) return ERR_INVALID_ARG; /* standard / special port */
-    if (index) return ERR_INVALID_ARG;
+    if (user!=1 || (type!=0 && type!=2) || index) { /* only user 1's standard / special port */
+        printf("Runtime: scePadOpen(user %d, type %d, index %d) refused\n",user,type,index);
+        return ERR_INVALID_ARG;
+    }
     pthread_mutex_lock(&lock);
     int already=opened; opened=1;
     pthread_mutex_unlock(&lock);
@@ -787,12 +1335,26 @@ static ABI int32_t pad_close(int32_t handle) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
     opened=0; return 0;
 }
+/* Reverse engineering: hardware watchpoints on the game's memory (runtime_rewatch.c). */
+void runtime_re_watch_tick(const void *pad_buffer, uint64_t reads);
+
 static ABI int32_t pad_read_state(int32_t handle, PadData *data) {
     if (handle!=PAD_HANDLE || !opened) return ERR_INVALID_HANDLE;
     if (!data) return ERR_INVALID_ARG;
     pthread_mutex_lock(&lock);
     sample(data); ++reads;
     pthread_mutex_unlock(&lock);
+    static int trace=-1;
+    if (trace<0) { const char *v=getenv("BB_PAD_TRACE"); trace=v && *v=='1'; }
+    if (trace) {
+        static uint32_t last_buttons; static uint64_t last_us;
+        if (data->buttons!=last_buttons || data->timestamp-last_us>5000000) {
+            printf("Pad: read %zu buttons 0x%x sticks %u %u %u %u\n",reads,data->buttons,data->left_x,
+                   data->left_y,data->right_x,data->right_y);
+            last_buttons=data->buttons; last_us=data->timestamp;
+        }
+    }
+    runtime_re_watch_tick(data,(uint64_t)reads);
     return 0;
 }
 /* Buffered read: the port samples once per call, so one entry is returned. */

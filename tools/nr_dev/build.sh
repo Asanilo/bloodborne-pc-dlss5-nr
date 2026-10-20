@@ -77,7 +77,7 @@ import hashlib,json,os,sys
 from pathlib import Path
 root,env,build,wt=map(Path,sys.argv[1:5])
 protocol_proof=json.loads(sys.argv[5])
-protocol_dir=wt/'gpu/shadps4/video_core/renderer_vulkan'
+protocol_dir=wt/'gpu/render'
 files=[env/'bbport-env.sh',*(root/(n+'.content.sha256') for n in ('fsr-vulkan','imgui','LibAtrac9')),
        protocol_dir/'native_runtime_model.h',protocol_dir/'native_runtime_model.export.json',
        wt/'tools/nr_dev/check_protocol_export.py']

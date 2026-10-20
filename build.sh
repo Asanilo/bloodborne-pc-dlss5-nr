@@ -45,21 +45,35 @@ else
     if [[ ! -f gpu/third_party/fsr-vulkan/CMakeLists.txt || ! -f gpu/third_party/imgui/imgui.h ]]; then
         git submodule update --init --recursive
     fi
-    for patch in gpu/patches/fsr-vulkan/*.patch; do
-        if ! git -C gpu/third_party/fsr-vulkan apply --reverse --check "$PWD/$patch" 2>/dev/null; then
-            git -C gpu/third_party/fsr-vulkan apply "$PWD/$patch"
-        fi
-    done
+    # Issue #124: a checkout updated from an earlier version keeps that version's patch
+    # applied, and the new one applies neither way. The submodule tree holds only these
+    # patches, so reset it and apply the current set again.
+    fsr_patches_apply() {
+        for patch in gpu/patches/fsr-vulkan/*.patch; do
+            if ! git -C gpu/third_party/fsr-vulkan apply --reverse --check "$PWD/$patch" 2>/dev/null; then
+                git -C gpu/third_party/fsr-vulkan apply "$@" "$PWD/$patch" || return 1
+            fi
+        done
+    }
+    if ! fsr_patches_apply --check 2>/dev/null; then
+        echo 'FSR-Vulkan: an earlier version of the port changed it; resetting it and patching again'
+        git -C gpu/third_party/fsr-vulkan checkout -- .
+    fi
+    fsr_patches_apply
     atrac_source=third_party/LibAtrac9
 fi
 includes+=("-I$atrac_source/C/src")
 cmake -S gpu -B "$BUILD"/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO="$pgo" \
-    -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$BUILD/pgo" -DBB_PREPARED_SOURCE_DEPS_ROOT="$prepared" >/dev/null
+    -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$BUILD/pgo" -DBB_PREPARED_SOURCE_DEPS_ROOT="$prepared" > "$BUILD"/gpu-cmake.log
+grep '^-- Online module' "$BUILD"/gpu-cmake.log || true
 echo "GPU library: PGO $pgo, LTO ${BB_LTO:-ON}"
 # A failed GPU build must stop here: an older libbbgpu.so would otherwise be used silently.
-if ! ninja -j "${BB_BUILD_JOBS:-8}" -C "$BUILD"/gpu bbgpu > "$BUILD"/gpu-build.log 2>&1; then
+if ! ninja -j "${BB_BUILD_JOBS:-8}" -C "$BUILD"/gpu bbgpu \
+        $(grep -q "^build bbnet:" "$BUILD"/gpu/build.ninja && echo bbnet) \
+        $(grep -q "^build bbnet20:" "$BUILD"/gpu/build.ninja && echo bbnet20) \
+        > "$BUILD"/gpu-build.log 2>&1; then
     grep -v '^\[' "$BUILD"/gpu-build.log | tail -40 >&2
-    echo 'GPU library build failed (full log: "$BUILD"/gpu-build.log)' >&2; exit 1
+    echo "GPU library build failed (full log: \"$BUILD/gpu-build.log\")" >&2; exit 1
 fi
 # Optional DLSS (NVIDIA RTX): DLSS_SDK_ROOT=<github.com/NVIDIA/DLSS checkout> builds the bridge
 # (gpu/dlss_bridge, the only code using NVIDIA's SDK) and puts it next to bb-probe with NVIDIA's
@@ -88,7 +102,7 @@ echo "Built $BUILD/bb-probe"
 # GPU check for run.sh (live_resolution=auto) and the launcher's gamepad list (--gamepads).
 "$CC" -std=c11 -O2 -Wall -Wextra -Werror "${includes[@]}" tools/gpu_capabilities.c "${libraries[@]}" -o "$BUILD"/bb-gpu-capabilities
 if [[ ${1:-} == --test ]]; then
-    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" -o "$BUILD"/pad-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" -lm -o "$BUILD"/pad-test
     "$BUILD"/pad-test
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_runtime.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/runtime-test
     "$BUILD"/runtime-test
@@ -96,6 +110,8 @@ if [[ ${1:-} == --test ]]; then
     "$BUILD"/file-mods-test
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_sema.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/sema-test
     "$BUILD"/sema-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_online.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/online-test
+    "$BUILD"/online-test
     "$CC" -std=c11 -D_GNU_SOURCE -O2 -g -Wall -Wextra -Werror -I. -Isrc tests/test_content.c src/runtime_content.c -o "$BUILD"/content-test
     "$BUILD"/content-test
 fi

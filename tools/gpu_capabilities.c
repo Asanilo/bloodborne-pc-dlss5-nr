@@ -3,7 +3,10 @@
  * --gamepads: the connected gamepads, "GUID<tab>name" per line (the launcher's controller list,
  * BB_GAMEPAD). --displays: the monitors, "name<tab>WxH<tab>primary (1 or 0)" per line in SDL's
  * order (the launcher's monitor list, BB_DISPLAY; issue #69). --read-input: one key or button for the
- * launcher's controls (below). */
+ * launcher's controls (below). --device: "vendorID<tab>name" of the GPU the game takes (run.sh:
+ * memory model and driver workarounds by vendor and chip). --gpus: every GPU in Vulkan's order
+ * (BB_GPU_ID is the index), "index<tab>vendorID<tab>type<tab>name<tab>1 for the one the port takes
+ * by itself" per line (the launcher's GPU list). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -113,8 +116,9 @@ static int list_displays(void) {
 
 #include "input_capture.h"
 /* --read-input key|pad: a small window; prints "key <modifier+SDL key/mouse name>" or "pad <SDL button name>"
- * (lefttrigger/righttrigger for the triggers) for the first key or gamepad button pressed, the
- * names bbport.ini's key.* and pad.* lines take. Escape, closing it or 15 s: nothing. */
+ * ("Mouse Left", "Wheel Up", ... for the mouse; lefttrigger/righttrigger for the triggers) for the
+ * first key or gamepad button pressed, the names bbport.ini's key.* and pad.* lines take.
+ * Escape, closing it or 15 s: nothing. */
 static int read_input(const char *kind) {
     const int want_key = strcmp(kind, "pad") != 0, want_pad = strcmp(kind, "key") != 0;
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) {
@@ -123,8 +127,8 @@ static int read_input(const char *kind) {
     }
     SDL_Window *window = NULL;
     SDL_Renderer *renderer = NULL;
-    const char *prompt = want_key && want_pad ? "Press a key or a gamepad button"
-                         : want_key           ? "Press a key or mouse button"
+    const char *prompt = want_key && want_pad ? "Press a key, a mouse button or a gamepad button"
+                         : want_key           ? "Press a key or a mouse button"
                                               : "Press a gamepad button";
     if (!SDL_CreateWindowAndRenderer("bbport", 520, 90, 0, &window, &renderer)) {
         fprintf(stderr, "read-input: %s\n", SDL_GetError());
@@ -168,6 +172,13 @@ static int read_input(const char *kind) {
                     if (chosen) done = 1;
                 }
                 break;
+            case SDL_EVENT_MOUSE_WHEEL:
+                if (want_key && e.wheel.y != 0) {
+                    const float y = e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -e.wheel.y : e.wheel.y;
+                    printf("key %s\n", y > 0 ? "Wheel Up" : "Wheel Down");
+                    done = 1;
+                }
+                break;
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
                 if (want_pad) {
                     printf("pad %s\n", SDL_GetGamepadStringForButton((SDL_GamepadButton)e.gbutton.button));
@@ -204,6 +215,7 @@ int main(int argc, char **argv) {
         return list_displays();
     }
     const int live_mode = argc > 1 && !strcmp(argv[1], "--live-resolution");
+    const int device_mode = argc > 1 && !strcmp(argv[1], "--device");
     const VkApplicationInfo app = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
         .pApplicationName = "bbport scene scaling probe",
@@ -231,6 +243,22 @@ int main(int argc, char **argv) {
         vkDestroyInstance(instance, NULL);
         return 1;
     }
+    if (argc > 1 && !strcmp(argv[1], "--gpus")) {
+        VkPhysicalDevice best = devices[0];
+        for (uint32_t i = 1; i < count; ++i)
+            if (better_device(devices[i], best)) best = devices[i];
+        static const char *const types[] = {"other", "integrated", "discrete", "virtual", "cpu"};
+        for (uint32_t i = 0; i < count; ++i) {
+            VkPhysicalDeviceProperties props;
+            vkGetPhysicalDeviceProperties(devices[i], &props);
+            const unsigned type = props.deviceType <= VK_PHYSICAL_DEVICE_TYPE_CPU ? props.deviceType : 0;
+            printf("%u\t%#06x\t%s\t%s\t%d\n", i, props.vendorID, types[type], props.deviceName,
+                   devices[i] == best);
+        }
+        free(devices);
+        vkDestroyInstance(instance, NULL);
+        return 0;
+    }
     /* Match vk_instance.cpp's default ranking or its explicit BB_GPU_ID index. */
     VkPhysicalDevice selected = devices[0];
     const char *gpu_id = getenv("BB_GPU_ID");
@@ -246,6 +274,14 @@ int main(int argc, char **argv) {
     } else {
         for (uint32_t i = 1; i < count; ++i)
             if (better_device(devices[i], selected)) selected = devices[i];
+    }
+    if (device_mode) {
+        VkPhysicalDeviceProperties props;
+        vkGetPhysicalDeviceProperties(selected, &props);
+        printf("%#06x\t%s\n", props.vendorID, props.deviceName);
+        free(devices);
+        vkDestroyInstance(instance, NULL);
+        return 0;
     }
     if (live_mode) {
         printf("%d\n", live_resolution_suits(selected));

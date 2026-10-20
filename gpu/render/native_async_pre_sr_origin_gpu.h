@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#pragma once
+#include "native_async_state.h"
+#include "vulkan/vk_common.h"
+#include <memory>
+#include <string>
+namespace Vulkan {
+class Scheduler;
+struct NativeAsyncPreSrOriginIdentity {
+ std::string session,resource_set;
+ uint64_t generation=0,job=0,origin_source=0,origin_epoch=0,origin_history=0,params_version=1;
+ bool Matches(const BbNativeAsync::Frame&)const noexcept;
+};
+// Borrowed API handles; owner must have performed the canonical UUID/PID/FD/CI
+// import audit. Shared ownership is lifetime ONLY, not release/fence authority.
+struct NativeAsyncPreSrOriginResources {
+ std::string session,resource_set;
+ std::array<vk::Image,4> images{};
+ std::array<vk::ImageView,4> views{};
+ std::array<vk::ImageCreateInfo,4> infos{};
+ std::shared_ptr<void> import_owner;
+ bool actual_import_fd_retired=false;
+ uint32_t native_queue_family=VK_QUEUE_FAMILY_IGNORED;
+ bool Valid(const NativeAsyncPreSrOriginIdentity&)const noexcept;
+};
+struct NativeAsyncPreSrOriginQuiescence {
+ std::atomic<uint64_t> last_use_tick{0},observed_tick{0};
+ std::atomic<bool> stopped_and_destroyed{false};
+ std::atomic<bool> fixed_input_absent_or_destroyed{true}; // Native-only API-lifetime proof, no wire field
+};
+struct NativeAsyncPreSrOriginGpuProof {
+ uint64_t native_target_tick=0;
+ std::atomic<bool> native_GPU_complete{false};
+};
+// Renderer commands ONLY. No file IO, queue submission, CPU waiting or external
+// semaphore machinery. Native serial and Helper serial have separate domains.
+void RecordAsyncPreSrOriginInput(Scheduler&,const NativeAsyncPreSrOriginResources&,
+                       const NativeAsyncPreSrOriginIdentity&,const std::array<vk::Image,3>& converted,
+                       const std::shared_ptr<NativeAsyncPreSrOriginGpuProof>&);
+void AcquireAsyncPreSrOriginOutput(Scheduler&,const NativeAsyncPreSrOriginResources&,const NativeAsyncPreSrOriginIdentity&);
+void ReleaseAsyncPreSrOriginOutput(Scheduler&,const NativeAsyncPreSrOriginResources&,const NativeAsyncPreSrOriginIdentity&,
+                         const std::shared_ptr<NativeAsyncPreSrOriginGpuProof>&);
+}

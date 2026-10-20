@@ -26,8 +26,8 @@ class BuildInputs(unittest.TestCase):
         wrapper.parent.mkdir(parents=True)
         shutil.copyfile(WRAPPER, wrapper)
         shutil.copyfile(WRAPPER.parent / 'check_protocol_export.py', wrapper.parent / 'check_protocol_export.py')
-        source_protocol = WRAPPER.parents[2] / 'gpu/shadps4/video_core/renderer_vulkan'
-        protocol = self.wt / 'gpu/shadps4/video_core/renderer_vulkan'
+        source_protocol = WRAPPER.parents[2] / 'gpu/render'
+        protocol = self.wt / 'gpu/render'
         protocol.mkdir(parents=True)
         for name in ('native_runtime_model.h', 'native_runtime_model.export.json'):
             shutil.copyfile(source_protocol / name, protocol / name)

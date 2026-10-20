@@ -4,6 +4,8 @@
 
 /* The settings menu of the GPU library restarts through probe.c, which tests do not link. */
 void runtime_restart(void) { abort(); }
+/* CPU harness: entering the launcher restart flow is outside these tests. */
+const char *runtime_restart_block_reason(void) { abort(); }
 #include <assert.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -31,7 +33,7 @@ static void setup(void) {
     delete_sem=GET(Delete,"R1Jvn8bSCW8#p#J");
     cancel_sem=GET(Cancel,"4DM06U2BNEY#p#J");
     assert(create && poll_sem && signal_sem && wait_sem && delete_sem && cancel_sem);
-    assert(!runtime_resolve("188x57JYp0g#I#J",0));
+    assert(runtime_resolve("188x57JYp0g#I#J",0)); /* any library letters (runtime_nid_is) */
     assert(!runtime_resolve("188x57JYp0g#p#J",1));
 }
 static void lifecycle(void) {

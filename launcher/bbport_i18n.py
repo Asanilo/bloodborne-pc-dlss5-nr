@@ -83,8 +83,10 @@ EN = {
         "The 1.09 update is needed: copy the dumped 1.09 update into the game folder, replacing files (found version {})",
     "eboot.bin не от версии 1.09: скопируйте eboot.bin из дампа обновления 1.09 в папку игры с заменой":
         "eboot.bin is not from 1.09: copy eboot.bin from the dumped 1.09 update into the game folder, replacing it",
-    "Поддерживается только CUSA03173 с обновлением 1.09 (найдено {})":
-        "Only CUSA03173 with update 1.09 is supported (found {})",
+    "Это не магазинное издание Bloodborne (найдено {}): нужен Bloodborne любого региона с обновлением 1.09":
+        "Not a retail release of Bloodborne (found {}): Bloodborne from any region with update 1.09 is needed",
+    "eboot.bin с вшитым патчем 60 FPS от Lance McDonald: из-за него игра падает в меню жестов. Скопируйте чистый eboot.bin из дампа обновления 1.09 в папку игры с заменой":
+        "This eboot.bin has Lance McDonald's 60 fps patch baked in, which crashes the game in the gestures menu: copy a clean eboot.bin from the dumped 1.09 update into the game folder, replacing it",
     "eboot.bin не читается как расшифрованный исполняемый файл PS4: сделайте дамп заново":
         "eboot.bin cannot be read as a decrypted PS4 executable: dump the game again",
     "Файлы игры повреждены при распаковке: шейдеры не распаковываются, игра зависнет на загрузке. Распакуйте игру и обновление 1.09 заново исправленным инструментом (issue #81)":
@@ -99,6 +101,20 @@ EN = {
     "Испанский": "Spanish",
     "Немецкий": "German",
     "Итальянский": "Italian",
+    "Английский (Великобритания)": "English (UK)",
+    "Испанский (Латинская Америка)": "Spanish (Latin America)",
+    "Нидерландский": "Dutch",
+    "Португальский": "Portuguese",
+    "Португальский (Бразилия)": "Portuguese (Brazil)",
+    "Польский": "Polish",
+    "Турецкий": "Turkish",
+    "Корейский": "Korean",
+    "Китайский (упрощённый)": "Chinese (Simplified)",
+    "Китайский (традиционный)": "Chinese (Traditional)",
+    "Финский": "Finnish",
+    "Шведский": "Swedish",
+    "Датский": "Danish",
+    "Норвежский": "Norwegian",
     # Mods
     "Моды": "Mods",
     "Распакуйте каждый мод в отдельную папку (с dvdroot_ps4 или сразу с chr/, parts/ и т. п.). "
@@ -125,7 +141,9 @@ EN = {
     # Screen
     "Экран": "Display",
     "Разрешение вывода": "Output resolution",
-    "Апскейлер дорисовывает кадр; Steam Deck — 720p": "The upscaler fills the frame; Steam Deck: 720p",
+    "Апскейлер дорисовывает кадр; Steam Deck — 1280×800 (16:10)": "The upscaler fills the frame; Steam Deck: 1280×800 (16:10)",
+    "Соотношение сторон": "Aspect ratio",
+    "Шире 16:9 — больше обзор по бокам, выше — сверху и снизу; интерфейс у краёв экрана": "Wider than 16:9 sees more to the sides, taller more above and below; the UI keeps to the screen edges",
     "Полноэкранный режим": "Fullscreen",
     "Смена разрешения на лету": "Live resolution changes",
     "Без перезапуска, но медленнее на Steam Deck и старых GPU":
@@ -135,6 +153,12 @@ EN = {
     "Включена": "On",
     "Режим показа кадров": "Present mode",
     "Разрешить HDR": "Allow HDR",
+    "Видеокарта": "GPU",
+    "встроенная": "integrated",
+    "программная, очень медленно": "software, very slow",
+    "{} (не найдена)": "{} (not found)",
+    "На ноутбуке с двумя видеокартами — дискретная; применяется при запуске игры":
+        "On a laptop with two GPUs, pick the discrete one; applies when the game starts",
     # Upscaler
     "Апскейлер": "Upscaler",
     "Хранится в bbport.ini; в игре меняется через меню (Insert или L3+R3)":
@@ -198,6 +222,81 @@ EN = {
         "Build FSR 4.1.1 from amd_fidelityfx_upscaler_dx12.dll 4.1.x (OptiScaler: the FSR4_LATEST folder, or from a game with FSR 4.1). Needs GE-Proton 10+, Proton Experimental or Proton-CachyOS; 2–5 minutes (RDNA4: twice as long, with the FP8 variant)",
     "Сборка не удалась (код {}): подробности в журнале": "The build failed (code {}): details in the log",
     "Сглаживание в разрешении вывода без модели FSR": "Anti-aliasing at the output resolution, no FSR model",
+    "DLSS найден (нужна видеокарта NVIDIA RTX)": "DLSS found (needs an NVIDIA RTX GPU)",
+    # Online page (from the Linux co-op fork)
+    # Online pools (shadPS4 0.20 module, The Hunter's Dream)
+    "Сервер BBSC: бесшовный кооператив, колокола и призывы; аккаунт создаётся на сайте": "BBSC server: seamless co-op, bells and summons; the account is made on the website",
+    "Пул": "Pool",
+    "С кем играть: у всех в сессии должен быть один пул": "Who to play with: everyone in a session must use the same pool",
+    "Бесшовный кооператив BBSC; нужен сервер Seamless Hunt или свой": "BBSC seamless co-op; needs Seamless Hunt's server or your own",
+    "Клиент shadNet из shadPS4 0.20: колокола и призывы через сервер shadNet": "shadNet client from shadPS4 0.20: bells and summons through a shadNet server",
+    "Кооператив с игроками bbhost через The Hunter's Dream; вход через Discord": "Co-op with bbhost players through The Hunter's Dream; sign in with Discord",
+    "Вход через Discord, как в bbhost: на сайте нужно подтвердить код. Пароль не нужен, токен хранится на этом компьютере вместе с настройками лаунчера": "Discord sign-in as in bbhost: confirm a code on the website. No password; the token is kept on this computer with the launcher's settings",
+    "В этой сборке нет модуля для этого пула (libbbnet20.so)": "This build has no module for this pool (libbbnet20.so)",
+    "Вы вошли как {}": "Signed in as {}",
+    "Выйти": "Sign out",
+    "Вход не выполнен": "Not signed in",
+    "Нужен аккаунт Discord, привязанный к The Hunter's Dream": "A Discord account linked to The Hunter's Dream is needed",
+    "Войти через Discord": "Sign in with Discord",
+    "Открыть страницу": "Open the page",
+    "Отмена": "Cancel",
+    "Код входа: {}": "Sign-in code: {}",
+    "На странице {}: 1) нажмите «Sign in with Discord to link» и войдите; 2) вернувшись на страницу, введите код в поле кода (не в «Sign in with a code from the game»). Код скопирован в буфер": "On {}: 1) press “Sign in with Discord to link” and sign in; 2) back on the page, enter the code in the code field (not in “Sign in with a code from the game”). The code is on the clipboard",
+    "Введите код {} на странице входа": "Enter the code {} on the sign-in page",
+    "Сервис кооператива": "Co-op service",
+    "Эта сборка без модуля онлайна (libbbnet.so): игра только офлайн": "This build has no online module (libbbnet.so): offline play only",
+    'Online ID — это имя учётной записи (NPID), зарегистрированное на сервере, а не адрес email': 'The Online ID is the account name (NPID) you registered on the server, not your email address',
+    'UPnP (открыть порт на роутере автоматически)': 'UPnP (open a port on the router automatically)',
+    'play.seamlesshunt.com:31313 — сервер Seamless Hunt (BBSC). Публичный сервер shadPS4 принимает только сборки shadPS4. Для частного сервера укажите host:port от его владельца. WebAPI: оставьте пустым, тогда берётся адрес сервера с портом 31315': "play.seamlesshunt.com:31313 is Seamless Hunt's server (BBSC). shadPS4's public server accepts only shadPS4 builds. For a private server, enter host:port from the person who runs it. WebAPI: leave it empty to use the server address with port 31315",
+    'Адрес WebAPI': 'WebAPI address',
+    'Адрес сервера': 'Server address',
+    'Выключено: игра остаётся офлайн, как раньше': 'Off: the game stays offline, as before',
+    'Выключите при Tailscale или другом VPN': 'Turn it off with Tailscale or another VPN',
+    'Играть онлайн': 'Play online',
+    'Бесшовный кооператив (BBSC)': 'Seamless co-op (BBSC)',
+    'Сессия переживает смерти, лампы, смену локаций и боссов; до 5 охотников. Нужен сервер с игровым сервером BBSC, у всех игроков включено': 'The session survives deaths, lamps, area changes and bosses; up to 5 hunters. Needs a server running the BBSC game server, and every player turns it on',
+    'Играть офлайн': 'Play offline',
+    'Игровой сервер': 'Game server',
+    'Игровой сервер (сообщения, пятна крови, призраки)': 'Game server (messages, bloodstains, ghosts)',
+    'Имя учётной записи shadNet, не email. Зарегистрируйтесь на seamlesshunt.com или спросите владельца частного сервера. Пароль хранится на этом компьютере вместе с настройками лаунчера': 'Your shadNet account name, not your email. Register at seamlesshunt.com or ask the owner of a private server. The password is saved on this computer with the launcher settings',
+    'Онлайн': 'Online',
+    'Отмена': 'Cancel',
+    'Пароль': 'Password',
+    'Проверить': 'Test',
+    'Проверить соединение': 'Test the connection',
+    'Проверка…': 'Checking…',
+    'Сервер shadNet': 'shadNet server',
+    'Сервер кооператива (колокола и призывы)': 'Co-op server (bells and summons)',
+    'Соединение': 'Connection',
+    "Сообщения, пятна крови и призраки приходят с игрового сервера; колокола и призывы идут через сервер shadNet. По умолчанию оба — Seamless Hunt (сервер BBSC). Игра по сети совместима с версией для Windows: нужны версия игры 1.09 и тот же сервер": "Messages, bloodstains and ghosts come from the game server; bells and summons go through a shadNet server. By default both are Seamless Hunt's (BBSC's server). Online play works together with the Windows version: everyone needs game version 1.09 and the same server",
+    'У всех в сессии должны быть одна версия игры (1.09) и один сервер. Читы меняют игру и для других игроков: выключайте их при совместной игре': 'Everyone in a session needs the same game version (1.09) and the same server. Cheats change the game for the other players too: turn them off when you play together',
+    'Учётная запись': 'Account',
+    'Учётная запись для игры онлайн указана, но «Играть онлайн» выключено': 'An online account is filled in, but “Play online” is off',
+    'доступен': 'reachable',
+    'недоступен': 'not reachable',
+    "DLSS: библиотека NVIDIA": "DLSS: NVIDIA's library",
+    "Выбрать файл…": "Choose a file…",
+    "Убрать выбранную": "Remove the chosen one",
+    "Своя: {}": "Your own: {}",
+    "Из сборки: {}": "From this build: {}",
+    "Нет: выберите libnvidia-ngx-dlss.so.* из DLSS SDK NVIDIA ({})": "None: choose libnvidia-ngx-dlss.so.* from NVIDIA's DLSS SDK ({})",
+    "Эта сборка без моста DLSS (libbbport_dlss.so): DLSS работать не будет": "This build has no DLSS bridge (libbbport_dlss.so): DLSS will not work",
+    "Библиотека DLSS NVIDIA (libnvidia-ngx-dlss.so.*)": "NVIDIA's DLSS library (libnvidia-ngx-dlss.so.*)",
+    "Нужна библиотека для Linux": "A Linux library is needed",
+    "{} — библиотека DLSS для Windows; на Linux NVIDIA её не загружает. Нужна libnvidia-ngx-dlss.so.<версия> из DLSS SDK NVIDIA: {}":
+        "{} is the Windows DLSS library; NVIDIA's Linux driver does not load it. libnvidia-ngx-dlss.so.<version> from NVIDIA's DLSS SDK is needed: {}",
+    "Не удалось прочитать файл": "Could not read the file",
+    "Это не библиотека DLSS": "This is not the DLSS library",
+    "Нужен файл libnvidia-ngx-dlss.so.<версия> из DLSS SDK NVIDIA: {}": "libnvidia-ngx-dlss.so.<version> from NVIDIA's DLSS SDK is needed: {}",
+    "Не удалось скопировать библиотеку": "Could not copy the library",
+    "DLSS {}: готово": "DLSS {}: ready",
+    "Клавиатура и мышь": "Keyboard and mouse",
+    "Камера мышью": "Mouse look",
+    "Щелчок в окне игры захватывает мышь, F1 — отпускает": "A click in the game window takes the mouse, F1 releases it",
+    "Чувствительность мыши": "Mouse sensitivity",
+    "Инвертировать мышь по вертикали": "Invert mouse Y axis",
+    "DLSS не найден: выберите библиотеку NVIDIA ниже (и нужна сборка с мостом DLSS). Игра включит FSR 3.1":
+        "DLSS not found: choose NVIDIA's library below (a build with the DLSS bridge is needed too). The game will use FSR 3.1",
     "Нет или повреждён файл {}": "Missing or damaged file {}",
     # Effects
     "Эффекты игры": "Game effects",
@@ -214,8 +313,9 @@ EN = {
     "Собственное сглаживание игры": "The game's own anti-aliasing",
     "Тени от динамических источников": "Dynamic light shadows",
     "Отражения SSR (не было в игре)": "SSR reflections (not in the original game)",
+    "Свечение (Bloom)": "Bloom",
     "Пропуск заставок при запуске": "Skip the intro videos",
-    "Свободная камера (Cross + L3 / Space + Z)": "Free camera (Cross + L3 / Space + Z)",
+    "Свободная камера (Cross + L3 / F + Ctrl)": "Free camera (Cross + L3 / F + Ctrl)",
     "Debug menu (левый touchpad / Tab; нужны шрифты)": "Debug menu (left touchpad / Tab; needs fonts)",
     "Нужна папка adhoc из мода Nexus #253 (шрифты adhoc/font) — в dvdroot_ps4 игры или модом; без неё патч не применяется":
         "Needs the adhoc folder from Nexus mod #253 (fonts in adhoc/font), in the game's dvdroot_ps4 or as a mod; without it the patch is not applied",
@@ -223,7 +323,7 @@ EN = {
     "Частота кадров": "Frame rate",
     "Режим": "Mode",
     "Какой патч частоты кадров применить к игре": "Which frame rate patch to apply to the game",
-    "Без ограничения (патч)": "Unlocked (patch)",
+    "Без ограничения": "Unlocked",
     "30 (как на PS4)": "30 (as on PS4)",
     "Ограничение FPS": "FPS limit",
     "0 — без ограничения; укажите число, чтобы ограничить FPS":
@@ -247,8 +347,12 @@ EN = {
     # Mode
     "Режим работы": "Mode",
     "Новая модель памяти и трансляции": "New memory and translation model",
-    "Эксперимент. Видеокарта работает с памятью игры напрямую, как в игре для ПК, а команды графики переводятся, а не эмулируются; возможны ошибки. На NVIDIA и других видеокартах, кроме AMD, — через модуль памяти прослойки. Если драйвер не проходит проверку при запуске — старая модель. Выключено — старая модель памяти, как в 0.3, со всеми исправлениями":
-        "Experimental. The GPU works with the game's memory directly, as in a PC game, and graphics commands are translated rather than emulated; errors are possible. On NVIDIA and other non-AMD GPUs it goes through the layer's memory module. If the driver fails the startup check, the old model is used. Off: the old memory model, as in 0.3, with all the fixes",
+    "Новая: видеокарта работает с памятью игры напрямую, как в игре для ПК, а команды графики переводятся, а не эмулируются. Старая — модель памяти 0.3 со всеми исправлениями. Если драйвер не проходит проверку при запуске — старая":
+        "The new one: the GPU works with the game's memory directly, as in a PC game, and graphics commands are translated rather than emulated. The old one: the memory model of 0.3 with all the fixes. If the driver fails the startup check, the old one",
+    "Модель памяти и трансляции": "Memory and translation model",
+    "Авто: новая на любой видеокарте": "Auto: new on every GPU",
+    "Новая": "New",
+    "Старая (как в 0.3)": "Old (as in 0.3)",
     "Синхронизация как в 0.3": "Synchronisation as in 0.3",
     "Для поиска регрессий: старая модель памяти и ожидания копий как в релизе 0.3":
         "For finding regressions: the old memory model and copy waits as released in 0.3",
@@ -327,6 +431,20 @@ PT_BR = {
     "Испанский": "Espanhol",
     "Немецкий": "Alemão",
     "Итальянский": "Italiano",
+    "Английский (Великобритания)": "Inglês (Reino Unido)",
+    "Испанский (Латинская Америка)": "Espanhol (América Latina)",
+    "Нидерландский": "Holandês",
+    "Португальский": "Português (Portugal)",
+    "Португальский (Бразилия)": "Português (Brasil)",
+    "Польский": "Polonês",
+    "Турецкий": "Turco",
+    "Корейский": "Coreano",
+    "Китайский (упрощённый)": "Chinês (simplificado)",
+    "Китайский (традиционный)": "Chinês (tradicional)",
+    "Финский": "Finlandês",
+    "Шведский": "Sueco",
+    "Датский": "Dinamarquês",
+    "Норвежский": "Norueguês",
     "English": "Inglês",
     # Mods
     "Моды": "Mods",
@@ -356,7 +474,10 @@ PT_BR = {
     # Screen
     "Экран": "Tela",
     "Разрешение вывода": "Resolução de saída",
-    "Апскейлер дорисовывает кадр; Steam Deck — 720p": "O upscaler preenche o quadro; Steam Deck: 720p",
+    "Апскейлер дорисовывает кадр; Steam Deck — 1280×800 (16:10)": "O upscaler preenche o quadro; Steam Deck: 1280×800 (16:10)",
+    "Соотношение сторон": "Proporção da tela",
+    "Шире 16:9 — больше обзор по бокам, выше — сверху и снизу; интерфейс у краёв экрана": "Mais larga que 16:9 mostra mais dos lados, mais alta mais acima e abaixo; a interface fica nas bordas da tela",
+    "Авто": "Auto",
     "Полноэкранный режим": "Tela cheia",
     "Смена разрешения на лету": "Alteração de resolução em tempo real",
     "Без перезапуска, но медленнее на Steam Deck и старых GPU":
@@ -366,6 +487,12 @@ PT_BR = {
     "Включена": "Ativado",
     "Режим показа кадров": "Modo de apresentação",
     "Разрешить HDR": "Permitir HDR",
+    "Видеокарта": "Placa de vídeo",
+    "встроенная": "integrada",
+    "программная, очень медленно": "por software, muito lenta",
+    "{} (не найдена)": "{} (não encontrada)",
+    "На ноутбуке с двумя видеокартами — дискретная; применяется при запуске игры":
+        "Em notebooks com duas placas, escolha a dedicada; aplica-se ao iniciar o jogo",
     # Upscaler
     "Апскейлер": "Upscaler",
     "Хранится в bbport.ini; в игре меняется через меню (Insert или L3+R3)":
@@ -451,8 +578,9 @@ PT_BR = {
     "Собственное сглаживание игры": "Antisserrilhamento nativo do jogo",
     "Тени от динамических источников": "Sombras de luzes dinâmicas",
     "Отражения SSR (не было в игре)": "Reflexos SSR (não existiam no jogo original)",
+    "Свечение (Bloom)": "Bloom (brilho)",
     "Пропуск заставок при запуске": "Pular vídeos de introdução",
-    "Свободная камера (Cross + L3 / Space + Z)": "Câmera livre (Cross + L3 / Space + Z)",
+    "Свободная камера (Cross + L3 / F + Ctrl)": "Câmera livre (Cross + L3 / F + Ctrl)",
     "Debug menu (левый touchpad / Tab; нужны шрифты)": "Menu de depuração (touchpad esquerdo / Tab; requer fontes)",
     "Нужна папка adhoc из мода Nexus #253 (шрифты adhoc/font) — в dvdroot_ps4 игры или модом; без неё патч не применяется":
         "Requer a pasta adhoc do mod #253 do Nexus (fontes em adhoc/font), no dvdroot_ps4 do jogo ou como mod; sem ela o patch não é aplicado",
@@ -460,7 +588,7 @@ PT_BR = {
     "Частота кадров": "Taxa de quadros",
     "Режим": "Modo",
     "Какой патч частоты кадров применить к игре": "Qual patch de taxa de quadros aplicar ao jogo",
-    "Без ограничения (патч)": "Sem limite (patch)",
+    "Без ограничения": "Sem limite",
     "30 (как на PS4)": "30 (como no PS4)",
     "Ограничение FPS": "Limite de FPS",
     "0 — по частоте экрана (не выше 120 Гц); укажите число, чтобы ограничить иначе":
@@ -479,8 +607,12 @@ PT_BR = {
     "Для разработчика": "Desenvolvedor",
     "Режим работы": "Modo",
     "Новая модель памяти и трансляции": "Novo modelo de memória e tradução",
-    "Эксперимент. Видеокарта работает с памятью игры напрямую, как в игре для ПК, а команды графики переводятся, а не эмулируются; возможны ошибки. На NVIDIA и других видеокартах, кроме AMD, — через модуль памяти прослойки. Если драйвер не проходит проверку при запуске — старая модель. Выключено — старая модель памяти, как в 0.3, со всеми исправлениями":
-        "Experimental. A GPU usa a memória do jogo diretamente, como em um jogo de PC, e os comandos gráficos são traduzidos em vez de emulados; podem ocorrer erros. Na NVIDIA e em outras GPUs que não são AMD, isso passa pelo módulo de memória da camada. Se o driver falhar na verificação inicial, é usado o modelo antigo. Desligado: o modelo de memória antigo, como na 0.3, com todas as correções",
+    "Новая: видеокарта работает с памятью игры напрямую, как в игре для ПК, а команды графики переводятся, а не эмулируются. Старая — модель памяти 0.3 со всеми исправлениями. Если драйвер не проходит проверку при запуске — старая":
+        "O novo: a GPU usa a memória do jogo diretamente, como em um jogo de PC, e os comandos gráficos são traduzidos em vez de emulados. O antigo: o modelo de memória da 0.3 com todas as correções. Se o driver falhar na verificação inicial, o antigo",
+    "Модель памяти и трансляции": "Modelo de memória e tradução",
+    "Авто: новая на любой видеокарте": "Automático: novo em qualquer placa de vídeo",
+    "Новая": "Novo",
+    "Старая (как в 0.3)": "Antigo (como na 0.3)",
     "Синхронизация как в 0.3": "Sincronização como na 0.3",
     "Для поиска регрессий: старая модель памяти и ожидания копий как в релизе 0.3":
         "Para encontrar regressões: o modelo de memória antigo e as esperas de cópias como na versão 0.3",
@@ -570,8 +702,10 @@ ZH_CN = {
         "需要 1.09 更新：请将转储出的 1.09 更新文件复制到游戏文件夹并覆盖（当前检测到版本 {}）",
     "eboot.bin не от версии 1.09: скопируйте eboot.bin из дампа обновления 1.09 в папку игры с заменой":
         "eboot.bin 不是 1.09 版本：请将 1.09 更新转储中的 eboot.bin 复制到游戏文件夹并覆盖",
-    "Поддерживается только CUSA03173 с обновлением 1.09 (найдено {})":
-        "仅支持已安装 1.09 更新的 CUSA03173（当前检测到 {}）",
+    "Это не магазинное издание Bloodborne (найдено {}): нужен Bloodborne любого региона с обновлением 1.09":
+        "这不是 Bloodborne 的正式发行版（当前检测到 {}）：需要任意地区已安装 1.09 更新的 Bloodborne",
+    "eboot.bin с вшитым патчем 60 FPS от Lance McDonald: из-за него игра падает в меню жестов. Скопируйте чистый eboot.bin из дампа обновления 1.09 в папку игры с заменой":
+        "此 eboot.bin 内置了 Lance McDonald 的 60 FPS 补丁，会导致游戏在打开手势菜单时崩溃：请将 1.09 更新转储中干净的 eboot.bin 复制到游戏文件夹并覆盖",
     "eboot.bin не читается как расшифрованный исполняемый файл PS4: сделайте дамп заново":
         "无法将 eboot.bin 识别为已解密的 PS4 可执行文件：请重新转储游戏",
     "Файлы игры повреждены при распаковке: шейдеры не распаковываются, игра зависнет на загрузке. Распакуйте игру и обновление 1.09 заново исправленным инструментом (issue #81)":
@@ -586,6 +720,20 @@ ZH_CN = {
     "Испанский": "西班牙语",
     "Немецкий": "德语",
     "Итальянский": "意大利语",
+    "Английский (Великобритания)": "英语（英国）",
+    "Испанский (Латинская Америка)": "西班牙语（拉丁美洲）",
+    "Нидерландский": "荷兰语",
+    "Португальский": "葡萄牙语",
+    "Португальский (Бразилия)": "葡萄牙语（巴西）",
+    "Польский": "波兰语",
+    "Турецкий": "土耳其语",
+    "Корейский": "韩语",
+    "Китайский (упрощённый)": "简体中文",
+    "Китайский (традиционный)": "繁体中文",
+    "Финский": "芬兰语",
+    "Шведский": "瑞典语",
+    "Датский": "丹麦语",
+    "Норвежский": "挪威语",
     "English": "英语",
     # Mods
     "Моды": "模组",
@@ -613,7 +761,9 @@ ZH_CN = {
     # Screen
     "Экран": "显示",
     "Разрешение вывода": "输出分辨率",
-    "Апскейлер дорисовывает кадр; Steam Deck — 720p": "超分辨率会将画面放大到此分辨率；Steam Deck 建议 720p",
+    "Апскейлер дорисовывает кадр; Steam Deck — 1280×800 (16:10)": "超分辨率会将画面放大到此分辨率；Steam Deck 建议 1280×800（16:10）",
+    "Соотношение сторон": "宽高比",
+    "Шире 16:9 — больше обзор по бокам, выше — сверху и снизу; интерфейс у краёв экрана": "比 16:9 更宽可看到两侧更多内容，更高可看到上下更多内容；界面贴靠屏幕边缘",
     "Полноэкранный режим": "全屏模式",
     "Смена разрешения на лету": "实时切换分辨率",
     "Без перезапуска, но медленнее на Steam Deck и старых GPU":
@@ -623,6 +773,12 @@ ZH_CN = {
     "Включена": "开启",
     "Режим показа кадров": "呈现模式",
     "Разрешить HDR": "允许 HDR",
+    "Видеокарта": "显卡",
+    "встроенная": "集成",
+    "программная, очень медленно": "软件渲染，非常慢",
+    "{} (не найдена)": "{}（未找到）",
+    "На ноутбуке с двумя видеокартами — дискретная; применяется при запуске игры":
+        "双显卡笔记本请选择独立显卡；启动游戏时生效",
     # Upscaler
     "Апскейлер": "超分辨率",
     "Хранится в bbport.ini; в игре меняется через меню (Insert или L3+R3)":
@@ -686,6 +842,30 @@ ZH_CN = {
         "从 amd_fidelityfx_upscaler_dx12.dll 4.1.x 构建 FSR 4.1.1（OptiScaler：FSR4_LATEST 文件夹，或来自支持 FSR 4.1 的游戏）。需要 GE-Proton 10+、Proton Experimental 或 Proton-CachyOS；耗时 2–5 分钟（RDNA4：耗时加倍，并额外构建 FP8 版本）",
     "Сборка не удалась (код {}): подробности в журнале": "构建失败（代码 {}）：详情见日志",
     "Сглаживание в разрешении вывода без модели FSR": "在输出分辨率下进行抗锯齿，不使用 FSR 模型",
+    "DLSS найден (нужна видеокарта NVIDIA RTX)": "已找到 DLSS（需要 NVIDIA RTX 显卡）",
+    "DLSS: библиотека NVIDIA": "DLSS：NVIDIA 库",
+    "Выбрать файл…": "选择文件…",
+    "Убрать выбранную": "移除所选",
+    "Своя: {}": "自选：{}",
+    "Из сборки: {}": "随版本附带：{}",
+    "Нет: выберите libnvidia-ngx-dlss.so.* из DLSS SDK NVIDIA ({})": "无：请选择 NVIDIA DLSS SDK 中的 libnvidia-ngx-dlss.so.*（{}）",
+    "Эта сборка без моста DLSS (libbbport_dlss.so): DLSS работать не будет": "此版本没有 DLSS 桥接（libbbport_dlss.so）：DLSS 无法工作",
+    "Библиотека DLSS NVIDIA (libnvidia-ngx-dlss.so.*)": "NVIDIA DLSS 库（libnvidia-ngx-dlss.so.*）",
+    "Нужна библиотека для Linux": "需要 Linux 版本的库",
+    "{} — библиотека DLSS для Windows; на Linux NVIDIA её не загружает. Нужна libnvidia-ngx-dlss.so.<версия> из DLSS SDK NVIDIA: {}":
+        "{} 是 Windows 版 DLSS 库，NVIDIA 的 Linux 驱动不会加载它。需要 NVIDIA DLSS SDK 中的 libnvidia-ngx-dlss.so.<版本>：{}",
+    "Не удалось прочитать файл": "无法读取文件",
+    "Это не библиотека DLSS": "这不是 DLSS 库",
+    "Нужен файл libnvidia-ngx-dlss.so.<версия> из DLSS SDK NVIDIA: {}": "需要 NVIDIA DLSS SDK 中的 libnvidia-ngx-dlss.so.<版本>：{}",
+    "Не удалось скопировать библиотеку": "无法复制该库",
+    "DLSS {}: готово": "DLSS {}：已就绪",
+    "Клавиатура и мышь": "键盘和鼠标",
+    "Камера мышью": "鼠标控制视角",
+    "Щелчок в окне игры захватывает мышь, F1 — отпускает": "在游戏窗口中单击以捕获鼠标，按 F1 释放",
+    "Чувствительность мыши": "鼠标灵敏度",
+    "Инвертировать мышь по вертикали": "反转鼠标纵轴",
+    "DLSS не найден: выберите библиотеку NVIDIA ниже (и нужна сборка с мостом DLSS). Игра включит FSR 3.1":
+        "未找到 DLSS：请在下方选择 NVIDIA 的库（还需要带 DLSS 桥接的版本）。游戏将改用 FSR 3.1",
     "Нет или повреждён файл {}": "文件 {} 缺失或已损坏",
     # Effects
     "Эффекты игры": "游戏效果",
@@ -703,7 +883,7 @@ ZH_CN = {
     "Тени от динамических источников": "动态光源阴影",
     "Отражения SSR (не было в игре)": "SSR 反射（原版游戏中没有）",
     "Пропуск заставок при запуске": "跳过开场动画",
-    "Свободная камера (Cross + L3 / Space + Z)": "自由镜头（叉键 + L3 / 空格 + Z）",
+    "Свободная камера (Cross + L3 / F + Ctrl)": "自由镜头（叉键 + L3 / 空格 + Z）",
     "Debug menu (левый touchpad / Tab; нужны шрифты)": "调试菜单（左触摸板 / Tab；需要字体文件）",
     "Установите DbgFont14h.ccm и DbgFont14h.tpf в dvdroot_ps4/font из мода Nexus #253":
         "请从 Nexus 模组 #253 中，将 DbgFont14h.ccm 和 DbgFont14h.tpf 安装到 dvdroot_ps4/font",
@@ -711,7 +891,7 @@ ZH_CN = {
     "Частота кадров": "帧率",
     "Режим": "模式",
     "Какой патч частоты кадров применить к игре": "对游戏应用哪种帧率补丁",
-    "Без ограничения (патч)": "不限制（补丁解锁）",
+    "Без ограничения": "不限制",
     "30 (как на PS4)": "30（与 PS4 一致）",
     "Ограничение FPS": "帧率上限",
     "0 — без ограничения; укажите число, чтобы ограничить FPS":
@@ -735,8 +915,12 @@ ZH_CN = {
     # Mode
     "Режим работы": "工作模式",
     "Новая модель памяти и трансляции": "新内存与指令转译模型",
-    "Эксперимент. Видеокарта работает с памятью игры напрямую, как в игре для ПК, а команды графики переводятся, а не эмулируются; возможны ошибки. На NVIDIA и других видеокартах, кроме AMD, — через модуль памяти прослойки. Если драйвер не проходит проверку при запуске — старая модель. Выключено — старая модель памяти, как в 0.3, со всеми исправлениями":
-        "实验性功能。显卡会像 PC 游戏那样直接读写游戏内存，图形指令被转译而非模拟；可能出现问题。在 NVIDIA 及其他非 AMD 显卡上，通过转换层的内存模块实现。如果驱动未通过启动检查，则使用旧模型。关闭时使用旧的内存模型（与 0.3 版相同），包含所有修复",
+    "Новая: видеокарта работает с памятью игры напрямую, как в игре для ПК, а команды графики переводятся, а не эмулируются. Старая — модель памяти 0.3 со всеми исправлениями. Если драйвер не проходит проверку при запуске — старая":
+        "新模型：显卡像 PC 游戏那样直接读写游戏内存，图形指令被转译而非模拟。旧模型：0.3 版的内存模型，包含所有修复。如果驱动未通过启动检查，则使用旧模型",
+    "Модель памяти и трансляции": "内存与指令转译模型",
+    "Авто: новая на любой видеокарте": "自动：所有显卡都用新模型",
+    "Новая": "新模型",
+    "Старая (как в 0.3)": "旧模型（与 0.3 版相同）",
     "Синхронизация как в 0.3": "与 0.3 版相同的同步方式",
     "Для поиска регрессий: старая модель памяти и ожидания копий как в релизе 0.3":
         "用于排查回归问题：采用与 0.3 版发布时相同的旧内存模型与复制等待方式",

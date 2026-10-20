@@ -1,5 +1,5 @@
 // CPU-only tests of the actual pre-write PM4 register validator; no Vulkan/GPU.
-#include "video_core/amdgpu/pm4_register_guard.h"
+#include "gcn/pm4_register_guard.h"
 #include <array>
 #include <cassert>
 #include <iostream>

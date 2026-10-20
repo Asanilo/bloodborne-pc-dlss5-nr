@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import sys
 
-DIRECTORY = Path('gpu/shadps4/video_core/renderer_vulkan')
+DIRECTORY = Path('gpu/render')
 HEADER = 'native_runtime_model.h'
 PROVENANCE = 'native_runtime_model.export.json'
 
