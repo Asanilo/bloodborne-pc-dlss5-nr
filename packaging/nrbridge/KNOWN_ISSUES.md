@@ -5,7 +5,7 @@ This is a private preview. The package's build metadata remains **BUILD_ONLY**
 the packaging artifact, not the independent external runtime acceptance. The
 limited acceptance below does not make this preview "stable".
 
-## Current limited acceptance (new boot `7fb96dc9…`)
+## Current limited acceptance (new test context)
 
 - Same-byte `c91bf94…` Native + `1eddac56…` Helper: a controlled real-NR
   session reached scene-ready and closed normally at **611.12 s**.
@@ -19,7 +19,7 @@ limited acceptance below does not make this preview "stable".
   Multi-hour runs and additional scenes were not exercised and are not
   acceptance.
 
-## Historical HOLD (old boot `54bbe…`)
+## Historical HOLD (previous context)
 
 - The old continuous-service run with **8066 tasks** remains a recorded HOLD:
   job 8066 `CompleteVerified` was not consumed, the Helper exited after the

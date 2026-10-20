@@ -2,7 +2,7 @@
   "schema": "bbport_c3_accepted_evidence_v1",
   "status": "PASS_C3_NARROW_PROFILE",
   "parent_commit": "2b0cb9206ee96668f146ea8b9cfd5aec8b572467",
-  "evidence_root": "/home/arinp/Code/nrbridge-design/game-poc-20261011",
+  "evidence_root": "${HOME}/Code/nrbridge-design/game-poc-20261011",
   "gpu_executor": "Integration",
   "B_activity": "read-only evidence review; no GPU rerun",
   "files": [
@@ -83,5 +83,6 @@
     "motion3 Wine cold one unreadable entry; successful83 identities match final",
     "late is expired-session nonconsumption, not explicit late parser rejection",
     "performance, quality, C4-C6 not accepted"
-  ]
+  ],
+  "publication_note": "Local paths/machine identifiers redacted; original evidence and referenced artifact hashes retained in private development data."
 }

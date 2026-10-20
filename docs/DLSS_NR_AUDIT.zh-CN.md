@@ -1,3 +1,7 @@
+> Historical note: local paths and machine identifiers are redacted for publication.
+> Original evidence is preserved in private development data; this is not a new acceptance run.
+> Current player instructions are in the project README.
+
 # 原生 DLSS SR 与 GPU IPC 审计（2026-10-10）
 
 后续状态入口：[NR 开发交接](HANDOFF_DLSS_NR.zh-CN.md)。本页保留审计当时范围。
@@ -8,7 +12,7 @@ SDK / validation 已迁入主目录 `out/deps/dlss-sdk` / `out/deps/vulkan-valid
 结论：`testing` 已有原生 Linux DLSS SR，不需要再做一个 SR 后端。本工作区成功运行了
 现有 bridge 的 DLAA / Quality 合成测试，以及两个独立 Linux Vulkan 进程的图像共享、
 no-op 和 pass-through。**没有接入 NR，也没有验证 Linux → Wine → OptiScaler 的共享链路。**
-原稳定工作区、`/home/arinp/bloodborne` 的运行程序与配置、OptiScaler 项目均未修改。
+原稳定工作区、`${HOME}/bloodborne` 的运行程序与配置、OptiScaler 项目均未修改。
 未提交 commit、未推送、未合并或部署。
 
 ## 基线与可追溯性
@@ -136,7 +140,7 @@ git -C out/dlss-sdk checkout 374959484e79a640feaba44c93ac8cfb0a03f5b5
 DLSS_SDK_ROOT="$PWD/out/dlss-sdk" bash tools/nr_probe/build.sh
 
 # 只有本机缺系统 Vulkan headers 时，使用已存在的本地开发头文件：
-VULKAN_INCLUDE=/home/arinp/Code/bloodborne_pc/out/deps/root/usr/include \
+VULKAN_INCLUDE=${HOME}/Code/bloodborne_pc/out/deps/root/usr/include \
 VULKAN_LIBRARY=/usr/lib/libvulkan.so DLSS_SDK_ROOT="$PWD/out/dlss-sdk" \
 bash tools/nr_probe/build.sh
 
@@ -204,11 +208,11 @@ SR 合成场景是恒定颜色/深度、零 MV，只验证 NGX SR 的创建/调�
 git submodule update --init --recursive
 DLSS_SDK_ROOT="$PWD/out/dlss-sdk" bash build.sh --test
 # 若使用独立输出的 bridge，保证完整构建 out/bb-probe 同目录有该 bridge 和 release NGX .so。
-BB_AUDIT_GAME_DIR=/home/arinp/bloodborne/CUSA03173 \
+BB_AUDIT_GAME_DIR=${HOME}/bloodborne/CUSA03173 \
 BB_AUDIT_SAVE_BACKUP=/path/to/archived-backup \
 bash tools/nr_probe/run_game_case.sh dlaa
 # 正常关窗后，再运行同一存档副本、同一路线：
-BB_AUDIT_GAME_DIR=/home/arinp/bloodborne/CUSA03173 \
+BB_AUDIT_GAME_DIR=${HOME}/bloodborne/CUSA03173 \
 BB_AUDIT_SAVE_BACKUP=/path/to/archived-backup \
 bash tools/nr_probe/run_game_case.sh quality
 ```

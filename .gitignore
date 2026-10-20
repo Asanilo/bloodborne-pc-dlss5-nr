@@ -30,3 +30,15 @@ patches.json
 /docs/ISSUE_ACTION_PLAN_*.md
 # AMD FidelityFX DLLs (FSR 4.1.1 is built from the user's own): never in the repository
 *.dll
+
+# Local checkouts, private NR runtime inputs and session evidence
+/.worktree/
+/localinputs/
+/runs/
+/seed/
+/workspace.local/
+/.env
+/.env.local
+
+# Reviewed public README media
+!/docs/assets/nrbridge-gameplay.png

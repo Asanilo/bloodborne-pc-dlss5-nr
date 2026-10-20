@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="330" viewBox="0 0 1200 330" role="img" aria-labelledby="title desc">
+  <title id="title">Bloodborne · DLSS 5 NRBridge · Native Linux</title>
+  <desc id="desc">A moonlit skyline with the Bloodborne and NRBridge names, and Linux, DLSS SR plus NR, and bbport 0.6 labels.</desc>
+  <defs>
+    <linearGradient id="night" x2="1" y2="1"><stop stop-color="#17232b"/><stop offset=".55" stop-color="#0d151c"/><stop offset="1" stop-color="#070c11"/></linearGradient>
+    <radialGradient id="moon"><stop stop-color="#b6c7c8" stop-opacity=".13"/><stop offset="1" stop-color="#b6c7c8" stop-opacity="0"/></radialGradient>
+    <linearGradient id="gold"><stop stop-color="#ebdfc0"/><stop offset="1" stop-color="#b69a66"/></linearGradient>
+    <clipPath id="edge"><rect width="1200" height="330" rx="12"/></clipPath>
+  </defs>
+  <g clip-path="url(#edge)">
+    <rect width="1200" height="330" fill="url(#night)"/>
+    <circle cx="1015" cy="118" r="210" fill="url(#moon)"/>
+    <circle cx="1015" cy="118" r="70" fill="#bbc7c5" fill-opacity=".035" stroke="#b9c5c1" stroke-opacity=".24"/>
+    <circle cx="1015" cy="118" r="83" fill="none" stroke="#b9c5c1" stroke-opacity=".06"/>
+    <path d="M740 330V265h30V188l18-53 18 53v61h22V208h25v-31l17-18 17 18v77h26V169l22-76 22 76v106h29V221h23V176l18-37 18 37v76h30V208h22v-30l23-63 23 63v115h28v-54h20v-39h19v-29l17-58 17 58v110h27v49Z" fill="#050a0e"/>
+    <path d="M935 93V66m-10 12h20m155 37V94m-8 11h16" stroke="#7b8e90" stroke-opacity=".45" stroke-width="2"/>
+    <path d="M0 306H1200" stroke="#9f895d" stroke-opacity=".18"/>
+    <path d="M43 45h34m-17-17v34" stroke="#bd5760" stroke-width="1.6"/>
+    <text x="92" y="51" fill="#a7b8bf" font-family="sans-serif" font-size="13" letter-spacing="3">NATIVE LINUX · NEURAL RENDERING</text>
+    <text x="48" y="134" fill="url(#gold)" font-family="Georgia,serif" font-size="64" letter-spacing="5">BLOODBORNE</text>
+    <text x="51" y="187" fill="#edf0eb" font-family="sans-serif" font-size="30" font-weight="600" letter-spacing="8">NRBRIDGE</text>
+    <path d="M52 210H106" stroke="#b4535d" stroke-width="3"/>
+    <text x="125" y="216" fill="#a8bac2" font-family="sans-serif" font-size="17" letter-spacing=".5">Return to Yharnam.</text>
+    <g font-family="sans-serif" font-size="12" letter-spacing="1">
+      <rect x="51" y="250" width="133" height="30" rx="5" fill="#1a2932" stroke="#354751"/>
+      <text x="117.5" y="270" text-anchor="middle" fill="#c5d4da">LINUX x86_64</text>
+      <rect x="196" y="250" width="145" height="30" rx="5" fill="#142b24" stroke="#355d48"/>
+      <text x="268.5" y="270" text-anchor="middle" fill="#aad4a7">DLSS 5 NR + SR</text>
+      <rect x="353" y="250" width="119" height="30" rx="5" fill="#28251f" stroke="#514630"/>
+      <text x="412.5" y="270" text-anchor="middle" fill="#d1c19c">bbport 0.6</text>
+    </g>
+  </g>
+</svg>

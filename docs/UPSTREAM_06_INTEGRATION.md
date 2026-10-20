@@ -1,3 +1,7 @@
+> Historical note: local paths and machine identifiers are redacted for publication.
+> Original evidence is preserved in private development data; this is not a new acceptance run.
+> Current player instructions are in the project README.
+
 # 上游 0.6 集成候选
 
 ## 2026-10-20 功能补齐增量（现行）
@@ -62,7 +66,7 @@ Astra 已定点复核 CP/GNM/sampler、NR 末用、owner pump、Present、observ
 可选 online 库因缺 nlohmann_json CMake package、miniupnpc 未构建；在线和真实 DLC 挂载未验收。
 
 同一实际 Native `4b4fdcc`、Helper `7f69`、forwarder `9a825`，在 boot
-`54bbe091-3e4f-4fdf-abf3-4505c72a7f71` 经既有排他 Runner 和真实前序递进执行：
+`historical-test-boot` 经既有排他 Runner 和真实前序递进执行：
 
 | session 前缀（均后缀 `-4b4fdcc-20261020`） | 实际工作负载 | 结果 |
 | --- | --- | --- |

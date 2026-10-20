@@ -1,10 +1,13 @@
+> Historical PoC reference, not a current launch entry. Local paths are redacted;
+> original evidence is retained privately. Use the project README for the Preview.
+
 # Q1：正常 Quality 的 unequal-extents 单槽诊断候选
 
 唯一协议为 `integration/QUALITY-NR-CONTRACT.md`，SHA256 `482a5bccba778445efbcc2023e07a998e545fcd66c54ecb72d98c2514b9af7b0`。Root 已完成 noop1、single1、skipEvaluate1 和 resident4 的真实游戏串行验收，初始 Quality 接口可调用性/传输/呈现/生命周期短套件 **PASS**。原始证据与失败历史索引见 `Q1-EVIDENCE.json`；这不是 phase、画质、性能或加载稳定性验收。
 
 ## 构建与输入
 
-工作树 `/home/arinp/Code/nrbridge-design/game-poc-20261011/bbport-worktree`，基线 `0da4ecc3fbf15a5212b517f1a95c09aa4a2fe440`。离线复现：`bash tools/nr_probe/build_q1.sh`，使用既有 `build_c0.sh` 的只读依赖/私有 FSR 副本机制，不安装或下载。
+工作树 `${HOME}/Code/nrbridge-design/game-poc-20261011/bbport-worktree`，基线 `0da4ecc3fbf15a5212b517f1a95c09aa4a2fe440`。离线复现：`bash tools/nr_probe/build_q1.sh`，使用既有 `build_c0.sh` 的只读依赖/私有 FSR 副本机制，不安装或下载。
 
 最终候选证据：`../bbport/runs/q1-build-20261011T173246Z/`。`build-result.json` 为 PASS/exit0；60 项源码 snapshot/live/pre/post 一致，4 项产物有实际 hash。`candidate-audit.json` 保存逐项复核和 CPU-only wire/profile/bucket 的 34 项断言。首版 `q1-build-20261011T171225Z` 保留，不作为最终候选。
 
@@ -33,7 +36,7 @@ Noop 核共享32F bytes及原不可变 SR97→实际 return97 bits；无模型/f
 Root 首例在自身审核、helper approval、私有 seed 都完成后运行（B 不执行）：
 
 ```sh
-cd /home/arinp/Code/nrbridge-design/game-poc-20261011
+cd ${HOME}/Code/nrbridge-design/game-poc-20261011
 python3 integration/run_quality_nr.py q1-noop-20261011 noop --frames 1 --case noop --seconds 600 --build-evidence bbport/runs/q1-build-20261011T173246Z --execution-mode diagnostic
 ```
 

@@ -1,3 +1,7 @@
+> Historical note: local paths and machine identifiers are redacted for publication.
+> Original evidence is preserved in private development data; this is not a new acceptance run.
+> Current player instructions are in the project README.
+
 # 鼠标视角修复（2026-10-10）
 
 修复最初在 `.worktree/dlss-input-integration` 验证，后续已纳入本地主线；
@@ -50,7 +54,7 @@ SDL_VIDEODRIVER=wayland out/gpu/window-input-test
   这不是正常退出或完整战斗画质验收。
 - 画面证据：`out/input-fix/before.png` 与 `out/input-fix/after.png`。
 
-候选部署包：`/home/arinp/bloodborne/runtime/releases/20261010T102648Z-6ad9496e`。
+候选部署包：`${HOME}/bloodborne/runtime/releases/20261010T102648Z-6ad9496e`。
 保留旧包，通过安装器原子切换 `runtime/current`，不覆盖用户设置和存档。
 这一包也带有本轮先前完成的 Esc→Options 修正与中文语言入口，用户语言选择不自动更改。
 

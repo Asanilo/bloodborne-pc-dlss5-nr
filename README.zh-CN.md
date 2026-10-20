@@ -1,0 +1,138 @@
+# Bloodborne · DLSS 5 NRBridge
+
+<p align="center">
+  <a href="README.md">English</a> · <strong>简体中文</strong> · <a href="README.ru.md">Русский</a>
+</p>
+
+![Bloodborne · DLSS 5 NRBridge · Native Linux](docs/assets/nrbridge-banner.svg)
+
+<p align="center">
+  <strong>在 Linux 上，重返亚楠。</strong><br>
+  DLSS 5 NR + DLSS SR · 原生鼠标视角 · 持久视觉历史 · 完整启动器
+</p>
+
+<p align="center">
+  <a href="#features">功能亮点</a> · <a href="#getting-started">开始使用</a> ·
+  <a href="#how-it-works">NRBridge 原理</a> · <a href="#docs">构建与文档</a>
+</p>
+
+**NRBridge 将 DLSS 5 NR 接入了 Bloodborne 的 Linux 原生移植版。**
+在上游 [bbport 0.6](https://github.com/deadinside28/bloodborne_pc) 的基础上，
+本 Fork 把独立 NR 推理与原生 DLSS SR 串联起来，同时带来原生鼠标、复合键、中文设置和存档管理，
+让你从完整启动器直接进入游戏。
+
+![Bloodborne 在 Linux 上运行 NRBridge 的实机画面](docs/assets/nrbridge-gameplay.png)
+
+<p align="center"><sub>NRBridge 实机画面 · NR 已开启，右下角为游戏内状态显示。</sub></p>
+
+<a id="features"></a>
+
+## 为亚楠加上 NR
+
+| 🟢 NR + DLSS SR | 🌙 持久视觉历史 |
+| :--- | :--- |
+| 独立 Helper 执行 NR 模型，结果接回原生渲染链路；游戏内可调节 NR 参数。 | 跨帧保留并更新 NR 结果，让后续 SR 帧继续使用有效的视觉历史。 |
+| **🖱️ 原生键鼠体验** | **🎛️ 完整启动器** |
+| 鼠标直接控制相机，菜单指针、复合键绑定、按键提示和中文设置一并保留。 | 统一管理画面、输入、Mod／补丁、联网选项与存档；支持自动备份和恢复。 |
+
+此外，还保留 bbport 0.6 的手柄支持、宽高比与游戏内画面设置、DLC／内容挂载，
+以及 **21 种游戏语言选择**；实际语言文本取决于你的游戏资产。
+The Hunter’s Dream、Seamless Hunt 和可选 BBSC 入口也已集成，联网内容正在进一步验证。
+
+**已经跑通：** NR 实机运行、原生鼠标操作、场景／标题页恢复、存档写入与重新载入、正常退出。
+玩家已确认原生鼠标转镜更跟手，停鼠、F1 释放和菜单恢复正常。
+
+<a id="getting-started"></a>
+
+## 开始狩猎
+
+### 准备
+
+- **Linux x86-64** 与兼容的 NVIDIA 显卡、Vulkan／NGX 驱动环境。
+- 自己的 **Bloodborne 1.09** 游戏文件。
+- 本机 Wine／GE、NR 模型，以及匹配的 Helper 和 forwarder；详见[依赖与构建说明](tools/nr_dev/README.md)。
+
+### 启动
+
+已有 AppImage 或安装目录时，打开 AppImage 或 `./launch.sh`：
+
+1. 在启动器选择游戏和存档目录，完成 **NR 运行环境** 中的依赖配置。
+2. 保持 **启用神经渲染（NR）** 与 **原生鼠标视角** 开启，选择 DLSS 清晰度优先、1920×1080。
+3. 启动游戏，进入可操作场景，再点击 **进入游戏场景后开启 NR** 并确认。
+4. 结束游戏后，等待进度保存完成，再关闭启动器。
+
+<details>
+<summary><strong>快捷键与画面配置</strong></summary>
+
+| 按键 | 功能 |
+| :--- | :--- |
+| F1 | 释放鼠标；点击游戏画面重新捕获 |
+| F8 | 切换 SR／NR 显示 |
+| Delete | 打开 NR 控制菜单；修改参数后点击 Apply |
+| Insert／L3+R3 | 打开 bbport 设置浮层 |
+
+当前 NR 配置为 DLSS Quality、1920×1080、16:9 或自动，开启抖动和物体运动向量。
+内存模型选择“旧”或“自动”即可；NR 下“自动”会使用匹配的旧模型。
+关闭 NR 后可以选择普通超分设置。
+
+</details>
+
+<details>
+<summary><strong>已知问题与兼容性</strong></summary>
+
+- NR 仍可能出现着色闪烁、有效历史骤降和亮尾。
+- 社区谏言、血迹、幻影及 BBSC 多人仍在验证；手柄、真实 DLC 和更多区域的覆盖也在继续补充。
+- 当前 AppImage 的部分依赖要求 GLIBC 2.44，旧发行版兼容性待完善。
+- FSR 4.1.1 DLL 转换暂不可用，已准备好的资源仍可选择。
+
+详细进展见 [Preview 状态](docs/NRBRIDGE_PREVIEW_STATUS.md)。
+
+</details>
+
+<a id="how-it-works"></a>
+
+## NRBridge 如何接入游戏
+
+bbport 让 Bloodborne 的 x86-64 游戏代码直接在 Linux CPU 上运行，并将图形转换为 Vulkan。
+NRBridge 在这个基础上分工处理渲染与模型推理：
+
+```text
+游戏画面与运动信息 → 独立 NR Helper → 持久视觉历史 → 原生 DLSS SR → 屏幕
+```
+
+Native 负责游戏渲染与历史更新，Helper 负责 NR 模型执行；二者通过版本化协议协作。
+Native 与 [OptiScaler-Linux-NR](https://github.com/Asanilo/OptiScaler-Linux-NR) 保持独立仓库，
+方便分别跟进上游。模型与游戏文件由用户自行提供。
+
+<a id="docs"></a>
+
+## 构建与文档
+
+仓库默认分支为 **`nrbridge`**：
+
+```bash
+git clone --recursive --branch nrbridge \
+  https://github.com/Asanilo/bloodborne-pc-dlss5-nr.git bbport-nrbridge
+cd bbport-nrbridge
+```
+
+| 想了解什么 | 入口 |
+| :--- | :--- |
+| 准备依赖、构建 Native 与 Helper | [开发指南](tools/nr_dev/README.md) |
+| 制作 AppImage | [打包说明](packaging/nrbridge/README.md) |
+| 改键、中文与存档 | [玩家使用说明](docs/PC_FEATURES.zh-CN.md) |
+| 当前进展与已知问题 | [Preview 状态](docs/NRBRIDGE_PREVIEW_STATUS.md) |
+| 工作空间和分支布局 | [仓库维护说明](docs/WORKSPACE.md) |
+| bbport 0.6 的更新 | [上游更新记录](docs/CHANGES_0.6.md) |
+
+如果你也想在 Linux 上逛亚楠，欢迎点个 **⭐ Star** 关注进展。
+实机反馈、问题报告、翻译和代码贡献都欢迎。
+
+## 致谢
+
+感谢 [deadinside28/bloodborne_pc](https://github.com/deadinside28/bloodborne_pc) 提供 bbport，
+感谢 [shadPS4](https://github.com/shadps4-emu/shadPS4) 提供渲染器与着色器翻译器的起点。
+完整出处见 [组件致谢](gpu/VENDOR.txt) 和各组件许可证。NRBridge 相关问题请反馈到本 Fork。
+
+Bloodborne 属于相应权利人。本项目与 Sony Interactive Entertainment、FromSoftware、
+NVIDIA 或 AMD 无关联。许可证见 [LICENSE](LICENSE)。

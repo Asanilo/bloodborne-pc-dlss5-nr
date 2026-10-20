@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
-// DERIVED reference only, Root canonical /home/arinp/Code/nrbridge-design/game-poc-20261011/integration/high-fps-20261013/async-origin-interface-v1.json
+// DERIVED reference only, Root canonical ${HOME}/Code/nrbridge-design/game-poc-20261011/integration/high-fps-20261013/async-origin-interface-v1.json
 // SHA256 5f4da5793c45d94181f1719d987b3f9c00c77faa0f26583304267a4f0de3af58; protocol1 revision3. Never a second canonical.
 #pragma once
 inline constexpr char NativeOriginSpecJson[]=R"ORIGINSPEC({

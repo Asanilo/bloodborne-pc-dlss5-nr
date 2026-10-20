@@ -1,3 +1,7 @@
+> Historical note: local paths and machine identifiers are redacted for publication.
+> Original evidence is preserved in private development data; this is not a new acceptance run.
+> Current player instructions are in the project README.
+
 # 0.6 适配状态
 
 以下正文保留 `5ab490f` 的完整原始安全审查与 CPU 证据，是历史快照；其旧目录、分支、
@@ -177,7 +181,7 @@ HOLD/holder/内核与前序检查，并显式选择候选，不能覆盖稳定 `
 完整构建命令：
 
 ```bash
-BB_BUILD_DIR=/home/arinp/Code/bloodborne_pc/out/native-mouse-candidate-20261020 bash tools/nr_dev/build.sh
+BB_BUILD_DIR=${HOME}/Code/bloodborne_pc/out/native-mouse-candidate-20261020 bash tools/nr_dev/build.sh
 ```
 
 从空输出使用现有锁定依赖构建通过；PGO off、LTO off、8 jobs，实际源码为上面完整 `3f80209`，

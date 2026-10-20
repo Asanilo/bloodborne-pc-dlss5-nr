@@ -1,3 +1,7 @@
+> Historical note: local paths and machine identifiers are redacted for publication.
+> Original evidence is preserved in private development data; this is not a new acceptance run.
+> Current player instructions are in the project README.
+
 # Q0 normal live DLSS Quality capture (build-only)
 
 Source baseline is C4 polling milestone `527b827077a411cc9d8442ddfa9a772136cca064`. Root canonical is `integration/QUALITY-CAPTURE.md`. No Quality NR protocol is implemented. Stable repository is unchanged.
@@ -36,9 +40,9 @@ Prior failures remain evidence, not repaired behavior:
 
 ```sh
 python3 tools/nr_probe/audit_q0_camera.py \
-  --poc /home/arinp/Code/nrbridge-design/game-poc-20261011 \
-  --case /home/arinp/Code/nrbridge-design/game-poc-20261011/bbport/runs/q0-game-q0-quality-motion-20261011 \
-  --log /home/arinp/Code/nrbridge-design/game-poc-20261011/runs/quality-capture-20261011T163641.147928Z/game.log
+  --poc ${HOME}/Code/nrbridge-design/game-poc-20261011 \
+  --case ${HOME}/Code/nrbridge-design/game-poc-20261011/bbport/runs/q0-game-q0-quality-motion-20261011 \
+  --log ${HOME}/Code/nrbridge-design/game-poc-20261011/runs/quality-capture-20261011T163641.147928Z/game.log
 ```
 
 The small checked-in result is `docs/q0-camera-audit.json`. It verifies every raw-file hash/size/completion and uses the actual printed R3x4, projection, depth and current jitter to reconstruct the existing camera shader's previous-minus-current render-pixel prediction. It fixes a geometric mask before examining residuals: forward finite depth, positive previous z, two-pixel border exclusion, local3x3 view-z spread≤2%, and, for the adjacent f1/f3 pairs, predicted previous-raster depth consistency≤2%. It never selects pixels by MV agreement. All frames have object_valid1 but no per-pixel object selector attachment; this is a geometric screen, not an independent camera-only/object mask.

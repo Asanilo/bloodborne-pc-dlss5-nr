@@ -2,7 +2,7 @@
   "schema_version": 1,
   "status": "PASS_INITIAL_QUALITY_INTERFACE_FEASIBILITY_SUITE; not phase, playable performance or load stability acceptance",
   "baseline_commit": "0da4ecc3fbf15a5212b517f1a95c09aa4a2fe440",
-  "evidence_path_base": "/home/arinp/Code/nrbridge-design/game-poc-20261011",
+  "evidence_path_base": "${HOME}/Code/nrbridge-design/game-poc-20261011",
   "scope": "Local evidence references and hashes only; no copied logs, pixels, binaries, models or saves",
   "frozen_dependencies": {
     "canonical": {
@@ -361,5 +361,6 @@
     "performance": "NOT_ASSESSED; full diagnostic CPU/readback timings are not pure NR benchmark",
     "long_term_leak_free": "NOT_CLAIMED; complete same-state inventories passed each short accepted case",
     "future_PM4_diagnostic": "NOT_IMPLEMENTED; separately scoped opt-in and fresh build only after this archive"
-  }
+  },
+  "publication_note": "Local paths/machine identifiers redacted; original evidence and referenced artifact hashes retained in private development data."
 }

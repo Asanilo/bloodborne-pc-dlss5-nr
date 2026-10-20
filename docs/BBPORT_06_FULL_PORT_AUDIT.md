@@ -1,3 +1,7 @@
+> Historical note: local paths and machine identifiers are redacted for publication.
+> Original evidence is preserved in private development data; this is not a new acceptance run.
+> Current player instructions are in the project README.
+
 # bbport 0.6 全功能移植难度与冲突审查
 
 ## 范围与方法
@@ -204,7 +208,7 @@ Esc、超时和失焦取消，不改原绑定；窗口失焦不能继续带着�
 
 实际空目录完整构建来源`43be58c035ce841f348efba0cb7c619e33777c19`，source-diff为空，
 Native编译/链接与capabilities工具构建均通过。输出为
-`/home/arinp/Code/bloodborne_pc/out/gameplay-06-input-native-20261020`；四项原有产物manifest
+`${HOME}/Code/bloodborne_pc/out/gameplay-06-input-native-20261020`；四项原有产物manifest
 与新增capabilities工具SHA均已核验，记录在`out/gameplay-06-input/validation.json`。
 后续本文提交只是验证记录，不冒充重新编译来源。
 
@@ -216,9 +220,9 @@ GPU手感验证、鼠标原生相机、在线与DLC实际移植仍是明确后�
 本机锁定依赖已备好的CPU复现命令（不运行GPU枚举或游戏）：
 
 ```bash
-cd /home/arinp/Code/bloodborne_pc/.worktree/gameplay-06
-source /home/arinp/Code/bloodborne_pc/out/deps/bbport-env.sh
-export PKG_CONFIG_PATH=/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib/pkgconfig:/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib64/pkgconfig
+cd ${HOME}/Code/bloodborne_pc/.worktree/gameplay-06
+source ${HOME}/Code/bloodborne_pc/out/deps/bbport-env.sh
+export PKG_CONFIG_PATH=${HOME}/Code/bloodborne_pc/out/deps/root/usr/lib/pkgconfig:${HOME}/Code/bloodborne_pc/out/deps/root/usr/lib64/pkgconfig
 mkdir -p out/gameplay-06-input
 for case in pad input_capture chord_capture; do
   cc -std=c11 -O2 -g -Wall -Wextra -Werror -pthread \
@@ -226,6 +230,6 @@ for case in pad input_capture chord_capture; do
     $(pkg-config --libs sdl3) -o out/gameplay-06-input/$case-test
   out/gameplay-06-input/$case-test
 done
-BB_BUILD_DIR=/home/arinp/Code/bloodborne_pc/out/gameplay-06-input-native-20261020 \
+BB_BUILD_DIR=${HOME}/Code/bloodborne_pc/out/gameplay-06-input-native-20261020 \
   bash tools/nr_dev/build.sh
 ```

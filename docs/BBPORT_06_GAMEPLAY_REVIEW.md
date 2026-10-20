@@ -1,3 +1,7 @@
+> Historical note: local paths and machine identifiers are redacted for publication.
+> Original evidence is preserved in private development data; this is not a new acceptance run.
+> Current player instructions are in the project README.
+
 # bbport 0.6 游戏侧审查与窄移植
 
 > 范围更新（2026-10-20）：用户后续要求审查所有功能的难度/冲突，允许采用更完整上游输入、在线和DLC。
@@ -107,7 +111,7 @@ GPU选择、宿主Vulkan/EGL/pressure-vessel、GE发现和DLSS库安装留给独
 ## 最终验证记录
 
 - 实际构建来源`ea378015794824ed30ab5f9c35b05e16a9a2c8c4`，source-diff为空；
-  输出`/home/arinp/Code/bloodborne_pc/out/gameplay-06-native-20261020`。
+  输出`${HOME}/Code/bloodborne_pc/out/gameplay-06-native-20261020`。
   首次从空输出完成全量编译，撤回触点改动后按最终干净来源增量重编/链接通过，
   四产物SHA逐项核验。后续提交仅补本文记录，不代表再次编译或GPU验收。
 - `python3 -m unittest discover -s tools/nr_dev/tests -p 'test_*.py'`：195/195通过。
@@ -130,8 +134,8 @@ GPU选择、宿主Vulkan/EGL/pressure-vessel、GE发现和DLSS库安装留给独
 可复现命令（本机已有锁定输入，不能解释为新机器一键构建）：
 
 ```bash
-cd /home/arinp/Code/bloodborne_pc/.worktree/gameplay-06
-BB_BUILD_DIR=/home/arinp/Code/bloodborne_pc/out/gameplay-06-native-20261020 \
+cd ${HOME}/Code/bloodborne_pc/.worktree/gameplay-06
+BB_BUILD_DIR=${HOME}/Code/bloodborne_pc/out/gameplay-06-native-20261020 \
   bash tools/nr_dev/build.sh
 python3 -m unittest discover -s tools/nr_dev/tests -p 'test_*.py'
 python3 -m unittest discover -s tests -v

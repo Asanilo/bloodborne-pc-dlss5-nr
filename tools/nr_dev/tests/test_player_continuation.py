@@ -15,7 +15,7 @@ class ContinuationTests(unittest.TestCase):
   self.result['status']='HOLD';self.write_result();(self.source/'hold-resolution.json').write_text('{"normal_retirement_proved":true}')
   with self.assertRaises(ValueError):r.continuation_source('player-old')
  def test_old_or_formal_paths_and_symlinks_rejected(self):
-  for name in ('../old-space','/home/arinp/bloodborne','../../nrbridge-design'):
+  for name in ('../old-space','/home/example/bloodborne','../../nrbridge-design'):
    with self.assertRaises(ValueError):r.continuation_source(name)
   save=self.source/'profile/user/savedata';(save/'bad-link').symlink_to('/tmp')
   with self.assertRaises(ValueError):r.continuation_source('player-old')
