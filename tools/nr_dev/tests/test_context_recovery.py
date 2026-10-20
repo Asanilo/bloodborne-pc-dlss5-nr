@@ -308,6 +308,24 @@ class PeerAndIdentity(unittest.TestCase):
                  'kernel_journal_sha256': self.r.sha(self.run / 'post-exit-kernel.jsonl')})
         self.pin()
 
+    def test_mouse_predecessor_selection_both_directions(self):
+        self.record['schema'] = 'nr-isolated-context-v2'
+        self.record['request'].update(sky='persistent', mode='skipEvaluate')
+        self.peer()
+        manifest = json.loads((self.run / 'manifest.json').read_text())
+        for requested in (False, True):
+            self.record['native_mouse'] = requested
+            for previous in (False, True):
+                manifest['environment'] = {'BB_NATIVE_MOUSE': '1'} if previous else {}
+                self.put('manifest.json', manifest)
+                self.pin()
+                with self.subTest(requested=requested, previous=previous):
+                    if requested == previous:
+                        c._predecessor(self.r, self.record)
+                    else:
+                        self.assertRaisesRegex(ValueError, 'manifest selection drift',
+                                               c._predecessor, self.r, self.record)
+
     def test_formal_peer_off_skip_precedes_persistent_skip_but_not_resident(self):
         self.peer()
         self.record['request'].update(sky='persistent', mode='skipEvaluate')

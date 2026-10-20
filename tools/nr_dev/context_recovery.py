@@ -13,6 +13,9 @@ import uuid
 from collections import Counter
 from pathlib import Path
 
+_mouse_spec=importlib.util.spec_from_file_location('nr_native_mouse_scope',Path(__file__).with_name('native_mouse_scope.py'))
+native_mouse_scope=importlib.util.module_from_spec(_mouse_spec);_mouse_spec.loader.exec_module(native_mouse_scope)
+
 EXAMPLE_RECORD = {
     'schema': 'nr-isolated-context-v1', 'session': 'dev-helper-off-01',
     'boot_id': '<current boot UUID>', 'previous_boot_id': '<old boot UUID>',
@@ -101,6 +104,7 @@ def validate_scope(record, requested, boot, snapshot):
 
 
 def _trace_launch(record, args):
+    native_mouse_scope.check_record(record, native_mouse_scope.requested(args))
     producer = getattr(args, 'pm4_producer_context', False)
     cold = getattr(args, 'pm4_cold_trace', False)
     need(type(producer) is bool and type(cold) is bool, 'strict trace booleans required')
@@ -113,6 +117,7 @@ def _trace_launch(record, args):
 
 
 def _trace_control(record, environment):
+    native_mouse_scope.check_environment(record, environment)
     if record['schema'] == 'nr-isolated-context-v1':
         need('BB_NR_PM4_PRODUCER_CONTEXT' not in environment, 'v1 forbids producer context')
         return
@@ -178,6 +183,7 @@ def _predecessor(r, record):
         path = regular(run / name, run)
         need(r.sha(path) == digest, 'predecessor evidence drift')
     manifest = load(run / 'manifest.json')
+    native_mouse_scope.check_environment(record, manifest.get('environment', {}))
     result = load(run / 'result.json')
     need(result.get('status') == 'PASS_NORMAL_TEARDOWN' and result.get('returncode') == 0
          and result.get('native_lastuse_proof') is True and result.get('residuals') == []

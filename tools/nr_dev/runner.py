@@ -246,7 +246,12 @@ def validate_pm4_producer_context(args):
  if type(enabled) is not bool or (enabled and (type(getattr(args,'pm4_cold_trace',False)) is not bool or not getattr(args,'pm4_cold_trace',False) or sum(bool(getattr(args,k,None)) for k in ('reboot_diagnostic','context_recovery'))!=1)):raise ValueError('producer context requires cold trace and exactly one isolated diagnostic scope')
  return enabled
 
+
+_mouse_spec=importlib.util.spec_from_file_location('nr_native_mouse_scope',Path(__file__).with_name('native_mouse_scope.py'))
+native_mouse_scope=importlib.util.module_from_spec(_mouse_spec);_mouse_spec.loader.exec_module(native_mouse_scope)
+
 def validate_reboot_scope(record,args,boot,snapshot,provenance,artifacts):
+ native_mouse_scope.check_record(record,native_mouse_scope.requested(args))
  schema=record.get('schema')
  if schema not in ('nr-reboot-sr-diagnostic-v1','nr-reboot-sr-diagnostic-v2') or record.get('normal_retirement_proved') is not False or record.get('historical_faults_resolved') is not False:raise ValueError('diagnostic is not historical retirement/recovery proof')
  def boot_uuid(value):
@@ -598,6 +603,7 @@ def launch(args):
  return 3 if signals.interrupted else code
 
 def launch_supervised(args,signals):
+ native_mouse_scope.requested(args)
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
  binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None
@@ -640,6 +646,7 @@ def launch_supervised(args,signals):
   if args.history_diagnostic:
    if args.sky!='persistent' or args.mode!='resident':raise ValueError('history diagnostic requires persistent resident mode')
    nr.update(BB_NATIVE_HISTORY_DIAGNOSTIC='1',BB_NATIVE_HISTORY_DIAGNOSTIC_FRAMES='3',BB_NATIVE_HISTORY_DIAGNOSTIC_AFTER_CANDIDATE=str(args.diagnostic_after))
+  if native_mouse_scope.requested(args):nr['BB_NATIVE_MOUSE']='1'
   env.update(nr);command=['bash',str(WT/'run.sh')]
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
   with (run/'game.log').open('w') as log:
@@ -697,7 +704,7 @@ def launch_supervised(args,signals):
    return 0 if normal and not held and not signals.interrupted else 3
 
 def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
  try:validate_pm4_producer_context(a)
  except ValueError as error:p.error(str(error))
  if a.context_recovery and a.reboot_diagnostic:p.error('choose one isolated diagnostic scope')

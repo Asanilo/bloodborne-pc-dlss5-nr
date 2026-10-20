@@ -3,6 +3,7 @@
 import argparse,datetime,json,signal,subprocess,sys,time,select
 from pathlib import Path
 import runner
+import native_mouse_scope
 DEFAULT_HELPER=runner.ROOT/'build/helper-runtime-model/06ac7e6b7260172d/wine_runtime_model.exe'
 DEFAULT_HELPER_BUILD_SHA='e7ab371cfb5d4f2fd799336065bdb69953106c3c731498a09f7609947aaa1680'
 
@@ -18,6 +19,7 @@ def parse_args(argv=None):
  p.add_argument('--watchdog-seconds',type=int,default=600)
  p.add_argument('--source-limit',type=int,default=36000)
  p.add_argument('--context-recovery',help='已有协调方scope；在启动监督进程前核对精确请求')
+ p.add_argument('--native-mouse',action='store_true',help='显式原生鼠标候选；须scope与cold trace匹配')
  p.add_argument('--pm4-cold-trace',action='store_true',help='透传已有冷诊断；整run排除热性能评分')
  p.add_argument('--pm4-producer-context',action='store_true',help='透传已有生产者冷诊断；须匹配scope')
  p.add_argument('--continue-session',help='仅续用已正常退休的新dev session私有存档和NR配置')
@@ -31,6 +33,7 @@ def parse_args(argv=None):
 
 def launch_command(a):
  """Read-only checks before spawning the supervisor; Runner rechecks under lock."""
+ native_mouse_scope.requested(a)
  run=runner.checked_run(a.session)
  if run.exists():raise ValueError('session already exists; use a fresh name')
  record=None
@@ -61,7 +64,7 @@ def launch_command(a):
  if a.native_build:command+=['--native-build',a.native_build]
  if a.continue_session:command+=['--continue-session',a.continue_session]
  if a.context_recovery:command+=['--context-recovery',a.context_recovery]
- for flag in ('pm4_cold_trace','pm4_producer_context'):
+ for flag in ('pm4_cold_trace','pm4_producer_context','native_mouse'):
   if getattr(a,flag):command+=['--'+flag.replace('_','-')]
  return run,command
 
