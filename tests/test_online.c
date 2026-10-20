@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "fixtures/no_network.h"
 
 /* The settings menu of the GPU library restarts through probe.c, which tests do not link. */
 void runtime_restart(void) { abort(); }
@@ -17,6 +18,13 @@ const char *runtime_restart_block_reason(void) { abort(); }
  * (out/gpu/libbbnet.so); trophies stay with the runtime. Without the module (a build without its
  * libraries) there is nothing to check. */
 int main(int argc, char **argv) {
+    bb_test_deny_network();
+    char profile[]="/tmp/bbport-online-cpu-XXXXXX";
+    assert(mkdtemp(profile));
+    const char *variables[]={"HOME","BB_USER_DIR","BB_DATA_DIR","XDG_CONFIG_HOME","XDG_DATA_HOME","XDG_CACHE_HOME"};
+    for (size_t i=0;i<sizeof(variables)/sizeof(*variables);++i) assert(!setenv(variables[i],profile,1));
+    assert(!setenv("BB_BBSC","0",1) && !setenv("BB_NET_BACKEND","shadnet",1));
+    runtime_net_configure("/nonexistent-bbport-cpu-fixture","CPU_TEST","CPU fixture","01.09");
     static const char *const online[]={
         "Nlev7Lg8k3A#E#F",  /* sceNetInit */
         "A9cVMUtEp4Y#K#L",  /* sceHttpInit */
