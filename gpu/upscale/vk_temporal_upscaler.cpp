@@ -507,11 +507,25 @@ void TemporalUpscaler::PumpNativeExitOwner() noexcept {
     }
 }
 
-bool TemporalUpscaler::OnFrameStart() {
+void TemporalUpscaler::PollNativeFrameBoundary() noexcept {
+    // Configuration can remain DLSS Quality while title/menu frames never call
+    // RecordDlss. Complete their outstanding job through the existing actual
+    // acquire/release path instead of waiting forever for another scene source.
+    const bool source_visited = native_pre_sr_source_visited;
+    native_pre_sr_source_visited = false;
     const auto& p0_settings=BbSettings::Get();
-    try{native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter&&!p0_settings.frame_generation);}
+    try {
+        native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter&&!p0_settings.frame_generation);
+        if (!source_visited) native_async_pre_sr.DrainUnavailable(scheduler);
+    }
     catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_POLL_HOLD reason=%s unknown_partial_use_retained=1\n",e.what());}
+    catch(...){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_POLL_HOLD reason=unknown_owner_exception unknown_partial_use_retained=1\n");}
+}
+
+bool TemporalUpscaler::OnFrameStart() {
+    PollNativeFrameBoundary();
 #if NRBRIDGE_LEGACY_EXPERIMENTS
+    const auto& p0_settings=BbSettings::Get();
     native_async_snapshot.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter&&!p0_settings.frame_generation);
     p0_controller.Tick(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter,BbOverlay::MenuOpen());
 #endif
@@ -3562,6 +3576,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         bool pre_domain_changed=false;
         Dlss::Resource sr_color=color;
         if(native_async_pre_sr.Enabled()) {
+            native_pre_sr_source_visited = true;
             bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pre_sr_pending_audit.has_value();}
             const bool supported=hdr&&!Scaled()&&w==1280&&h==720&&ow==1920&&oh==1080&&settings.preset==1&&settings.jitter&&!settings.frame_generation&&!pending;
             native_async_pre_sr.BeginSource(pre_source,supported);

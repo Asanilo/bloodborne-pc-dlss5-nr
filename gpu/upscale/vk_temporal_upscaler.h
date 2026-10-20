@@ -194,6 +194,7 @@ public:
                        std::optional<C1PresentAudit> c1_audit = std::nullopt);
 
 private:
+    void PollNativeFrameBoundary() noexcept;
     /// bbport: views of guest images the upscaler reads, kept across frames: FSR 4 registers
     /// images by view in a registry of eight (a new view per frame filled it at Native AA).
     vk::ImageView CachedView(const VideoCore::Image& image, vk::Format format,
@@ -312,6 +313,7 @@ private:
     NativeAsyncSnapshot native_async_snapshot;
 #endif
     NativeAsyncPreSr native_async_pre_sr;
+    bool native_pre_sr_source_visited = false;
     std::optional<C1PresentAudit> native_async_pre_sr_pending_audit;
 #if NRBRIDGE_LEGACY_EXPERIMENTS
     std::optional<C1PresentAudit> native_async_pending_audit;

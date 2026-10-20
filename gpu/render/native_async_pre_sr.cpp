@@ -88,8 +88,7 @@ void NativeAsyncPreSr::PollPeer(Scheduler& scheduler,bool supported){
    peer->FinalizedAck(job);
  }
  if(peer->State()==Phase::Complete&&job&&(!supported||stopping||BbNativeAsync::ExitRequested())){
-  auto final=TryRecordSparseComplete(scheduler,job->resources,job->complete,0,job->final);
-  if(final.disposition!=SparseDisposition::Unavailable){TrackUse(scheduler);peer->FinalRecorded(job,final.disposition);}
+  DrainUnavailable(scheduler);
  }
  if(peer->State()==Phase::StopRequested||peer->State()==Phase::AwaitNativeRelease||peer->State()==Phase::Retired)stopping=true;
 }
@@ -361,9 +360,12 @@ bool NativeAsyncPreSr::FinalizeSparseLease(const NativeAsyncPreSrOriginIdentity&
  lease->native.peer_read=false;pending_sparse.reset();sparse_input_proof.reset();sparse_final_proof.reset();return true;
 }
 void NativeAsyncPreSr::DrainUnavailable(Scheduler& s) {
- if(!peer)return;
+ if(!peer||rejected)return;
  auto job=peer->TryJob();
  if(job&&peer->State()==NativeAsyncPreSrOriginOwner::Phase::Complete){
+  // A display/menu frame can reach this from DrawRecord while the preceding
+  // render pass is open. External queue-family barriers must be outside it.
+  s.EndRendering();
   auto final=TryRecordSparseComplete(s,job->resources,job->complete,0,job->final);
   if(final.disposition!=SparseDisposition::Unavailable){TrackUse(s);peer->FinalRecorded(job,final.disposition);}
  }
