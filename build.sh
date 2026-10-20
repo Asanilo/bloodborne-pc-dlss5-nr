@@ -104,13 +104,13 @@ echo "Built $BUILD/bb-probe"
 if [[ ${1:-} == --test ]]; then
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_pad.c "${libraries[@]}" -lm -o "$BUILD"/pad-test
     "$BUILD"/pad-test
-    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_runtime.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/runtime-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_runtime.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/runtime-test
     "$BUILD"/runtime-test
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -Isrc tests/test_file_mods.c -o "$BUILD"/file-mods-test
     "$BUILD"/file-mods-test
-    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_sema.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/sema-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_sema.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/sema-test
     "$BUILD"/sema-test
-    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread -I. -Isrc tests/test_online.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/online-test
+    "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_online.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/online-test
     "$BUILD"/online-test
     "$CC" -std=c11 -D_GNU_SOURCE -O2 -g -Wall -Wextra -Werror -I. -Isrc tests/test_content.c src/runtime_content.c -o "$BUILD"/content-test
     "$BUILD"/content-test

@@ -20,7 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "third_party/LibAtrac9/C/src/libatrac9.h"
+#include "libatrac9.h"
 
 #define NGS2_INVALID_HANDLE ((int32_t)0x804A0230)
 #define NGS2_INVALID_ARG ((int32_t)0x804A0001)
