@@ -11,9 +11,12 @@ SHA，并把结果写入 AppImage 的 `nrbridge-bundle.json` 供 launcher 读取
 Native/Helper（导出 wire 1 / revision 4，daily bootstrap wire 2 / 64 槽）只需传显式路径。
 
 它不是公开发布物：游戏、存档、凭据、专有 NR 模型（`nvngx_dlssnr.dll`）、Wine/GE
-均不进入 AppImage。旧验证产物只读，打包只复制、不覆盖。已知问题见
-[KNOWN_ISSUES.md](KNOWN_ISSUES.md)（着色闪、F8 SR 观察、菜单排空修复待重启实机验收、
-online 未登录未验收）。
+均不进入 AppImage。旧验证产物只读，打包只复制、不覆盖。已知问题与当前有限验收
+边界见 [KNOWN_ISSUES.md](KNOWN_ISSUES.md)（新 boot 有限 NR/标题恢复/正常退出通过；
+旧 HOLD 保留；着色闪/亮尾未修；online 与真实谏言未验；独立进程存档重载已通过）。
+
+包内 `build_status: BUILD_ONLY` 只是打包构建元数据，不代表外部实际 GPU/online
+验收，也不应据此把预览描述为 stable。
 
 ## 构建
 
@@ -113,10 +116,26 @@ bash packaging/nrbridge/appimage.sh \
 `export_manifest_sha256`；不匹配会拒绝。构建的输入路径、原始/重写后 SHA 和最终
 AppImage SHA 另写在 `out/nrbridge-appimage/build-report.json`，不进入发行包。
 
-## 当前最小缺口
+## 当前验收状态与缺口
 
-当前新包使用 Native `c91bf94`（含 `NRBRIDGE_NATIVE_DAILY_RING64_V2`）与 Helper
-`1eddac56`（revision 4），`daily_ready=true`。旧 6753999/7f69 包仍可 `--check`，
-但 `daily` 会被拒绝；不要用旧包宣称 daily 可运行。
+- 包内 `build_status: BUILD_ONLY` 是打包构建元数据，不是 GPU/online 验收结论；
+  当前只是有限验收，不应表述为 stable。
+- 新 boot `7fb96dc9…`：同字节 `c91bf94…` Native + `1eddac56…` Helper 的受控
+  真实 NR 会话在 scene-ready 后 **611.12 s** 正常关闭；**4765 finalized /
+  4696 captured / 69 obsolete / 0 skipped**；Feature create/release 各 **1**；
+  `PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP`，wait **0**、holders 空、
+  kernel PASS、bootguard retired；标题驻留约 **121 s** 后 scene 恢复，同一
+  Helper/session 继续处理新的 NR 任务。
+- 旧 boot `54bbe…` 的 HOLD 仍作为历史证据保留，不因新 boot 正常退出而追认解决。
+- r2 独立新进程从自动 continue 进入 **Clinic / "300 echoes"**；基础存档写入与
+  独立进程重载已通过：复制时源存档与 manifest inventory 一致，启动后
+  `userdata0010` 正常更新；不声称 postboot 全字节不变。SR-only 重载已
+  `PASS_NORMAL_TEARDOWN`；no-peer 真实末用 PASS、holders 空、kernel PASS。
+- 着色闪与亮尾未修；F8 SR 的单次观察不能外推。online 仍未登录，真实谏言未验证；
+  数小时长跑与更多场景不在本次验收范围。
+- 当前新包使用 Native `c91bf94`（含 `NRBRIDGE_NATIVE_DAILY_RING64_V2`）与 Helper
+  `1eddac56`（revision 4），`daily_ready=true` 仅表示打包/协议前置条件满足，不是
+  GPU 验收。旧 6753999/7f69 包仍可 `--check`，但 `daily` 会被拒绝；不要用旧包
+  宣称 daily 可运行。
 
 此私人闭包按本机 CachyOS 构建，部分依赖需要 GLIBC 2.44；旧发行版兼容性未验证。本机无 Nix，本候选采用上游组成和裁剪规则收集 ELF 闭包，没有声称完成 Nix bundler 验收。

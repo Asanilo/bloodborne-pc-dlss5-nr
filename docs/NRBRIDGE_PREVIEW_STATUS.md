@@ -1,50 +1,57 @@
-# NRBridge Preview — 2026-10-20
+# NRBridge Preview — 2026-10-20 post-reboot acceptance
 
-Native build: c91bf9467604c36d70d97dd200844ae1ac8e8428 (complete cold build,
-410 targets + build.sh CPU checks; GPU NOT RUN). Helper source713f8ac9,
-PE1eddac56e4de26c0/b372b1f1e3eb5215447941db0c0fbfccc41c921fec5edf354b248549f9e014e4;
-forwarder9a825 unchanged. Export interface4, daily wire2/ring64. Stable
-5635804/7f69/9a825 and finite verified6753999 remain untouched.
+Native runtime source: **c91bf9467604c36d70d97dd200844ae1ac8e8428**.
+Helper source713f8ac9 / PE1eddac56e4de26c0, forwarder9a825 unchanged.
+Packaging fix5ea553e does not change the Native/Helper runtime. Cold build410
+and tools246 passed previously; packaging regression28/28 includes actual ELF
+source resolution. Export wire1/interface4; daily bootstrap wire2/ring64.
 
-Delivered private candidate: repository-root dist/
-Bloodborne-NRBridge-Preview-20261020-c91bf94.AppImage, SHA256
-c2952c0780647849fa11e7a1ebc4e9441994597f3a05eff3e15ca2fb47bd1030.
-It is BUILD_ONLY pending reboot and actual exit/reload acceptance, not an accepted
-player baseline. Normal data home is ~/.local/share/bbport/nrbridge-home;
-AppImage does not need a development worktree. Game, model, GE and host NGX remain
-external. No game/save/account/model is bundled. Current private build targets
-this CachyOS host; collected dependencies include GLIBC2.44 requirements.
+On boot **7fb96dc9-a8cd-4e24-803e-d92f2d009997**:
 
-Actual daily run preview-daily-nr-66b4a1a-20261020 finalized8066 real NR jobs,
-ran beyond15minutes with bounded transport/logs and wrote four private save files.
-On return to title, job8066 completed HelperGPU but did not receive Native
-CONSUMED. It timed out60s, then Native quarantined exporter liveness; ordinary
-close happened101s after completion. Native final use remains UNKNOWN. No kill,
-normal-retirement claim or subsequent GPU launch occurred. Current boot
-54bbe091-3e4f-4fdf-abf3-4505c72a7f71 is held globally across data homes.
+- `preview-appimage-c91-layoutfix-20261020` ran611.12s from scene-ready,
+  including121s on the title, then resumed NR jobs with the same Helper/session.
+- 4765 finalized,4696 captured,69 obsolete,0 skipped; Feature create/release1/1.
+  `PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP`, Native actual final use proved,
+  wait0, no residual project holders, kernel PASS, boot receipt retired.
+- Four private save files changed content. Independent process
+  `preview-appimage-r2-reload-20261020` automatically continued the normally
+  retired session and visibly loaded Clinic/300 echoes. Its SR-only normal exit,
+  actual no-peer final use, no residuals and kernel checks passed.
+- Default native mouse was actually installed; the guest implementation is
+  unchanged from the player-approved version. Joystick fallback remains.
 
-83ba268 fixes the concrete missing no-SR-frame drain using existing actual
-acquire/release/fence proofs, with rendering ended before external barriers.
-It retains permanent profile-change stop and quarantine. Actual function CPU
-cases passed; complete tools246/246; native mouse8 normal+8 ASan/UBSan; packaging23.
-C91 cold build includes this fix and per-UID boot admission. Reboot is required
-before another GPU test; do not synthesize CONSUMED or clear old HOLD.
+The initial AppImage exposed two packaging errors: missing fresh-home `runs/`
+and a duplicate `libbbgpu.so` under the generic closure. Strict mapping checks
+correctly refused controls; Helper never started. That window exited normally.
+5ea553e creates canonical runs and excludes project-owned libraries from the
+closure, preserving their pinned Native paths. The existing home was migrated
+with the duplicate bytes and old configs/pins preserved; the imported private
+seed was not replaced. Real fresh-home setup/check/print-command passed.
 
-Private written-save snapshot and failure evidence are in repository
-out/preview-20261020/hold-snapshot-66b4a1a. Fifteen save files were independently
-copied into the normal home's selected seed, with fresh pins. This transfers
-files only: no GPU, protocol, visual history, account or NR runtime state. It
-neither marks the source normally retired nor proves reload. Empty-seed config
-backup is retained. AppImage static --check passed after import.
+Normal home: `~/.local/share/bbport/nrbridge-home`; no development worktree is
+needed to launch. Enter the actual scene, then press Enter in the launcher
+terminal to prepare NR. There is no fixed480/600s session shutdown; per-job,
+GPU and normal-close grace checks remain. Model, game, GE and host NGX remain
+external. The package contains no private saves, account, NR model or SDK.
 
-Player reported NR shading flicker/occasional valid0; SR-only display did not
-flicker, and the valid0 event later stopped reproducing. No model/Shader/quality
-change was made. Both pools' public endpoints answered unauthenticated checks;
-actual login/messages/bloodstains/phantoms and network shutdown remain NOT TESTED.
-BBSC is optional and forces mouse fallback; no multiplayer acceptance claim.
+Public online endpoints were reachable. The startup UI is open for the player's
+own Discord login; actual login/messages/bloodstains/phantoms and online shutdown
+remain **NOT TESTED**. BBSC stays optional, with mouse fallback; no multiplayer
+acceptance claim. Account state and tokens are not printed.
 
-Next after reboot: verify new boot/kernel/no project holders, open this exact
-AppImage, load imported private progress, activate NR in the scene, test
-scene→title→scene and normal close, then independently audit actual final GPU/FD
-retirement and restart/load. User must perform Discord login before actual
-community-message testing. Preserve old failure records and stable selections.
+Known limits: NR shading flicker/occasional valid0 and bright tails remain;
+SR-only did not flicker in the player's comparison. No multi-hour or broad-scene
+stability claim; controller/DLC/multiplayer coverage remains limited. This private
+CachyOS closure includes GLIBC2.44 requirements; older distributions are untested.
+Bundle `BUILD_ONLY` is builder metadata, separate from the external runtime proof.
+
+The old boot54bbe... run finalized8066 jobs but remains **HOLD / Native final use
+UNKNOWN**. No retirement was fabricated; its records remain unchanged. Reboot
+established a new context and did not retire the old resources retroactively.
+Stable5635804/7f69/9a825, finite verified6753999 and runtime-s4 remain unchanged.
+No master merge, NVIDIA model update, FG or rendering-quality rework occurred.
+
+Evidence: repository `out/preview-20261020/postreboot-acceptance-summary.json`,
+independent NR/reload retirement JSON, freshhome-r2 identity/logs, screenshots,
+package-layout-migration and the original runs. AppImage identity and shortest
+launch instructions are in repository-root `dist/`.
