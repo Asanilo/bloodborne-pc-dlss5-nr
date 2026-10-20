@@ -352,18 +352,30 @@ target_link_libraries(fsr4-bench PRIVATE ffx-vulkan::fsr4-v07-vulkan ffx-vulkan:
 
 # bbport online module (gpu/bbnet, libbbnet.so): built when its libraries are there (shell.nix);
 # BB_NET=OFF leaves it out. Without it the port plays offline.
+set(BB_ONLINE_DEPS_ROOT "" CACHE PATH "Optional isolated online dependency sysroot")
+if(BB_ONLINE_DEPS_ROOT)
+    list(PREPEND CMAKE_PREFIX_PATH "${BB_ONLINE_DEPS_ROOT}/usr")
+endif()
 option(BB_NET "Build the online module (shadNet)" ON)
 if (BB_NET)
     find_package(Protobuf CONFIG QUIET)
     find_package(nlohmann_json CONFIG QUIET)
     find_package(OpenSSL QUIET)
     find_package(ZLIB QUIET)
-    find_path(MINIUPNPC_INCLUDE miniupnpc.h PATH_SUFFIXES miniupnpc)
-    find_library(MINIUPNPC_LIBRARY NAMES miniupnpc)
+    find_path(MINIUPNPC_INCLUDE miniupnpc.h HINTS "${BB_ONLINE_DEPS_ROOT}/usr/include" PATH_SUFFIXES miniupnpc)
+    find_library(MINIUPNPC_LIBRARY NAMES miniupnpc HINTS "${BB_ONLINE_DEPS_ROOT}/usr/lib")
     if (Protobuf_FOUND AND nlohmann_json_FOUND AND OpenSSL_FOUND AND ZLIB_FOUND AND
         MINIUPNPC_INCLUDE AND MINIUPNPC_LIBRARY)
         add_subdirectory(bbnet)
         add_subdirectory(bbnet20)
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            add_executable(online-abi-test EXCLUDE_FROM_ALL ../tests/test_online_abi.cpp
+                ../tests/test_gpu_runtime_stubs.cpp)
+            target_include_directories(online-abi-test PRIVATE ..)
+            target_compile_options(online-abi-test PRIVATE -UNDEBUG)
+            target_link_options(online-abi-test PRIVATE -rdynamic)
+            target_link_libraries(online-abi-test PRIVATE bbgpu ${CMAKE_DL_LIBS})
+        endif()
         message(STATUS "Online module: on (libbbnet.so)")
     else()
         # Named one by one (#145: "the build has no online module" with no hint why).

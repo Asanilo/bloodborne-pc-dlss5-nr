@@ -27,7 +27,7 @@ list(FILTER BBNET_SOURCES EXCLUDE REGEX
 add_library(bbnet SHARED ${BBNET_SOURCES} "${SHADNET_PROTO_OUT}/shadnet.pb.cc" bbnet_glue.cpp)
 # The module's own headers first, then the port's utilities (common/, logging) and shim.
 target_include_directories(bbnet PRIVATE include shadps4 shadps4/shadnet "${SHADNET_PROTO_OUT}"
-    ${CMAKE_CURRENT_SOURCE_DIR} .. ../shim ../third_party/imgui ../third_party/httplib)
+    ${CMAKE_CURRENT_SOURCE_DIR} .. ../shim "${BB_IMGUI_SOURCE}" ../third_party/httplib)
 # The version the shadNet client reports to the server (ShadNetClient::BuildVersionString).
 set(BBPORT_VERSION "0.6-pre1")
 target_compile_definitions(bbnet PRIVATE BOOST_ASIO_STANDALONE NDEBUG

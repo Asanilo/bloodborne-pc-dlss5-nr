@@ -64,6 +64,10 @@ source "$ENV_ROOT/bbport-env.sh"
 [[ $(realpath -e -- "${VULKAN_INCLUDE:-/nonexistent}") == "$ENV_ROOT/root/usr/include" ]] || fail 'environment VULKAN_INCLUDE does not select configured sysroot'
 [[ ${CMAKE_PREFIX_PATH%%:*} == "$ENV_ROOT/root/usr" ]] || fail 'environment CMAKE_PREFIX_PATH does not select configured sysroot'
 export PKG_CONFIG_PATH="$ENV_ROOT/root/usr/lib/pkgconfig:$ENV_ROOT/root/usr/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+ONLINE_PROOF='null'
+if [[ -n ${BB_ONLINE_DEPS_ROOT:-} ]]; then
+ ONLINE_PROOF=$(python3 "$WT/tools/nr_dev/online_build_inputs.py" "$BB_ONLINE_DEPS_ROOT")
+fi
 mkdir -p "$BUILD"
 exec 9>"$BUILD/build.lock"
 flock -n 9 || fail 'build directory already has a writer'
@@ -72,7 +76,7 @@ git -C "$WT" rev-parse HEAD > "$BUILD/source-head.txt"
 git -C "$WT" diff --ignore-submodules=all --binary HEAD > "$BUILD/source-diff.patch"
 # Record selected inputs and the env's actual exports, not a claim of runtime
 # confinement or a portable sysroot. Runner/GPU paths are configured separately.
-python3 - "$DEPS" "$ENV_ROOT" "$BUILD" "$WT" "$PROTOCOL_PROOF" "$@" <<'PY'
+python3 - "$DEPS" "$ENV_ROOT" "$BUILD" "$WT" "$PROTOCOL_PROOF" "$ONLINE_PROOF" "$@" <<'PY'
 import hashlib,json,os,sys
 from pathlib import Path
 root,env,build,wt=map(Path,sys.argv[1:5])
@@ -82,7 +86,7 @@ files=[env/'bbport-env.sh',*(root/(n+'.content.sha256') for n in ('fsr-vulkan','
        protocol_dir/'native_runtime_model.h',protocol_dir/'native_runtime_model.export.json',
        wt/'tools/nr_dev/check_protocol_export.py']
 record={'source_deps_root':str(root),'build_env_root':str(env),'build_dir':str(build),
-        'protocol':protocol_proof,'wrapper_args':sys.argv[6:],'inputs':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in files},
+        'protocol':protocol_proof,'online_dependencies':json.loads(sys.argv[6]),'wrapper_args':sys.argv[7:],'inputs':{str(p):hashlib.sha256(p.read_bytes()).hexdigest() for p in files},
         'environment':{key:os.environ.get(key) for key in ('DLSS_SDK_ROOT','VULKAN_INCLUDE','VULKAN_LIBRARY','CMAKE_PREFIX_PATH','CPATH','LIBRARY_PATH','LD_LIBRARY_PATH','PKG_CONFIG_PATH','CC','CXX','BB_BUILD_JOBS','CMAKE_BUILD_PARALLEL_LEVEL','BB_PGO','BB_LTO')}}
 (build/'build-inputs.json').write_text(json.dumps(record,indent=2)+'\n')
 PY

@@ -64,7 +64,7 @@ else
 fi
 includes+=("-I$atrac_source/C/src")
 cmake -S gpu -B "$BUILD"/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO="$pgo" \
-    -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$BUILD/pgo" -DBB_PREPARED_SOURCE_DEPS_ROOT="$prepared" > "$BUILD"/gpu-cmake.log
+    -DBB_ONLINE_DEPS_ROOT="${BB_ONLINE_DEPS_ROOT:-}" -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$BUILD/pgo" -DBB_PREPARED_SOURCE_DEPS_ROOT="$prepared" > "$BUILD"/gpu-cmake.log
 grep '^-- Online module' "$BUILD"/gpu-cmake.log || true
 echo "GPU library: PGO $pgo, LTO ${BB_LTO:-ON}"
 # A failed GPU build must stop here: an older libbbgpu.so would otherwise be used silently.
@@ -111,7 +111,12 @@ if [[ ${1:-} == --test ]]; then
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_sema.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/sema-test
     "$BUILD"/sema-test
     "$CC" -std=c11 -O2 -g -Wall -Wextra -Werror -pthread "${includes[@]}" -I. -Isrc tests/test_online.c "${runtime[@]}" "$BUILD"/libatrac9.a -lm "${gpu[@]}" "${libraries[@]}" -o "$BUILD"/online-test
-    "$BUILD"/online-test
+    if [[ -f "$BUILD/gpu/libbbnet.so" ]]; then
+        "$BUILD"/online-test "$BUILD/gpu/libbbnet.so"
+        "$BUILD"/online-test "$BUILD/gpu/libbbnet20.so"
+    else
+        "$BUILD"/online-test
+    fi
     "$CC" -std=c11 -D_GNU_SOURCE -O2 -g -Wall -Wextra -Werror -I. -Isrc tests/test_content.c src/runtime_content.c -o "$BUILD"/content-test
     "$BUILD"/content-test
 fi
