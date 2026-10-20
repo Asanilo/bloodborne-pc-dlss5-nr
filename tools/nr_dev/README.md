@@ -16,7 +16,8 @@ cd /home/arinp/Code/nrbridge-dev
 `build/baselines/4b4fdcc664fc5259a291a0a422db25a5e02cc35c`，不自动替换上述稳定运行选择。
 其空输出完整冷构建、四阶段 SR/NR 正常退休及 Astra 审计通过；详细身份与限制见
 [集成记录](../../docs/UPSTREAM_06_INTEGRATION.md)。后续工具/文档 HEAD 与实际 Native4b4fdcc 区分。
-私有受控 profile 显式16:9；上游原生相机 Hook 仍编译期关闭，鼠标候选独立保留，当前摇杆鼠标仍有不跟手反馈。
+私有受控 profile 显式16:9。后续功能补齐及实际验收状态见
+[功能状态表](../../docs/BBPORT_06_FUNCTION_STATUS.md)；鼠标默认仍关闭，摇杆路径仍可回退。
 
 ## 新接手者先看这里
 
@@ -60,6 +61,12 @@ python3 "$HELPER_SRC/nrbridge/forwarder/build.py"
 Native 包装器的 `NR_SOURCE_DEPS_ROOT` 默认是开发根的 `inputs/source-deps`，包含已打补丁的 FSR、imgui、LibAtrac9 和各自 `*.content.sha256`。`NR_BUILD_ENV_ROOT` 独立选择 SDK/sysroot 环境，默认仍是稳定 `bloodborne_pc/out/deps`。完整源码依赖清单、环境实际导出及本仓库固定协议副本在编译/输出副作用前校验，缺失、漂移或错误依赖链接会拒绝。构建直接消费prepared-root，不创建或替换源码树gitlink；旧树已有的本地symlink不要提交进Git。
 
 输出包含 `build-inputs.json`、源码 HEAD/diff 和 Native 四产物 SHA；Runner只接受 `build/native` 或已核验的 `build/baselines/<完整提交>`。`NR_DEV_ROOT` 只改变构建默认根，不迁移 Runner 的固定 `ROOT/runs` confinement。默认构建隔离旧 P0/Q 实验路径；完整构建不等于实机验收。
+
+可选在线模块的构建可设置 `BB_ONLINE_DEPS_ROOT`，指向包含 `usr/` 与
+`bbport-online-inputs.json` 的独立依赖目录。包装器核对文件 SHA、库链接及清单，
+并把输入身份记入 `build-inputs.json`；缺失或漂移会拒绝。此路径不改变系统或既有
+SDK/sysroot。`--test` 会验证实际在线导入路径，另有 CMake `online-abi-test` 目标，
+仅作禁网注册测试，不使用账号或启动在线会话；具体依赖与打包剩余项见功能状态表。
 
 `tools/nr_dev/prepare_helper.py` 和旧 `helper_runtime/build.py` 现在委托独立 Helper 仓库，可用 `--helper-root` 或 `NR_HELPER_ROOT` 选择已准备源码。Native只保留固定协议副本及 peer 退休验收。Legacy配方和部分来源记录仍只读保留，但其运行二进制/部分历史环境已退役；`--legacy-rebuild` 不属于当前构建流程，需先恢复对应历史输入，不能假定完整旧环境仍在。
 
@@ -116,6 +123,13 @@ python3 "$NATIVE_SRC/tools/nr_dev/runner.py" stop "$SESSION"          # 正常�
 ```
 
 SR-only 不调用 start-helper/arm。所有阶段共用真实运行目录和同一锁内检查，不依赖私有 analysis 启动脚本。每个 session 独立保存 profile、缓存、Wine prefix、生成 guest、manifest 和日志；游戏资产与正式存档保持只读。默认复制私人 NRTest seed；仅 `PASS_NORMAL_TEARDOWN` 且重新审计通过的旧 dev session 可用 `--continue-session SESSION` 复制私人存档/NR配置到新 run。HOLD 即使另有恢复证据也不能作为续玩来源；受控 scope 当前要求全新 seed，不允许 `--continue-session`。
+
+原生鼠标候选必须显式传 `--native-mouse`，同时使用匹配 `native_mouse: true` 的
+v2 reboot/context scope 及冷诊断参数。CLI、记录、manifest 和前序选择必须一致；
+环境中的 `BB_NATIVE_MOUSE` 不作为启用授权。未选择、校验拒绝或超时后只能将后续新输入
+交给摇杆回退；原生队列中的同一增量不会重送。以实际 `NATIVE_MOUSE status=installed`
+确认安装，不能只看环境变量或进程正常运行。Hook 安装、CPU 边界和真实玩家手感分别验收，
+手感确认之前保持默认关闭。该入口不授权在线/BBSC 或其它相机诊断 writer 叠加。
 
 正常退出审计完成、子进程退出且无残留后，Runner自动删除本次 `profile/out` 的7个可再生文件：`boot.bin`、`eboot.elf`、`entry.bin`、`boot-libc.bin`、`boot-linked.bin`、`content.bin`、`patches.bin`。删除前的大小/SHA及执行结果记录在 `result.json.generated_inputs_cleanup`；生成JSON、日志、存档和诊断仍保留。HOLD、watchdog、中断、缺失末用证明或异常文件链接均不自动清理。Native/Helper继续复用选定build，不为每个run复制或重编译。
 
