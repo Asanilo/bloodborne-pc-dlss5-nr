@@ -13,10 +13,12 @@
 #include "bbport_frame_rate.h"
 #include "bbport_overlay.h"
 #include "bbport_settings.h"
+#include "bbport_mouse_look.h"
 #include "host_input.h"
 
-static HostInput host_input;
+static HostInput host_input{BbMouseLook::Epoch, BbMouseLook::SetCapture, BbMouseLook::Cancel};
 extern "C" void bbgpu_read_host_input(BbHostInput* input) { host_input.Read(input); }
+extern "C" void bbgpu_cancel_mouse_input(void) { host_input.CancelMotion(); }
 
 
 
@@ -264,6 +266,7 @@ static bool mouse_grabbed = false;
 static u64 last_mouse_motion_ms = 0;
 
 bool WindowSDL::PollEvents() {
+    if (!is_open.load(std::memory_order_relaxed)) return false;
     {
         std::scoped_lock lock{text_mutex};
         if (text_requested) { // SDL text input must be toggled from the window thread
@@ -276,11 +279,52 @@ bool WindowSDL::PollEvents() {
     if (!text_active) {
         BbOverlay::UpdateTextInput(window);
     }
-    // A game module's menu wants the mouse as a pointer (bbgpu_add_pointer_query).
+    // A game module's menu wants the mouse as a pointer (bbgpu_add_pointer_query). Release
+    // before this batch can enqueue motion: the old end-of-loop release left a window where a
+    // just-opened menu still fed the camera.
     const bool pointer = bbgpu_pointer_wanted() != 0;
+    if (pointer && mouse_captured.load(std::memory_order_relaxed)) {
+        CaptureMouse(false);
+        released_for_pointer = true;
+        int ww = 0, wh = 0;
+        SDL_GetWindowSize(window, &ww, &wh);
+        SDL_WarpMouseInWindow(window, float(ww) * 0.5f, float(wh) * 0.5f);
+        last_mouse_motion_ms = SDL_GetTicks();
+    }
     UpdateCursor();
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        // These lifecycle transitions must run even when a module's event filter takes the
+        // event: otherwise a menu could swallow focus loss or a close request and leave the
+        // mailbox holding pre-transition work.
+        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+            focused = false;
+            CaptureMouse(false);
+            host_input.CancelMotion();
+            UpdateCursor();
+        } else if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
+            focused = true;
+            UpdateCursor();
+        } else if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+            if (is_open) {
+                std::printf("Window: closed (%s): the game ends\n",
+                            event.type == SDL_EVENT_QUIT ? "quit" : "close button");
+            }
+            is_open.store(false, std::memory_order_relaxed);
+            capture_requested.store(false, std::memory_order_relaxed);
+            host_input.Block(true);
+            host_input.CancelMotion();
+            CaptureMouse(false);
+            return false;
+        } else if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.key == SDLK_F1 &&
+                   (mouse_captured.load(std::memory_order_relaxed) || mouse_grabbed || mouse_user_released)) {
+            mouse_user_released = !mouse_user_released;
+            if (mouse_user_released) {
+                CaptureMouse(false);
+                host_input.CancelMotion();
+            }
+            continue;
+        }
         // One receipt per press and at most one repeat receipt per held hotkey.
         // Never include text input contents in these diagnostics.
         if ((event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP) &&
@@ -301,10 +345,16 @@ bool WindowSDL::PollEvents() {
         }
         if (event.type == SDL_EVENT_MOUSE_MOTION) {
             last_mouse_motion_ms = SDL_GetTicks();
-            // The single HostInput channel: only confirmed capture after the settle window is
-            // queued. The first warp/jump is dropped, and F1/pointer/menu/focus releases stop it.
-            if (mouse_captured.load(std::memory_order_relaxed) &&
-                SDL_GetTicks() >= capture_settle_ms) {
+            // Re-check pointer/menu/text/focus at receipt time. A menu can open earlier in this
+            // same poll, and the pre-loop release is not enough for that event.
+            const bool pointer_now = bbgpu_pointer_wanted() != 0;
+            const bool allow = mouse_captured.load(std::memory_order_relaxed) && focused &&
+                               !text_active && !BbOverlay::MenuOpen() &&
+                               !BbOverlay::CapturesInput() && !pointer_now;
+            if (!allow) {
+                if (mouse_captured.load(std::memory_order_relaxed)) CaptureMouse(false);
+            } else if (SDL_GetTicks() >= capture_settle_ms) {
+                // The single HostInput channel: only confirmed capture after the settle window.
                 host_input.Motion(event.motion.xrel, event.motion.yrel);
             }
         }
@@ -319,14 +369,6 @@ bool WindowSDL::PollEvents() {
                             relative_mouse, focused, BbOverlay::CapturesInput());
                 last_raw = now;
             }
-        }
-        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
-            focused = false;
-            CaptureMouse(false);
-            UpdateCursor();
-        } else if (event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
-            focused = true;
-            UpdateCursor();
         }
         if (text_active && (event.type == SDL_EVENT_TEXT_INPUT || event.type == SDL_EVENT_KEY_DOWN)) {
             std::scoped_lock lock{text_mutex};
@@ -373,14 +415,6 @@ bool WindowSDL::PollEvents() {
             BbFrameRate::SetLimit(BbFrameRate::Limit() == 30 ? 0 : 30);
             continue;
         }
-        if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat && event.key.key == SDLK_F1 &&
-            (mouse_captured.load(std::memory_order_relaxed) || mouse_grabbed || mouse_user_released)) {
-            mouse_user_released = !mouse_user_released;
-            if (mouse_user_released) {
-                CaptureMouse(false);
-            }
-            continue;
-        }
         if (event.type == SDL_EVENT_MOUSE_WHEEL &&
             mouse_captured.load(std::memory_order_relaxed) &&
             SDL_GetTicks() >= capture_settle_ms) {
@@ -413,6 +447,7 @@ bool WindowSDL::PollEvents() {
         }
     }
     // A request from the game's side (runtime_pad.c: the spray can taken): as a click would.
+    if (!is_open.load(std::memory_order_relaxed)) return false;
     if (capture_requested.exchange(false, std::memory_order_relaxed) && !BbOverlay::MenuOpen() &&
         !text_active) {
         CaptureMouse(true);
@@ -465,9 +500,15 @@ bool WindowSDL::PollEvents() {
 // Focus/menu transitions discard held keys and queued relative movement. Only a fresh
 // key down re-arms a held key, so Alt-Tab and closing settings cannot leave movement stuck.
 void WindowSDL::UpdateCursor() {
+    if (!is_open.load(std::memory_order_relaxed)) {
+        host_input.Block(true);
+        host_input.CancelMotion();
+        return;
+    }
     const bool blocked = !focused || text_active || BbOverlay::CapturesInput();
     host_input.Block(blocked);
-    if (blocked || mouse_user_released || !BbSettings::Get().mouse_capture) {
+    if (blocked || mouse_user_released || !BbSettings::Get().mouse_capture ||
+        BbOverlay::MenuOpen() || text_active || bbgpu_pointer_wanted() != 0) {
         CaptureMouse(false);
     }
     // Issue #3: the OS cursor over the game. Hidden in fullscreen, and in a window after 3 s

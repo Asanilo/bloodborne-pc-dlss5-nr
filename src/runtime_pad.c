@@ -704,6 +704,7 @@ static void apply_keyboard(PadData *d, const uint8_t *k) {
 #define LOOK_TAU_US 60000.0f
 static float look_x, look_y;
 static uint64_t look_last_us;
+static uint64_t look_epoch;
 static uint8_t look_axis(float value, uint8_t stick, int deadzone) {
     if (value>-0.5f && value<0.5f) return stick;
     const float magnitude=value<0 ? -value : value;
@@ -711,21 +712,59 @@ static uint8_t look_axis(float value, uint8_t stick, int deadzone) {
     const int v=128+(int)(value<0 ? -out : out);
     return (uint8_t)(v<0 ? 0 : v>255 ? 255 : v);
 }
-/* Native mouse look (gpu/shim bbport_guest_hooks.cpp): the camera's own update takes the turn, as
- * far as the mouse moved: MOUSE_RAD_PER_PIXEL at sensitivity 1 (1000 pixels: 1.5 rad, 86 degrees).
- * The stick below only without that hook (another game version, BB_NATIVE_MOUSE=0). */
+/* Native mouse look: the camera's own update takes the turn, as far as the mouse moved:
+ * MOUSE_RAD_PER_PIXEL at sensitivity 1 (1000 pixels: 1.5 rad, 86 degrees). A batch has one
+ * route. Only Stick uses the legacy right-stick algorithm; free camera is captured but
+ * stick-only, while an uncaptured/menu sample is dropped and cancels any pending native work. */
 #define MOUSE_RAD_PER_PIXEL 0.0015f
-static void apply_mouse_look(PadData *d, double dx, double dy, uint64_t now, int captured) {
-    /* The free camera (patch) takes the mouse through the right stick below. */
-    if (captured && (dx!=0 || dy!=0) && !bbgpu_free_camera()) {
-        const float k=MOUSE_RAD_PER_PIXEL*mouse_sensitivity;
-        /* The camera's pitch grows as it rises (looking down): the mouse moving down (dy > 0)
-           looks down, as the stick pushed down does. */
-        if (bbgpu_camera_look((float)dx*k,(float)(mouse_invert_y ? -dy : dy)*k)) dx=dy=0;
+enum { MOUSE_MODE_DROPPED=0, MOUSE_MODE_STICK=1, MOUSE_MODE_NATIVE=2 };
+static void clear_mouse_look_tail(void) {
+    look_x=look_y=0.0f;
+    look_last_us=0;
+}
+static void apply_mouse_look(PadData *d, double dx, double dy, uint64_t now, int mode,
+                             uint64_t epoch) {
+    static int active_mode=-1;
+    if (mode!=active_mode) {
+        active_mode=mode;
+        bbgpu_cancel_mouse_input(); /* old generation never revives under a new mode */
+        clear_mouse_look_tail();
+        look_epoch=0;
     }
+    if (mode==MOUSE_MODE_DROPPED) {
+        clear_mouse_look_tail();
+        look_epoch=epoch;
+        return;
+    }
+    if (mode==MOUSE_MODE_STICK) {
+        /* Free camera is captured but stick-only. The final epoch/capture check is inside the
+           mailbox gate: a mode-transition batch or a snapshot taken before capture-off drops. */
+        if (!bbgpu_route_mouse_stick(epoch)) {
+            clear_mouse_look_tail();
+            look_epoch=epoch;
+            return;
+        }
+    } else {
+        const float k=MOUSE_RAD_PER_PIXEL*mouse_sensitivity;
+        /* pitch grows as the camera rises (looking down): moving down looks down. */
+        const int route=bbgpu_route_mouse(epoch,(float)(mouse_invert_y ? -dy : dy)*k,
+                                          (float)dx*k);
+        if (route==BB_MOUSE_NATIVE_QUEUED || route==BB_MOUSE_DROPPED) {
+            /* Queued or rejected: the stick must not also consume the same delta, and the
+               ~60 ms stick decay from the old mode is not allowed to ride along. */
+            clear_mouse_look_tail();
+            look_epoch=epoch;
+            return;
+        }
+    }
+    /* A new generation (for example capture off/on) must not inherit the old stick tail. */
+    if (epoch!=look_epoch) {
+        clear_mouse_look_tail();
+        look_epoch=epoch;
+    }
+    /* Stick mode, or the candidate's explicit fallback route. */
     float dt=look_last_us && now>look_last_us ? (float)(now-look_last_us) : 0.0f;
     look_last_us=now;
-    if (!captured) { look_x=look_y=0; return; }
     if (dt>LOOK_TAU_US) dt=LOOK_TAU_US;
     static int deadzone=-1;
     if (deadzone<0) {
@@ -1103,7 +1142,7 @@ static void sample_host(PadData *d) {
         memset(wheel_until,0,sizeof(wheel_until));
         move_stick=(KeyStick){0}; look_stick=(KeyStick){0};
         dodge_was_down=0; dodge_pulse_until=jump_start_us=0;
-        apply_mouse_look(d,0,0,d->timestamp,0); /* menu/focus: neutral input */
+        apply_mouse_look(d,0,0,d->timestamp,MOUSE_MODE_DROPPED,0); /* menu/focus: neutral input */
         return;
     }
     mouse_buttons=captured ? host.mouse_buttons : 0;
@@ -1158,9 +1197,23 @@ static void sample_host(PadData *d) {
     apply_keyboard(d,k); /* the bound mouse buttons too */
     if (motion_on()) {
         motion_from_desktop(d,k,&mouse_dx,&mouse_dy,captured);
+        /* Touchpad drag and sideways aim consume the mouse for another purpose. A transition
+           cancels native work queued before it; the consumed delta never reaches the camera. */
+        static int last_purpose=-1;
+        const int touch_use=(key_down(k,IN_TOUCHPAD) || key_down(k,IN_TOUCHPAD_RIGHT)) &&
+                            d->touch_count>0;
+        const int purpose=touch_use ? 1 : motion.sideways ? 2 : 0;
+        if (purpose!=last_purpose) {
+            last_purpose=purpose;
+            bbgpu_cancel_mouse_input();
+            clear_mouse_look_tail();
+        }
         motion_report(d,motion_dt);
     }
-    apply_mouse_look(d,mouse_dx,mouse_dy,d->timestamp,captured);
+    const int mouse_mode=!captured ? MOUSE_MODE_DROPPED :
+                         bbgpu_free_camera() ? MOUSE_MODE_STICK : MOUSE_MODE_NATIVE;
+    apply_mouse_look(d,mouse_dx,mouse_dy,d->timestamp,mouse_mode,
+                     captured ? host.mouse_epoch : 0);
 }
 
 /* BB_PAD_FILE=<file>: scripted input for automated runs. The file holds whitespace-separated
@@ -1308,8 +1361,13 @@ static void sample(PadData *d) {
     if (injected.buttons & BTN_R2) d->r2=255;
     uint8_t *axes[4]={&d->left_x,&d->left_y,&d->right_x,&d->right_y};
     for (int i=0;i<4;++i) if (injected.stick[i]>=0) *axes[i]=(uint8_t)injected.stick[i];
-    if (injected.mouse[0]!=0 || injected.mouse[1]!=0)
-        apply_mouse_look(d,injected.mouse[0],injected.mouse[1],d->timestamp,1);
+    if (injected.mouse[0]!=0 || injected.mouse[1]!=0) {
+        const int captured_now=bbgpu_mouse_captured();
+        const int injected_mode=!captured_now ? MOUSE_MODE_DROPPED :
+                                bbgpu_free_camera() ? MOUSE_MODE_STICK : MOUSE_MODE_NATIVE;
+        apply_mouse_look(d,injected.mouse[0],injected.mouse[1],d->timestamp,injected_mode,
+                         bbgpu_mouse_epoch());
+    }
     /* Game modules (a menu pointer's presses). */
     const uint8_t sticks[4]={d->left_x,d->left_y,d->right_x,d->right_y};
     bbgpu_filter_pad(&d->buttons,sticks);

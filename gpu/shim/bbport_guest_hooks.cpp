@@ -1224,56 +1224,6 @@ bool InstallHudHook() {
     return true;
 }
 
-/// Native mouse look. The follow camera's update (0x143ac60, rdi the camera) derives its angles
-/// from where the camera is around the player each frame, pitch at +0x140 and yaw at +0x144; in
-/// its normal mode 0x143cde0..0x143cdf0 makes xmm1 = camera stick * turn speed * frame time, the
-/// increment 0x143cdf0 adds to (pitch, yaw) before the game wraps the yaw and clamps the pitch,
-/// and the camera is then placed from them. The detour adds the mouse's turn since the last update
-/// (radians, taken and cleared atomically) to that increment: the mouse turns the camera as far as
-/// it moved, with none of the stick's dead zone, response curve, acceleration or top speed.
-constexpr u64 LookSite = 0x143cde0;
-constexpr unsigned char LookSiteCode[16] = {0xc5, 0xa8, 0x59, 0xc9,                         // vmulps xmm1, xmm10, xmm1
-                                            0xc5, 0xf8, 0x28, 0x95, 0x10, 0xfc, 0xff, 0xff, // vmovaps xmm2, [rbp - 0x3f0]
-                                            0xc5, 0xe8, 0x59, 0xc9};                        // vmulps xmm1, xmm2, xmm1
-alignas(8) std::atomic<u64> look_delta{0}; ///< (pitch, yaw) as two floats, taken by the detour
-std::atomic<bool> look_installed{false};
-std::atomic<long long> look_since_ms{0}; ///< when look_delta last went from empty to not
-
-bool InstallLookHook() {
-    const u64 address = ImageBase + LookSite;
-    if (std::memcmp(reinterpret_cast<const void*>(address), LookSiteCode, sizeof(LookSiteCode))) {
-        return false;
-    }
-    Emitter e;
-    for (const u8 b : LookSiteCode) {
-        e.Bytes({b}); // the three instructions the jump covers (no RIP-relative operand)
-    }
-    e.Bytes({0x50, 0x51});                         // push rax; push rcx
-    e.Bytes({0x48, 0xb8});                         // movabs rax, &look_delta
-    e.U64(reinterpret_cast<u64>(&look_delta));
-    e.Bytes({0x31, 0xc9});                         // xor ecx, ecx
-    e.Bytes({0x48, 0x87, 0x08});                   // xchg [rax], rcx: taken and cleared
-    // A turn counts as camera input, as the stick does (0x143b8cc): else the update pulls the
-    // pitch back to its rest angle (+0x150) at once, and the rest angle follows the new pitch.
-    e.Bytes({0x48, 0x85, 0xc9});                   // test rcx, rcx
-    e.Bytes({0x74, 0x1d});                         // je past the three stores (29 bytes)
-    e.Bytes({0xc7, 0x85, 0x3c, 0xfc, 0xff, 0xff, 0x01, 0x00, 0x00, 0x00}); // mov dword [rbp - 0x3c4], 1
-    e.Bytes({0x41, 0xc6, 0x85, 0x5c, 0x01, 0x00, 0x00, 0x01});             // mov byte [r13 + 0x15c], 1
-    e.Bytes({0x41, 0xc7, 0x85, 0x54, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}); // mov dword [r13 + 0x154], 0
-    e.Bytes({0xc4, 0xe1, 0xf9, 0x6e, 0xd1});       // vmovq xmm2, rcx (xmm2 is dead here)
-    e.Bytes({0xc5, 0xf0, 0x58, 0xca});             // vaddps xmm1, xmm1, xmm2
-    e.Bytes({0x59, 0x58});                         // pop rcx; pop rax
-    e.Bytes({0xff, 0x25, 0x00, 0x00, 0x00, 0x00}); // jmp [rip]
-    e.U64(address + sizeof(LookSiteCode));
-    const u64 stub = PlaceStub(e);
-    std::uint32_t rel = 0;
-    if (!stub || !Rel32To(address + 5, stub, rel)) {
-        return false;
-    }
-    WriteJumpOverTrap(address, 0xe9, rel);
-    return true;
-}
-
 /// BB_RE_ANALOG=1 (reverse engineering): the pad device's analog getter (0x26917d0: rdi the
 /// device, esi the axis, the value at [rdi + 0x1e4 + 4 * axis]) goes through AnalogProbe, which
 /// counts who asks for the right stick (axes 2 and 3) by return address, every 5 s.
@@ -1870,17 +1820,6 @@ void Install(RangeCallback on_gpu_range_allocated) {
         std::printf("Guest hooks: the output's aspect ratio on the fly: the camera at %d of %zu places, "
                     "the HUD's markers at %d of %zu, its groups %s\n", aspect_sites, CameraParamStores.size(),
                     marker_places, MarkerSites.size(), hud_hooks ? "at the edges" : "in the middle (no hook)");
-        // Upstream's mailbox can replay an increment after stick fallback or focus loss.
-        // Keep the source for the separate camera integration; never publish this hook
-        // before the epoch/state/publication fixes have their own CPU and game acceptance.
-        constexpr bool NativeMouseHookValidated = false;
-        if (const char* env = std::getenv("BB_NATIVE_MOUSE"); env && std::strcmp(env, "1") == 0) {
-            if constexpr (NativeMouseHookValidated) {
-                look_installed.store(InstallLookHook(), std::memory_order_release);
-            } else {
-                std::printf("Guest hooks: native mouse not validated; using right-stick mouse\n");
-            }
-        }
         if (const char* env = std::getenv("BB_RE_ADVANCE"); env && env[0] == '1') {
             std::printf("Guest hooks: UI advance probe %s\n", InstallEntryProbe(0x20f00) ? "on" : "not installed");
         }
@@ -1958,54 +1897,4 @@ void SetDisplayAspect(float aspect) {
                 marker_sites.load(std::memory_order_relaxed));
 }
 
-bool CameraLookAvailable() {
-    return look_installed.load(std::memory_order_acquire);
-}
-
-bool CameraLookAdd(float pitch, float yaw) {
-    if (!CameraLookAvailable()) {
-        return false;
-    }
-    // Whether the camera takes the turns: a turn it has not taken for 100 ms (lock-on, menus,
-    // cutscenes: its normal update does not run) means not, until it takes one again. Meanwhile
-    // the caller drives the stick (lock-on switches targets with the stick) and the turn waiting
-    // here is replaced rather than applied all at once later.
-    static std::atomic<bool> active{true}, stored{false};
-    const long long now = std::chrono::duration_cast<std::chrono::milliseconds>(
-                              std::chrono::steady_clock::now().time_since_epoch())
-                              .count();
-    u64 old = look_delta.load(std::memory_order_acquire);
-    if (stored.load(std::memory_order_relaxed)) {
-        if (old == 0) {
-            active.store(true, std::memory_order_relaxed);
-        } else if (now - look_since_ms.load(std::memory_order_relaxed) > 100) {
-            active.store(false, std::memory_order_relaxed);
-        }
-    }
-    const bool taking = active.load(std::memory_order_relaxed);
-    if (pitch == 0.0f && yaw == 0.0f) {
-        return taking;
-    }
-    for (;;) {
-        float p = 0.0f, y = 0.0f;
-        if (old != 0 && taking) {
-            const std::uint32_t lo = std::uint32_t(old), hi = std::uint32_t(old >> 32);
-            std::memcpy(&p, &lo, 4);
-            std::memcpy(&y, &hi, 4);
-        }
-        p += pitch;
-        y += yaw;
-        std::uint32_t lo, hi;
-        std::memcpy(&lo, &p, 4);
-        std::memcpy(&hi, &y, 4);
-        const u64 next = u64(lo) | (u64(hi) << 32);
-        if (look_delta.compare_exchange_weak(old, next, std::memory_order_acq_rel)) {
-            if (old == 0 || !taking) {
-                look_since_ms.store(now, std::memory_order_relaxed);
-            }
-            stored.store(true, std::memory_order_relaxed);
-            return taking;
-        }
-    }
-}
 } // namespace BbGuestHooks

@@ -1,6 +1,15 @@
 #include "gpu/shim/host_input.h"
 #include <cassert>
 
+static std::uint64_t epoch = 1;
+static unsigned capture_changes, cancellations;
+static bool active;
+static std::uint64_t CurrentEpoch() { return epoch; }
+static void Capture(bool value) {
+    if (active != value) { active = value; ++epoch; ++capture_changes; }
+}
+static void Cancel() { ++epoch; ++cancellations; }
+
 int main() {
     HostInput input;
     BbHostInput state{};
@@ -59,4 +68,43 @@ int main() {
     input.Key(26, false);
     input.Read(&state);
     assert(!state.keys[26]);
+
+    // Publish initial capture=false too (for example an initial SDL capture failure).
+    // The mailbox initially permits legacy fallback, so its initial state can differ.
+    active = true;
+    HostInput initially_off{CurrentEpoch, Capture, Cancel};
+    initially_off.Capture(false);
+    assert(!active);
+    HostInput tagged{CurrentEpoch, Capture, Cancel};
+    tagged.Capture(true);
+    tagged.Motion(3, 4);
+    tagged.Read(&state);
+    const auto old = state.mouse_epoch;
+    assert(old == epoch && state.mouse_x == 3 && state.mouse_y == 4);
+    // Consumer-side cancellation can happen without another window event/pad poll.
+    // Read must discard queued old motion, never stamp the new epoch on its values.
+    tagged.Motion(9, 8);
+    ++epoch;
+    tagged.Read(&state);
+    assert(state.mouse_epoch == old && !state.mouse_x && !state.mouse_y);
+    tagged.Motion(1, 2);
+    ++epoch;
+    tagged.Motion(5, 6);
+    tagged.Read(&state);
+    assert(state.mouse_epoch == epoch && state.mouse_x == 5 && state.mouse_y == 6);
+    tagged.Motion(7, 8);
+    tagged.Capture(false);
+    tagged.Read(&state);
+    assert(!state.mouse_x && !state.mouse_y && !active);
+    tagged.Capture(true);
+    tagged.Motion(1, 2);
+    tagged.Block(true);
+    tagged.Read(&state);
+    assert(state.blocked && !state.mouse_x && !state.mouse_y && !active);
+    tagged.Block(false);
+    tagged.Capture(true);
+    tagged.Motion(3, 4);
+    tagged.CancelMotion();
+    tagged.Read(&state);
+    assert(!state.mouse_x && !state.mouse_y && cancellations == 1 && capture_changes >= 4);
 }

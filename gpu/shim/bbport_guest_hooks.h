@@ -27,10 +27,4 @@ bool FreeCameraActive();
 /// when the effects are only set by the startup patches, BB_HOT_EFFECTS=0).
 void ApplyGameEffects();
 
-/// Native mouse look (integration build keeps installation disabled, including BB_NATIVE_MOUSE=1):
-/// whether the camera hook is in, and a turn
-/// (radians: pitch, yaw) for the camera's next update; false while the camera does not take the
-/// turns (lock-on, menus: the caller drives the stick instead).
-bool CameraLookAvailable();
-bool CameraLookAdd(float pitch, float yaw);
 } // namespace BbGuestHooks

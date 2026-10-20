@@ -9,7 +9,12 @@ void bbgpu_read_host_input(BbHostInput *out) { memset(out,0,sizeof(*out)); }
 int bbgpu_overlay_captures_input(void) { return 0; }
 void bbgpu_mouse_look_enable(int enabled) { (void)enabled; }
 void bbgpu_mouse_capture(void) {}
-int bbgpu_camera_look(float yaw, float pitch) { (void)yaw; (void)pitch; return 0; }
+int bbgpu_route_mouse(uint64_t epoch, float pitch, float yaw) {
+    (void)epoch; (void)pitch; (void)yaw; return BB_MOUSE_STICK;
+}
+int bbgpu_route_mouse_stick(uint64_t epoch) { (void)epoch; return 1; }
+void bbgpu_cancel_mouse_input(void) {}
+uint64_t bbgpu_mouse_epoch(void) { return 1; }
 int bbgpu_free_camera(void) { return 0; }
 int bbgpu_pointer_wanted(void) { return 0; }
 void bbgpu_filter_pad(uint32_t *buttons, const uint8_t *sticks) { (void)buttons; (void)sticks; }

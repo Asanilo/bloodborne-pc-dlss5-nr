@@ -10,6 +10,7 @@
 #include "render/native_async_state.h"
 #include "render/native_async_pre_sr_policy.h"
 #include "bbport_guest_hooks.h"
+#include "bbport_mouse_look.h"
 #include "bbport_settings.h"
 #include "game_profile.h"
 #include "bbport_copy.h"
@@ -21,6 +22,7 @@
 #include <condition_variable>
 #include "common/polyfill_thread.h"
 #include <cstring>
+#include <cstdlib>
 #include <mutex>
 #include <string>
 #include <chrono>
@@ -383,6 +385,54 @@ extern "C" void bbgpu_patch_image(unsigned char* image, uint64_t size) {
     BbFrameRate::PatchImage(image, size);
 }
 
+extern "C" void bbgpu_patch_mouse_image(unsigned char* image, uint64_t size,
+                                        const BbGpuSegment* segments, uint64_t count) {
+    const char* requested = std::getenv("BB_NATIVE_MOUSE");
+    const bool enabled = requested && std::strcmp(requested, "1") == 0;
+    if (enabled) {
+        // These writers can change the exact camera function/site the candidate verifies.
+        // Refuse before publishing anything; the normal stick path remains available.
+        const char* online = std::getenv("BB_ONLINE");
+        const char* camera_probe = std::getenv("BB_RE_CAMERA");
+        const char* entry_probe = std::getenv("BB_RE_ENTRY");
+        if ((online && online[0] == '1') ||
+            (camera_probe && camera_probe[0] == '1') ||
+            (entry_probe && entry_probe[0])) {
+            std::printf("NATIVE_MOUSE status=refused: overlapping online/diagnostic camera writer; "
+                        "default=off runtime_validation=not_claimed\n");
+            return;
+        }
+    }
+    BbMouseLook::Segment ranges[64];
+    if (!segments || count > 64) {
+        BbMouseLook::PatchImage(image, size, nullptr, 0);
+    } else {
+        for (uint64_t i = 0; i < count; ++i)
+            ranges[i] = {segments[i].address, segments[i].size, segments[i].flags};
+        BbMouseLook::PatchImage(image, size, ranges, count);
+    }
+    if (requested)
+        std::printf("NATIVE_MOUSE status=%s default=off runtime_validation=not_claimed\n",
+                    BbMouseLook::Status());
+}
+
+extern "C" int bbgpu_route_mouse(uint64_t epoch, float pitch, float yaw) {
+    switch (BbMouseLook::Submit(epoch, pitch, yaw)) {
+    case BbMouseLook::Route::Dropped: return BB_MOUSE_DROPPED;
+    case BbMouseLook::Route::NativeQueued: return BB_MOUSE_NATIVE_QUEUED;
+    case BbMouseLook::Route::Stick: return BB_MOUSE_STICK;
+    }
+    return BB_MOUSE_DROPPED;
+}
+
+extern "C" int bbgpu_route_mouse_stick(uint64_t epoch) {
+    return BbMouseLook::StickOnly(epoch) ? 1 : 0;
+}
+
+extern "C" uint64_t bbgpu_mouse_epoch(void) {
+    return BbMouseLook::Epoch();
+}
+
 extern "C" unsigned bbgpu_symbol_count(void) {
     return unsigned(g_symbols.size());
 }
@@ -425,13 +475,6 @@ extern "C" uint64_t bbgpu_camera_state(void) {
 
 extern "C" int bbgpu_free_camera(void) {
     return BbGuestHooks::FreeCameraActive() ? 1 : 0;
-}
-
-extern "C" int bbgpu_camera_look(float yaw, float pitch) {
-    if (!BbGuestHooks::CameraLookAvailable()) {
-        return 0;
-    }
-    return BbGuestHooks::CameraLookAdd(pitch, yaw) ? 1 : 0;
 }
 
 extern "C" void bbgpu_mouse_look_enable(int enabled) {

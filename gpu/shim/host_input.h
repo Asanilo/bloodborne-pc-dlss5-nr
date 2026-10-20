@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <cstdint>
 #include <mutex>
 #include "../bbgpu.h"
 
@@ -7,24 +8,50 @@
 class HostInput {
     std::mutex mutex;
     BbHostInput state{};
+    using EpochFn = std::uint64_t (*)();
+    using CaptureFn = void (*)(bool);
+    using CancelFn = void (*)();
+    EpochFn epoch_fn;
+    CaptureFn capture_fn;
+    CancelFn cancel_fn;
+    bool capturing{};
+    bool capture_known{};
 public:
+    explicit HostInput(EpochFn epoch = nullptr, CaptureFn capture = nullptr,
+                       CancelFn cancel = nullptr)
+        : epoch_fn(epoch), capture_fn(capture), cancel_fn(cancel) {}
     void Block(bool blocked) {
         std::scoped_lock guard{mutex};
         if (blocked != bool(state.blocked)) {
             state = {};
             state.blocked = blocked;
             state.mouse_captured = 0;
+            if (capture_fn) capture_fn(false);
         }
     }
-    // Capture changes clear mouse buttons, motion and wheel; keyboard stays.
+    // Capture changes clear mouse buttons, motion and wheel; keyboard stays. The first
+    // Capture(false) must reach the mailbox too: it invalidates a generation that may still
+    // hold native work from a previous capture.
     void Capture(bool captured) {
         std::scoped_lock guard{mutex};
         const int value = captured && !state.blocked ? 1 : 0;
-        if (state.mouse_captured == value) return;
+        if (capture_known && state.mouse_captured == value) return;
+        capturing = captured;
+        capture_known = true;
         state.mouse_captured = value;
         state.mouse_buttons = 0;
         state.mouse_x = state.mouse_y = 0;
         state.wheel_up = state.wheel_down = 0;
+        if (capture_fn) capture_fn(value != 0);
+    }
+    // Motion and its epoch share this lock. EpochFn reads an acquire-published epoch without
+    // taking the mailbox gate. Reset lock order is HostInput -> mailbox; the camera and pad
+    // router never acquire HostInput while holding the mailbox.
+    void CancelMotion() {
+        std::scoped_lock guard{mutex};
+        state.mouse_x = state.mouse_y = 0;
+        state.mouse_epoch = 0;
+        if (cancel_fn) cancel_fn();
     }
     void Key(unsigned key, bool down) {
         std::scoped_lock guard{mutex};
@@ -40,6 +67,9 @@ public:
     void Motion(float x, float y) {
         std::scoped_lock guard{mutex};
         if (!state.blocked && state.mouse_captured) {
+            const auto epoch = epoch_fn ? epoch_fn() : 0;
+            if (state.mouse_epoch != epoch) state.mouse_x = state.mouse_y = 0;
+            state.mouse_epoch = epoch;
             state.mouse_x = std::clamp(state.mouse_x + x, -4096.0f, 4096.0f);
             state.mouse_y = std::clamp(state.mouse_y + y, -4096.0f, 4096.0f);
         }
@@ -53,6 +83,8 @@ public:
     // The pad's single snapshot: relative motion and wheel are consumed by this read.
     void Read(BbHostInput* out) {
         std::scoped_lock guard{mutex};
+        if (epoch_fn && state.mouse_epoch != epoch_fn())
+            state.mouse_x = state.mouse_y = 0;
         *out = state;
         state.mouse_x = state.mouse_y = 0;
         state.wheel_up = state.wheel_down = 0;

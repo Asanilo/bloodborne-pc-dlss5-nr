@@ -39,8 +39,16 @@ typedef struct {
     int wheel_up, wheel_down;
     int blocked;
     int mouse_captured;
+    uint64_t mouse_epoch; /* stamped when motion is queued; never relabel an old batch */
 } BbHostInput;
 void bbgpu_read_host_input(BbHostInput *input);
+/* Native mouse candidate: one batch has exactly one route. */
+enum { BB_MOUSE_DROPPED=0, BB_MOUSE_NATIVE_QUEUED=1, BB_MOUSE_STICK=2 };
+int bbgpu_route_mouse(uint64_t epoch, float pitch, float yaw);
+/* Stick-only consumer (free camera): 1 only while this original epoch is still captured. */
+int bbgpu_route_mouse_stick(uint64_t epoch);
+void bbgpu_cancel_mouse_input(void);
+uint64_t bbgpu_mouse_epoch(void);
 /* Mouse look (runtime_pad.c): the window takes the mouse when it is clicked (relative mode) and
  * lets it go on F1, losing focus or the menu opening. take: motion (pixels) and wheel notches
  * since the last call, reset; captured: 1 while the window holds it; enable: mouse_look=0 in
@@ -70,16 +78,16 @@ void bbgpu_filter_pad(uint32_t *buttons, const uint8_t *sticks);
 float bbgpu_frame_aspect(void);
 /* A line of text over the game, near the bottom, until called with NULL (any thread). */
 void bbgpu_overlay_banner(const char *utf8);
-/* Native mouse look: turns the game's camera (radians, applied at its next update); 0 when the
- * camera hook is not in (another game version, BB_NATIVE_MOUSE unset/0) or the camera does not take the
- * turns now (lock-on, menus): drive the right stick then. */
-int bbgpu_camera_look(float yaw, float pitch);
 /* 1 while the free camera (the community patch) is on: the mouse drives it through the right stick. */
 int bbgpu_free_camera(void);
 /* The game's current camera state (its projection parameters at +0x50), 0 until known. */
 uint64_t bbgpu_camera_state(void);
 /* Patches the loaded image before the game runs (image still writable): libGnm entry hooks. */
 void bbgpu_patch_image(unsigned char *image, uint64_t size);
+typedef struct { uint64_t address, size, flags; } BbGpuSegment;
+/* Startup-only native-mouse installer; needs the real segment coverage, not image_size alone. */
+void bbgpu_patch_mouse_image(unsigned char *image, uint64_t size,
+                             const BbGpuSegment *segments, uint64_t count);
 /* Number of symbols registered by the vendored libraries (diagnostics). */
 unsigned bbgpu_symbol_count(void);
 #ifdef __cplusplus

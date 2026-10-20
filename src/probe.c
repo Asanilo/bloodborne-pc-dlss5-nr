@@ -28,7 +28,7 @@
 #include <malloc.h>
 #endif
 
-typedef struct { uint64_t address, size, flags; } Segment;
+typedef BbGpuSegment Segment;
 typedef struct { uint64_t target, kind, value, addend; } Reloc;
 static char (*names)[128];
 static uint64_t import_count;
@@ -698,7 +698,10 @@ int main(int argc, char **argv) {
     }
     runtime_net_image_mapped(image, size); /* online modules that read the original code */
     if (patch_file) apply_patches(patch_file, segments, ns, relocs, nr);
-    if (!cpu_only) bbgpu_patch_image(image, size);
+    if (!cpu_only) {
+        bbgpu_patch_image(image, size);
+        bbgpu_patch_mouse_image(image, size, segments, ns);
+    }
 #ifdef _WIN32
     patch_guest_tls(segments, ns);
 #endif

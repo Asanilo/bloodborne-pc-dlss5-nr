@@ -9,14 +9,25 @@ static bool SDLCALL test_rumble(void *unused, Uint16 low, Uint16 high) {
     (void)unused; rumble_low=low; rumble_high=high; return true;
 }
 static BbHostInput host;
+static int mouse_route=BB_MOUSE_STICK, mouse_routes, mouse_cancels, strict_epoch;
+static uint64_t routed_epoch, stub_epoch=1;
+static float routed_pitch, routed_yaw;
 void bbgpu_read_host_input(BbHostInput *out) { *out=host; host.mouse_x=host.mouse_y=0; host.wheel_up=host.wheel_down=0; }
+int bbgpu_route_mouse(uint64_t epoch,float pitch,float yaw) {
+    ++mouse_routes; routed_epoch=epoch; routed_pitch=pitch; routed_yaw=yaw;
+    if (strict_epoch && epoch!=stub_epoch) return BB_MOUSE_DROPPED;
+    return mouse_route;
+}
+int bbgpu_route_mouse_stick(uint64_t epoch) { return epoch==stub_epoch; }
+void bbgpu_cancel_mouse_input(void) { ++mouse_cancels; ++stub_epoch; }
+uint64_t bbgpu_mouse_epoch(void) { return stub_epoch; }
 int bbgpu_overlay_captures_input(void) { return capture; }
 void bbgpu_mouse_take(double *dx, double *dy, int *up, int *down) { *dx=*dy=0; *up=*down=0; }
 int bbgpu_mouse_captured(void) { return 0; }
 void bbgpu_mouse_capture(void) {}
 void bbgpu_mouse_look_enable(int enabled) { (void)enabled; }
-int bbgpu_camera_look(float yaw, float pitch) { (void)yaw; (void)pitch; return 0; }
-int bbgpu_free_camera(void) { return 0; }
+static int free_camera;
+int bbgpu_free_camera(void) { return free_camera; }
 int bbgpu_pointer_wanted(void) { return 0; }
 void bbgpu_filter_pad(uint32_t *buttons, const uint8_t *sticks) { (void)buttons; (void)sticks; }
 void runtime_re_watch_tick(const void *pad_buffer, uint64_t reads) { (void)pad_buffer; (void)reads; }
@@ -326,20 +337,129 @@ int main(void) {
     assert(pad_read_state(1,&data)==0 && data.buttons==0 && data.left_y==128);
     host=(BbHostInput){0};
 
-    /* Mouse look: speed to deflection at two frame rates. */
+    /* Mouse look: speed to deflection at two frame rates (one stable epoch for the stick
+       accumulator; a changing epoch deliberately clears it). */
+    mouse_route=BB_MOUSE_STICK;
+    strict_epoch=0;
     for (int rate=60;rate<=240;rate*=4) {
         PadData m; memset(&m,0,sizeof m);
         look_x=look_y=0; look_last_us=1;
         const uint64_t step=1000000/rate;
         for (int i=1;i<=rate;++i) {
             m.right_x=m.right_y=128;
-            apply_mouse_look(&m,500.0/rate,0,1+i*step,1);
+            apply_mouse_look(&m,500.0/rate,0,1+i*step,MOUSE_MODE_NATIVE,100);
         }
         assert(m.right_x>=128+16+50 && m.right_x<=128+16+62 && m.right_y==128);
         m.right_x=128;
-        apply_mouse_look(&m,0,0,1+(rate+60)*step,1);
-        for (int i=0;i<20;++i) apply_mouse_look(&m,0,0,1+(rate+61+i)*step,1);
+        apply_mouse_look(&m,0,0,1+(rate+60)*step,MOUSE_MODE_NATIVE,100);
+        for (int i=0;i<20;++i) apply_mouse_look(&m,0,0,1+(rate+61+i)*step,MOUSE_MODE_NATIVE,100);
         assert(m.right_x==128);
+    }
+
+    /* NativeQueued/Dropped never also drive the stick, and clear the old 60 ms tail. */
+    for (int route=BB_MOUSE_DROPPED;route<=BB_MOUSE_NATIVE_QUEUED;++route) {
+        mouse_route=route;
+        PadData r={.right_x=128,.right_y=128};
+        look_x=80.0f; look_y=-40.0f; look_last_us=1;
+        const int before=mouse_routes;
+        apply_mouse_look(&r,4,-2,1000000,MOUSE_MODE_NATIVE,73);
+        assert(mouse_routes==before+1 && routed_epoch==73);
+        assert(fabsf(routed_pitch+2*mouse_sensitivity*0.0015f)<1e-6f);
+        assert(fabsf(routed_yaw-4*mouse_sensitivity*0.0015f)<1e-6f);
+        assert(r.right_x==128 && r.right_y==128 && look_x==0 && look_y==0);
+    }
+    /* The explicit Stick route is the only one that feeds the legacy axis. */
+    mouse_route=BB_MOUSE_STICK;
+    {
+        PadData r={.right_x=128,.right_y=128};
+        look_x=look_y=0; look_last_us=0;
+        const int before=mouse_routes;
+        apply_mouse_look(&r,4,-2,1000000,MOUSE_MODE_NATIVE,74);
+        assert(mouse_routes==before+1 && r.right_x>128 && r.right_y<128);
+    }
+    /* Free camera: captured but stick-only; a mode-transition batch has the cancelled epoch
+       and drops, then a new generation is allowed to drive the stick without native submit. */
+    {
+        stub_epoch=75;
+        PadData r={.right_x=128,.right_y=128};
+        look_x=look_y=0; look_last_us=0;
+        const int before=mouse_routes, cancels=mouse_cancels;
+        apply_mouse_look(&r,4,-2,1000000,MOUSE_MODE_STICK,75);
+        assert(mouse_routes==before && mouse_cancels==cancels+1);
+        assert(r.right_x==128 && r.right_y==128);
+        stub_epoch=76;
+        apply_mouse_look(&r,4,-2,1000000,MOUSE_MODE_STICK,76);
+        assert(mouse_routes==before && r.right_x>128 && r.right_y<128);
+    }
+    /* Uncaptured/menu: dropped, no stick, old pending is cancelled. */
+    {
+        PadData r={.right_x=128,.right_y=128};
+        look_x=80.0f; look_y=-40.0f;
+        const int before=mouse_routes, cancels=mouse_cancels;
+        apply_mouse_look(&r,4,-2,1000000,MOUSE_MODE_DROPPED,0);
+        assert(mouse_routes==before && mouse_cancels==cancels+1);
+        assert(r.right_x==128 && r.right_y==128 && look_x==0 && look_y==0);
+    }
+
+    /* Actual sample_host: free camera is captured but stick-only, never native. The first
+       sample after the mode switch drops; a fresh epoch then drives the stick. */
+    mouse_route=BB_MOUSE_NATIVE_QUEUED;
+    strict_epoch=1;
+    stub_epoch=80;
+    free_camera=1;
+    host=(BbHostInput){.mouse_x=5,.mouse_captured=1,.mouse_epoch=80};
+    {
+        const int before=mouse_routes;
+        assert(pad_read_state(1,&data)==0 && data.right_x==128 && mouse_routes==before);
+    }
+    stub_epoch=81;
+    host=(BbHostInput){.mouse_x=5,.mouse_captured=1,.mouse_epoch=81};
+    {
+        const int before=mouse_routes;
+        assert(pad_read_state(1,&data)==0 && data.right_x>128 && mouse_routes==before);
+    }
+    free_camera=0;
+    stub_epoch=82;
+    host=(BbHostInput){.mouse_x=5,.mouse_captured=1,.mouse_epoch=81};
+    {
+        const int before=mouse_routes;
+        assert(pad_read_state(1,&data)==0 && data.right_x==128 && mouse_routes==before+1);
+    }
+    host=(BbHostInput){.mouse_x=5,.mouse_captured=1,.mouse_epoch=82};
+    {
+        const int before=mouse_routes;
+        assert(pad_read_state(1,&data)==0 && data.right_x==128 && mouse_routes==before+1);
+    }
+    /* Touchpad/sideways aim consumes the delta; native sees only a zero heartbeat. */
+    setenv("BB_PAD_MOTION","1",1);
+    motion_enabled=1;
+    motion.sideways=1;
+    mouse_route=BB_MOUSE_NATIVE_QUEUED;
+    stub_epoch=83;
+    host=(BbHostInput){.mouse_x=5,.mouse_captured=1,.mouse_epoch=82};
+    {
+        const int before=mouse_routes;
+        assert(pad_read_state(1,&data)==0 && data.right_x==128 && mouse_routes==before+1);
+        assert(routed_pitch==0.0f && routed_yaw==0.0f);
+    }
+    motion.sideways=0;
+    motion_enabled=0;
+    strict_epoch=0;
+    unsetenv("BB_PAD_MOTION");
+    host=(BbHostInput){0};
+
+    /* Same NATIVE mode, capture off/on: the new epoch's fallback must not inherit the old
+       ~60 ms stick tail; the fresh delta still moves the stick. */
+    {
+        strict_epoch=0;
+        mouse_route=BB_MOUSE_STICK;
+        PadData r={.right_x=128,.right_y=128};
+        look_x=look_y=0; look_last_us=0;
+        apply_mouse_look(&r,4,0,1000000,MOUSE_MODE_NATIVE,90);
+        const float old_tail=look_x;
+        assert(old_tail>0);
+        apply_mouse_look(&r,1,0,1001000,MOUSE_MODE_NATIVE,91);
+        assert(look_x>0 && look_x<old_tail*0.5f);
     }
 
     SDL_CloseJoystick(joystick);
