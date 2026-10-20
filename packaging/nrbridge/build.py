@@ -293,6 +293,9 @@ def stage_code(app: Path, bundle: dict) -> None:
     # Development READMEs/templates name private workspace roots; they are
     # not runtime inputs and do not belong in the image.
     stage_file(ROOT / "LICENSE", app / "usr/share/doc/bbport/LICENSE")
+    (app / "usr/share/doc/bbport/BUILD_ONLY").write_text(
+        "BUILD_ONLY: CPU/static packaging candidate; not a GPU exit or online acceptance.\n"
+    )
     known = ROOT / "packaging/nrbridge/KNOWN_ISSUES.md"
     if known.is_file():
         stage_file(known, app / "usr/share/doc/bbport/KNOWN_ISSUES.md")
@@ -309,6 +312,7 @@ def stage_code(app: Path, bundle: dict) -> None:
                 "schema": "bbport-nrbridge-preview-v1",
                 "native_source": bundle["native"]["source"],
                 "native_protocol": bundle["native"].get("protocol", {}),
+                "build_status": bundle.get("build_status", "BUILD_ONLY"),
                 "daily_ready": bundle.get("daily_ready", False),
                 "helper_source_commit": bundle["helper"]["source_head"],
                 "helper_build_id": bundle["helper"]["build_id"],
@@ -693,6 +697,7 @@ def write_bundle_manifest(app: Path, args, bundle: dict) -> None:
     record = {
         "schema": "bbport-nrbridge-appdir-v1",
         "native_source": bundle["native"]["source"],
+        "build_status": bundle.get("build_status", "BUILD_ONLY"),
         "daily_ready": bundle.get("daily_ready", False),
         "helper_source_commit": bundle["helper"]["source_head"],
         "helper_build_id": bundle["helper"]["build_id"],
@@ -848,6 +853,7 @@ def main(argv=None) -> int:
     protocol_matches(native, helper)
     bundle = {
         "schema": "bbport-nrbridge-bundle-v1",
+        "build_status": "BUILD_ONLY",
         "native": native,
         "helper": helper,
         "forwarder": forwarder,

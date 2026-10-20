@@ -1,7 +1,8 @@
 # bbport NRBridge Preview — Known issues
 
-This is a private preview. The following are observed/known and must not be
-reported as passing acceptance:
+This is a private preview. The current package remains **BUILD_ONLY** (CPU/static
+packaging candidate); the following are observed/known and must not be reported
+as passing acceptance:
 
 ## Rendering
 
