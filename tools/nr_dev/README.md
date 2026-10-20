@@ -19,6 +19,10 @@ cd /home/arinp/Code/nrbridge-dev
 私有受控 profile 显式16:9。后续功能补齐及实际验收状态见
 [功能状态表](../../docs/BBPORT_06_FUNCTION_STATUS.md)；鼠标默认仍关闭，摇杆路径仍可回退。
 
+本轮新功能实际冷构建产物为 `build/baselines/6753999346d4314430eb7ae95ae7c7cc81884fcc`：
+原生鼠标显式开启的四阶段有限GPU回归、正常退休和玩家基础手感确认已完成。
+它是已验证的开发候选，不自动替换5635804稳定选择；后续文档HEAD不冒称另一次Native构建。
+
 ## 新接手者先看这里
 
 Native尚未合入master；Helper已进入linux-nr长期主线。两棵日常工作树仍使用各自开发分支：

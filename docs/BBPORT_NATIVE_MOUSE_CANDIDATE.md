@@ -7,6 +7,13 @@
 没有改动 936B leaf stub。普通与 ASan/UBSan 证据在 `out/native-mouse-cpu/06-astra-final*`，
 核心原始合同继续保留；后续实机与玩家手感以本轮实际记录为准，不能沿用旧 BUILD_ONLY 结论冒充实机通过。
 
+最终适配包括 `d986d8a` 的启动writer来源证明及两条路径RX后全范围复验，guest leaf不变；
+普通/ASan各8组及实际writer、RX后camera/constants故障注入经Astra独立复核通过。
+干净Native6753999完成四阶段受控GPU验证与正常退休。玩家明确确认“明显更跟手，停鼠也正常”，
+并确认F1释放、关闭菜单后恢复转镜；默认仍off，不扩展为锁定目标/freecam/长会话全部通过。
+实际mailbox消费计数因只读取证EACCES仍UNKNOWN，与CPU唯一消费合同及玩家反馈分开记录。
+原候选的源码、原7组夹具和完整审查正文均已保留或被安全适配替代，后续开发以NR主线为准。
+
 # 原生鼠标相机候选：原始安全合同与历史证据
 
 本轮起点为 `7265d3b6ec2ea80afd4fbe1a94d9f323acdd3887`，已正常推送并核验 Fork 远端。

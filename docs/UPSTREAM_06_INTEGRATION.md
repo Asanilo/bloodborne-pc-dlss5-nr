@@ -1,5 +1,19 @@
 # 上游 0.6 集成候选
 
+## 2026-10-20 功能补齐增量（现行）
+
+本轮没有再次合并上游。游戏侧成果已正常快进收回 NRBridge 开发主线；实际空输出冷构建
+及四阶段GPU验证 Native 为干净 `6753999346d4314430eb7ae95ae7c7cc81884fcc`。
+原生相机只安装一套，结合候选epoch/mailbox与状态保护，并严格核对既有FPS启动写入，
+保持936B guest leaf及帧率行为；默认仍关闭。玩家已确认更跟手、停鼠正常、F1释放、关菜单恢复。
+在线两套库已实际构建并通过禁网注册，DLC挂载生命周期及失败边界已通过实际源码CPU/ASan；
+真实联网、真实DLC资产、手柄及存档写后重载仍待验，不能用构建成功代替。
+resident实际24 Evaluate、23captured/1obsolete；Astra独立复核实际SR/Present与正常退休通过。
+功能状态、限制及证据见 [BBPORT_06_FUNCTION_STATUS](BBPORT_06_FUNCTION_STATUS.md)。
+旧稳定5635804/7f69/9a825及配置不覆盖，master不合入，不制作AppImage。
+
+以下为初次Merge的历史快照；其中鼠标“编译期关闭”、online“未构建”等已由上述增量覆盖。
+
 本候选从 gameplay `7265d3b6ec2ea80afd4fbe1a94d9f323acdd3887` 正常 merge
 上游 `8185b88d80573fa300595d5c54450183b4109935`；分支 `sync/upstream-0.6`。
 已完成 CPU、空输出完整冷构建及四阶段受控 GPU 回归，收回 NRBridge 开发主线。

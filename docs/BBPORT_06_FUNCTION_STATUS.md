@@ -5,20 +5,20 @@
 
 | 功能 | 构建与入口 / 默认 | 实际验证及剩余项 |
 | --- | --- | --- |
-| 原生鼠标相机 | 0.6 直接相机路径＋候选安全模块；默认 off；受控 `--native-mouse` 绑定 v2 scope | 普通/ASan各8组及真实生产函数边界通过；真实writer重放与RX后篡改负例经Astra独立复核通过；新实机轮次及玩家手感待验 |
+| 原生鼠标相机 | 0.6 直接相机路径＋候选安全模块；默认 off；受控 `--native-mouse` 绑定 v2 scope | 普通/ASan各8组、真实writer重放及RX后故障拒绝通过；6753999四阶段实机均安装成功；玩家确认更跟手、停鼠正常、F1释放及关菜单恢复；锁定目标/freecam更多场景待验 |
 | 摇杆鼠标回退 | 保留；未选原生、站点不匹配或超时后的新输入可回退 | 前轮玩家确认可操作但不跟手；原生队列取消后不重送同一增量 |
-| 菜单鼠标指针 / 捕获 | Native 编译；匹配 GFx 站点后默认 on，`BB_MENU_POINTER=0` 可关闭；F1/点击捕获 | 前轮菜单显示正常；hover/click/wheel 的真实操作验收仍需补，不能仅凭 Hook 安装日志认定 |
+| 菜单鼠标指针 / 捕获 | Native 编译；匹配 GFx 站点后默认 on，`BB_MENU_POINTER=0` 可关闭；F1/点击捕获 | 玩家确认菜单使用鼠标选择并停止转镜、关闭后能恢复，F1可释放；全部控件及滚轮仍待扩展验收 |
 | 复合键 / 滚轮 / 提示图标 | pad、录入工具、launcher 与提示渲染均参与构建；提示按最近输入设备切换 | CPU 输入与录入回归通过；前轮真实键盘提示已观察；PS 手柄提示切换待实测 |
 | 手柄 / 触点 / 体感 | SDL 热插拔、校准、双触点及体感源已合入并编译；依设备与设置启用 | pad CPU 回归通过；真实手柄、触点 ID 连续性及混合输入仍需设备验收 |
 | 21 种游戏语言 | launcher 实际有 0..20 共21个唯一系统语言码，runtime 接收 `BB_LANGUAGE` | 实际选项清点通过；资源取决于发行版资产，不声称逐语言游戏显示全部实测 |
 | 中文界面 | launcher 中文与 Native/NR 中文保留并编译；游戏简/繁体选择含既有地区解锁补丁 | launcher 翻译与中文地区补丁 CPU 回归通过；Native CJK 字形另依赖字体，AppImage 须带字体或显式 `BB_CJK_FONT` |
 | DLC / AppContent | 现有查询与挂载源码已编译；本轮补 title/路径/只读/失败回滚/卸载边界 | 标题/路径/只读/失败/并发/卸载及旧FD/重载槽位的实际源码临时文件CPU与ASan通过；真实DLC挂载未验收 |
-| 存档 / 恢复 | runtime 原子写与本地 save_manager 保留；私人 Runner 用 seed 副本 | 前轮 Continue 读取通过，save/launcher CPU 回归通过；真实写入后重载与更多存档场景待验收 |
+| 存档 / 恢复 | runtime 原子写与本地 save_manager 保留；私人 Runner 用 seed 副本 | 本轮四阶段 Continue 读取私人副本进入Clinic，save/launcher CPU回归通过；真实写入后重载与更多存档场景待验收 |
 | 旧在线模块 `bbnet` | 已补齐 JSON/miniupnpc，实际编译成功；仅 `BB_ONLINE` 请求才加载 | 禁网进程内 ABI/导入注册通过；真实会话及退出线程闭合未验收 |
 | 新在线模块 `bbnet20` / THD | 两套库均实际编译；THD 需 `BB_NET_BACKEND=thd`；默认不启动会话 | shadNet20 与 THD 各自禁网 ABI/导入注册通过；未登录账号、未开始真实会话 |
 | BBSC | 两在线库均包含其源码；需 `BB_BBSC=1` 才安装游戏 Hook | 只证明编译，未安装或执行 BBSC Hook；动态 guest patch 与线程停止/回调撤销尚待专项验收 |
 | 宽高比 / 画面设置 | 上游设置菜单及运行时路径编译；受控 profile 显式16:9 | 前轮实际1280×720→1920×1080，玩家确认铺满且菜单场景正常；其它宽高比未扩展实测 |
-| NR 运行时控制 | 保留 typed mailbox、模型 ACK、真实帧边界与资源末用合同 | `4b4fdcc` 有限四阶段回归通过；本轮新 Native 尚未因此自动获得实机验收 |
+| NR 运行时控制 | 保留 typed mailbox、模型 ACK、真实帧边界与资源末用合同 | 干净6753999四阶段正常退休；resident实际24 Evaluate、23 captured/1 obsolete，155次cache-selected SR关联成功Present；Astra独立复核通过，仅有限Clinic验收 |
 | AppImage 依赖 | 新在线依赖为独立目录，未改系统/sysroot；构建清单校验并记录内容 | 尚需 bundle miniupnpc/在线库、其动态依赖、CJK/提示资源、Python/GI 与启动路径回归；本轮不打包 |
 
 在线构建：设置 `BB_ONLINE_DEPS_ROOT` 为含 `usr/` 与 `bbport-online-inputs.json` 的独立已校验 sysroot，
@@ -37,4 +37,18 @@
 Astra 的同资产纯 CPU 重放确认既有 FrameRate writer 改写相机内两条 RIP 数据 displacement，
 共两个4B区域；其运行地址随近地址分配变化，不能添加固定 post hash 或屏蔽字节放行。
 后续适配保持完整原哈希预检、真实 writer 本次来源证明、全范围精确差分和发布前复验，
-不改变帧率运算或 Hook 的 guest 汇编。后续实机结论须另以实际安装日志与新 session 记录。
+不改变帧率运算或 Hook 的 guest 汇编。该拒绝轮不计入原生验收；最终实测另述如下。
+
+最终实际产物为干净 `6753999346d4314430eb7ae95ae7c7cc81884fcc`，完整冷构建及
+`--test` 通过；另有 bbnet/shadnet、bbnet20/shadnet、bbnet20/THD 三次禁网注册通过。
+本轮 sessions 为 `mouse06-{sr,off,skip,resident}-6753999-20261020`，四轮均正常退出，
+真实 Native 末用通过，退出后实际 kernel 检查通过且项目 holders 为空；两轮skip各24。
+resident 最大末用26622，两个persistent slot分别完成于26620/26622后销毁；
+Helper Feature创建/释放各一次，四个共享dmabuf已从双方最终FD清单移除，wait_status=0。
+这些证据不扩展为画质、热性能、长稳或旧HOLD已解决。
+
+玩家反馈和CPU唯一消费合同分别保留。只读进程mailbox取证被现有权限拒绝（EACCES13），
+未读取数据或改变ptrace策略，因此实际mailbox消费计数仍为UNKNOWN，不能由安装日志追认。
+默认继续关闭；回退只需不传 `--native-mouse`，不切换稳定产物。
+证据在Fork `out/upstream-06-completion-20261020/`，临时集成树独有679文件已逐项SHA保存至
+其 `retired-integration-unique/`。过期24个dev引用的名单和依据见同目录 `local-branches-retired.json`。
