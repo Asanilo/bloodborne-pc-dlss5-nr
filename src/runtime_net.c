@@ -88,7 +88,6 @@ static BbNetResolveFn module_resolve(void) {
         printf("Online: the online module is not available (%s): offline play\n",dlerror());
         return NULL;
     }
-    module_handle=module;
     const BbNetInitFn init=(BbNetInitFn)dlsym(module,"bbnet_init");
     const BbNetResolveFn found=(BbNetResolveFn)dlsym(module,"bbnet_resolve");
     const BbNetHost host={
@@ -101,6 +100,10 @@ static BbNetResolveFn module_resolve(void) {
         printf("Online: %s did not start: offline play\n",path);
         return NULL;
     }
+    /* Publish only after both exports and initialization succeeded. A failed module must
+     * never receive mapped/ready/start callbacks. Keep its mapping resident: the old ABI
+     * has no stop/join contract proving partial initialization is safe to dlclose. */
+    module_handle=module;
     printf("Online: module %s\n",path);
     resolve=found;
     return resolve;
