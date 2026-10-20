@@ -27,6 +27,7 @@ def parse_args(argv=None):
  p.add_argument('--continue-session',help='仅续用已正常退休的新dev session私有存档和NR配置')
  p.set_defaults(mode='resident',sky='persistent',history_diagnostic=False)
  runner.daily_online.add_arguments(p)
+ runner.player_settings.add_arguments(p)
  a=p.parse_args(argv)
  try:runner.configure_daily_args(a)
  except ValueError as error:p.error(str(error))
@@ -38,6 +39,7 @@ def parse_args(argv=None):
 
 def launch_command(a):
  """Read-only checks before spawning the supervisor; Runner rechecks under lock."""
+ if getattr(a,'launcher_settings',None):a.local_inputs=runner.player_settings.runtime_for_player(a,runner.ROOT)
  native_mouse_scope.requested(a)
  run=runner.checked_run(a.session)
  if run.exists():raise ValueError('session already exists; use a fresh name')
@@ -72,6 +74,10 @@ def launch_command(a):
  if a.context_recovery:command+=['--context-recovery',a.context_recovery]
  if a.online_pool!='offline':command+=['--online-pool',a.online_pool,'--online-account-config',a.online_account_config]
  if a.bbsc:command+=['--bbsc']
+ for name in ('launcher_settings','launcher_ini','player_data_dir'):
+  value=getattr(a,name,None)
+  if value:command+=['--'+name.replace('_','-'),value]
+ if getattr(a,'sr_only',False):command+=['--sr-only']
  for flag in ('daily','joystick_mouse','pm4_cold_trace','pm4_producer_context','native_mouse'):
   if getattr(a,flag):command+=['--'+flag.replace('_','-')]
  return run,command
@@ -84,10 +90,15 @@ def main():
  def stop(signum,frame):raise KeyboardInterrupt
  signal.signal(signal.SIGTERM,stop)
  try:
-  print('\n游戏使用独立私有存档'+('，续用 '+a.continue_session if a.continue_session else '（新NRTest seed）')+'。Space/Cross 继续；WASD/鼠标或手柄操作。',flush=True)
+  if getattr(a,'launcher_settings',None):
+   print('\n使用启动器选择的存档；正常退休后安全同步，失败时保留本轮私人副本。Space/Cross 继续；WASD/鼠标或手柄操作。',flush=True)
+  else:print('\n游戏使用独立私有存档'+('，续用 '+a.continue_session if a.continue_session else '（新NRTest seed）')+'。Space/Cross 继续；WASD/鼠标或手柄操作。',flush=True)
   print('F8：显示旁路；F9：同源画面捕获；Delete：NR控制菜单。加载的模型Style/Intensity仍需显式Apply。',flush=True)
   if a.daily:print('日常模式：无固定游戏时长；正常关闭窗口退出。',flush=True)
   else:print(f'计划 {a.seconds} 秒后请求正常关闭；独立watchdog为{a.watchdog_seconds}秒，关闭仍需真实GPU退休。',flush=True)
+  if getattr(a,'sr_only',False):
+   print('SR-only：不会启动 Helper 或 NR。',flush=True)
+   return child.wait()
   print('进入可控制的实际游戏场景后，回到本终端按 Enter 开启 NR：',flush=True)
   while child.poll() is None:
    if select.select([sys.stdin],[],[],.2)[0]:

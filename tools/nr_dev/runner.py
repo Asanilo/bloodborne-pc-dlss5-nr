@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Isolated NR development runner. No legacy approval, ledger or launch quota imports."""
-import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid,importlib.util,stat
+import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid,importlib.util,stat,contextlib
 from pathlib import Path
 def workspace_root():
  value=os.environ.get('NRBRIDGE_HOME',str(Path.home()/'Code/nrbridge-dev'));path=Path(value)
@@ -14,6 +14,8 @@ _online_spec=importlib.util.spec_from_file_location('nr_dev_daily_online',Path(_
 daily_online=importlib.util.module_from_spec(_online_spec);_online_spec.loader.exec_module(daily_online)
 _guard_spec=importlib.util.spec_from_file_location('nr_dev_daily_session_guard',Path(__file__).with_name('daily_session_guard.py'))
 daily_session_guard=importlib.util.module_from_spec(_guard_spec);_guard_spec.loader.exec_module(daily_session_guard)
+_player_spec=importlib.util.spec_from_file_location('nr_dev_player_settings',Path(__file__).with_name('player_settings.py'))
+player_settings=importlib.util.module_from_spec(_player_spec);_player_spec.loader.exec_module(player_settings)
 def atomic(p,value):
  t=p.with_suffix('.tmp');t.write_text(json.dumps(value,indent=2)+'\n');t.replace(p)
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -558,6 +560,8 @@ def control(args):
   daily=session_manifest.get('daily',False)
   if type(daily) is not bool:raise ValueError('daily manifest requires strict boolean')
   if daily:validate_daily_manifest(run,session_manifest)
+  if session_manifest.get('nr_enabled') is False:
+   raise ValueError('selected SR-only session does not permit Helper/NR activation')
   if binding:
    runtime_inputs.recheck(binding,ROOT)
    if daily:runtime_inputs.daily_capability(Path(session_manifest['native_build']),binding)
@@ -610,17 +614,21 @@ def validate_daily_manifest(run,manifest):
      or manifest.get('daily') is not True or not manifest.get('runtime_inputs')
      or manifest.get('host_safety',{}).get('daily') is not True
      or any(type(manifest.get(k)) is not int or manifest[k]!=0 for k in ('planned_seconds','watchdog_seconds'))):raise ValueError('invalid daily session binding')
- required={'BB_NR_DAILY':'1','NRBRIDGE_HOME':str(ROOT),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':'0','BB_FRAME_STATS':'0',
+ required={'BB_NR_DAILY':'1','NRBRIDGE_HOME':str(ROOT),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':'0',
            'BB_DATA_DIR':str(run/'profile'),'BB_USER_DIR':str(run/'profile/user'),
            'BB_GPU_USER_DIR':str(run/'profile/user')}
  if (any(environment.get(k)!=v for k,v in required.items())
      or environment.get('BB_NATIVE_MOUSE') not in ('0','1')
      or any(k in environment for k in ('BB_FRAME_LOG','BB_NR_PM4_COLD_TRACE','BB_NR_PM4_PRODUCER_CONTEXT','BB_NATIVE_HISTORY_DIAGNOSTIC','BB_RE_CAMERA','BB_RE_ENTRY'))):raise ValueError('daily private environment drift')
+ if manifest.get('player_settings'):
+  player_settings.verify_snapshot(run,manifest['player_settings'],environment)
+ elif environment.get('BB_FRAME_STATS')!='0':raise ValueError('diagnostic daily frame statistics drift')
  daily_online.validate_manifest(run,manifest)
 
 def validate_daily_args(args):
  daily_online.validate_args(args)
  daily=getattr(args,'daily',False)
+ if getattr(args,'sr_only',False) and not daily:raise ValueError('SR-only selection requires daily mode')
  if type(daily) is not bool:raise ValueError('daily mode requires strict boolean')
  if not daily:return
  if any(getattr(args,k,None) for k in ('context_recovery','reboot_diagnostic','pm4_cold_trace','pm4_producer_context','history_diagnostic')):raise ValueError('daily mode and cold diagnostic scopes are separate')
@@ -695,6 +703,8 @@ def launch(args):
 
 def launch_supervised(args,signals):
  validate_daily_args(args)
+ player=player_settings.load_request(args)
+ if player is not None:args.local_inputs=player_settings.runtime_for_player(args,ROOT)
  native_mouse_scope.requested(args)
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
@@ -708,7 +718,7 @@ def launch_supervised(args,signals):
  helper_build=binding['helper_build'] if binding else None;helper_runtime_config=None
  if args.runtime_model_helper:helper,helper_build=checked_runtime_helper(args.runtime_model_helper,args.runtime_model_build_sha256)
  if args.continue_session==args.session:raise ValueError('continuation must create a new session')
- with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
+ with contextlib.ExitStack() as managed, open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=daily_preflight(lock,binding) if getattr(args,'daily',False) else preflight(lock,args if (getattr(args,'reboot_diagnostic',None) or getattr(args,'context_recovery',None)) else None,binding)
   for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
@@ -716,8 +726,13 @@ def launch_supervised(args,signals):
   provenance=run/'build-provenance';provenance.mkdir()
   for name in ('source-head.txt','source-diff.patch','artifacts.sha256'):
    shutil.copyfile(build/name,provenance/name)
-  profile=run/'profile';profile.mkdir();continuation=None
-  if args.continue_session:continuation=copy_continuation(args.continue_session,profile)
+  profile=run/'profile';profile.mkdir();continuation=None;player_saves=None;player_binding=None;player_save_source=None
+  if player is not None:
+   from player_saves import PlayerSaves
+   player_saves=managed.enter_context(PlayerSaves(Path(player['user_dir'])))
+   player_save_source=player_saves.prepare(profile/'user')
+   player_binding=player_settings.write_snapshot(run,player)
+  elif args.continue_session:continuation=copy_continuation(args.continue_session,profile)
   else:
    shutil.copytree(seed/'savedata',profile/'user/savedata')
    for item in json.loads((seed/'manifest.json').read_text())['files']:
@@ -730,6 +745,10 @@ def launch_supervised(args,signals):
   base_keys={'PATH','HOME','USER','LOGNAME','SHELL','LANG','LANGUAGE','LC_ALL','LC_CTYPE','TZ','TERM','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','XDG_RUNTIME_DIR','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS','PULSE_SERVER','PIPEWIRE_REMOTE','SDL_AUDIODRIVER','SDL_VIDEODRIVER'}
   env={k:v for k,v in os.environ.items() if k in base_keys}
   env.update(BB_GAME_DIR=str(assets),BB_DATA_DIR=str(profile),BB_CONFIG=str(profile/'bbport.ini'),BB_USER_DIR=str(profile/'user'),BB_GPU_USER_DIR=str(profile/'user'),BB_COPY_GPU_BUFFERS='1',BB_PREBUILT='1',BB_PROBE=str(build/'bb-probe'),BB_STARTUP_CHECK='0',BB_MODS_ENABLED='0',BB_UPSCALER='dlss',BB_UPSCALE_PRESET='1',BB_DLSS='1',BB_JITTER='1',BB_FPS='uncap',BB_FPS_LIMIT='90',BB_FRAME_STATS='1',BB_FRAME_LOG=str(profile/'logs/frames.csv'),BB_FULLSCREEN='0',BB_SKIP_NETWORK_CHOICE='1',BB_LANGUAGE='1',BB_PC_MODEL='0',BB_SAVE_LOG='1',BB_IME_TEXT='NRTest',BB_PAD_FILE=str(run/'pad.txt'),BB_DUMP_DIR=str(run/'dump'),BB_PRESENT_DUMP_TRIGGER=str(run/'present-dump-trigger'),BB_PRESENT_DUMP_COUNT='0',LD_LIBRARY_PATH=str(sysroot_lib),DLSSNR_DISABLE='1',DLSSNR_AUTO_DOWNLOAD='0',VK_LOADER_LAYERS_DISABLE='~implicit~',MANGOHUD='0',DISABLE_MANGOHUD='1')
+  if player is not None:
+   if player['game_dir']!=str(assets):raise ValueError('selected player game/runtime binding drift')
+   (profile/'bbport.ini').write_text(player['ini_text'])
+   env.update(player['environment']);env.pop('BB_IME_TEXT',None)
   for name in ('config','cache','data','state'):env['XDG_'+name.upper()+'_HOME']=str(profile/name)
   nr={'BB_NR_NATIVE_ASYNC':'0','BB_NR_NATIVE_ASYNC_PRE_SR':'1','BB_NR_NATIVE_ASYNC_SCENE_FIRST':'1','BB_NR_NATIVE_ASYNC_PRE_SR_PLAY':'1','BB_NR_NATIVE_ASYNC_PRE_SR_SKY':'off','BB_NATIVE_PERSISTENT_HISTORY':'1' if args.sky=='persistent' else '0','BB_NR_NATIVE_ASYNC_PRE_SR_SR_HISTORY':'game_only','BB_NR_NATIVE_ASYNC_PRE_SR_SR_INPUT':'switching','BB_NR_NATIVE_ASYNC_SESSION':args.session,'BB_NR_NATIVE_ASYNC_MODE':args.mode,'BB_NR_NATIVE_ASYNC_RUN_DIR':str(run),'BB_NR_NATIVE_ASYNC_SCENE_ARM':str(run/'native-scene-arm'),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':str(args.source_limit),'BB_NR_NATIVE_ORIGIN_RUN_DIR':str(run),'BB_NR_NATIVE_ORIGIN_HELPER':str(helper),'BB_NR_NATIVE_ORIGIN_WINE':str(ge_files/'lib/wine/x86_64-unix/wine'),'BB_NR_NATIVE_ORIGIN_PRELOADER':str(ge_files/'lib/wine/x86_64-unix/wine-preloader'),'BB_NR_NATIVE_ORIGIN_PREFIX':str(profile/'wine-prefix'),'BB_NR_NATIVE_ORIGIN_WINEDEBUG':'-all,warn+vulkan,err+vulkan','BB_NR_NATIVE_ORIGIN_MODE':args.mode}
   if getattr(args,'pm4_cold_trace',False):nr.update(BB_NR_PM4_COLD_TRACE='1',BB_NR_RESOURCE_TRACE='1')
@@ -745,9 +764,13 @@ def launch_supervised(args,signals):
   else:nr['BB_NATIVE_MOUSE']='0'
   if getattr(args,'daily',False):nr.update(BB_NR_DAILY='1',NRBRIDGE_HOME=str(ROOT))
   if getattr(args,'daily',False):
-   env['BB_FRAME_STATS']='0';env.pop('BB_FRAME_LOG',None)
+   if player is None:env['BB_FRAME_STATS']='0'
+   env.pop('BB_FRAME_LOG',None)
   env.update(nr);env.update(online_env);command=['bash',str(WT/'run.sh')]
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
+  manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False)
+  if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)
+  atomic(run/'manifest.json',manifest)
   with (run/'game.log').open('w') as log:
    daily=getattr(args,'daily',False);capture=None
    if daily:
@@ -817,6 +840,10 @@ def launch_supervised(args,signals):
    atomic(run/'result.json',result)
    from metrics import measure
    atomic(run/'present-metrics.json',measure(run))
+   if player_saves is not None:
+    result['player_save_sync']=player_saves.commit(profile/'user',result)
+    atomic(run/'result.json',result)
+    if result['player_save_sync']['status']=='error':print('Save sync failed; private progress retained: '+str(run/'profile/user/savedata'),flush=True)
    if result['status']=='PASS_NORMAL_TEARDOWN':
     result['generated_inputs_cleanup']=retire_generated_inputs(run,result)
     atomic(run/'result.json',result)
@@ -827,11 +854,14 @@ def launch_supervised(args,signals):
     except (OSError,ValueError) as error:
      result.update(status='HOLD',boot_session_receipt_error=str(error));normal=False
     atomic(run/'result.json',result)
-   return 0 if normal and not held and not signals.interrupted else 3
+   if normal and not held and not signals.interrupted:
+    return 4 if result.get('player_save_sync',{}).get('status')=='error' else 0
+   return 3
 
 def parse_args(argv=None):
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--daily',action='store_true');p.add_argument('--joystick-mouse',action='store_true');p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3)
  daily_online.add_arguments(p)
+ player_settings.add_arguments(p)
  a=p.parse_args(argv)
  try:
   configure_daily_args(a)

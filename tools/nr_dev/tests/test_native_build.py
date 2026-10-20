@@ -7,7 +7,7 @@ class NativeBuild(unittest.TestCase):
  def test_source_checkout_relocation_keeps_private_data_confinement(self):
   with tempfile.TemporaryDirectory() as scratch:
    checkout=Path(scratch)/'bloodborne_pc';tools=checkout/'tools/nr_dev';tools.mkdir(parents=True)
-   for name in ('runner.py','runtime_inputs.py','native_mouse_scope.py','daily_online.py','daily_session_guard.py'):shutil.copyfile(Path(r.__file__).with_name(name),tools/name)
+   for name in ('runner.py','runtime_inputs.py','native_mouse_scope.py','daily_online.py','daily_session_guard.py','player_settings.py'):shutil.copyfile(Path(r.__file__).with_name(name),tools/name)
    spec=importlib.util.spec_from_file_location('relocated_runner',tools/'runner.py');relocated=importlib.util.module_from_spec(spec);spec.loader.exec_module(relocated)
    self.assertEqual(relocated.WT,checkout)
    self.assertEqual(relocated.ROOT,PRIVATE_ROOT)

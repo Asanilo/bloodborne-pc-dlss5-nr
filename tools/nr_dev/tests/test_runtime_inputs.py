@@ -86,6 +86,30 @@ class Inputs(unittest.TestCase):
         self.assertFalse((self.root / 'inputs/runtime-pins.json').exists())
         self.assertFalse((self.root / 'runs').exists())
 
+    def test_player_game_selection_preserves_large_runtime_inventory_and_seed(self):
+        spec = importlib.util.spec_from_file_location('player_selection_test', BASE / 'player_settings.py')
+        player = importlib.util.module_from_spec(spec); spec.loader.exec_module(player)
+        for index in range(400):
+            self.file('sysroot-lib/' + str(index) + '-' + 'x' * 140 + '.so')
+        self.repin()
+        self.assertGreater(self.pins.stat().st_size, 131072)
+        game = self.root / 'selected-game'; game.mkdir(); (game / 'eboot.bin').write_bytes(b'selected game')
+        data = self.root / 'data'; data.mkdir()
+        settings = self.root / 'settings.json'; settings.write_text(json.dumps({'game_dir': str(game)}))
+        ini = self.root / 'bbport.ini'; ini.write_text('upscaler=dlss\npreset=1\n')
+        args = SimpleNamespace(daily=True, launcher_settings=str(settings), launcher_ini=str(ini),
+                               player_data_dir=str(data), sr_only=False, continue_session=None,
+                               local_inputs=str(self.path))
+        before = self.path.read_bytes(), self.pins.read_bytes()
+        derived = player.runtime_for_player(args, self.root)
+        selected = i.load(derived, self.root)
+        self.assertEqual(selected['config']['assets']['path'], str(game))
+        self.assertEqual(selected['config']['seed'], self.config['seed'])
+        self.assertEqual((self.path.read_bytes(), self.pins.read_bytes()), before)
+        self.assertEqual(player.runtime_for_player(args, self.root), derived)
+        (game / 'eboot.bin').write_bytes(b'changed after binding')
+        self.assertRaisesRegex(ValueError, 'pin drift', i.load, derived, self.root)
+
     def test_missing_or_modified_actual_runtime_files_rejected(self):
         for key in ('model', 'forwarder', 'system_ngx'):
             p = Path(self.config[key]);original = p.read_bytes()
