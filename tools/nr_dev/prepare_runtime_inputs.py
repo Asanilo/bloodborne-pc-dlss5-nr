@@ -6,10 +6,21 @@ Wine/GPU, changes legacy pins, copies games/models/saves or grants launch safety
 """
 import argparse
 import json
+import os
 from pathlib import Path
 import runtime_inputs as inputs
 
-ROOT = Path('/home/arinp/Code/nrbridge-dev')
+def workspace_root():
+    value = os.environ.get('NRBRIDGE_HOME', str(Path.home() / 'Code/nrbridge-dev'))
+    path = Path(value)
+    inputs.need(bool(value) and not any(c in value for c in ('\x00', '\n', ':'))
+                and path.is_absolute() and str(path) == value and path.resolve() == path
+                and path not in (Path('/'), Path.home()),
+                'NRBRIDGE_HOME requires a dedicated canonical absolute directory')
+    return path
+
+
+ROOT = workspace_root()
 
 
 def seal(draft, output, root=ROOT, extra_runtime_files=()):

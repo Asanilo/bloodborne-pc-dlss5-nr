@@ -87,6 +87,31 @@ printf '%s' "$NR_SOURCE_DEPS_ROOT" > "$BB_BUILD_DIR/selected-source-root"
             self.assertTrue(all(not (self.wt / rel).is_symlink() for rel in SPECS.values()))
         return result
 
+    def test_relocated_repository_sysroot_and_home_default(self):
+        home = self.root / 'new home'
+        home.mkdir()
+        developer = home / 'Code/nrbridge-dev'
+        developer.parent.mkdir()
+        developer.mkdir()
+        shutil.move(str(self.deps.parent), developer / 'inputs')
+        self.deps = developer / 'inputs/source-deps'
+        relocated_env = self.wt / 'out/deps'
+        relocated_env.parent.mkdir()
+        shutil.move(str(self.envroot), relocated_env)
+        self.environment.update(HOME=str(home))
+        for key in ('NR_DEV_ROOT', 'NRBRIDGE_HOME', 'NR_BUILD_ENV_ROOT'):
+            self.environment.pop(key, None)
+        self.run_build()
+        record = json.loads((self.output / 'build-inputs.json').read_text())
+        self.assertEqual(record['source_deps_root'], str(self.deps))
+        self.assertEqual(record['build_env_root'], str(relocated_env))
+
+    def test_nrbridge_home_selects_development_inputs(self):
+        self.environment.pop('NR_DEV_ROOT')
+        self.environment['NRBRIDGE_HOME'] = str(self.root)
+        self.run_build()
+        self.assertEqual((self.output / 'selected-source-root').read_text(), str(self.deps))
+
     def test_default_dependency_root_and_isolated_output(self):
         self.run_build()
         record = json.loads((self.output / 'build-inputs.json').read_text())

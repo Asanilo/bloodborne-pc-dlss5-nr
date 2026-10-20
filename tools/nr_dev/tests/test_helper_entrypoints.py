@@ -36,6 +36,21 @@ class HelperEntries(unittest.TestCase):
         self.assertFalse((self.root / 'inputs').exists())
         self.assertFalse((self.root / 'build').exists())
 
+    def test_helper_environment_selection_and_missing_selection(self):
+        environment = dict(os.environ, NR_DEV_ROOT=str(self.root),
+                           NR_HELPER_ROOT=str(self.helper), PYTHONDONTWRITEBYTECODE='1')
+        script = HERE / 'prepare_helper.py'
+        selected = subprocess.run([sys.executable, str(script), '--check-only'],
+                                  env=environment, capture_output=True, text=True)
+        self.assertEqual(selected.returncode, 0, selected.stderr)
+        self.assertEqual(json.loads((self.helper / 'nrbridge/received.json').read_text()), ['--check-only'])
+        environment.pop('NR_HELPER_ROOT')
+        missing = subprocess.run([sys.executable, str(script)], env=environment,
+                                 capture_output=True, text=True)
+        self.assertEqual(missing.returncode, 3)
+        self.assertIn('--helper-root or NR_HELPER_ROOT', missing.stderr)
+        self.assertFalse((self.root / 'build').exists())
+
     def test_missing_helper_rejected_without_frozen_fallback(self):
         with patch.object(entry, 'ROOT', self.root):
             self.assertEqual(entry.main(['--helper-root', str(self.root / 'missing')]), 3)

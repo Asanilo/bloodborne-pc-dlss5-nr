@@ -31,6 +31,58 @@ closure = load_module("nrbridge_closure", PACK / "closure.py")
 entry = load_module("nrbridge_entry", ROOT / "launcher/nrbridge_entry.py")
 
 
+class PortableBuildDefaultsTest(unittest.TestCase):
+    def test_relocated_checkout_and_selected_developer_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / 'checkout/packaging/nrbridge'
+            package.mkdir(parents=True)
+            for name in ('build.py', 'closure.py'):
+                shutil.copyfile(PACK / name, package / name)
+            environment = dict(os.environ, HOME=str(root / 'home'),
+                               NRBRIDGE_HOME=str(root / 'private'),
+                               BB_ONLINE_DEPS_ROOT=str(root / 'online'))
+            environment.pop('NR_DEV_ROOT', None)
+            code = ("import build,json; print(json.dumps([str(build.DEFAULT_NATIVE), "
+                    "str(build.DEFAULT_SYSROOT_LIB),str(build.DEFAULT_ONLINE)]))")
+            result = subprocess.run([sys.executable, '-c', code], cwd=package,
+                                    env=environment, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            native, sysroot, online = json.loads(result.stdout)
+            self.assertTrue(Path(native).is_relative_to(root / 'private/build'))
+            self.assertEqual(Path(sysroot), root / 'checkout/out/deps/root/usr/lib')
+            self.assertEqual(Path(online), root / 'online/root/usr/lib')
+            environment['NR_DEV_ROOT'] = str(root / 'explicit developer')
+            overridden = subprocess.run([sys.executable, '-c', code], cwd=package,
+                                        env=environment, capture_output=True, text=True)
+            self.assertEqual(overridden.returncode, 0, overridden.stderr)
+            self.assertTrue(Path(json.loads(overridden.stdout)[0]).is_relative_to(root / 'explicit developer/build'))
+            environment.pop('NR_DEV_ROOT')
+            environment.pop('NRBRIDGE_HOME')
+            fallback = subprocess.run([sys.executable, '-c', code], cwd=package,
+                                      env=environment, capture_output=True, text=True)
+            self.assertEqual(fallback.returncode, 0, fallback.stderr)
+            self.assertTrue(Path(json.loads(fallback.stdout)[0]).is_relative_to(root / 'home/Code/nrbridge-dev/build'))
+            environment.pop('BB_ONLINE_DEPS_ROOT')
+            missing = subprocess.run([sys.executable, str(package / 'build.py')],
+                                     env=environment, capture_output=True, text=True)
+            self.assertEqual(missing.returncode, 2)
+            self.assertIn('--online-deps or BB_ONLINE_DEPS_ROOT', missing.stderr)
+
+    def test_static_verifier_rejects_relocated_development_runpath(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = Path(directory) / 'AppDir'
+            app.mkdir()
+            (app / 'program').write_bytes(b'\x7fELFfixture')
+            dynamic = '(RUNPATH) Library runpath: [/opt/relocated-native/gpu]'
+            with mock.patch.object(build, 'run', return_value=dynamic):
+                with self.assertRaisesRegex(SystemExit, 'development RUNPATH remains'):
+                    build.static_verify(app, (Path('/opt/relocated-native'),))
+            with mock.patch.object(build, 'run', return_value='(RUNPATH) [/home/example/build]'):
+                with self.assertRaisesRegex(SystemExit, 'development RUNPATH remains'):
+                    build.static_verify(app)
+
+
 class ArtifactManifestTest(unittest.TestCase):
     def test_absolute_gpu_path_is_preserved_in_tree_form(self):
         with tempfile.TemporaryDirectory() as directory:

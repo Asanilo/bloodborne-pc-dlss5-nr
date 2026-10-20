@@ -8,8 +8,8 @@ from pathlib import Path
 import subprocess
 import sys
 
-ROOT = Path(os.environ.get('NR_DEV_ROOT', '/home/arinp/Code/nrbridge-dev'))
-HELPER = Path(os.environ.get('NR_HELPER_ROOT', '/home/arinp/Code/dlss5_linux/OptiScaler-Linux-NR/.worktree/nrbridge'))
+ROOT = Path(os.environ.get('NR_DEV_ROOT', os.environ.get('NRBRIDGE_HOME', str(Path.home() / 'Code/nrbridge-dev'))))
+HELPER = Path(os.environ['NR_HELPER_ROOT']) if os.environ.get('NR_HELPER_ROOT') else None
 
 
 def sha(path):
@@ -18,6 +18,8 @@ def sha(path):
 
 
 def delegate(helper_root, arguments):
+    if helper_root is None:
+        raise ValueError('independent Helper repository required; select --helper-root or NR_HELPER_ROOT')
     helper_root = Path(helper_root)
     script = helper_root / 'nrbridge/build.py'
     if not helper_root.is_absolute() or not script.is_file():

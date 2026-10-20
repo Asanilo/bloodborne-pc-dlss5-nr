@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 WT=$(cd -- "$(dirname -- "$0")/../.." && pwd -P)
-ROOT=${NR_DEV_ROOT:-/home/arinp/Code/nrbridge-dev}
+ROOT=${NR_DEV_ROOT:-${NRBRIDGE_HOME:-$HOME/Code/nrbridge-dev}}
 # Prepared, patched source copies and the SDK/sysroot environment are independent
 # read-only inputs. Initialization stays an explicit preparation operation.
 DEPS=${NR_SOURCE_DEPS_ROOT:-$ROOT/inputs/source-deps}
-ENV_ROOT=${NR_BUILD_ENV_ROOT:-/home/arinp/Code/bloodborne_pc/out/deps}
+ENV_ROOT=${NR_BUILD_ENV_ROOT:-$WT/out/deps}
 BUILD=${BB_BUILD_DIR:-$ROOT/build/native}
 fail() { echo "nr-dev build: $*" >&2; exit 3; }
 for path in "$ROOT" "$DEPS" "$ENV_ROOT" "$BUILD"; do

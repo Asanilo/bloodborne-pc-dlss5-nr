@@ -36,21 +36,15 @@ DEFAULT_FORWARDER_BUILD = "9a8251430ccfa68a"
 PYTHON_VERSION = "3.14"
 APPIMAGE_NAME = "bbport-NRBridge-preview-x86_64.AppImage"
 
-# These are build-host paths only.  They are not written into the image; the
-# runtime setup writes canonical user-selected paths into the private data root.
-DEFAULT_NATIVE = Path("/home/arinp/Code/nrbridge-dev/build/baselines") / DEFAULT_NATIVE_SHA
-DEFAULT_HELPER = (
-    Path("/home/arinp/Code/nrbridge-dev/build/helper-runtime-model")
-    / DEFAULT_HELPER_BUILD
-    / "wine_runtime_model.exe"
-)
-DEFAULT_FORWARDER = (
-    Path("/home/arinp/Code/nrbridge-dev/build/convergence/forwarder")
-    / DEFAULT_FORWARDER_BUILD
-    / "nvngx.dll_dlssnr.dll"
-)
-DEFAULT_SYSROOT_LIB = Path("/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib")
-DEFAULT_ONLINE = Path("/home/arinp/Code/bloodborne_pc/out/online-deps-20261020/root/usr/lib")
+# Build inputs stay outside the image; runtime paths are selected on first run.
+DEV_ROOT = Path(os.environ.get("NR_DEV_ROOT", os.environ.get(
+    "NRBRIDGE_HOME", str(Path.home() / "Code/nrbridge-dev"))))
+DEFAULT_NATIVE = DEV_ROOT / "build/baselines" / DEFAULT_NATIVE_SHA
+DEFAULT_HELPER = DEV_ROOT / "build/helper-runtime-model" / DEFAULT_HELPER_BUILD / "wine_runtime_model.exe"
+DEFAULT_FORWARDER = DEV_ROOT / "build/convergence/forwarder" / DEFAULT_FORWARDER_BUILD / "nvngx.dll_dlssnr.dll"
+DEFAULT_SYSROOT_LIB = ROOT / "out/deps/root/usr/lib"
+DEFAULT_ONLINE = (Path(os.environ["BB_ONLINE_DEPS_ROOT"]) / "root/usr/lib"
+                  if os.environ.get("BB_ONLINE_DEPS_ROOT") else None)
 
 
 def sha256(path: Path) -> str:
@@ -152,7 +146,7 @@ def verify_native(build: Path) -> dict:
         # The bundle needs identity, not the development root's full input
         # inventory.  Keeping only the protocol avoids publishing old paths.
         "protocol": build_inputs.get("protocol", {}),
-        # Older Natives hardcode /home/arinp/Code/nrbridge-dev/runs.  Record
+        # Older Natives hardcode a development runs directory. Record
         # the fact so the launcher refuses a portable daily launch instead of
         # failing deep inside the renderer.
         "daily_portable": daily_portable,
@@ -742,13 +736,9 @@ def write_bundle_manifest(app: Path, args, bundle: dict) -> None:
     )
 
 
-def static_verify(app: Path) -> None:
+def static_verify(app: Path, development_roots=()) -> None:
     # 1. No historical build path may remain in an ELF RUNPATH or interpreter.
-    forbidden = (
-        "/home/arinp/Code/nrbridge-dev/build",
-        "/home/arinp/Code/bloodborne_pc/out",
-        "/home/arinp/Code/dlss5_linux",
-    )
+    forbidden = tuple(str(Path(path).resolve()) for path in development_roots)
     for path in sorted(app.rglob("*")):
         if not path.is_file() or path.is_symlink():
             continue
@@ -763,9 +753,8 @@ def static_verify(app: Path) -> None:
         dynamic = run(["readelf", "-d", str(path)])
         for line in dynamic.splitlines():
             if "RPATH" in line or "RUNPATH" in line:
-                for needle in forbidden:
-                    if needle in line:
-                        fail(f"{path}: development RUNPATH remains: {line.strip()}")
+                if any(needle in line for needle in (*forbidden, "/home/", "/Users/", "/nix/store/")):
+                    fail(f"{path}: development RUNPATH remains: {line.strip()}")
         interpreter = run(["readelf", "-l", str(path)])
         if "Requesting program interpreter" in interpreter:
             if not re.search(r"interpreter: /lib64/ld-linux-x86-64\.so\.2", interpreter):
@@ -876,6 +865,8 @@ def main(argv=None) -> int:
 
     helper_forwarder = args.forwarder
     DEFAULT_SYSROOT_LIB = args.sysroot_lib
+    if args.online_deps is None:
+        parser.error("--online-deps or BB_ONLINE_DEPS_ROOT is required")
     if not args.online_deps.is_dir():
         fail(f"online dependency library directory missing: {args.online_deps}")
     if not args.patchelf.is_file():
@@ -926,7 +917,8 @@ def main(argv=None) -> int:
     refresh_native_provenance(app, bundle)
     write_apprun(app)
     write_bundle_manifest(app, args, bundle)
-    static_verify(app)
+    static_verify(app, (args.native_build, args.helper.parent, args.forwarder.parent,
+                        args.sysroot_lib, args.online_deps))
     print(f"AppDir: {app}")
     if args.skip_appimage:
         write_build_report(app, args, bundle, None)

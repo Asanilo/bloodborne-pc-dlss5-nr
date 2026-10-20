@@ -2,6 +2,9 @@
 import copy
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -275,6 +278,19 @@ class Inputs(unittest.TestCase):
                 r.launch_supervised(args, None)
         self.assertFalse((self.root / 'runs/fresh').exists())
 
+
+    def test_private_sealer_cli_uses_configured_root_and_rejects_unsafe_root(self):
+        environment = dict(os.environ, NRBRIDGE_HOME=str(self.root), PYTHONDONTWRITEBYTECODE='1')
+        command = [sys.executable, str(BASE / 'prepare_runtime_inputs.py'), '--check', str(self.path)]
+        before = self.path.read_bytes(), self.pins.read_bytes()
+        result = subprocess.run(command, env=environment, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)['path'], str(self.path))
+        self.assertEqual((self.path.read_bytes(), self.pins.read_bytes()), before)
+        environment['NRBRIDGE_HOME'] = '/'
+        invalid = subprocess.run(command, env=environment, capture_output=True, text=True)
+        self.assertNotEqual(invalid.returncode, 0)
+        self.assertIn('dedicated canonical absolute directory', invalid.stderr)
 
     def test_private_sealer_does_not_overwrite_and_records_actual_closure(self):
         import sys
