@@ -110,7 +110,7 @@ std::optional<NativeRuntimeModel::Commit> NativeAsyncPreSrOriginOwner::TryConsum
  std::unique_lock lock(mutex,std::try_to_lock);if(!lock||State()!=Phase::ModelAcked||!model_ack)return {};
  auto result=model_ack;model_ack.reset();model_request.reset();phase.store(Phase::Ready,std::memory_order_release);return result;
 }
-bool NativeAsyncPreSrOriginOwner::Start(const Instance&i){if(!Enabled())return false;bool expected=false;if(!started.compare_exchange_strong(expected,true))return State()!=Phase::Failed;runtime_model=Env("BB_NR_RUNTIME_MODEL")=="1";session=Env("BB_NR_NATIVE_ASYNC_SESSION");mode=Env("BB_NR_NATIVE_ORIGIN_MODE");run=Env("BB_NR_NATIVE_ORIGIN_RUN_DIR");helper=Env("BB_NR_NATIVE_ORIGIN_HELPER");wine=Env("BB_NR_NATIVE_ORIGIN_WINE");preloader=Env("BB_NR_NATIVE_ORIGIN_PRELOADER");prefix=Env("BB_NR_NATIVE_ORIGIN_PREFIX");
+bool NativeAsyncPreSrOriginOwner::Start(const Instance&i){if(!Enabled())return false;if(NativeRuntimeModel::Daily())std::printf("NRBRIDGE_NATIVE_DAILY_RING64_V2 slots=64 total_wall_limit=none resource_generation=0\n");bool expected=false;if(!started.compare_exchange_strong(expected,true))return State()!=Phase::Failed;runtime_model=Env("BB_NR_RUNTIME_MODEL")=="1";session=Env("BB_NR_NATIVE_ASYNC_SESSION");mode=Env("BB_NR_NATIVE_ORIGIN_MODE");run=Env("BB_NR_NATIVE_ORIGIN_RUN_DIR");helper=Env("BB_NR_NATIVE_ORIGIN_HELPER");wine=Env("BB_NR_NATIVE_ORIGIN_WINE");preloader=Env("BB_NR_NATIVE_ORIGIN_PRELOADER");prefix=Env("BB_NR_NATIVE_ORIGIN_PREFIX");
  const auto abs=[](const auto&s){return !s.empty()&&s[0]=='/';};
  if(!BbNativeAsyncPreSr::ValidDevRun(run,session)||!abs(helper)||!abs(wine)||!abs(preloader)||!abs(prefix)||prefix!=run+"/profile/wine-prefix"||!BbNativeAsyncPreSr::ValidHelperRuntimePaths(run,Env("BB_NR_NATIVE_ORIGIN_RUNTIME_CONFIG"),Env("BB_NR_NATIVE_ORIGIN_GE_FILES"),Env("BB_NR_NATIVE_ORIGIN_NGX_DIR"))){phase.store(Phase::Failed);empty_imports_destroyed.store(true);worker_finished.store(true);std::fprintf(stderr,"NATIVE_ORIGIN_ENV_INVALID no_spawn=1\n");return false;}phase.store(Phase::Bootstrap);worker=std::jthread([this,&i](std::stop_token s){Run(s,i);worker_finished.store(true,std::memory_order_release);});return true;}
 std::shared_ptr<NativeAsyncPreSrOriginOwner::Job> NativeAsyncPreSrOriginOwner::TryReserve(const BbNativeAsync::Frame&f){std::unique_lock lock(mutex,std::try_to_lock);if(!lock||State()!=Phase::Ready||stop_reason.load()||finalized.load()>=BbNativeAsyncPreSrPlay::MaxJobs()||f.source<=last_recorded_origin||((runtime_model&&f.params!=model_params.load())||(!runtime_model&&f.params!=1)))return {};auto next=std::make_shared<Job>();next->id={session,session+"-g0",0,finalized.load(),f.source,f.epoch,f.history,f.params};if(!next->id.Matches(f)||!registry.Valid(next->id))return {};next->origin=f;next->resources=registry;job=next;phase.store(Phase::Reserved,std::memory_order_release);return next;}
@@ -153,7 +153,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   int rc=NativePreSrSpawnLog::Spawn(&child,preloader.c_str(),av.data(),ep.data(),run+"/async-helper-launch.log");W::need(rc==0,"async posix_spawn absolute64");peer_spawned.store(true,std::memory_order_release);Atomic(run+"/async-native-launch.json",J{{"actual_starts",1u},{"launcher_pid",child},{"game_pid",getpid()},{"protocol_version",1u},{"argv",args}}.dump()+"\n");
   const BbNativeAsync::IdentityPolicy::Expected expected{helper,run,mode,session,
     std::filesystem::canonical(wine).string(),std::filesystem::canonical(preloader).string(),runtime_config};
-  const auto check=[&]{W::need(!stop.stop_requested()&&Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds()),"owner finite service/stop HOLD");if(exporter>1)W::need(Ticks(exporter)==exporter_ticks&&Descendant(exporter,getpid())&&Descendant(exporter,child),"exporter exact live identity");int status=0;auto p=waitpid(child,&status,WNOHANG);if(p==child){actual_wait_status.store(status);peer_reaped.store(true,std::memory_order_release);Atomic(run+"/async-native-helper-exit.json",J{{"wait_status",status},{"normal_exit",false},{"premature",true}}.dump());throw std::runtime_error("async peer exited before normal terminal");}W::need(p>=0||errno==EINTR,"waitpid owner");};
+  const auto check=[&]{W::need(!stop.stop_requested()&&(NativeRuntimeModel::Daily()||Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds())),"owner finite service/stop HOLD");if(exporter>1)W::need(Ticks(exporter)==exporter_ticks&&Descendant(exporter,getpid())&&Descendant(exporter,child),"exporter exact live identity");int status=0;auto p=waitpid(child,&status,WNOHANG);if(p==child){actual_wait_status.store(status);peer_reaped.store(true,std::memory_order_release);Atomic(run+"/async-native-helper-exit.json",J{{"wait_status",status},{"normal_exit",false},{"premature",true}}.dump());throw std::runtime_error("async peer exited before normal terminal");}W::need(p>=0||errno==EINTR,"waitpid owner");};
   const auto wait=[&](const std::string&path,std::chrono::seconds budget){const auto deadline=Clock::now()+budget;while(Clock::now()<deadline){check();auto s=Read(path);if(!s.empty())return W::parse(s);std::this_thread::sleep_for(std::chrono::milliseconds(2));}throw std::runtime_error("async bounded control timeout "+path);};
   auto request=wait(run+"/async-pid-request.json",std::chrono::seconds(60));W::bootstrap(request,common,"async-pid-request.json");W::need(W::s(request,"op")=="pid_request"&&W::s(request,"status")=="PID_REQUEST"&&!W::b(request,"completed_GPU")&&!W::b(request,"output_valid")&&!W::b(request,"model_valid")&&W::u(request,"win_pid")>0&&W::u(request,"win_pid")<=UINT32_MAX&&Normalize(W::s(request,"exe"))==helper,"actual pid request");
   auto identity_limit=Clock::now()+std::chrono::seconds(60);while(exporter<1&&Clock::now()<identity_limit){check();const auto match=Find(expected,child,candidates);exporter=match.first;exporter_ticks=match.second;if(exporter<1)std::this_thread::sleep_for(std::chrono::milliseconds(5));}W::need(exporter>1,"unique actual PE exporter");Atomic(run+"/async-exporter-candidates.json",candidates.Report().dump()+"\n");
@@ -198,6 +198,12 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
     Atomic(run+"/"+NativeRuntimeModel::RequestName(commit.generation),request.dump()+"\n");
     auto ack=wait(run+"/"+NativeRuntimeModel::AckName(commit.generation),std::chrono::seconds(120));
     NativeRuntimeModel::CheckAck(ack,request,last_helper_serial);last_helper_serial=NativeRuntimeModel::U(ack,"helper_gpu_serial");
+    if(NativeRuntimeModel::Daily()){
+     // Helper completed creation and closed request before atomic ACK. Remove
+     // exactly this proven pair before exposing ModelAcked, never pending files.
+     W::need(std::filesystem::remove(run+"/"+NativeRuntimeModel::RequestName(commit.generation)),"daily model request cleanup");
+     W::need(std::filesystem::remove(run+"/"+NativeRuntimeModel::AckName(commit.generation)),"daily model ack cleanup");
+    }
     {std::scoped_lock lock(mutex);W::need(State()==Phase::ModelRequested&&model_request&&model_request->revision==commit.revision,"runtime model active commit identity");model_settings=commit.settings;model_generation.store(commit.generation);model_params.store(commit.params);model_revision.store(commit.revision);model_ack=commit;phase.store(Phase::ModelAcked,std::memory_order_release);}
     std::printf("NATIVE_RUNTIME_MODEL_ACK revision=%llu generation=%llu params=%llu style=%u intensity=%.9g actual_helper_GPU_serial=%llu render_commit=PENDING\n",(unsigned long long)commit.revision,(unsigned long long)commit.generation,(unsigned long long)commit.params,commit.settings.style,commit.settings.intensity,(unsigned long long)last_helper_serial);
     continue;
@@ -302,7 +308,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   // liveness/reap function, which classifies any early exit as abnormal.
   const auto result_limit=Clock::now()+std::chrono::seconds(60);
   J result;
-  while(Clock::now()<result_limit&&Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds())&&!stop.stop_requested()){
+  while(Clock::now()<result_limit&&(NativeRuntimeModel::Daily()||Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds()))&&!stop.stop_requested()){
     auto data=Read(run+"/async-wine-result.json");
     if(!data.empty()){result=W::parse(data);break;}
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -320,7 +326,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
     "actual Helper terminal result, not native Present proof");
   int status=0;pid_t reaped=0;
   const auto reap_limit=Clock::now()+std::chrono::seconds(60);
-  while(Clock::now()<reap_limit&&Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds())&&!stop.stop_requested()){
+  while(Clock::now()<reap_limit&&(NativeRuntimeModel::Daily()||Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds()))&&!stop.stop_requested()){
     reaped=waitpid(child,&status,WNOHANG);
     if(reaped==child)break;
     W::need(reaped==0||(reaped<0&&errno==EINTR),"normal waitpid");
@@ -339,7 +345,7 @@ void NativeAsyncPreSrOriginOwner::Run(std::stop_token stop,const Instance&instan
   Fail(e.what()); // Functional FAIL survives any later safe host close.
   if(child>1&&!peer_reaped.load(std::memory_order_acquire)){
    const auto reap_limit=Clock::now()+std::chrono::seconds(60);
-   while(!stop.stop_requested()&&Clock::now()<reap_limit&&Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds())){
+   while(!stop.stop_requested()&&Clock::now()<reap_limit&&(NativeRuntimeModel::Daily()||Clock::now()-start<std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds()))){
     int status=0;const auto p=waitpid(child,&status,WNOHANG);
     if(p==child){actual_wait_status.store(status);peer_reaped.store(true,std::memory_order_release);
      try{Atomic(run+"/async-native-helper-exit.json",J{{"wait_status",status},{"normal_exit",false}}.dump()+"\n");}catch(...){}

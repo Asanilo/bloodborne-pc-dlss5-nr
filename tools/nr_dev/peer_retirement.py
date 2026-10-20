@@ -141,10 +141,67 @@ def audit_origin_jobs_and_retirement(result, run, session, out, expected_jobs=4,
 
 
 def audit(run,session):
+ if load(run/'manifest.json').get('daily') is True:return audit_daily(run,session)
  helper=load(run/'async-wine-result.json');count=helper['finalized_jobs'];out={}
  manifest=load(run/'manifest.json');runtime_model=manifest.get('runtime_model',False)
  audit_origin_jobs_and_retirement({'actual_helper_starts':1},run,session,out,expected_jobs=count,continuous_max_jobs=16384,runtime_model=runtime_model)
  return out
+
+def audit_daily(run,session):
+ """Terminal ownership audit for the bounded daily transport.
+
+ Per-job files are deliberately retired after live tuple/fence validation. This
+ verifies actual terminal ownership evidence, not a reconstructed per-job trace.
+ """
+ config=load(run/'async-config.json');meta=load(run/'async-meta-g0.json')
+ helper=load(run/'async-wine-result.json');reaped=load(run/'async-native-helper-exit.json')
+ release=load(run/f'async-native-released-{session}-g0.json')
+ retired=load(run/f'async-retired-{session}-g0.json');audited=load(run/f'async-native-audited-{session}-g0.json')
+ messages=(config,meta,helper,release,retired,audited)
+ for message in messages:
+  need(message.get('session')==session and message.get('generation')==0
+       and message.get('resource_set')==session+'-g0'
+       and type(message.get('protocol_version')) is int and message['protocol_version']==2
+       and message.get('transport_layout')=='frame-ring-64-daily-v2','daily terminal protocol/session/resource identity')
+ counts=('finalized_jobs','captured_jobs','obsolete_jobs','skip_jobs')
+ total=helper['finalized_jobs']
+ need(all(type(helper.get(k)) is int and 0<=helper[k]<=9007199254740991 for k in counts)
+      and total==sum(helper[k] for k in counts[1:]),'daily actual finalized disposition counters')
+ for message in (release,retired,audited):
+  need(all(type(message.get(k)) is int and message[k]==helper[k] for k in counts)
+       and message.get('source_frame_valid') is (total>0),'daily actual terminal counts agree')
+ for message in (helper,release,retired,audited):
+  need(message.get('job')==total and message.get('next_job')==total
+       and all(message.get(k)==helper.get(k) for k in ('origin_source','origin_epoch','origin_history')),'daily final immutable origin identity')
+ need(helper.get('op')=='result' and helper.get('status')=='PASS'
+      and helper.get('normal_release') is True and helper.get('normal_shutdown') is True
+      and helper.get('completed_GPU') is True,'actual Helper normal GPU shutdown')
+ creates=helper.get('feature_create_calls');releases=helper.get('feature_release_calls')
+ need(type(creates) is int and type(releases) is int and 1<=creates==releases<=9007199254740991,'daily real Feature create/release counts')
+ need(reaped.get('normal_exit') is True and reaped.get('wait_status')==0
+      and reaped.get('finalized_jobs')==total,'actual private Helper waitpid0')
+ need(release.get('status')=='NATIVE_RELEASED' and release.get('output_valid') is False and release.get('model_valid') is False,'daily Native release stage')
+ if release.get('native_last_use_proof')=='ACTUAL_NATIVE_GPU_LAST_USE':
+  need(type(release.get('native_last_use_tick')) is int and release['native_last_use_tick']>0
+       and type(release.get('native_last_use_observed_tick')) is int
+       and release['native_last_use_observed_tick']>=release['native_last_use_tick']
+       and release.get('completed_GPU') is True,'daily actual maximum Native GPU final use')
+ else:
+  need(total==0 and release.get('native_last_use_proof')=='NOT_REQUIRED_NO_NATIVE_USE'
+       and release.get('native_last_use_tick')==release.get('native_last_use_observed_tick')==0
+       and release.get('completed_GPU') is False,'daily explicit no-use proof')
+ need(all(type(release.get(k)) is int and release[k]==0 for k in ('native_imported_images_owned','native_raw_duplicate_fd_owned','native_origin_leases_owned','native_cache_owners_owned')),'daily Native actual owners retired')
+ need(retired.get('status')=='RETIRED' and retired.get('normal_shared_retirement') is True
+      and retired.get('completed_GPU') is True and retired.get('shared_images_owned')==0
+      and retired.get('export_raw_fd_owned')==0,'daily actual Helper shared GPU retirement')
+ need(audited.get('status')=='FD_AUDITED' and audited.get('tracked_NR_FD_remaining')==0
+      and all(exact_typed(audited.get(k),release.get(k)) for k in ('native_last_use_tick','native_last_use_observed_tick','native_last_use_proof','completed_GPU')),'daily targeted FD audit with same actual final-use proof')
+ need(helper.get('evaluate_calls_total')==(total if helper.get('mode')=='resident' else 0)
+      and helper.get('resolve_calls_total')==helper.get('evaluate_calls_total'),'daily actual Evaluate/resolve counts')
+ need(not list(run.glob('runtime-model-request-*.json')) and not list(run.glob('runtime-model-ack-*.json')),'daily no pending model transition')
+ need(not list(run.glob('runtime-job-model-*.json')) and not list((run/'frames').rglob('async-*.json')),'daily consumed transport files retired')
+ return {'retirement':'PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP','terminal_counts':{k:helper[k] for k in counts},
+         'feature_create_release_count':creates,'daily':True,'job_evidence':'live exact tuple/fence checks; consumed ring files removed; no full forensic job trace claim'}
 
 def rows(text,event):
  return [dict(re.findall(r'(\w+)=([^\s]+)',line)) for line in text.splitlines() if line.startswith(event+' ')]
@@ -153,6 +210,9 @@ def audit_session(run,termination=None):
  result=termination if termination is not None else load(run/'result.json')
  need(result.get('returncode')==0 and result.get('residuals')==[] and result.get('watchdog_expired') is False,'normal actual process exit, no recorded residual or watchdog expiry')
  text=(run/'game.log').read_text(errors='replace')
+ if manifest.get('daily') is True:
+  state=load(run/'game-log-state.json')
+  need(state.get('failure_latched') is False and state.get('error') is None and state.get('complete') is True,'daily bounded log never lost a recorded failure')
  need(not re.search(r'NATIVE_\S*(?:HOLD|QUARANTINE|ASSOCIATION_REJECTED)|functional=FAIL',text),'no failed native resource/association proof')
  proof=rows(text,'NATIVE_ASYNC_PRE_SR_EXIT_PROOF')
  need(len(proof)==1 and proof[0].get('actual_source_cache_SR_GPU_lastuse_complete')=='1' and proof[0].get('managed_owner_joined')=='1' and proof[0].get('peer_retirement')=='OWNER_PROOF','exact PreSR last-use and joined-owner exit proof')

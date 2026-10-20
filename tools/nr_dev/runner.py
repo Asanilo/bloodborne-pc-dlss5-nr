@@ -2,10 +2,16 @@
 """Isolated NR development runner. No legacy approval, ledger or launch quota imports."""
 import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid,importlib.util,stat
 from pathlib import Path
-ROOT=Path('/home/arinp/Code/nrbridge-dev');WT=Path(__file__).resolve().parents[2];ASSETS=Path('/home/arinp/Code/nrbridge-dev/assets/CUSA03173');SEED=Path('/home/arinp/Code/nrbridge-dev/seed/private-NRTest-seed')
-GE=Path('/home/arinp/.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64')
+def workspace_root():
+ value=os.environ.get('NRBRIDGE_HOME',str(Path.home()/'Code/nrbridge-dev'));path=Path(value)
+ if not value or any(c in value for c in ('\x00','\n',':')) or not path.is_absolute() or str(path)!=value or path.resolve()!=path or path in (Path('/'),Path.home()):raise ValueError('NRBRIDGE_HOME requires a dedicated canonical absolute directory')
+ return path
+ROOT=workspace_root();WT=Path(__file__).resolve().parents[2];ASSETS=ROOT/'assets/CUSA03173';SEED=ROOT/'seed/private-NRTest-seed'
+GE=Path.home()/'.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64'
 _runtime_spec=importlib.util.spec_from_file_location('nr_dev_runtime_inputs',Path(__file__).with_name('runtime_inputs.py'))
 runtime_inputs=importlib.util.module_from_spec(_runtime_spec);_runtime_spec.loader.exec_module(runtime_inputs)
+_online_spec=importlib.util.spec_from_file_location('nr_dev_daily_online',Path(__file__).with_name('daily_online.py'))
+daily_online=importlib.util.module_from_spec(_online_spec);_online_spec.loader.exec_module(daily_online)
 def atomic(p,value):
  t=p.with_suffix('.tmp');t.write_text(json.dumps(value,indent=2)+'\n');t.replace(p)
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -298,6 +304,42 @@ def reboot_diagnostic_preflight(lock,args):
  if type(record.get('monotonic_ns')) is not int or not 0<record['monotonic_ns']<=time.monotonic_ns():raise ValueError('positive current-boot observation timestamp required')
  return {'boot_id':boot,'unresolved_driver_hang':False,'scope':'one reboot-isolated SR diagnostic only; old GPU fault unresolved','reboot_diagnostic':True,'historical_faults_resolved':False,'evidence':[{'path':str(path),'sha256':sha(path)}]}
 
+def daily_preflight(lock,runtime_binding):
+ if lock is None:raise ValueError('daily mode requires exclusive GPU lock')
+ if Path(os.readlink('/proc/self/fd/'+str(lock.fileno())))!=Path('/tmp/nrbridge-poc-gpu.lock'):raise ValueError('wrong GPU lock')
+ fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+ with open('/tmp/nrbridge-poc-gpu.lock','a') as probe:
+  try:fcntl.flock(probe,fcntl.LOCK_EX|fcntl.LOCK_NB)
+  except BlockingIOError:pass
+  else:raise ValueError('GPU lock not exclusive')
+ if runtime_binding is None:raise ValueError('daily mode requires explicit versioned runtime inputs')
+ if holders():raise ValueError('live Native/Helper holders')
+ boot=Path('/proc/sys/kernel/random/boot_id').read_text().strip()
+ # Historical failures remain evidence. A current-boot unknown GPU/resource state
+ # blocks daily play; reboot isolation does not turn old failures into retirement.
+ for session,record in held_run_snapshot().items():
+  if record['boot_id']==boot:raise ValueError('current-boot HOLD requires resolution: '+session)
+ for path in (ROOT/'runs').glob('*/manifest.json'):
+  manifest=json.loads(path.read_text())
+  if manifest.get('daily') is not True or manifest.get('host_safety',{}).get('boot_id')!=boot:continue
+  result=path.parent/'result.json'
+  if not result.is_file() or json.loads(result.read_text()).get('status')!='PASS_NORMAL_TEARDOWN':
+   raise ValueError('current-boot daily retirement not proved: '+path.parent.name)
+ verify_runtime_inputs(runtime_binding)
+ journal=subprocess.check_output(['journalctl','-k','-b','0','--no-pager','--output=json'],text=True,stderr=subprocess.PIPE,timeout=20)
+ check_kernel_journal(journal,boot)
+ return {'boot_id':boot,'daily':True,'unresolved_driver_hang':False,'historical_faults_resolved':False,'evidence':['live current-boot kernel check and no current-boot HOLD; exclusive project GPU lock']}
+
+def record_pending_daily_retirement(run):
+ # Persist before spawn so a supervisor crash cannot erase this admission gate.
+ atomic(run/'result.json',{'status':'HOLD','reason':'daily session pending actual normal retirement','native_lastuse_proof':False,'returncode':None})
+
+def daily_failure_reason(run,capture):
+ if (run/'native.abort').exists():return 'Native quarantined shared GPU ownership'
+ if capture.state.get('failure_latched'):return 'recorded resource/GPU failure'
+ if capture.state.get('error') is not None:return 'daily log capture failed; evidence incomplete'
+ return None
+
 def preflight(lock=None,recovery=None,runtime_binding=None):
  h=holders()
  if h:raise ValueError('live Native/Helper GPU holders: '+json.dumps(h))
@@ -404,7 +446,10 @@ def copy_continuation(session,profile):
 
 class SessionSchedule:
  """Planned end requests ordinary close; only independent grace/watchdog expiry is HOLD."""
- def __init__(self,start,seconds,watchdog_seconds,close_grace):
+ def __init__(self,start,seconds,watchdog_seconds,close_grace,daily=False):
+  if daily:
+   if seconds!=0 or watchdog_seconds!=0 or not 1<=close_grace<=600:raise ValueError('daily mode has no total budget; positive close grace required')
+   self.planned=self.watchdog=math.inf;self.grace=close_grace;self.close_started=None;return
   if not 1<=seconds<watchdog_seconds<=600 or not 1<=close_grace<=600:raise ValueError('require 1 <= planned seconds < watchdog <=600 and positive close grace')
   self.planned=start+seconds;self.watchdog=start+watchdog_seconds;self.grace=close_grace;self.close_started=None
  def close_due(self,now):return now>=self.planned
@@ -454,7 +499,7 @@ def verify_native_mappings(maps,artifacts,pid=None):
  A source-named memfd may contain unpacked/patched bytes, so no original-byte
  backing hash is asserted. Only the complete absolute embedded source is accepted.
  """
- expected={str(Path(p)):h for p,h in artifacts.items() if re.search(r'/lib(?:bbgpu|bbport_dlss|nvidia-ngx-dlss)\.so',p)}
+ expected={str(Path(p)):h for p,h in artifacts.items() if re.search(r'/lib(?:bbgpu|bbnet(?:20)?|bbport_dlss|nvidia-ngx-dlss)\.so',p)}
  for path,digest in artifacts.items():
   if sha(Path(path))!=digest:raise ValueError('launch artifact drift '+path)
  out=[]
@@ -462,7 +507,7 @@ def verify_native_mappings(maps,artifacts,pid=None):
   fields=line.split(None,5)
   if len(fields)!=6:continue
   pathname=fields[5]
-  if not re.search(r'/lib(?:bbgpu|bbport_dlss|nvidia-ngx-dlss)\.so',pathname):continue
+  if not re.search(r'/lib(?:bbgpu|bbnet(?:20)?|bbport_dlss|nvidia-ngx-dlss)\.so',pathname):continue
   memfd=pathname.startswith('/memfd:')
   source=pathname[len('/memfd:'):] if memfd else pathname
   deleted=source.endswith(' (deleted)')
@@ -492,6 +537,9 @@ def current_game(run):
  if record.exists() and json.loads(record.read_text())!=identity:raise ValueError('PID/starttime mismatch')
  maps=(Path('/proc')/str(identity['pid'])/'maps').read_text()
  libs=verify_native_mappings(maps,m['artifacts'],identity['pid'])
+ if m.get('online',{}).get('pool','offline')!='offline':
+  module=Path(m['native_build'])/'gpu/libbbnet20.so'
+  if m.get('environment',{}).get('BB_NET_MODULE')!=str(module) or not any(item['source']==str(module) for item in libs):raise ValueError('selected online module is not actually mapped')
  atomic(run/'native-loaded-libraries.json',{'game':identity,'mapped_libraries':libs})
  atomic(record,identity);return identity
 
@@ -501,12 +549,17 @@ def control(args):
  game=current_game(run)
  if args.command in ('start-helper','arm'):
   session_manifest=json.loads((run/'manifest.json').read_text());binding=session_manifest.get('runtime_inputs')
+  daily=session_manifest.get('daily',False)
+  if type(daily) is not bool:raise ValueError('daily manifest requires strict boolean')
+  if daily:validate_daily_manifest(run,session_manifest)
   if binding:
    runtime_inputs.recheck(binding,ROOT)
+   if daily:runtime_inputs.daily_capability(Path(session_manifest['native_build']),binding)
    helper_config=run/'helper-runtime.json'
    if helper_config.resolve()!=helper_config or session_manifest.get('helper_runtime_config')!={'path':str(helper_config),'sha256':sha(helper_config)} or runtime_inputs.read(helper_config)!=runtime_inputs.helper_config(binding):raise ValueError('session Helper runtime config drift')
-  from context_recovery import check_control
-  check_control(argparse.Namespace(**globals()),run,game,args.command)
+  if not daily:
+   from context_recovery import check_control
+   check_control(argparse.Namespace(**globals()),run,game,args.command)
  if args.command=='dump':
   (run/'dump').mkdir(exist_ok=True)
   with (run/'present-dump-trigger').open('x') as trigger:trigger.write(args.session+'\n')
@@ -542,6 +595,38 @@ def control(args):
    subprocess.run(['niri','msg','action','focus-window','--id',str(own[0]['id'])],check=True,timeout=5);return
   subprocess.run(['niri','msg','action','close-window','--id',str(own[0]['id'])],check=True,timeout=5)
   atomic(run/'stop-request.json',{'game':game,'monotonic_ns':time.monotonic_ns(),'scope':'normal window close request; not retirement proof'})
+
+def validate_daily_manifest(run,manifest):
+ environment=manifest.get('environment',{})
+ for directory in (run/'profile',run/'profile/user'):
+  if directory.resolve()!=directory or directory.is_symlink() or not directory.is_dir():raise ValueError('daily private profile directory drift')
+ if (manifest.get('schema')!='nr-dev-session-v1' or manifest.get('session')!=run.name
+     or manifest.get('daily') is not True or not manifest.get('runtime_inputs')
+     or manifest.get('host_safety',{}).get('daily') is not True
+     or any(type(manifest.get(k)) is not int or manifest[k]!=0 for k in ('planned_seconds','watchdog_seconds'))):raise ValueError('invalid daily session binding')
+ required={'BB_NR_DAILY':'1','NRBRIDGE_HOME':str(ROOT),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':'0','BB_FRAME_STATS':'0',
+           'BB_DATA_DIR':str(run/'profile'),'BB_USER_DIR':str(run/'profile/user'),
+           'BB_GPU_USER_DIR':str(run/'profile/user')}
+ if (any(environment.get(k)!=v for k,v in required.items())
+     or environment.get('BB_NATIVE_MOUSE') not in ('0','1')
+     or any(k in environment for k in ('BB_FRAME_LOG','BB_NR_PM4_COLD_TRACE','BB_NR_PM4_PRODUCER_CONTEXT','BB_NATIVE_HISTORY_DIAGNOSTIC','BB_RE_CAMERA','BB_RE_ENTRY'))):raise ValueError('daily private environment drift')
+ daily_online.validate_manifest(run,manifest)
+
+def validate_daily_args(args):
+ daily_online.validate_args(args)
+ daily=getattr(args,'daily',False)
+ if type(daily) is not bool:raise ValueError('daily mode requires strict boolean')
+ if not daily:return
+ if any(getattr(args,k,None) for k in ('context_recovery','reboot_diagnostic','pm4_cold_trace','pm4_producer_context','history_diagnostic')):raise ValueError('daily mode and cold diagnostic scopes are separate')
+ if not getattr(args,'local_inputs',None):raise ValueError('daily mode requires explicit versioned runtime inputs')
+ if any(getattr(args,k,None) for k in ('runtime_model_helper','runtime_model_build_sha256')):raise ValueError('daily mode selects Helper from local inputs')
+ if any(type(getattr(args,k,None)) is not int or getattr(args,k)!=0 for k in ('seconds','watchdog_seconds','source_limit')):raise ValueError('daily mode has no total time/source budget')
+
+def configure_daily_args(args):
+ if getattr(args,'joystick_mouse',False) and getattr(args,'native_mouse',False):raise ValueError('choose one mouse route')
+ if getattr(args,'daily',False):
+  args.seconds=args.watchdog_seconds=args.source_limit=0;args.native_mouse=not args.joystick_mouse
+ validate_daily_args(args)
 
 def sample_gpu_memory():
  """Two independently observed NVML CLI views, never sum PID ownership into device usage."""
@@ -603,20 +688,22 @@ def launch(args):
  return 3 if signals.interrupted else code
 
 def launch_supervised(args,signals):
+ validate_daily_args(args)
  native_mouse_scope.requested(args)
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
  binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None
- ge_files=GE/'files';sysroot_lib=Path('/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib')
+ ge_files=GE/'files';sysroot_lib=WT/'out/deps/root/usr/lib'
  if binding is not None:
   runtime_inputs.native_capability(build)
+  if getattr(args,'daily',False):runtime_inputs.daily_capability(build,binding)
   c=binding['config'];assets=Path(c['assets']['path']);seed=Path(c['seed']);helper=Path(c['helper']['path']);ge_files=Path(c['ge_files']);sysroot_lib=Path(c['sysroot_lib'])
   if args.runtime_model_helper or args.runtime_model_build_sha256:raise ValueError('local inputs select Helper; do not mix legacy Helper flags')
  helper_build=binding['helper_build'] if binding else None;helper_runtime_config=None
  if args.runtime_model_helper:helper,helper_build=checked_runtime_helper(args.runtime_model_helper,args.runtime_model_build_sha256)
  if args.continue_session==args.session:raise ValueError('continuation must create a new session')
  with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
-  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=preflight(lock,args if (getattr(args,'reboot_diagnostic',None) or getattr(args,'context_recovery',None)) else None,binding)
+  fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);safety=daily_preflight(lock,binding) if getattr(args,'daily',False) else preflight(lock,args if (getattr(args,'reboot_diagnostic',None) or getattr(args,'context_recovery',None)) else None,binding)
   for p in (*native_artifacts,assets/'eboot.bin',helper):
    if not p.is_file():raise ValueError('missing input '+str(p))
   run.mkdir(mode=0o700);signals.run=run
@@ -631,6 +718,8 @@ def launch_supervised(args,signals):
     p=profile/'user/savedata'/item['relative']
     if p.is_symlink() or sha(p)!=item['sha256']:raise ValueError('private seed SHA mismatch')
   for name in ('logs','wine-prefix','cache','config','data','state'):(profile/name).mkdir()
+  online_env,online_record,online_module=daily_online.prepare(args,build,profile)
+  if online_module is not None:native_artifacts=[*native_artifacts,online_module]
   (profile/'bbport.ini').write_text('upscaler=dlss\npreset=1\naspect_ratio=16:9\noutput_res=1920x1080\njitter=1\nobject_motion=1\nsharpen=0\nshow_fps=1\n');(run/'pad.txt').write_text('')
   base_keys={'PATH','HOME','USER','LOGNAME','SHELL','LANG','LANGUAGE','LC_ALL','LC_CTYPE','TZ','TERM','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','XDG_RUNTIME_DIR','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS','PULSE_SERVER','PIPEWIRE_REMOTE','SDL_AUDIODRIVER','SDL_VIDEODRIVER'}
   env={k:v for k,v in os.environ.items() if k in base_keys}
@@ -647,15 +736,33 @@ def launch_supervised(args,signals):
    if args.sky!='persistent' or args.mode!='resident':raise ValueError('history diagnostic requires persistent resident mode')
    nr.update(BB_NATIVE_HISTORY_DIAGNOSTIC='1',BB_NATIVE_HISTORY_DIAGNOSTIC_FRAMES='3',BB_NATIVE_HISTORY_DIAGNOSTIC_AFTER_CANDIDATE=str(args.diagnostic_after))
   if native_mouse_scope.requested(args):nr['BB_NATIVE_MOUSE']='1'
-  env.update(nr);command=['bash',str(WT/'run.sh')]
-  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':env,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
+  else:nr['BB_NATIVE_MOUSE']='0'
+  if getattr(args,'daily',False):nr.update(BB_NR_DAILY='1',NRBRIDGE_HOME=str(ROOT))
+  if getattr(args,'daily',False):
+   env['BB_FRAME_STATS']='0';env.pop('BB_FRAME_LOG',None)
+  env.update(nr);env.update(online_env);command=['bash',str(WT/'run.sh')]
+  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
   with (run/'game.log').open('w') as log:
+   daily=getattr(args,'daily',False);capture=None
+   if daily:
+    record_pending_daily_retirement(run)
+    from daily_log import GameLog
+    capture=GameLog(run,None)
    if not signals.before_spawn():return 3
-   process=subprocess.Popen(command,cwd=WT,env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
-   atomic(run/'runner.json',{'runner':live(os.getpid()),'launcher':live(process.pid)});schedule=SessionSchedule(time.monotonic(),args.seconds,args.watchdog_seconds,args.close_grace);held=False;sample_at=0;planned_retry_at=0
+   process=subprocess.Popen(command,cwd=WT,env=env,stdout=subprocess.PIPE if daily else log,stderr=subprocess.STDOUT,start_new_session=True)
+   if daily:
+    capture.pipe=process.stdout;capture.start()
+   atomic(run/'runner.json',{'runner':live(os.getpid()),'launcher':live(process.pid)});schedule=SessionSchedule(time.monotonic(),args.seconds,args.watchdog_seconds,args.close_grace,getattr(args,'daily',False));held=False;sample_at=0;planned_retry_at=0
    print(str(run),flush=True)
    while process.poll() is None:
     signals.flush()
+    failure=daily_failure_reason(run,capture) if daily and not held else None
+    if failure:
+     held=True;atomic(run/'result.json',{'status':'HOLD','reason':failure+'; ordinary close requested; GPU lock retained','native_lastuse_proof':False})
+     if not signals.close_requested:
+      signals.close_requested=True
+      try:control(argparse.Namespace(command='stop',session=args.session))
+      except Exception as error:atomic(run/'failure-close-error.json',{'error':str(error)})
     if signals.interrupted and not signals.close_requested:
      atomic(run/'result.json',{'status':'HOLD','reason':'supervisor interrupted; waiting actual child exit with GPU lock retained','supervisor_interrupted':True,'received_signals':signals.received})
      signals.request_close_once(args.session)
@@ -663,7 +770,9 @@ def launch_supervised(args,signals):
      sample_at=time.monotonic()+1
      try:
       sample=sample_gpu_memory()
-      with (run/'gpu-memory.jsonl').open('a') as memory:memory.write(json.dumps(sample)+'\n')
+      if daily:atomic(run/'gpu-memory-latest.json',sample)
+      else:
+       with (run/'gpu-memory.jsonl').open('a') as memory:memory.write(json.dumps(sample)+'\n')
      except (OSError,subprocess.SubprocessError):pass
     now=time.monotonic()
     if (run/'stop-request.json').exists() and schedule.close_started is None:
@@ -684,6 +793,7 @@ def launch_supervised(args,signals):
        try:control(argparse.Namespace(command='stop',session=args.session))
        except Exception as e:atomic(run/'watchdog-close-error.json',{'error':str(e)})
     time.sleep(.25)
+   if capture:capture.finish()
    signals.flush()
    text=(run/'game.log').read_text(errors='replace');residual=holders()
    from peer_retirement import audit_session
@@ -703,16 +813,30 @@ def launch_supervised(args,signals):
     atomic(run/'result.json',result)
    return 0 if normal and not held and not signals.interrupted else 3
 
-def main():
- p=argparse.ArgumentParser(description=__doc__);p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3);a=p.parse_args()
- try:validate_pm4_producer_context(a)
+def parse_args(argv=None):
+ p=argparse.ArgumentParser(description=__doc__);p.add_argument('--daily',action='store_true');p.add_argument('--joystick-mouse',action='store_true');p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3)
+ daily_online.add_arguments(p)
+ a=p.parse_args(argv)
+ try:
+  configure_daily_args(a)
+  validate_pm4_producer_context(a)
  except ValueError as error:p.error(str(error))
  if a.context_recovery and a.reboot_diagnostic:p.error('choose one isolated diagnostic scope')
+ if a.command!='preflight' and not a.session:p.error('session required')
+ if ((not a.daily and not 1<=a.seconds<a.watchdog_seconds<=600)
+     or not 1<=a.close_grace<=600
+     or not ((a.daily and a.source_limit==0) or 1<=a.source_limit<=216000)
+     or not 1<=a.diagnostic_after<=1000000):p.error('finite diagnostic budget or daily mode with positive close grace required')
+ return a
+
+def main():
+ a=parse_args()
  if a.command=='preflight':
   with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
-   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);binding=runtime_inputs.load(a.local_inputs,ROOT) if a.local_inputs else None;print(json.dumps(preflight(lock,runtime_binding=binding),indent=2))
+   fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+   binding=runtime_inputs.load(a.local_inputs,ROOT) if a.local_inputs else None
+   safety=daily_preflight(lock,binding) if a.daily else preflight(lock,runtime_binding=binding)
+   print(json.dumps(safety,indent=2))
   return 0
- if not a.session:p.error('session required')
- if not 1<=a.seconds<a.watchdog_seconds<=600 or not 1<=a.close_grace<=600 or not 1<=a.source_limit<=216000 or not 1<=a.diagnostic_after<=1000000:p.error('finite current-stage resource budget required')
  return launch(a) if a.command=='start' else control(a)
 if __name__=='__main__':raise SystemExit(main())

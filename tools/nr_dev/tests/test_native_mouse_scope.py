@@ -27,7 +27,8 @@ class CandidateSelection(unittest.TestCase):
         self.assertFalse(scope.requested(SimpleNamespace()))
         scope.check_record({'schema': 'nr-isolated-context-v1'}, False)
         scope.check_environment({}, {})
-        for value in ('1', '0', '', True):
+        scope.check_environment({}, {'BB_NATIVE_MOUSE': '0'})
+        for value in ('1', '', True):
             with self.assertRaises(ValueError):
                 scope.check_environment({}, {'BB_NATIVE_MOUSE': value})
 
@@ -49,7 +50,7 @@ class CandidateSelection(unittest.TestCase):
                 exec(compile(code, str(ROOT / 'runner.py'), 'exec'), namespace)
             self.assertFalse(any(k in namespace['env'] for k in
                                  ('BB_NATIVE_MOUSE', 'BB_ONLINE', 'BB_BBSC', 'BB_RE_CAMERA')))
-            self.assertEqual(namespace['nr'].get('BB_NATIVE_MOUSE'), '1' if selected else None)
+            self.assertEqual(namespace['nr'].get('BB_NATIVE_MOUSE'), '1' if selected else '0')
 
     def test_exact_one_scope_cold_and_strict_boolean(self):
         self.assertTrue(scope.requested(self.args()))

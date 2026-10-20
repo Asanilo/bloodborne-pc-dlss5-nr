@@ -134,7 +134,8 @@ def load(path, root):
          and manifest.get('artifact_sha256') == sha(helper), 'Helper artifact identity drift')
     protocol = manifest.get('protocol', {})
     need(isinstance(protocol, dict), 'invalid Helper protocol manifest')
-    need(all(type(protocol.get(k)) is type(v) and protocol[k] == v
+    need(all(type(protocol.get(k)) is type(v) and
+             (protocol[k] in (3, 4) if k == 'interface_revision' else protocol[k] == v)
              for k, v in HELPER_PROTOCOL.items()), 'Helper protocol/version mismatch')
     exports = protocol.get('exports')
     need(isinstance(exports, dict) and set(exports) == {'native_runtime_model.h', 'pre_sr_wire.h', 'pre_sr_spec.h', 'effective-spec.json'}
@@ -188,6 +189,20 @@ def native_capability(build):
     # not a permission proof. Old validated Native builds remain legacy-only.
     need(b'NRBRIDGE_NATIVE_HELPER_RUNTIME_CONFIG_V1' in (build / 'gpu/libbbgpu.so').read_bytes(),
          'Native build does not support explicit runtime inputs; use legacy mode')
+
+
+def daily_capability(build, binding):
+    need(b'NRBRIDGE_NATIVE_DAILY_RING64_V2' in (build / 'gpu/libbbgpu.so').read_bytes(),
+         'Native build does not support the daily ring64 transport')
+    proof = binding['helper_build']
+    path = canonical(proof['path'])
+    need(sha(path) == proof['sha256'], 'daily Helper manifest SHA drift')
+    protocol = read(path).get('protocol', {})
+    need(type(protocol.get('interface_revision')) is int and protocol['interface_revision'] == 4
+         and protocol.get('runtime_model_schema') == HELPER_PROTOCOL['runtime_model_schema']
+         and protocol.get('job_model_schema') == HELPER_PROTOCOL['job_model_schema']
+         and type(protocol.get('wire_version')) is int and protocol['wire_version'] == 1,
+         'daily Helper requires interface revision 4 and existing model/wire schemas')
 
 
 def recheck(binding, root):

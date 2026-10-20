@@ -27,8 +27,8 @@ class ProtocolExport(unittest.TestCase):
 
     def test_local_copy_and_build_provenance(self):
         proof = checker.checked(self.fixture.wt)
-        self.assertEqual(proof['source']['commit'], 'cea5160aab380272dfe52ab2db31691e77531c18')
-        self.assertEqual(proof['header_sha256'], '67fa656294fa38c6aca66f011a64211ae9fe79e44aad2f9a93fbe5cfcfcc732b')
+        self.assertEqual(proof['source']['commit'], '713f8ac99959fcdf470b2600c2645a1e5b24b7c8')
+        self.assertEqual(proof['header_sha256'], '92c16609685a651a405842126b6160fd02376c2be034d2142f365bda119a0205')
         self.fixture.run_build()
         inputs = json.loads((self.fixture.output / 'build-inputs.json').read_text())
         self.assertEqual(inputs['protocol'], proof)
@@ -59,7 +59,7 @@ class ProtocolExport(unittest.TestCase):
         original = self.provenance.read_bytes()
         for edit in (lambda m: m.update(schema='unrecognized'),
                      lambda m: m['export_manifest'].update(wire_version=True),
-                     lambda m: m['export_manifest'].update(interface_revision=4),
+                     lambda m: m['export_manifest'].update(interface_revision=5),
                      lambda m: m['source'].update(commit='short')):
             with self.subTest(edit=edit):
                 self.provenance.write_bytes(original)

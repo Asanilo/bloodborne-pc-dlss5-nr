@@ -5,6 +5,13 @@ def requested(args):
     value = getattr(args, 'native_mouse', False)
     if type(value) is not bool:
         raise ValueError('native mouse: strict boolean required')
+    daily = getattr(args, 'daily', False)
+    if type(daily) is not bool:
+        raise ValueError('daily mode: strict boolean required')
+    if daily:
+        if any(getattr(args,k,None) for k in ('context_recovery','reboot_diagnostic','pm4_cold_trace','pm4_producer_context','history_diagnostic')):
+            raise ValueError('daily mouse and diagnostic scopes are separate')
+        return value
     if value and (getattr(args, 'pm4_cold_trace', False) is not True or
                   sum(bool(getattr(args, k, None)) for k in
                       ('reboot_diagnostic', 'context_recovery')) != 1):
@@ -24,7 +31,7 @@ def check_record(record, enabled):
 def check_environment(record, environment):
     enabled = record.get('native_mouse', False)
     check_record(record, enabled)
-    if environment.get('BB_NATIVE_MOUSE') != ('1' if enabled else None):
+    if environment.get('BB_NATIVE_MOUSE') not in (('1',) if enabled else (None, '0')):
         raise ValueError('native mouse: manifest selection drift')
     if enabled and any(k in environment for k in (
             'BB_ONLINE', 'BB_BBSC', 'BB_NET_MODULE', 'BB_RE_CAMERA', 'BB_RE_ENTRY')):

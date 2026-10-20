@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include <filesystem>
+#include <cstdlib>
+#include "native_runtime_model.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -13,7 +15,11 @@ inline bool ValidDevSession(std::string_view session) noexcept {
  return session.front()!='-';
 }
 inline bool ValidDevRun(const std::string& run,const std::string& session) {
- if(!ValidDevSession(session)||run!="/home/arinp/Code/nrbridge-dev/runs/"+session)return false;
+ const char* configured=std::getenv("NRBRIDGE_HOME");
+ const std::string root=NativeRuntimeModel::Daily()&&configured?configured:"/home/arinp/Code/nrbridge-dev";
+ std::error_code root_error;
+ if(root.empty()||root.front()!='/'||std::filesystem::canonical(root,root_error)!=std::filesystem::path(root)||root_error)return false;
+ if(!ValidDevSession(session)||run!=root+"/runs/"+session)return false;
  std::error_code error;
  const auto actual=std::filesystem::canonical(run,error);
  return !error&&actual==std::filesystem::path(run)&&std::filesystem::is_directory(actual,error)&&!error;

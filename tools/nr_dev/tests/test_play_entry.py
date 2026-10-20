@@ -55,6 +55,7 @@ class PublicPlayEntry(unittest.TestCase):
             ('legacy_helper', (p.runner, 'checked_runtime_helper'), (self.helper, self.helper_build)),
             ('local', (p.runner.runtime_inputs, 'load'), self.binding),
             ('capability', (p.runner.runtime_inputs, 'native_capability'), None),
+            ('daily_capability', (p.runner.runtime_inputs, 'daily_capability'), None),
             ('holds', (p.runner, 'held_run_snapshot'), self.snapshot),
             ('identities', (c, '_identities'), None),
             ('predecessor', (c, '_predecessor'), None),
@@ -97,6 +98,29 @@ class PublicPlayEntry(unittest.TestCase):
         self.assertNotIn('--runtime-model-helper', command)
         self.mocks['legacy_helper'].assert_not_called()
         self.mocks['capability'].assert_called_once_with(self.build)
+
+    def test_daily_command_default_native_and_compatibility_are_explicit(self):
+        for extra, native in (([], True), (['--joystick-mouse'], False)):
+            args = self.args(['--daily', '--local-inputs', self.binding['path'], *extra])
+            _, command = p.launch_command(args)
+            self.assertIn('--daily', command)
+            self.assertEqual('--native-mouse' in command, native)
+            self.assertEqual('--joystick-mouse' in command, not native)
+            for flag in ('--seconds', '--watchdog-seconds', '--source-limit'):
+                self.assertEqual(command[command.index(flag) + 1], '0')
+            self.assertNotIn('--context-recovery', command)
+            self.assertNotIn('--pm4-cold-trace', command)
+        self.spawn.assert_not_called()
+
+    def test_daily_online_forwarding_never_puts_credentials_in_command(self):
+        account = str(self.root / 'settings.json')
+        args = self.args(['--daily','--local-inputs',self.binding['path'],
+                          '--online-pool','thd','--online-account-config',account])
+        _, command = p.launch_command(args)
+        self.assertEqual(command[command.index('--online-pool')+1], 'thd')
+        self.assertEqual(command[command.index('--online-account-config')+1], account)
+        self.assertNotIn('--bbsc', command)
+        self.spawn.assert_not_called()
 
     def test_matching_resident_continuation_scope_is_forwarded_exactly(self):
         original = self.scope.read_bytes()

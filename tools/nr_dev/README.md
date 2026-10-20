@@ -150,3 +150,36 @@ v2 reboot/context scope 及冷诊断参数。CLI、记录、manifest 和前序�
 正常退出审计检查真实 Native/Helper 末用、精确 origin tuple、共享资源/FD 归零、模型释放/shutdown、正常 waitpid；无 peer 的退出也要求明确的无 owner/snapshot/pending-use 与 preparation join 证明。CPU Present、计数归零、kill 或无残留进程不能代替完成证明。watchdog 只请求正常关闭，未知状态保持 HOLD，进程仍在时继续持有锁。
 
 查看每次 `result.json`、`retirement-audit.json`、实际终端 wire/FD 证据和当前 boot 观察。`present-metrics.json` 统计真实非复用 Present 间隔，不是画质验收；`gpu-memory.jsonl` 的整卡数据包含其他应用。有限生命周期回归不等于间歇性加载故障消除，也未证明亮尾、鬼影、闪烁或热性能改善。本轮不制作 AppImage，也不开放日常无约束发布。
+
+## Daily Preview mode (2026-10-20)
+
+`play.py --daily --local-inputs <versioned-config> --native-build <verified-build>`
+uses the validated native mouse by default (`--joystick-mouse` for compatibility),
+resident NR and persistent history. It has no planned session deadline or total
+watchdog; normal close retains a bounded grace period and true retirement checks.
+Cold PM4 diagnostics remain separate and keep their original finite budgets.
+Daily requires the Native `NRBRIDGE_NATIVE_DAILY_RING64_V2` marker and Helper
+interface revision 4. The old 6753999/7f69 pair cannot run this mode.
+
+Wire v2 reuses 64 host file slots with monotonic exact job tuples. Helper removes
+consumed files only after actual Native final-use validation; no GPU generation
+or shared image is recycled by the file ring. Job/GPU/phase/control timeouts,
+FD identity and real last-use evidence remain. Current-boot HOLDs, missing daily
+terminal records, live project holders and kernel GPU faults block admission.
+Historical evidence stays unchanged. Failure requests ordinary close and retains
+unknown resources; it does not pretend SR-only recovery is safe.
+
+Optional online arguments: `--online-pool thd|shadnet
+--online-account-config <canonical-launcher-settings.json>`; default offline.
+`--bbsc` is explicit and only for shadnet; its camera patch forces joystick
+fallback. Login is the player's action. Selected credentials are copied only to
+private mode-0600 configuration and omitted from manifest environment. Actual
+online module SHA and mapped identity are checked. CPU registration is not a
+community-message or network-exit acceptance result.
+
+Use `--continue-session <normally-retired-session>` to copy private progress into
+a new independent session; formal saves and the seed stay untouched. Daily stdout
+is bounded with a persistent failure latch, and protocol files are retired after
+live validation. Daily offline terminal audits verify aggregate actual retirement
+proofs, not a retained forensic trace of every job. GPU longevity, actual save
+write/reload and community messages must be recorded separately from CPU tests.

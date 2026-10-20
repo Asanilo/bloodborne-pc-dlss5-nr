@@ -52,7 +52,7 @@ def checked(native_root):
     exact(export, ('schema', 'wire_version', 'interface_revision', 'runtime_model_schema', 'job_model_schema', 'exports'))
     if (export['schema'] != 'nrbridge-protocol-export-v1'
             or type(export['wire_version']) is not int or export['wire_version'] != 1
-            or type(export['interface_revision']) is not int or export['interface_revision'] != 3
+            or type(export['interface_revision']) is not int or export['interface_revision'] not in (3,4)
             or export['runtime_model_schema'] != 'nr-runtime-model-v1'
             or export['job_model_schema'] != 'nr-runtime-job-model-v1'):
         raise ValueError('unsupported Helper protocol version/schema')

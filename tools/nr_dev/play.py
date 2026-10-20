@@ -13,6 +13,8 @@ def parse_args(argv=None):
  inputs=p.add_mutually_exclusive_group()
  inputs.add_argument('--local-inputs',help='显式 ROOT/localinputs 版本化配置；默认保留legacy路径')
  inputs.add_argument('--legacy-inputs',action='store_true',help='显式选择原Helper与61项legacy pins，供旧基线回滚')
+ p.add_argument('--daily',action='store_true',help='日常游玩，无固定时长；默认原生鼠标')
+ p.add_argument('--joystick-mouse',action='store_true',help='兼容摇杆模拟鼠标')
  p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>')
  p.add_argument('--session',default='play-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
  p.add_argument('--seconds',type=int,default=480,help='计划正常关闭时间（含准备时间）')
@@ -24,9 +26,12 @@ def parse_args(argv=None):
  p.add_argument('--pm4-producer-context',action='store_true',help='透传已有生产者冷诊断；须匹配scope')
  p.add_argument('--continue-session',help='仅续用已正常退休的新dev session私有存档和NR配置')
  p.set_defaults(mode='resident',sky='persistent',history_diagnostic=False)
+ runner.daily_online.add_arguments(p)
  a=p.parse_args(argv)
- if not 1<=a.seconds<a.watchdog_seconds<=600:p.error('require 1 <= seconds < watchdog-seconds <= 600')
- if not 1<=a.source_limit<=216000:p.error('source-limit must be 1..216000')
+ try:runner.configure_daily_args(a)
+ except ValueError as error:p.error(str(error))
+ if not a.daily and not 1<=a.seconds<a.watchdog_seconds<=600:p.error('require 1 <= seconds < watchdog-seconds <= 600')
+ if not (a.daily and a.source_limit==0 or 1<=a.source_limit<=216000):p.error('source-limit must be 1..216000')
  if a.pm4_producer_context and not (a.context_recovery and a.pm4_cold_trace):p.error('producer context requires context-recovery and pm4-cold-trace')
  return a
 
@@ -48,6 +53,7 @@ def launch_command(a):
  if a.local_inputs:
   binding=runner.runtime_inputs.load(a.local_inputs,runner.ROOT)
   runner.runtime_inputs.native_capability(build)
+  if a.daily:runner.runtime_inputs.daily_capability(build,binding)
   helper=Path(binding['config']['helper']['path']);helper_build=binding['helper_build']
  else:helper,helper_build=runner.checked_runtime_helper(DEFAULT_HELPER,DEFAULT_HELPER_BUILD_SHA)
  if record is not None:
@@ -64,7 +70,9 @@ def launch_command(a):
  if a.native_build:command+=['--native-build',a.native_build]
  if a.continue_session:command+=['--continue-session',a.continue_session]
  if a.context_recovery:command+=['--context-recovery',a.context_recovery]
- for flag in ('pm4_cold_trace','pm4_producer_context','native_mouse'):
+ if a.online_pool!='offline':command+=['--online-pool',a.online_pool,'--online-account-config',a.online_account_config]
+ if a.bbsc:command+=['--bbsc']
+ for flag in ('daily','joystick_mouse','pm4_cold_trace','pm4_producer_context','native_mouse'):
   if getattr(a,flag):command+=['--'+flag.replace('_','-')]
  return run,command
 
@@ -78,7 +86,8 @@ def main():
  try:
   print('\n游戏使用独立私有存档'+('，续用 '+a.continue_session if a.continue_session else '（新NRTest seed）')+'。Space/Cross 继续；WASD/鼠标或手柄操作。',flush=True)
   print('F8：显示旁路；F9：同源画面捕获；Delete：NR控制菜单。加载的模型Style/Intensity仍需显式Apply。',flush=True)
-  print(f'计划 {a.seconds} 秒后请求正常关闭；独立watchdog为{a.watchdog_seconds}秒，关闭仍需真实GPU退休。',flush=True)
+  if a.daily:print('日常模式：无固定游戏时长；正常关闭窗口退出。',flush=True)
+  else:print(f'计划 {a.seconds} 秒后请求正常关闭；独立watchdog为{a.watchdog_seconds}秒，关闭仍需真实GPU退休。',flush=True)
   print('进入可控制的实际游戏场景后，回到本终端按 Enter 开启 NR：',flush=True)
   while child.poll() is None:
    if select.select([sys.stdin],[],[],.2)[0]:

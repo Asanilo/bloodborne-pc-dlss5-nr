@@ -129,7 +129,7 @@ class Inputs(unittest.TestCase):
         self.assertRaisesRegex(ValueError, 'identity drift', self.load)
 
     def test_wrong_helper_version_and_manifest_rejected(self):
-        for field, value in [('wire_version', 2), ('interface_revision', True),
+        for field, value in [('wire_version', 2), ('interface_revision', True), ('interface_revision', 5),
                              ('runtime_model_schema', 'future'), ('exports', {'unknown': 'a' * 64})]:
             manifest = copy.deepcopy(self.manifest);manifest['protocol'][field] = value
             self.manifest_path.write_text(json.dumps(manifest))
@@ -137,6 +137,21 @@ class Inputs(unittest.TestCase):
             with self.subTest(field=field), self.assertRaises(ValueError):self.load()
         self.manifest_path.write_text(json.dumps(self.manifest));self.repin()
         self.assertRaisesRegex(ValueError, 'Helper manifest SHA', self.load)
+
+    def test_daily_capability_requires_real_native_marker_and_revision_four(self):
+        build = self.root / 'build/native'; (build / 'gpu').mkdir(parents=True)
+        library = build / 'gpu/libbbgpu.so'; library.write_bytes(b'old Native fixture')
+        binding = self.load()  # Existing revision 3 remains supported for diagnostics.
+        self.assertRaisesRegex(ValueError, 'ring64', i.daily_capability, build, binding)
+        library.write_bytes(b'NRBRIDGE_NATIVE_DAILY_RING64_V2')
+        self.assertRaisesRegex(ValueError, 'revision 4', i.daily_capability, build, binding)
+        self.manifest['protocol']['interface_revision'] = 4
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        self.config['helper']['manifest_sha256'] = i.sha(self.manifest_path); self.repin()
+        binding = self.load()
+        i.daily_capability(build, binding)
+        self.manifest_path.write_text('{}')
+        self.assertRaisesRegex(ValueError, 'SHA drift', i.daily_capability, build, binding)
 
     def test_malformed_helper_manifest_types_fail_closed(self):
         for manifest in ([], self.manifest | {'protocol': []}):

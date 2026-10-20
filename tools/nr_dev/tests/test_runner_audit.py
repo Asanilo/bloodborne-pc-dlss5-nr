@@ -55,4 +55,11 @@ class AuditTests(unittest.TestCase):
  def test_source_drift_rejected(self):
   ngx=self.root/'libnvidia-ngx-dlss.so.1';ngx.write_bytes(b'changed')
   with self.assertRaises(ValueError):runner.verify_native_mappings('',{str(ngx):'0'*64})
+ def test_online_module_mapping_requires_exact_pinned_source(self):
+  module=self.root/'libbbnet20.so';module.write_bytes(b'online module fixture');st=module.stat()
+  mapped=f'1000-2000 r-xp 00000000 {os.major(st.st_dev):02x}:{os.minor(st.st_dev):02x} {st.st_ino} {module}\n'
+  artifacts={str(module):runner.sha(module)}
+  self.assertEqual(runner.verify_native_mappings(mapped,artifacts)[0]['source'],str(module))
+  with self.assertRaises(ValueError):runner.verify_native_mappings(mapped,{})
+  with self.assertRaises(ValueError):runner.verify_native_mappings(mapped.replace(str(module),'/wrong/libbbnet20.so'),artifacts)
 if __name__=='__main__':unittest.main()

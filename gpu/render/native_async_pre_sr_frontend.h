@@ -30,7 +30,7 @@ public:
   thread=std::jthread([this,path,run,session,scene_first](std::stop_token token){
    struct Finish{std::atomic<bool>& flag;~Finish(){flag.store(true,std::memory_order_release);}} finish{finished};
    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(BbNativeAsyncPreSrPlay::ServiceSeconds());
-   while(!token.stop_requested()&&std::chrono::steady_clock::now()<deadline) {
+   while(!token.stop_requested()&&(NativeRuntimeModel::Daily()||std::chrono::steady_clock::now()<deadline)) {
     const auto exact_token=[&](const std::string& target){
      std::ifstream f(target,std::ios::binary);char b[65]{};
      if(!f){return false;}
