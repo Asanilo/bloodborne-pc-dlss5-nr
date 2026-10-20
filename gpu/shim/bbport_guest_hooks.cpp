@@ -1870,13 +1870,16 @@ void Install(RangeCallback on_gpu_range_allocated) {
         std::printf("Guest hooks: the output's aspect ratio on the fly: the camera at %d of %zu places, "
                     "the HUD's markers at %d of %zu, its groups %s\n", aspect_sites, CameraParamStores.size(),
                     marker_places, MarkerSites.size(), hud_hooks ? "at the edges" : "in the middle (no hook)");
-        // Integration candidate: explicit opt-in until CPU, controlled game and player
-        // acceptance. Never install the independent local candidate's second camera hook.
+        // Upstream's mailbox can replay an increment after stick fallback or focus loss.
+        // Keep the source for the separate camera integration; never publish this hook
+        // before the epoch/state/publication fixes have their own CPU and game acceptance.
+        constexpr bool NativeMouseHookValidated = false;
         if (const char* env = std::getenv("BB_NATIVE_MOUSE"); env && std::strcmp(env, "1") == 0) {
-            look_installed.store(InstallLookHook(), std::memory_order_release);
-            std::printf("Guest hooks: native mouse look %s\n",
-                        look_installed.load() ? "on (the mouse turns the camera itself)"
-                                              : "not available (the mouse drives the right stick)");
+            if constexpr (NativeMouseHookValidated) {
+                look_installed.store(InstallLookHook(), std::memory_order_release);
+            } else {
+                std::printf("Guest hooks: native mouse not validated; using right-stick mouse\n");
+            }
         }
         if (const char* env = std::getenv("BB_RE_ADVANCE"); env && env[0] == '1') {
             std::printf("Guest hooks: UI advance probe %s\n", InstallEntryProbe(0x20f00) ? "on" : "not installed");

@@ -17,7 +17,7 @@
 | sampler GC | 新 texture cache，move-owning 延迟销毁；保留三项资源追踪事件，无 cache 指针闭包 |
 | owner pump / Present | 新 CP 排序命令与 DrawPipe drain；区分真实、插帧、blank、reuse，只有实际新游戏帧发布 NR 通知 |
 | 输入、中文、存档 | 保留复合键、旧 walk/look 配置兼容、中文和存档管理；采用上游输入与菜单新增能力 |
-| 鼠标 | 合并上游路径，但只有精确 `BB_NATIVE_MOUSE=1` 才安装；默认保留摇杆鼠标。独立 `5ab490f` 候选未叠加 |
+| 鼠标 | 保留上游源码；安装入口编译期关闭，`BB_NATIVE_MOUSE=1` 也回退摇杆。独立 `5ab490f` 候选未叠加 |
 
 Astra 已定点复核 CP/GNM/sampler、NR 末用、owner pump、Present、observer ABI 和冷诊断迁移。
 检查仅覆盖源码与 CPU 行为，不能证明实际 GPU 生命周期或游戏手感。
@@ -43,7 +43,12 @@ Astra 已定点复核 CP/GNM/sampler、NR 末用、owner pump、Present、observ
 历史 HOLD 和精确候选身份，按既有流程建立新的受控 scope，不修改准入门槛。
 
 随后分别完成 SR-only、NR、输入/菜单/存档/正常退出，再由玩家确认鼠标手感。
-上游相机和独立 epoch 候选尚须定点比较；不能同时安装两个 Hook，也不能复用候选的 CPU 证明覆盖上游 Hook。
+Astra 已比较上游相机与独立 epoch 候选：上游超时后返回摇杆但仍发布 native pending，存在重复消费；
+失焦/菜单未清 pending，consumer 未自行验时；状态保存及安全发布检查也弱于候选。
+因此本次单独关闭安装门槛。实际安装块与 producer CPU 夹具覆盖 unset/空/0/1/01/true：
+installer 零调用、站点 canary 不变、producer 返回摇杆且不入队，Astra 复跑通过。
+后续只整合一套 Hook，保留候选三态归属、epoch、consumer 超时/heartbeat、状态与发布检查；
+还须适配上游 capture/wheel/自由相机。不能复用候选 CPU 证明覆盖上游 Hook，也不能声称手感已验收。
 正式验收前不合回 NRBridge、不退役 gameplay/sync/mouse、不切换稳定产物、不制作 AppImage。
 
 回退只需继续使用既有稳定组合；本次只在独立集成分支和输出目录工作。
