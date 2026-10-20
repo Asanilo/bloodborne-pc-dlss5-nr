@@ -480,6 +480,13 @@ extern "C" __attribute__((visibility("default"))) uintptr_t bbnet_resolve(const 
     return 0;
 }
 
+extern "C" __attribute__((visibility("default"))) int bbnet_native_mouse_compatible() {
+    // BBSC owns runtime code patches and a separate cinematic camera. Ordinary online
+    // imports do not patch the camera or retain writable executable guest mappings.
+    const char* bbsc = std::getenv("BB_BBSC");
+    return !bbsc || bbsc[0] != '1';
+}
+
 extern "C" __attribute__((visibility("default"))) void bbnet_image_ready(std::uint64_t base,
                                                                         std::uint64_t size) {
     MemoryPatcher::g_eboot_address = base;

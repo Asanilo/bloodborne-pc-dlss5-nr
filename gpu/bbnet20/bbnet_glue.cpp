@@ -487,6 +487,13 @@ BBNET_EXPORT void bbnet_image_mapped(uint8_t* image, uint64_t size) {
     BbThd::SetImage(image, size);
 }
 
+BBNET_EXPORT int bbnet_native_mouse_compatible() {
+    // THD's mapped callback records the image; its later signaling data-byte write is
+    // outside the camera/context/constants. Only BBSC enables runtime code/camera writers.
+    const char* bbsc = std::getenv("BB_BBSC");
+    return !bbsc || bbsc[0] != '1';
+}
+
 BBNET_EXPORT void bbnet_image_ready(uint64_t base, uint64_t size) {
     MemoryPatcher::g_eboot_address = base;
     MemoryPatcher::g_eboot_image_size = size;

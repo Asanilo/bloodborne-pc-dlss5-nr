@@ -44,6 +44,13 @@ void bbnet_image_ready(uint64_t image_base, uint64_t image_size);
 typedef void (*BbNetImageMappedFn)(uint8_t *image, uint64_t image_size);
 void bbnet_image_mapped(uint8_t *image, uint64_t image_size);
 
+/* Optional, fail-closed capability queried after image_mapped and before camera publication.
+ * Exactly 1 promises this configuration does not install a camera writer or leave guest code
+ * writable for later patches. Missing/other results are incompatible with native mouse.
+ * This is an explicit module contract, not authentication of arbitrary third-party code. */
+typedef int (*BbNetNativeMouseCompatibleFn)(void);
+int bbnet_native_mouse_compatible(void);
+
 /* Optional: the game is loaded, its first instruction is next (online sessions start here). */
 typedef void (*BbNetStartFn)(void);
 void bbnet_start(void);

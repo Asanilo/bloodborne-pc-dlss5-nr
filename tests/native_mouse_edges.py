@@ -102,6 +102,10 @@ int main(){
 #include "gpu/bbgpu.h"
 #include "gpu/shim/bbport_frame_rate.h"
 static unsigned published;
+int runtime_net_native_mouse_compatible(){
+ const char* compatible=std::getenv("BB_TEST_MOUSE_COMPATIBLE");
+ return compatible && !std::strcmp(compatible,"1");
+}
 namespace BbFrameRate {
 bool CameraRedirectProofs(CameraRedirectProof*){return false;}
 std::uint64_t CameraRedirectSequence(){return 0;}
@@ -122,9 +126,10 @@ int main(){
 '''
     (tmp/'bridge.cpp').write_text(bridge_source)
     subprocess.run([cxx, *flags, str(tmp/'bridge.cpp'), '-o', str(tmp/'bridge')], check=True, env=env)
-    def bridge_case(online, camera='', entry=''):
+    def bridge_case(online, camera='', entry='', compatible='', bbsc=''):
         e=dict(env, BB_NATIVE_MOUSE='1')
-        for key,value in (('BB_ONLINE',online),('BB_RE_CAMERA',camera),('BB_RE_ENTRY',entry)):
+        for key,value in (('BB_ONLINE',online),('BB_RE_CAMERA',camera),('BB_RE_ENTRY',entry),
+                          ('BB_TEST_MOUSE_COMPATIBLE',compatible),('BB_BBSC',bbsc)):
             if value: e[key]=value
             else: e.pop(key,None)
         out=subprocess.check_output([str(tmp/'bridge')], env=e, text=True).strip().splitlines()[-1].split()
@@ -132,6 +137,8 @@ int main(){
     for value in ('1','10','1foo'):
         enabled,published=bridge_case(value)
         assert enabled==1 and published==0, (value,enabled,published)
+        assert bridge_case(value,compatible='1') == (1,1)
+        assert bridge_case(value,compatible='1',bbsc='1foo') == (1,0)
     assert bridge_case('0') == (0,1)
     assert bridge_case('0','10') == (0,0)
     assert bridge_case('0','0') == (0,1)

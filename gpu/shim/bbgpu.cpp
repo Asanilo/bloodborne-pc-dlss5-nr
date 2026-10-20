@@ -44,6 +44,8 @@
 #include "render/rasterizer.h"
 
 extern "C" {
+// runtime_net.c: explicit contract of the successfully initialized, mapped online module.
+int runtime_net_native_mouse_compatible(void);
 // runtime_memory.c
 int runtime_memory_is_mapped(uintptr_t address, uint64_t size);
 int runtime_memory_write_backing(uintptr_t address, const void* data, uint64_t size);
@@ -389,9 +391,12 @@ static bool MouseOverlapRefused() {
     const char* requested = std::getenv("BB_NATIVE_MOUSE");
     if (!requested || std::strcmp(requested, "1") != 0) return false;
     const char* online = std::getenv("BB_ONLINE");
+    const char* bbsc = std::getenv("BB_BBSC");
     const char* camera_probe = std::getenv("BB_RE_CAMERA");
     const char* entry_probe = std::getenv("BB_RE_ENTRY");
-    if ((online && online[0] == '1') || (camera_probe && camera_probe[0] == '1') ||
+    const bool online_refused = online && online[0] == '1' &&
+        ((bbsc && bbsc[0] == '1') || !runtime_net_native_mouse_compatible());
+    if (online_refused || (camera_probe && camera_probe[0] == '1') ||
         (entry_probe && entry_probe[0])) {
         std::printf("NATIVE_MOUSE status=refused: overlapping online/diagnostic camera writer; "
                     "default=off runtime_validation=not_claimed\n");

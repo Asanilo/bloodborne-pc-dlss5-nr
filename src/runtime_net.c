@@ -41,6 +41,7 @@ int runtime_net_symbol(const char *symbol) {
 }
 
 static void *module_handle;
+static int module_image_mapped;
 
 /* The game's image is ready (probe.c): the module's hooks in it go in now. */
 void runtime_net_image_ready(uintptr_t base, uint64_t size) {
@@ -54,6 +55,17 @@ void runtime_net_image_mapped(uint8_t *image, uint64_t size) {
     if (!module_handle) return;
     const BbNetImageMappedFn mapped=(BbNetImageMappedFn)dlsym(module_handle,"bbnet_image_mapped");
     if (mapped) mapped(image,size);
+    module_image_mapped=1;
+}
+
+/* Unknown/failed/unmapped modules cannot opt the camera into coexisting with online play.
+ * Do not load a module merely to ask: use the exact successfully initialized resident handle. */
+int runtime_net_native_mouse_compatible(void) {
+    if (!runtime_net_enabled()) return 1;
+    if (!module_handle || !module_image_mapped) return 0;
+    const BbNetNativeMouseCompatibleFn compatible=(BbNetNativeMouseCompatibleFn)
+        dlsym(module_handle,"bbnet_native_mouse_compatible");
+    return compatible && compatible()==1;
 }
 
 /* The game is loaded and about to run (probe.c): online sessions start. */

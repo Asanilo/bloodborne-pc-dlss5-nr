@@ -3,6 +3,16 @@
 #include <string.h>
 static unsigned calls[4];
 const unsigned *bbnet_test_calls(void) { return calls; }
+#ifndef NO_MOUSE_CAPABILITY
+int bbnet_native_mouse_compatible(void) {
+#ifdef INVALID_MOUSE_CAPABILITY
+    return 2;
+#else
+    const char *bbsc=getenv("BB_BBSC");
+    return !bbsc || bbsc[0]!='1';
+#endif
+}
+#endif
 #ifndef NO_INIT
 int bbnet_init(const BbNetHost *host) {
     ++calls[0];
