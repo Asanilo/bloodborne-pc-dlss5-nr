@@ -190,6 +190,29 @@ int main(void) {
     SDL_SetHint(SDL_HINT_GAMECONTROLLER_IGNORE_DEVICES_EXCEPT,"0x1d50/0x6189");
     assert(SDL_Init(SDL_INIT_VIDEO|SDL_INIT_GAMEPAD));
     test_chords(config);
+    /* Slow-walk is usable without an old INI override, alongside upstream Ctrl=L3.
+     * Test sustained input and release, not merely the binding table. */
+    load_config(config,"");
+    uint8_t walk_keys[512]={0};
+    walk_keys[SDL_SCANCODE_W]=walk_keys[SDL_SCANCODE_LALT]=1;
+    assert(key_down(walk_keys,IN_WALK) && !key_down(walk_keys,IN_L3));
+    move_stick=(KeyStick){0}; look_stick=(KeyStick){0};
+    PadData walking={.left_x=128,.left_y=128,.right_x=128,.right_y=128};
+    for (unsigned i=1;i<=10;++i) { walking.timestamp=100000ull*i; apply_keyboard(&walking,walk_keys); }
+    assert(walking.left_y>=76 && walking.left_y<=78 && walking.left_x==128);
+    walk_keys[SDL_SCANCODE_LALT]=0;
+    walking.timestamp+=100000; apply_keyboard(&walking,walk_keys);
+    assert(walking.left_y<16); /* releasing Alt restores full keyboard movement */
+    walk_keys[SDL_SCANCODE_LCTRL]=1;
+    assert(!key_down(walk_keys,IN_WALK) && key_down(walk_keys,IN_L3));
+    walking.timestamp+=100000; apply_keyboard(&walking,walk_keys);
+    assert(walking.left_y<16 && (walking.buttons&BTN_L3));
+    /* The modifier must not reduce an independent gamepad stick without WASD. */
+    memset(walk_keys,0,sizeof walk_keys); walk_keys[SDL_SCANCODE_LALT]=1;
+    move_stick=(KeyStick){0};
+    walking=(PadData){.timestamp=2000000,.left_x=255,.left_y=0,.right_x=128,.right_y=128};
+    apply_keyboard(&walking,walk_keys);
+    assert(walking.left_x==255 && walking.left_y==0);
     /* Existing player profiles keep explicit slow-walk and keyboard camera speed. */
     load_config(config,"key.walk=V\nkey.look_right=Right\nkeyboard_look_speed=0.2\n");
     assert(bindings[IN_WALK].key_count==1 && keyboard_look_speed==0.2f);

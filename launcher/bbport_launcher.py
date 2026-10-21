@@ -526,6 +526,7 @@ CONTROLS = [
     ("circle", "Круг (уклонение, бег; на клавиатуре — Space и Shift ниже)", "", "b"),
     ("dodge", "Кувырок (короткое нажатие Круга; Shift+Space — прыжок)", "Space", None),
     ("sprint", "Бег (удержание Круга)", "Left Shift", None),
+    ("walk", "Hold to walk slowly", "Left Alt", None),
     ("square", "Квадрат (быстрый предмет)", "Tab, R", "x"),
     ("triangle", "Треугольник (флакон крови)", "Q", "y"),
     ("l1", "L1 (трансформация оружия)", "E, Mouse X2", "leftshoulder"),
