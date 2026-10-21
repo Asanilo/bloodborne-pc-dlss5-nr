@@ -137,8 +137,8 @@ void FrameGeneration::OnFrameStart() {
     last_frame_ns = now;
     dispatched_last_frame = false;
     scene_captured = hudless_ready = false;
-    std::scoped_lock lock{targets_mutex};
-    for (auto& [address, target] : targets) target.ready = false;
+    // Rasterizer calls this immediately AFTER Interpolate, before the display draw and
+    // PrepareFrame. Its one-shot output must survive until that flip consumes it.
 }
 
 void FrameGeneration::Destroy() {
@@ -332,6 +332,8 @@ void FrameGeneration::CaptureHudless(vk::Image color) {
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     Stats();
     if (!Wanted() || !scene_captured || color != scene.color || !context) {
+        std::scoped_lock lock{targets_mutex};
+        for (auto& [address, target] : targets) target.ready = false;
         return;
     }
     ++stat_interpolated;
