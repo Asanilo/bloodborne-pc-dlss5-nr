@@ -266,7 +266,9 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     vk::Extent2D source_size{};
     if (upscaled) {
         const vk::Device device = instance.GetDevice();
+        const vk::ImageViewUsageCreateInfo usage{.usage = vk::ImageUsageFlagBits::eSampled};
         source = Check(device.createImageView({
+            .pNext = &usage,
             .image = display.image,
             .viewType = vk::ImageViewType::e2D,
             .format = view_info.format,
@@ -561,7 +563,9 @@ void Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format for
     const vk::Format view_format = rgba8 && display8 ? display_view_format : format;
     vk::ComponentMapping mapping{};
     mapping.a = vk::ComponentSwizzle::eOne;
+    const vk::ImageViewUsageCreateInfo usage{.usage = vk::ImageUsageFlagBits::eSampled};
     const vk::ImageView source = Check(device.createImageView({
+        .pNext = &usage,
         .image = image,
         .viewType = vk::ImageViewType::e2D,
         .format = view_format,
