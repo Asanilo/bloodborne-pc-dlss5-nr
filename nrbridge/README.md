@@ -85,3 +85,30 @@ See [Native build and runtime guide](../tools/nr_dev/README.md),
 OptiScaler-Linux-NR and Sky remain references for scale mapping, Pre-SR,
 DualFeature, model parameters, shaders and history. Import only needed code with
 its exact source identity and compatible license.
+
+## NR 310.9.16 presets
+
+The optional `nr-local-runtime-inputs-v2` private config adds `nr_preset` with
+`Default`, `A` or `B`. Sealing rejects a Helper without explicit preset support.
+The derived Helper config uses `nrbridge-helper-runtime-v2` and the same path
+fields plus `nr_preset`. Version 1 remains supported for the stable model.
+Presets map to the NR hint values 0/1/2, independently of DLSS SR quality and
+NR style. The selection is fixed for a session; style/intensity rebuilds retain
+it. Switch presets by normally closing and launching the other sealed profile.
+The existing Native F8 effect toggle is unchanged.
+
+After each real feature creation fence, `MODEL_PRESET` records the requested
+hint, unsigned parameter readback, NGX result and canary check. Successful feature
+creation, evaluation and shared output establish execution with that hint;
+NVIDIA does not expose an internal weights identifier here, so the readback
+must not be presented as proof of which neural weights were selected.
+
+Use the managed entry with a sealed profile:
+
+```bash
+NRBRIDGE_HOME=/absolute/private-nr-development \
+  bash tools/nr_dev/play-experiment.sh /absolute/private-nr-development/localinputs/nr310-A.json
+```
+
+This starts a private seed copy and waits for F8 in an actual gameplay scene.
+It does not replace the normal launcher, player install or stable runtime config.

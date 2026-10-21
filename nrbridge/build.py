@@ -160,6 +160,8 @@ def main():
                 'artifact': str(binary), 'artifact_sha256': sha(binary),
                 'protocol': inputs['protocol'], 'runtime_defaults': inputs['runtime_defaults'],
                 'runtime_config_schema': 'nrbridge-helper-runtime-v1',
+                'runtime_config_schemas': ['nrbridge-helper-runtime-v1', 'nrbridge-helper-runtime-v2'],
+                'nr_presets': {'Default': 0, 'A': 1, 'B': 2},
                 'runtime_config_keys': ['schema', 'model', 'forwarder', 'ngx_dir', 'ge_files'],
                 'shader_validation': inputs['shader'],
                 'CPU': 'PASS: wire, runtime model, runtime config, retirement',

@@ -75,9 +75,10 @@ struct PreSrHelper:PreSrTransport {
    require(serial<NativeRuntimeModel::CounterLimit&&feature_create_calls<NativeRuntimeModel::CounterLimit&&feature_release_calls<NativeRuntimeModel::CounterLimit,"runtime model counters exhausted before release/create",3);
    get<void(*)(void*)>(fw,"dlssnr_vk_release")(feature);feature=nullptr;++feature_release_calls;
    begin();using Create=void*(*)(void*,void*,unsigned,unsigned,int,float,int,float,float,float,int,int);
-   require(feature_create_calls<NativeRuntimeModel::CounterLimit,"feature count exhausted",3);++feature_create_calls;feature=get<Create>(fw,"dlssnr_vk_create")(cmd,params,1280,720,0,commit.settings.intensity,int(commit.settings.style),1,1,1,1,0);
+   require(feature_create_calls<NativeRuntimeModel::CounterLimit,"feature count exhausted",3);++feature_create_calls;feature=get<Create>(fw,"dlssnr_vk_create")(cmd,params,1280,720,int(runtime_resources.preset),commit.settings.intensity,int(commit.settings.style),1,1,1,1,0);
    auto*last=reinterpret_cast<int*>(GetProcAddress(fw,"dlssnr_vk_last_create"));
    submit();require(feature&&last&&*last==1,"runtime feature creation real GPU completion",3);nr->serial=serial;creation_serial=serial;
+   verify_preset();
    model_settings=commit.settings;model_generation=commit.generation;model_params=commit.params;model_revision=commit.revision;
    write_root(NativeRuntimeModel::AckName(model_generation),NativeRuntimeModel::Ack(request,serial,feature_create_calls,feature_release_calls));
    printf("RUNTIME_MODEL_ACK generation=%llu params=%llu revision=%llu style=%u intensity=%.9g actual_create_fence=%llu\n",(unsigned long long)model_generation,(unsigned long long)model_params,(unsigned long long)model_revision,model_settings.style,model_settings.intensity,(unsigned long long)serial);
@@ -125,6 +126,18 @@ struct PreSrHelper:PreSrTransport {
   VkCommandPoolCreateInfo cp{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};cp.flags=VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;cp.queueFamilyIndex=family;api(D(vkCreateCommandPool)(device,&cp,nullptr,&pool),"CreatePool");VkCommandBufferAllocateInfo ca{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};ca.commandPool=pool;ca.level=VK_COMMAND_BUFFER_LEVEL_PRIMARY;ca.commandBufferCount=1;api(D(vkAllocateCommandBuffers)(device,&ca,&cmd),"AllocateCommand");VkFenceCreateInfo fc{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};api(D(vkCreateFence)(device,&fc,nullptr,&fence),"CreateFence");
  }
 
+ // The forwarder uses the NVIDIA/MSVC unsigned setter slot 3; its getter is 11.
+ // Check parameter readback only: NGX does not expose which internal weights it chose.
+ void verify_preset(){
+  alignas(16) unsigned char storage[128];std::memset(storage,0xA5,sizeof(storage));
+  using GetUInt=int(__thiscall*)(void*,const char*,void*);
+  void**vt=*reinterpret_cast<void***>(params);
+  const int result=reinterpret_cast<GetUInt>(vt[11])(params,"DLSSNR.Hint.Render.Preset",storage+32);
+  unsigned value=0;std::memcpy(&value,storage+32,sizeof(value));bool safe=true;
+  for(unsigned i=0;i<128;++i)if(i<32||i>=36)safe&=storage[i]==0xA5;
+  printf("MODEL_PRESET requested=%u readback=%u result=0x%08x canary=%d feature_created=1 GPU_complete=1 internal_weights=NOT_EXPOSED\n",runtime_resources.preset,value,result,int(safe));
+  require(safe&&result==1&&value==runtime_resources.preset,"NR preset parameter readback after creation fence",3);
+ }
  void init_model(){
   // Actual NVAPI trace requires DXVK's Vulkan-aware DXGI factory; no D3D DLL replacement.
   SetLastError(ERROR_SUCCESS);
@@ -170,9 +183,10 @@ struct PreSrHelper:PreSrTransport {
   printf("MODEL_VK_INIT result=0x%08x\n",mr);require(mr==1,"model init");
   phase_tick("model_init");
   begin();using Create=void*(*)(void*,void*,unsigned,unsigned,int,float,int,float,float,float,int,int);
-  require(feature_create_calls<NativeRuntimeModel::CounterLimit,"feature count exhausted",3);++feature_create_calls;feature=get<Create>(fw,"dlssnr_vk_create")(cmd,params,1280,720,0,model_settings.intensity,int(model_settings.style),1,1,1,1,0);
+  require(feature_create_calls<NativeRuntimeModel::CounterLimit,"feature count exhausted",3);++feature_create_calls;feature=get<Create>(fw,"dlssnr_vk_create")(cmd,params,1280,720,int(runtime_resources.preset),model_settings.intensity,int(model_settings.style),1,1,1,1,0);
   auto*last=reinterpret_cast<int*>(GetProcAddress(fw,"dlssnr_vk_last_create"));printf("MODEL_VK_CREATE handle=%p result=0x%08x\n",feature,last?*last:0);
   submit();require(feature&&last&&*last==1,"model create result after real GPU completion");
+  verify_preset();
   model_initialized=true;feature_created_ever=true;creation_serial=serial;
   phase_tick("feature_create_gpu");
   nr=std::make_unique<N>(instance,physical,device,cmd,queue,gipa);nr->gpu_timeout_ms=gpu_timeout_ms;nr->shader();
@@ -201,7 +215,7 @@ struct PreSrHelper:PreSrTransport {
  }
 };
 int main(int argc,char**argv){if(argc!=6)return 2;if(argc==6&&std::string(argv[4])!="--runtime-config")return 2;PreSrHelper c;c.mode=argv[1];c.dir=argv[2];c.session=argv[3];c.negative=c.mode=="skipEvaluate";if(!freopen((c.dir+"\\async-helper.log").c_str(),"wb",stdout)||!freopen((c.dir+"\\async-helper-stderr.log").c_str(),"wb",stderr))return 4;setvbuf(stdout,nullptr,_IONBF,0);
- try{if(argc==6){auto config_text=PreSrHelper::try_text(argv[5]);require(config_text.has_value(),"runtime config before device or DLL loading",3);select_runtime(W::parse(*config_text));printf("RUNTIME_INPUTS schema=nrbridge-helper-runtime-v1 model=%s forwarder=%s ngx_dir=%s ge_files=%s\n",runtime_resources.model.c_str(),runtime_resources.forwarder.c_str(),runtime_resources.ngx_dir.c_str(),runtime_resources.ge_files.c_str());}require(PreSrHelper::safe_token(c.session),"CLI safe session",3);c.config();c.environment();auto p=c.envelope("pid_request","PID_REQUEST",false);p["exe"]=module(GetModuleHandleA(nullptr));p["win_pid"]=GetCurrentProcessId();W::bootstrap(p,c.common(),"async-pid-request.json");c.write_root("async-pid-request.json",p);
+ try{if(argc==6){auto config_text=PreSrHelper::try_text(argv[5]);require(config_text.has_value(),"runtime config before device or DLL loading",3);select_runtime(W::parse(*config_text));printf("RUNTIME_INPUTS schema=%s model=%s forwarder=%s ngx_dir=%s ge_files=%s\n",W::s(W::parse(*config_text),"schema").c_str(),runtime_resources.model.c_str(),runtime_resources.forwarder.c_str(),runtime_resources.ngx_dir.c_str(),runtime_resources.ge_files.c_str());}require(PreSrHelper::safe_token(c.session),"CLI safe session",3);c.config();c.environment();auto p=c.envelope("pid_request","PID_REQUEST",false);p["exe"]=module(GetModuleHandleA(nullptr));p["win_pid"]=GetCurrentProcessId();W::bootstrap(p,c.common(),"async-pid-request.json");c.write_root("async-pid-request.json",p);
   double start=c4_cpu_now_ms();std::optional<std::string>text;while(c4_cpu_now_ms()-start<60000){c.service_check();text=PreSrHelper::try_text(c.dir+"\\async-exporter.pid");if(text)break;Sleep(5);}require(text.has_value(),"verified exporter PID missing",3);require(!text->empty()&&text->back()=='\n',"actual PID newline",3);text->pop_back();require(!text->empty()&&std::all_of(text->begin(),text->end(),[](char x){return x>='0'&&x<='9';}),"actual PID numeric",3);auto pid=std::stoull(*text);require(pid>1&&pid<=INT32_MAX,"actual Linux exporter PID",3);c.linux_pid=uint32_t(pid);c.peer_identity();c.cold_start=c4_cpu_now_ms();c.init_nr_device();c.phase_tick("device_ready");c.init_model();c.baseline();c.exports();while(auto input=c.next_input())c.job(*input);c.retire_shared();c.shutdown();auto j=c.terminal("result","PASS",true);j.update(Json{{"normal_release",true},{"normal_shutdown",c.normal_shutdown},{"feature_create_calls",c.feature_create_calls},{"feature_release_calls",c.feature_release_calls},{"evaluate_calls_total",c.evaluates},{"resolve_calls_total",c.resolves},{"NR_phase","UNVERIFIED"},{"native_present_count","REQUIRES_NATIVE_LEDGER_NOT_INFERRED"}});W::terminal(j,c.common(),c.counts,"helper_result_stage");require(c.feature_create_calls==c.model_generation+1&&c.feature_release_calls==c.model_generation+1&&c.evaluates==(c.negative?0:c.counts.finalized)&&c.resolves==c.evaluates,"actual complete API counters",2);c.write_root("async-wine-result.json",j);return 0;
  }catch(const std::exception&e){auto*stop=dynamic_cast<const Stop*>(&e);int code=stop?stop->code:2;fprintf(stderr,"ASYNC_%s reason=%s active=%u GPU_unknown=%u normal_release=0 HOLD=1\n",code==3?"BLOCKED":"FAIL",e.what(),c.active,c.in_flight||(c.nr&&!c.nr->safe));try{auto j=c.envelope("result",code==3?"BLOCKED":"FAIL",false);j.update(c.counts.fields());j.update(Json{{"reason",e.what()},{"exit_code",code},{"normal_release",false},{"normal_shutdown",false},{"HOLD",true},{"active_job",c.active},{"GPU_unknown",c.in_flight||(c.nr&&!c.nr->safe)}});c.write_root("async-wine-result.json",j);}catch(...){}c.gpu.release();c.nr.release();return code;}
 }

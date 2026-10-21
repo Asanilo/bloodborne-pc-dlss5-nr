@@ -31,7 +31,7 @@ def seal(draft, output, root=ROOT, extra_runtime_files=()):
     inputs.need(not output.exists() and not output.is_symlink()
                 and not pins_path.exists() and not pins_path.is_symlink(), 'refusing to overwrite local inputs')
     config = inputs.read(inputs.canonical(str(draft)))
-    inputs.need(config.get('schema') == inputs.SCHEMA, 'unsupported config draft')
+    inputs.need(config.get('schema') in (inputs.SCHEMA, inputs.PRESET_SCHEMA), 'unsupported config draft')
     resources = {str(inputs.canonical(config['helper']['path'])),
                  str(inputs.canonical(str(Path(config['helper']['path']).parent / 'build.json'))),
                  str(inputs.canonical(config['model'])), str(inputs.canonical(config['forwarder'])),

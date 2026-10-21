@@ -67,11 +67,12 @@
       "target": "nrbridge/runtime/wine_runtime_model.cpp",
       "initial_sha256": "dc35e80e0170cbc89942bbbc877823bf835ab33e92004720fd55f1dbfbff9dc3",
       "changes": "include relocation and optional explicit runtime resource selection; NR algorithm, model settings and retirement unchanged",
-      "migrated_sha256": "666704f1059d5a1b5a3bc975bd2ea719881394fc5bd9066242ae2ea2baa68305",
+      "migrated_sha256": "cf572d86cfe460457bb368d5b6f1009364c7208589f14a7d519de3ef11611da7",
       "initial_migrated_sha256": "0116284841d8d73098f305cff851972d7690aef35e580b724ee8889745d0476d",
       "update": "Astra-reviewed daily ring64 v2; bounded consumed-file cleanup, uint64 counters; finite diagnostics retained",
       "upstream_sha256": "c2d0ef16eab3b5086447b37972bd93c9ad1035cdc4b66d4bea8bee104d7ea67a",
-      "local_change": "include relocation; runtime paths require explicit config"
+      "local_change": "explicit runtime v2 Preset A/B selection; verify hint parameter after actual creation fence; algorithms/protocol/retirement unchanged",
+      "pre_preset_sha256": "666704f1059d5a1b5a3bc975bd2ea719881394fc5bd9066242ae2ea2baa68305"
     },
     {
       "source": "historical-development/native/gpu/shadps4/video_core/renderer_vulkan/native_runtime_model.h",

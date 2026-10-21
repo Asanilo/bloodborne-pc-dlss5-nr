@@ -89,6 +89,33 @@ class Inputs(unittest.TestCase):
         self.assertFalse((self.root / 'inputs/runtime-pins.json').exists())
         self.assertFalse((self.root / 'runs').exists())
 
+    def test_preset_v2_maps_to_helper_and_is_bound_to_config_identity(self):
+        old = self.load()
+        self.config.update(schema=i.PRESET_SCHEMA, nr_preset='A')
+        self.write()
+        with self.assertRaisesRegex(ValueError, 'Helper does not support'):
+            self.load()
+        self.manifest.update(runtime_config_schemas=['nrbridge-helper-runtime-v1', 'nrbridge-helper-runtime-v2'],
+                             nr_presets={'Default': 0, 'A': 1, 'B': 2})
+        self.manifest_path.write_text(json.dumps(self.manifest))
+        self.config['helper']['manifest_sha256'] = i.sha(self.manifest_path)
+        self.repin()
+        first = self.load()
+        self.assertEqual(i.helper_config(first)['schema'], 'nrbridge-helper-runtime-v2')
+        self.assertEqual(i.helper_config(first)['nr_preset'], 'A')
+        self.assertNotEqual(first['sha256'], old['sha256'])
+        self.config['nr_preset'] = 'B'; self.write()
+        self.assertEqual(i.helper_config(self.load())['nr_preset'], 'B')
+        with self.assertRaisesRegex(ValueError, 'binding drift'):
+            i.recheck(first, self.root)
+        for value in ('C', 1, None, True):
+            self.config['nr_preset'] = value; self.write()
+            with self.assertRaisesRegex(ValueError, 'NR preset'):
+                self.load()
+        self.config.update(schema=i.SCHEMA, nr_preset='A'); self.write()
+        with self.assertRaisesRegex(ValueError, 'config fields'):
+            self.load()
+
     def test_player_game_selection_preserves_large_runtime_inventory_and_seed(self):
         spec = importlib.util.spec_from_file_location('player_selection_test', BASE / 'player_settings.py')
         player = importlib.util.module_from_spec(spec); spec.loader.exec_module(player)
@@ -262,7 +289,9 @@ class Inputs(unittest.TestCase):
         result = self.root / 'runs/held/result.json';result.parent.mkdir(parents=True)
         result.write_text('{"status":"HOLD"}')
         original = result.read_bytes()
-        with patch.object(r, 'ROOT', self.root), patch.object(r, 'holders', return_value=[]):
+        # This checks the fixture's local HOLD; global boot admission has its own tests.
+        with patch.object(r, 'ROOT', self.root), patch.object(r, 'holders', return_value=[]), \
+             patch.object(r.daily_session_guard, 'SessionGuard'):
             self.assertRaisesRegex(ValueError, 'unresolved new-context HOLD', r.preflight,
                                    None, None, self.load())
         self.assertEqual(result.read_bytes(), original)
