@@ -28,6 +28,8 @@ public:
     void Recreate(u32 width, u32 height);
     /// Acquires the next image; false when the swapchain has to be recreated first.
     bool AcquireNextImage();
+    /// The graphics submission that consumes this acquire semaphore (before Present advances it).
+    void MarkAcquireSubmitted(vk::Semaphore timeline, u64 tick);
     /// Presents the acquired image; false when the swapchain has to be recreated.
     bool Present();
 
@@ -92,6 +94,8 @@ private:
     std::vector<vk::Image> images;
     std::vector<vk::ImageView> views;
     std::vector<vk::Semaphore> acquired;      ///< per frame in flight
+    std::vector<u64> acquired_ticks; ///< Actual GPU completion before re-signalling a binary semaphore.
+    vk::Semaphore acquire_completion{};
     std::vector<vk::Semaphore> present_ready; ///< per image
     u32 width = 0;
     u32 height = 0;

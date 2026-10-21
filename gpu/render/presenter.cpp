@@ -846,6 +846,7 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
     info.AddSignal(swapchain.GetPresentReadySemaphore());
     const u64 present_submit_tick = scheduler.CurrentTick();
     present_scheduler.Flush(info);
+    swapchain.MarkAcquireSubmitted(present_scheduler.GetWorkSemaphore()->Handle(), present_submit_tick);
     if (!blank) frame->present_tick = present_submit_tick;
     {
         std::scoped_lock lock{Scheduler::submit_mutex};
