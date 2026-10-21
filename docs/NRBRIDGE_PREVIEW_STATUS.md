@@ -4,7 +4,16 @@ This is a sanitized summary. Raw logs, machine identifiers, private paths and
 saves stay in ignored development data. No historical failure is retroactively
 converted into a pass.
 
-## Last GPU-exercised reference runtime
+## Standalone source migration and 310.9.16 experiment (2026-10-22)
+
+The Helper/forwarder/shader source closure is now maintained in this repository's
+`nrbridge/`, while Native and Wine Helper remain separate programs. The migrated
+stable model and isolated 310.9.16 SF Default/A/B completed actual NR jobs and
+normal GPU/FD/model retirement on RTX 4060 Laptop at 1080p Quality. Player
+installations and the earlier reference below remain unchanged.
+See [migration, DLL identity, presets and validation](NRBRIDGE_MIGRATION.md).
+
+## Earlier installed reference runtime
 
 | Component | Identity |
 |---|---|

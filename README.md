@@ -112,11 +112,34 @@ graphics to Vulkan. NRBridge adds a division between rendering and model inferen
 Game image & motion → NR Helper → Persistent visual history → Native DLSS SR → Display
 ```
 
-Native handles game rendering and history updates; the Helper runs the NR model.
-A versioned protocol connects them. Native and
-[OptiScaler-Linux-NR](https://github.com/Asanilo/OptiScaler-Linux-NR) remain separate
-repositories so each can follow its upstream independently. Game files and model
-dependencies are supplied by the user.
+### Experimental Native Linux Vulkan NR Bridge
+
+NRBridge demonstrates **DLSS 5 Neural Rendering integration in a native Linux
+Vulkan game**, using Bloodborne as a real-world implementation. The game-side
+integration supplies color, depth, motion vectors and persistent temporal history.
+
+**Rendering pipeline:**
+
+```text
+Native Linux Vulkan → GPU resource sharing → Wine-hosted NVIDIA NGX NR Helper
+→ Persistent visual history → Native DLSS Super Resolution → Display
+```
+
+The game and its rendering integration run natively on Linux. Neural inference
+currently uses NVIDIA's Windows NGX runtime through Wine; the proprietary NR
+model is not implemented natively for Linux.
+
+The standalone Helper source now lives in [`nrbridge/`](nrbridge/README.md),
+imported from a frozen [OptiScaler-Linux-NR](https://github.com/Asanilo/OptiScaler-Linux-NR)
+snapshot. It builds and runs independently of the game. Its source, versioned
+cross-process protocol, GPU synchronization and temporal integration may help
+developers researching Neural Rendering interoperability on Linux.
+
+See the [architecture and Helper build](nrbridge/README.md),
+[Native build guide](tools/nr_dev/README.md),
+[migration and runtime validation](docs/NRBRIDGE_MIGRATION.md), and
+[license boundary](nrbridge/LICENSE-NOTES.md). Model and game files remain
+user-provided dependencies.
 
 <a id="docs"></a>
 
