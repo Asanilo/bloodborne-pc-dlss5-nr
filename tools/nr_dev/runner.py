@@ -388,7 +388,7 @@ def checked_native_build(directory):
  build=Path(directory).absolute()
  if build.resolve()!=build or build.is_symlink():raise ValueError('Native build must use a real canonical directory')
  baseline=build.parent==ROOT/'build/baselines' and re.fullmatch('[0-9a-f]{40}',build.name)
- if build!=ROOT/'build/native' and not baseline:raise ValueError('Native build must be build/native or build/baselines/<full commit>')
+ if build not in (ROOT/'build/native',WT/'out') and not baseline:raise ValueError('Native build must be worktree out, build/native or build/baselines/<full commit>')
  def regular(relative):
   path=build/relative
   if path.resolve()!=path or not path.is_file() or path.is_symlink():raise ValueError('regular in-tree build input required: '+str(path))
@@ -631,6 +631,8 @@ def validate_daily_manifest(run,manifest):
 def validate_daily_args(args):
  daily_online.validate_args(args)
  daily=getattr(args,'daily',False)
+ if getattr(args,'experimental_fg',None) and not (daily and getattr(args,'sr_only',False)):
+  raise ValueError('experimental FG requires daily SR-only; NR integration is not validated')
  if getattr(args,'sr_only',False) and not daily:raise ValueError('SR-only selection requires daily mode')
  if type(daily) is not bool:raise ValueError('daily mode requires strict boolean')
  if not daily:return
@@ -771,6 +773,11 @@ def launch_supervised(args,signals):
    if player is None:env['BB_FRAME_STATS']='0'
    env.pop('BB_FRAME_LOG',None)
   env.update(nr);env.update(online_env);command=['bash',str(WT/'run.sh')]
+  if getattr(args,'experimental_fg',None):
+   # Keep the no-peer PreSR owner/normal-exit audit intact; no arm or Helper launch.
+   env.update(BB_FRAME_GEN='1',BB_FRAME_GEN_AUDIT='1',BB_PRESENT_MODE='Immediate',
+              BB_FRAME_GEN_CONTROL=str(run/'fg-control'),
+              BB_SEQUENCE_DUMP_TRIGGER=str(run/'fg-sequence-trigger'),BB_FPS_LIMIT='60')
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
   manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False)
   if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)
@@ -865,6 +872,7 @@ def launch_supervised(args,signals):
 def parse_args(argv=None):
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--daily',action='store_true');p.add_argument('--joystick-mouse',action='store_true');p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3)
  daily_online.add_arguments(p)
+ p.add_argument('--experimental-fg',choices=['fsr31'],help='native FSR FG x2; daily SR-only only')
  player_settings.add_arguments(p)
  a=p.parse_args(argv)
  try:

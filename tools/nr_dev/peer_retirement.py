@@ -214,6 +214,11 @@ def audit_session(run,termination=None):
   state=load(run/'game-log-state.json')
   need(state.get('failure_latched') is False and state.get('error') is None and state.get('complete') is True,'daily bounded log never lost a recorded failure')
  need(not re.search(r'NATIVE_\S*(?:HOLD|QUARANTINE|ASSOCIATION_REJECTED)|functional=FAIL',text),'no failed native resource/association proof')
+ if manifest.get('environment',{}).get('BB_FRAME_GEN') == '1':
+  fg=rows(text,'FG_EXIT_PROOF')
+  need(len(fg)==1 and all(fg[0].get(k)=='1' for k in
+       ('draw_GPU_complete','present_GPU_complete','resources_released')),
+       'FG requires actual draw and Present owner retirement, separately from NR no-peer proof')
  proof=rows(text,'NATIVE_ASYNC_PRE_SR_EXIT_PROOF')
  need(len(proof)==1 and proof[0].get('actual_source_cache_SR_GPU_lastuse_complete')=='1' and proof[0].get('managed_owner_joined')=='1' and proof[0].get('peer_retirement')=='OWNER_PROOF','exact PreSR last-use and joined-owner exit proof')
  nopeer=rows(text,'NATIVE_ASYNC_PRE_SR_EXIT_NO_PEER')
