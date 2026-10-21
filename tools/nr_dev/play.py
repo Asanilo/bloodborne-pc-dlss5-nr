@@ -16,7 +16,7 @@ def parse_args(argv=None):
  p.add_argument('--daily',action='store_true',help='日常游玩，无固定时长；默认原生鼠标')
  p.add_argument('--joystick-mouse',action='store_true',help='兼容摇杆模拟鼠标')
  p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>')
- p.add_argument('--experimental-fg',choices=['fsr31'],help='experimental native x2; requires --daily --sr-only')
+ p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316'],help='experimental native x2; requires --daily --sr-only')
  p.add_argument('--session',default='play-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
  p.add_argument('--seconds',type=int,default=480,help='计划正常关闭时间（含准备时间）')
  p.add_argument('--watchdog-seconds',type=int,default=600)

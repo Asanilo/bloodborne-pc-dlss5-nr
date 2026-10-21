@@ -852,6 +852,9 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
         else if (source) ++present_generated;
         else if (is_game_frame && !is_reusing_frame && !blank) ++present_real;
         else ++present_other;
+        FgLifecycle::real_presents.store(present_real, std::memory_order_relaxed);
+        FgLifecycle::generated_presents.store(present_generated, std::memory_order_relaxed);
+        FgLifecycle::other_presents.store(present_other, std::memory_order_relaxed);
         static const bool fg_audit = [] {
             const char* value = std::getenv("BB_FRAME_GEN_AUDIT");
             return value && value[0] == '1';

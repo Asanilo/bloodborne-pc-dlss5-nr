@@ -11,6 +11,8 @@
 
 #include "bbport_settings.h"
 #include "ffx_vk_portable.h"
+#include "ffx_vk_fsr3_3_1_5_bridge.h"
+#include <cstring>
 #include "render/scheduler.h"
 #include "vulkan/instance.h"
 
@@ -59,6 +61,49 @@ void ImageBarrier(vk::CommandBuffer cmdbuf, vk::Image image, vk::PipelineStageFl
     cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier});
 }
 
+FfxVkFsr3_3_1_6FrameGenerationImage Describe316(const FfxVkPortableImage& image) {
+    return {image.image, image.format, image.extent.width, image.extent.height,
+            VK_IMAGE_LAYOUT_GENERAL, image.usage};
+}
+
+int Record316(FfxVkFsr3_3_1_6FrameGenerationContext* context,
+              const FfxVkPortableFrameGenerationPrepareInfo& prepare,
+              const FfxVkPortableFrameGenerationDispatchInfo& dispatch) {
+    FfxVkFsr3_3_1_6FrameGenerationPrepareInfo p{};
+    p.commandBuffer = prepare.commandBuffer;
+    p.color = Describe316(dispatch.currentColor);
+    p.depth = Describe316(prepare.depth);
+    p.motionVectors = Describe316(prepare.motionVectors);
+    p.renderWidth = prepare.renderSize.width; p.renderHeight = prepare.renderSize.height;
+    p.jitterOffsetX = prepare.jitterOffset.x; p.jitterOffsetY = prepare.jitterOffset.y;
+    p.motionVectorScaleX = prepare.motionVectorScale.x;
+    p.motionVectorScaleY = prepare.motionVectorScale.y;
+    p.frameTimeMilliseconds = prepare.frameTimeMilliseconds;
+    p.minLuminance = prepare.minLuminance; p.maxLuminance = prepare.maxLuminance;
+    p.transferFunction = FFX_VK_FSR3_3_1_6_FRAMEGEN_TRANSFER_SRGB;
+    p.cameraNear = prepare.cameraNear; p.cameraFar = prepare.cameraFar;
+    p.viewSpaceToMeters = prepare.viewSpaceToMeters;
+    p.cameraVerticalFovRadians = prepare.cameraVerticalFovRadians;
+    const auto camera = [](float (&out)[3], const auto& in) {
+        out[0] = in.x; out[1] = in.y; out[2] = in.z;
+    };
+    camera(p.cameraPosition, prepare.cameraPosition); camera(p.cameraUp, prepare.cameraUp);
+    camera(p.cameraRight, prepare.cameraRight); camera(p.cameraForward, prepare.cameraForward);
+    p.frameId = prepare.frameId; p.reset = prepare.reset;
+    auto result = ffxVkFsr3_3_1_6FrameGenerationContextRecordPrepare(context, &p);
+    if (result != FFX_VK_FSR3_3_1_6_FRAMEGEN_OK) return int(result);
+    FfxVkFsr3_3_1_6FrameGenerationDispatchInfo d{};
+    d.commandBuffer = dispatch.commandBuffer;
+    d.color = p.color; d.output = Describe316(dispatch.output);
+    d.displayWidth = dispatch.displaySize.width; d.displayHeight = dispatch.displaySize.height;
+    d.frameTimeMilliseconds = p.frameTimeMilliseconds;
+    d.cameraNear = p.cameraNear; d.cameraFar = p.cameraFar;
+    d.viewSpaceToMeters = p.viewSpaceToMeters; d.cameraVerticalFovRadians = p.cameraVerticalFovRadians;
+    d.minLuminance = p.minLuminance; d.maxLuminance = p.maxLuminance;
+    d.transferFunction = p.transferFunction; d.frameId = p.frameId; d.reset = p.reset;
+    return int(ffxVkFsr3_3_1_6FrameGenerationContextRecordDispatch(context, &d));
+}
+
 } // namespace
 
 namespace {
@@ -88,6 +133,8 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
         supported = true;
     }
     settings.frame_generation_supported = supported;
+    const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
+    use316 = backend && std::strcmp(backend, "fsr316") == 0;
     FgLifecycle::enabled.store(std::getenv("BB_FRAME_GEN") != nullptr);
     std::printf("Frame generation: FSR 3.1 %s%s%s\n", supported ? "available" : "unavailable",
                 supported ? "" : ": ", supported ? "" : settings.frame_generation_problem.load());
@@ -142,6 +189,12 @@ void FrameGeneration::OnFrameStart() {
 }
 
 void FrameGeneration::Destroy() {
+    if (context316) {
+        scheduler.Finish(); // Runs actual-completion RetireFrame callbacks before destruction.
+        std::scoped_lock lock{context316_mutex};
+        ffxVkFsr3_3_1_6FrameGenerationContextDestroy(context316);
+        context316 = nullptr;
+    }
     if (context) {
         scheduler.Finish();
         ffxVkPortableFrameGenerationContextDestroy(context);
@@ -151,7 +204,7 @@ void FrameGeneration::Destroy() {
 
 bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 width, u32 height,
                                     vk::Format format) {
-    if (context && context_render_w == render_width && context_render_h == render_height &&
+    if ((context || context316) && context_render_w == render_width && context_render_h == render_height &&
         context_w == width && context_h == height && context_format == format) {
         return true;
     }
@@ -185,8 +238,19 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
         failed = true;
         return false;
     }
-    if (ffxVkPortableFrameGenerationContextCreate(&device_info, &create, &context) !=
-        FFX_VK_PORTABLE_OK) {
+    bool created = false;
+    if (use316) {
+        const FfxVkFsr3_3_1_6FrameGenerationCreateInfo info{
+            instance.GetPhysicalDevice(), device, render_width, render_height,
+            width, height, static_cast<VkFormat>(format),
+        };
+        created = ffxVkFsr3_3_1_6FrameGenerationContextCreate(&info, &context316) ==
+                  FFX_VK_FSR3_3_1_6_FRAMEGEN_OK;
+    } else {
+        created = ffxVkPortableFrameGenerationContextCreate(&device_info, &create, &context) ==
+                  FFX_VK_PORTABLE_OK;
+    }
+    if (!created) {
         std::printf("Frame generation: the context could not be made\n");
         context = nullptr;
         failed = true;
@@ -198,6 +262,7 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
     context_h = height;
     context_format = format;
     reset_next = true;
+    std::printf("Frame generation backend: %s\n", use316 ? "FSR 3.1.6 (SDK 2.3) experimental" : "FSR 3.1 (SDK 1.1.4)");
     std::printf("Frame generation: %ux%u from %ux%u scenes (%s)\n", width, height, render_width,
                 render_height, vk::to_string(format).c_str());
     return true;
@@ -331,7 +396,7 @@ void FrameGeneration::CaptureHudless(vk::Image color) {
 
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     Stats();
-    if (!Wanted() || !scene_captured || color != scene.color || !context) {
+    if (!Wanted() || !scene_captured || color != scene.color || (!context && !context316)) {
         std::scoped_lock lock{targets_mutex};
         for (auto& [address, target] : targets) target.ready = false;
         return;
@@ -485,17 +550,22 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                      vk::AccessFlagBits2::eShaderStorageWrite, vk::ImageLayout::eUndefined);
         prepare.commandBuffer = cmdbuf;
         dispatch.commandBuffer = cmdbuf;
-        const auto prepared = ffxVkPortableFrameGenerationContextPrepare(context, &prepare, &source);
-        const auto dispatched = prepared == FFX_VK_PORTABLE_OK
-                                    ? ffxVkPortableFrameGenerationContextRecordDispatch(context, &dispatch)
-                                    : prepared;
-        const bool ok = dispatched == FFX_VK_PORTABLE_OK;
+        int prepared = 0, dispatched = 0;
+        if (use316) {
+            std::scoped_lock lock{context316_mutex};
+            dispatched = Record316(context316, prepare, dispatch);
+        } else {
+            prepared = int(ffxVkPortableFrameGenerationContextPrepare(context, &prepare, &source));
+            dispatched = prepared == 0
+                ? int(ffxVkPortableFrameGenerationContextRecordDispatch(context, &dispatch)) : prepared;
+        }
+        const bool ok = dispatched == 0;
         recorded->store(ok, std::memory_order_release);
         if (!ok) {
             static int told = 0;
             if (told++ < 4) {
                 std::printf("Frame generation: the interpolation could not be recorded (%s %d)\n",
-                            prepared != FFX_VK_PORTABLE_OK ? "prepare" : "dispatch", int(dispatched));
+                            prepared != 0 ? "prepare" : "dispatch", dispatched);
             }
         }
         ImageBarrier(cmdbuf, color, vk::PipelineStageFlagBits2::eComputeShader,
@@ -520,6 +590,14 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                          vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
         }
     });
+    if (use316) {
+        // This callback is invoked only after the draw submission's timeline tick completed.
+        // It covers partial failed records as well; recording success is never retirement.
+        scheduler.DeferPriorityOperation([this, ctx = context316, id] {
+            std::scoped_lock lock{context316_mutex};
+            ffxVkFsr3_3_1_6FrameGenerationContextRetireFrame(ctx, id);
+        });
+    }
 }
 
 bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
