@@ -31,4 +31,6 @@ bash scripts/dev-build.sh --clean
 Release/Baseline 与日常开发分离：`bash scripts/release-build.sh --id <id> --test`。
 产物回收：`python3 scripts/artifact-gc.py`（默认 dry-run），策略在 `scripts/artifacts.json`。
 脚本通过 `git worktree list` 找到主工作区；不要复制依赖树，也不要为每次试验新建完整构建目录。
+本分支已包含同一套 `scripts/`（`59ed7cb`）；`master` 的 `build.sh` 改造没有合并进来，
+继续使用本分支自己的 `BB_BUILD_DIR`、在线依赖和 prepared-deps 逻辑。
 详见 [工作区与构建系统](WORKSPACE_BUILD.zh-CN.md)。

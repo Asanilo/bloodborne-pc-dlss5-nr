@@ -14,6 +14,19 @@
   不再复制 SDK、头文件、Vulkan validation 或运行时依赖树。
 - 当前可玩安装、回退版本、正式配置/存档、唯一源码和必要证据均保留。
 
+## 交接状态（2026-10-22）
+
+| 线 | 当前 tip | 构建基础设施 |
+|---|---|---|
+| `master` | `8aae671` | `build.sh`/`packaging/appimage.sh` 支持 `BB_OUT_DIR`；`scripts/` 全套 |
+| `nrbridge` | `59ed7cb` | 同一套 `scripts/` 和本文档；保留分支自己的 `build.sh`（`BB_BUILD_DIR`、在线/prepared deps） |
+| `fg` | `59ed7cb` | 同 `nrbridge` |
+
+`ca37cd6`、`03a9332`、`331aaa3`、`3fdb611` 只在 `master` 历史中。NR/FG 通过
+`59ed7cb` 获得等价的脚本和文档内容，没有合并整个 `master`，也没有改动 `build.sh`、
+在线依赖逻辑或功能代码。三条线共享主工作区的 `out/deps`、`out/toolchain`、
+`out/cache/ccache`。
+
 ## 目录约定
 
 | 路径 | 用途 | 处理 |
@@ -105,6 +118,16 @@ python3 scripts/artifact-gc.py --trim-ccache --apply
 保护规则：不删除 `out/deps`、`out/toolchain`、`out/cache`、开发用 `out/gpu` 等；
 不删除已注册 worktree、进程打开的文件、24 小时内修改的产物；不删除
 `/home/arinp/bloodborne/runtime/current` 和 `previous` 指向的 release。
+
+## 必须保留的基线
+
+- `runtime/current`：`20261021T140840Z-nrbridge-025503b`；
+  `runtime/previous`：`20261021T062311Z-nrbridge-a037043`。
+- `dist/` 中 025503b、a037043、c91bf94-r4 三个 AppImage 及 `.sha256`。
+- `packages/Bloodborne-bbport-x86_64.AppImage` 与
+  `packages/Bloodborne-bbport-x86_64.pre-nrbridge-20261021.AppImage`。
+- NR 参考 Native `c91bf94`；Helper `1eddac56`（源码 `713f8ac9`）；forwarder `9a825`。
+  这些是验收基线，不用后续文档或路径整理冒充新的实机基线。
 
 ## 本次实际清理
 
