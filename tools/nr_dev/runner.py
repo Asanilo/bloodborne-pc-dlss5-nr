@@ -16,6 +16,8 @@ _guard_spec=importlib.util.spec_from_file_location('nr_dev_daily_session_guard',
 daily_session_guard=importlib.util.module_from_spec(_guard_spec);_guard_spec.loader.exec_module(daily_session_guard)
 _player_spec=importlib.util.spec_from_file_location('nr_dev_player_settings',Path(__file__).with_name('player_settings.py'))
 player_settings=importlib.util.module_from_spec(_player_spec);_player_spec.loader.exec_module(player_settings)
+_ui_spec=importlib.util.spec_from_file_location('nr_dev_ui_start',Path(__file__).with_name('ui_start.py'))
+ui_start=importlib.util.module_from_spec(_ui_spec);_ui_spec.loader.exec_module(ui_start)
 def atomic(p,value):
  t=p.with_suffix('.tmp');t.write_text(json.dumps(value,indent=2)+'\n');t.replace(p)
 def sha(p):return hashlib.sha256(p.read_bytes()).hexdigest()
@@ -624,6 +626,7 @@ def validate_daily_manifest(run,manifest):
   player_settings.verify_snapshot(run,manifest['player_settings'],environment)
  elif environment.get('BB_FRAME_STATS')!='0':raise ValueError('diagnostic daily frame statistics drift')
  daily_online.validate_manifest(run,manifest)
+ if ui_start.ENVIRONMENT in environment:ui_start.validate(run,manifest)
 
 def validate_daily_args(args):
  daily_online.validate_args(args)
@@ -763,6 +766,7 @@ def launch_supervised(args,signals):
   if native_mouse_scope.requested(args):nr['BB_NATIVE_MOUSE']='1'
   else:nr['BB_NATIVE_MOUSE']='0'
   if getattr(args,'daily',False):nr.update(BB_NR_DAILY='1',NRBRIDGE_HOME=str(ROOT))
+  if ui_start.enabled(args,build):nr[ui_start.ENVIRONMENT]=str(run/ui_start.NAME)
   if getattr(args,'daily',False):
    if player is None:env['BB_FRAME_STATS']='0'
    env.pop('BB_FRAME_LOG',None)

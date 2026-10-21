@@ -2058,8 +2058,11 @@ class LauncherWindow(Adw.ApplicationWindow):
         if line is None:
             return
         self.append_log(line + "\n")
-        if NRBRIDGE and "按 Enter 开启 NR" in line:
+        if NRBRIDGE and (line.startswith("NR_SCENE_READY_WAIT:") or "按 Enter 开启 NR" in line):
             self.nr_waiting_scene = True
+            self.update_launch_button()
+        elif NRBRIDGE and line.startswith("NR_SCENE_READY_ACCEPTED:"):
+            self.nr_waiting_scene = False
             self.update_launch_button()
         self.read_line()
 

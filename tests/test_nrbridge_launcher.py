@@ -259,6 +259,17 @@ class FrontendLifecycleTests(unittest.TestCase):
         self.window.process.get_stdin_pipe.return_value.write_all.assert_called_once_with(b'\n', None)
         self.assertFalse(self.window.nr_waiting_scene)
 
+    def test_scene_readiness_tracks_ingame_and_launcher_confirmation(self):
+        stream = mock.Mock()
+        for line, expected in [
+                ('NR_SCENE_READY_WAIT: 进入场景后按 F8，在游戏内确认开启 NR。', True),
+                ('NR_SCENE_READY_ACCEPTED: 场景确认已接收，正在启动 NR。', False),
+                ('进入实际游戏场景后按 Enter 开启 NR', True)]:
+            stream.read_line_finish_utf8.return_value = (line, len(line))
+            self.window.on_line(stream, None)
+            self.assertEqual(self.window.nr_waiting_scene, expected)
+        self.assertEqual(self.window.read_line.call_count, 3)
+
     def test_play_uses_same_managed_command(self):
         with tempfile.TemporaryDirectory() as directory:
             game = Path(directory)

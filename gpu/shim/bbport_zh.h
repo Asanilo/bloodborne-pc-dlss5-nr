@@ -4,6 +4,19 @@
 #include <utility>
 inline const char* BbChinese(const char* text) {
     static constexpr std::pair<std::string_view, const char*> entries[] = {
+        {"Enable NR###nr_scene_confirm", "启用 NR###nr_scene_confirm"},
+        {"Enable NR", "启用 NR"},
+        {"Confirm your character is controllable", "请确认你已能控制角色"},
+        {"Cancel", "取消"},
+        {"NR request failed; see menu", "NR 请求失败；请查看菜单"},
+        {"Detailed NR diagnostics", "NR 详细诊断"},
+        {"NR error (see menu)", "NR 错误（查看菜单）"},
+        {"NR effect off (F8)", "NR 效果关闭（F8）"},
+        {"NR effect on (F8)", "NR 效果开启（F8）"},
+        {"NR starting", "NR 正在启动"},
+        {"NR ready (F8)", "NR 就绪（F8）"},
+        {"NR unavailable", "NR 不可用"},
+
         {"NVIDIA DLSS Super Resolution (RTX GPUs; Native AA is DLAA). Needs the DLSS bridge "
          "and NVIDIA's library next to the game; otherwise FSR 3.1 is used.",
          "NVIDIA DLSS 超分（适用于 RTX 显卡）；原生抗锯齿预设为 DLAA。需要运行程序旁的 DLSS 桥接库和 NVIDIA 运行库，否则回退到 FSR 3.1。"},

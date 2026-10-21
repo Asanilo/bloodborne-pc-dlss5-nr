@@ -126,7 +126,7 @@ void NativeAsyncPreSr::PollReady(const Instance& instance,Scheduler& scheduler,b
  if(NativePersistentHistory::Enabled()&&!retained&&!stopping&&!rejected){
   runtime_status.status=BbNR::Status::Unavailable;
   runtime_status.reason=!start_requested?
-   "After entering the game scene, press Enter in the launcher terminal to start NR":
+   "After entering a controllable game scene, confirm NR in-game (F8) or in the launcher":
    !Armed()?"Starting NR: waiting for Helper readiness and scene confirmation":
    "Starting NR: waiting for a supported game frame";
   BbNR::PublishSnapshot(runtime_status);

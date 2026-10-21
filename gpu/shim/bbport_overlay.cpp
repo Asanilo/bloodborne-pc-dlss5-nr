@@ -4,6 +4,8 @@
 #include "render/p0_status.h"
 #endif
 #include "bbport_overlay.h"
+#include "nr_ui_start_request.h"
+#include "nr_ui_input_drain.h"
 #include "render/nr_runtime_control.h"
 #include "render/native_async_pre_sr_policy.h"
 
@@ -65,6 +67,10 @@ std::mutex imgui_mutex; // the ImGui context: window thread (input) and present 
 bool initialized = false;
 std::atomic<bool> menu_open{false};
 bool l3_down = false, r3_down = false;
+bool nr_scene_prompt = false;
+bool nr_start_requested = false;
+bool nr_start_error = false;
+BbNRUiInput::Drain nr_input_drain;
 bool dirty = false; // settings changed while open: saved on close
 float base_scale = 1.0f;
 // The game's text dialog (ImeDialog, the character name), typed on the keyboard: drawn while it
@@ -85,6 +91,10 @@ float frame_ms_avg = 0.0f;
 float PixelDensity(SDL_WindowID id);
 
 void SetOpen(bool value) {
+    if (!value && nr_scene_prompt) {
+        nr_input_drain.Arm();
+        nr_scene_prompt = false;
+    }
     if (menu_open.exchange(value) == value) {
         return;
     }
@@ -195,6 +205,46 @@ bool PersistentNRHudEnabled() {
     return PersistentNRControlsEnabled() && BbNR::ReadRequest().config.hud;
 }
 
+bool NRStartAvailable() {
+    // Run scope is immutable for this game process. Revalidate on publication;
+    // avoid filesystem queries in each HUD frame.
+    static const bool available=BbNRUiStart::Available();
+    return available;
+}
+
+// Shares the settings menu's cursor, input capture and save-on-close lifecycle.
+void OpenNRScenePrompt() {
+    std::printf("NRBRIDGE_NATIVE_INGAME_START_V1 scene_confirmation_opened\n");
+    nr_scene_prompt = true;
+    SetOpen(true);
+}
+
+void NRScenePrompt() {
+    const auto* viewport=ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+viewport->WorkSize.x*.5f,
+                                 viewport->WorkPos.y+viewport->WorkSize.y*.5f),
+                            ImGuiCond_Always,ImVec2(.5f,.5f));
+    ImGui::Begin(BbSettings::MenuText("Enable NR###nr_scene_confirm", "Включить NR###nr_scene_confirm"),nullptr,
+                 ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoCollapse);
+    ImGui::TextUnformatted(BbSettings::MenuText("Confirm your character is controllable", "Подтвердите, что персонажем можно управлять"));
+    const bool confirm=ImGui::Button(BbSettings::MenuText("Enable NR", "Включить NR"));
+    ImGui::SetItemDefaultFocus();
+    if(confirm) {
+        const auto result=BbNRUiStart::Publish();
+        nr_start_error=result==BbNRUiStart::Result::Rejected;
+        if(!nr_start_error) {
+            nr_start_requested=true;
+            SetOpen(false);
+        }
+    }
+    ImGui::SameLine();
+    if(ImGui::Button(BbSettings::MenuText("Cancel", "Отмена"))) {
+        SetOpen(false);
+    }
+    if(nr_start_error)ImGui::TextUnformatted(BbSettings::MenuText("NR request failed; see menu", "Ошибка запроса NR; см. меню"));
+    ImGui::End();
+}
+
 void NRGpuSamples(const BbNR::Snapshot& actual,bool compact) {
     const uint64_t now=uint64_t(std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
     if(actual.gpu_sample_available) {
@@ -221,8 +271,13 @@ void NRControls() {
     auto request=BbNR::ReadRequest();auto c=request.config;const auto actual=BbNR::ReadSnapshot();
     static std::string error;bool changed=false;
     ImGui::Text("%s | config %s",BbNR::StatusName(actual.status),actual.applied_revision<request.revision?"pending":"applied");
-    ImGui::TextWrapped("%s",actual.reason.c_str());
+    if(actual.status==BbNR::Status::Unavailable && NRStartAvailable() && !nr_start_requested) {
+        if(ImGui::Button(BbSettings::MenuText("Enable NR", "Включить NR"))) OpenNRScenePrompt();
+    }
+    if(nr_start_error)ImGui::TextUnformatted(BbSettings::MenuText("NR request failed; see menu", "Ошибка запроса NR; см. меню"));
+    ImGui::BeginDisabled(actual.status==BbNR::Status::Unavailable || actual.status==BbNR::Status::Pending);
     changed|=ImGui::Checkbox("Display bypass (F8)",&c.display_bypass);
+    ImGui::EndDisabled();
     changed|=ImGui::SliderFloat("Display strength",&c.display_strength,0.f,1.f);
     ImGui::Text("Actual display: %s / %.2f",actual.actual_config.display_bypass?"raw SR":"NR history",actual.actual_config.display_strength);
     ImGui::TextWrapped("Display comparison shares SR history. Fast toggles are not strict same-frame dual-history A/B.");
@@ -267,7 +322,8 @@ void NRControls() {
     if(ImGui::Button("Restore exact NR defaults"))BbNR::Submit(BbNR::Config{},{.reset=true},&error);
     Hint("Restores requested defaults. Model changes still require explicit Apply; actual state is shown above.");
     if(!error.empty())ImGui::TextWrapped("Request rejected: %s",error.c_str());
-    if(ImGui::TreeNode("Detailed NR diagnostics")) {
+    if(ImGui::TreeNode(BbSettings::MenuText("Detailed NR diagnostics", "Подробная диагностика NR"))) {
+        ImGui::TextWrapped("%s",actual.reason.c_str());
     ImGui::Text("Source %llu | origin %llu | age %llu | job %llu%s%s",(unsigned long long)actual.current_source,(unsigned long long)actual.candidate_origin,(unsigned long long)actual.candidate_age,(unsigned long long)actual.last_job,actual.candidate_admitted?" admitted":"",actual.candidate_obsolete?" obsolete":"");
         ImGui::Text("Control requested %llu / actual %llu",(unsigned long long)request.revision,(unsigned long long)actual.applied_revision);
         NRGpuSamples(actual,false);
@@ -284,19 +340,20 @@ void NRHud() {
     ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+viewport->WorkSize.x-pad,viewport->WorkPos.y+viewport->WorkSize.y-pad),ImGuiCond_Always,ImVec2(1.f,1.f));
     ImGui::SetNextWindowBgAlpha(.65f);
     ImGui::Begin("##nr_live",nullptr,ImGuiWindowFlags_NoDecoration|ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoInputs|ImGuiWindowFlags_NoNav|ImGuiWindowFlags_NoFocusOnAppearing);
-    const bool model_staged=c.model_style!=actual.actual_config.model_style||c.model_intensity!=actual.actual_config.model_intensity;
-    const char* pending=actual.status==BbNR::Status::Held||actual.model_restart_required?" | restart isolated session":requested.model_apply_seq>actual.model_applied_version?" | model Apply pending":model_staged?" | model staged: Apply":actual.applied_revision<requested.revision?" | display pending":"";
-    if(actual.status==BbNR::Status::Unavailable) {
-        ImGui::TextUnformatted("NR not active (SR-only)");
-        ImGui::TextWrapped("%s",actual.reason.c_str());
-    } else {
-        ImGui::Text("NR actual %s %.2f | %s%s",actual.actual_config.display_bypass?"bypass":"history",actual.actual_config.display_strength,BbNR::StatusName(actual.status),pending);
-    }
-    if(actual.timing_available)ImGui::Text("%.1f FPS | P95 %.2f P99 %.2f ms",actual.fps,actual.p95_ms,actual.p99_ms);
-    else ImGui::TextUnformatted("FPS / P95 / P99: not measured");
-    char refresh[48];if(actual.model_refresh_available)std::snprintf(refresh,sizeof(refresh),"refresh %.0fms",actual.model_refresh_ms);else std::snprintf(refresh,sizeof(refresh),"refresh n/a");
-    if(actual.gpu_sample_available)ImGui::Text("Valid %.1f%% | age %.1ff %.0fms | %s",actual.history_valid_rate*100,actual.actual_age_frames,actual.actual_age_ms,refresh);
-    else ImGui::Text("Valid / contribution age: not sampled | %s",refresh);
+    const char* state=nullptr;
+    if(nr_start_error || actual.status==BbNR::Status::Failed || actual.status==BbNR::Status::Held)
+        state=BbSettings::MenuText("NR error (see menu)", "Ошибка NR (см. меню)");
+    else if(actual.status==BbNR::Status::Applied)
+        state=actual.actual_config.display_bypass || actual.actual_config.display_strength<=0.f
+            ? BbSettings::MenuText("NR effect off (F8)", "Эффект NR выкл (F8)")
+            : BbSettings::MenuText("NR effect on (F8)", "Эффект NR вкл (F8)");
+    else if(nr_start_requested || actual.status==BbNR::Status::Pending)
+        state=BbSettings::MenuText("NR starting", "Запуск NR");
+    else if(NRStartAvailable())state=BbSettings::MenuText("NR ready (F8)", "NR готов (F8)");
+    else state=BbSettings::MenuText("NR unavailable", "NR недоступен");
+    if(BbSettings::Get().show_fps) {
+        ImGui::Text("%.0f FPS | %s",frame_ms_avg>0.f?1000.f/frame_ms_avg:0.f,state);
+    } else ImGui::TextUnformatted(state);
     ImGui::End();
 }
 
@@ -1207,15 +1264,43 @@ bool HandleEvent(const SDL_Event& event) {
         return false;
     }
     ImGuiIO& io = ImGui::GetIO();
-    const bool is_open = menu_open;
+    uint32_t input_key=0;
+    bool input_down=false;
+    if(event.type==SDL_EVENT_KEY_DOWN || event.type==SDL_EVENT_KEY_UP) {
+        input_down=event.type==SDL_EVENT_KEY_DOWN;
+        switch(event.key.key) {
+        case SDLK_RETURN: input_key=BbNRUiInput::Enter;break;
+        case SDLK_KP_ENTER: input_key=BbNRUiInput::KeypadEnter;break;
+        case SDLK_SPACE: input_key=BbNRUiInput::Space;break;
+        case SDLK_ESCAPE: input_key=BbNRUiInput::Escape;break;
+        case SDLK_DELETE: input_key=BbNRUiInput::Delete;break;
+        default:break;
+        }
+    } else if(event.type==SDL_EVENT_MOUSE_BUTTON_DOWN || event.type==SDL_EVENT_MOUSE_BUTTON_UP) {
+        input_down=event.type==SDL_EVENT_MOUSE_BUTTON_DOWN;
+        if(event.button.button==SDL_BUTTON_LEFT)input_key=BbNRUiInput::MouseLeft;
+    } else if(event.type==SDL_EVENT_GAMEPAD_BUTTON_DOWN || event.type==SDL_EVENT_GAMEPAD_BUTTON_UP) {
+        input_down=event.type==SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        if(event.gbutton.button==SDL_GAMEPAD_BUTTON_SOUTH)input_key=BbNRUiInput::South;
+        else if(event.gbutton.button==SDL_GAMEPAD_BUTTON_LEFT_STICK)input_key=BbNRUiInput::L3;
+        else if(event.gbutton.button==SDL_GAMEPAD_BUTTON_RIGHT_STICK)input_key=BbNRUiInput::R3;
+    }
+    const bool drained_release=input_key && nr_input_drain.Event(input_key,input_down);
+    // Keep the final release consumed even though it just cleared the drain.
+    const bool is_open = menu_open || nr_input_drain.Active() || drained_release;
     switch (event.type) {
     case SDL_EVENT_WINDOW_FOCUS_LOST:
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
         io.AddFocusEvent(event.type == SDL_EVENT_WINDOW_FOCUS_GAINED);
-        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) l3_down = r3_down = false;
+        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+            l3_down = r3_down = false;
+            nr_input_drain.Clear();
+        }
         return false;
     case SDL_EVENT_GAMEPAD_REMOVED:
         l3_down = r3_down = false;
+        nr_input_drain.Clear(BbNRUiInput::Gamepad);
+        io.AddKeyEvent(ImGuiKey_GamepadFaceDown,false);
         return false;
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
@@ -1229,7 +1314,13 @@ bool HandleEvent(const SDL_Event& event) {
                 const auto status = BbNR::ReadSnapshot();
                 auto c = request.config;
                 const char* disposition = "accepted";
-                if (nr_key == 9 && status.capture_busy) disposition = "ignored_capture_busy";
+                if(nr_key==8 && status.status==BbNR::Status::Unavailable) {
+                    if(nr_start_requested)disposition="ignored_start_pending";
+                    else if(NRStartAvailable()) {OpenNRScenePrompt();disposition="scene_confirmation";}
+                    else disposition="ignored_unavailable";
+                }
+                else if(nr_key==8 && status.status==BbNR::Status::Pending)disposition="ignored_start_pending";
+                else if (nr_key == 9 && status.capture_busy) disposition = "ignored_capture_busy";
                 else if (nr_key == 9 && request.capture_seq != status.capture_applied_seq) disposition = "ignored_capture_pending";
                 else {
                     if (nr_key == 8) c.display_bypass = !c.display_bypass;
@@ -1342,7 +1433,7 @@ bool MenuOpen() {
 
 bool CapturesInput() {
     // The text dialog too: keys typed into it (Backspace is the touchpad) stay out of the game.
-    return menu_open || prompt_active;
+    return menu_open || prompt_active || nr_input_drain.Active();
 }
 
 void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
@@ -1394,7 +1485,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
     if (menu_open) {
-        Menu();
+        if(nr_scene_prompt) NRScenePrompt(); else Menu();
     }
     if(!menu_open) NRHud();
     if (BbSettings::Get().show_fps && !menu_open && !PersistentNRHudEnabled()) {
