@@ -8,15 +8,41 @@ converted into a pass.
 
 | Component | Identity |
 |---|---|
-| Native | c91bf9467604c36d70d97dd200844ae1ac8e8428 |
+| Native | c031a37bc462a63c80bb4015d447704f7dd2ef1e |
 | Helper source | 713f8ac99959fcdf470b2600c2645a1e5b24b7c8 |
 | Helper PE build | 1eddac56e4de26c0 |
 | Forwarder build | 9a8251430ccfa68a |
 | Protocol | wire 1 / interface 4; daily bootstrap wire 2 / ring 64 |
 
-The full-launcher implementation is a9e2275 + fd389ae; 9afb192 recorded its
-acceptance. Later documentation/portability source changes are **not another
-Native build or GPU acceptance**. The installed private Preview is unchanged.
+The full-launcher implementation is a9e2275 + fd389ae. The F8/HUD update is
+cbbe474 + c031a37: the latter removes the extra confirmation dialog. An initial
+cold build was followed by a focused incremental rebuild of that simplification;
+both passed the Native build's CPU tests. Later documentation commits are not
+another Native build.
+
+## In-game activation and compact HUD
+
+The exact c031a37 AppImage loaded a private save while its coordinator had no
+terminal input. In a controllable scene, one F8 press enabled NR without a dialog
+or window switch. Two later F8 presses actually disabled and restored the effect,
+as observed in the HUD and control revisions. Helper remained running throughout.
+The session finished 2023 jobs (1888 captured / 135 obsolete / 0 skip), passed actual
+Native/Helper GPU, FD and model retirement, and synced its private progress.
+Post-exit checks found no project holders or new kernel GPU fault. Player saves,
+INI and account settings were unchanged. This is limited scene acceptance, not
+multi-hour endurance or an independent full-game assessment.
+
+The HUD now shows one line of FPS/NR status; full counters remain in Delete's
+diagnostics. A bounded, atomic same-session intent file connects F8 to the existing
+identity and Helper-readiness checks. It grants no GPU proof. SR-only sessions and
+older Native binaries do not receive this capability; the launcher/CLI confirmation
+path remains available. Effect bypass does not release or restart Helper.
+
+CPU regression passed 291 development checks, 57 frontend/packaging checks and
+8 upstream-launcher checks during this update, including compiled publication
+fault injection. The final simplification also passed its targeted CPU checks.
+The installed candidate is identified by its artifact SHA in private deployment
+metadata; older accepted c91bf94 and 5635804 runtimes remain rollback references.
 
 ## Implemented and exercised
 
@@ -28,11 +54,11 @@ Native build or GPU acceptance**. The installed private Preview is unchanged.
 - Private-copy save transactions use the original launcher's locks/backups and
   sync back only after actual normal teardown. Copy/swap/external-change faults
   retain recoverable progress rather than overwriting the source.
-- An exact Preview AppImage loaded a private save through the full GUI in SR-only
+- The earlier c91bf94 Preview AppImage loaded a private save through the full GUI in SR-only
   mode, exited normally and synced it. An independent NR process reloaded the
   synced progress, processed 572 jobs (569 captured / 3 obsolete / 0 skip), and passed actual
   Native/Helper GPU, FD and model retirement; no project holders remained.
-- The identical runtime previously passed 611 seconds after scene readiness,
+- That c91bf94 runtime passed 611 seconds after scene readiness,
   including 121 seconds on the title followed by scene recovery with the same Helper.
   This is one limited session beyond 600 seconds, not multi-hour endurance.
 - At full-launcher integration,271 tools + 54 frontend/packaging + 8 upstream-launcher

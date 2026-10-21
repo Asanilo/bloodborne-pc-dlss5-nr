@@ -28,8 +28,9 @@ Default build roots derive from `NR_DEV_ROOT` / `NRBRIDGE_HOME` and the checkout
 online dependencies require `--online-deps` or `BB_ONLINE_DEPS_ROOT`.
 No personal or dated machine-local checkout is assumed.
 
-The reference private Preview used Native c91bf94, Helper PE 1eddac56 (source 713f8ac9)
-and forwarder 9a825. Identities are read from the **selected manifests and SHA**,
+The current F8 private Preview uses Native c031a37, Helper PE 1eddac56 (source 713f8ac9)
+and forwarder 9a825; c91bf94 is the previous accepted runtime. Identities are read
+from the **selected manifests and SHA**,
 not accepted merely because a directory has a familiar name. New sources need a
 new build identity; selecting the reference binary does not rebuild it.
 
