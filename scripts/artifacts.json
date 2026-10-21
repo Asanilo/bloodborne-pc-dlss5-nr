@@ -1,0 +1,13 @@
+{
+  "release_root": "out/releases",
+  "dist_dir": "dist",
+  "temp_dir": "out/tmp",
+  "keep_releases": 2,
+  "keep_appimages": 3,
+  "budget_gb": 8.0,
+  "min_age_hours": 24,
+  "ccache_max_gb": 10.0,
+  "evidence_dir": "out/evidence",
+  "evidence_max_gb": 2.0,
+  "evidence_max_age_days": 180
+}

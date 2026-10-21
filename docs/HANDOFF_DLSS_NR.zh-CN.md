@@ -18,3 +18,17 @@
 构建参数与依赖选择见 [Native构建](../tools/nr_dev/README.md)；仓库布局、worktree和
 保留数据见 [工作空间说明](WORKSPACE.md)。原始交接记录、故障日志和具体本机部署身份
 已留在 Git 忽略的私人开发数据中，不是公开机器的可直接执行步骤。
+
+## 2026-10-22 构建入口
+
+日常增量构建（共享主工作区的 `out/deps`、`out/toolchain`、`out/cache`）：
+
+```bash
+bash scripts/dev-build.sh --test
+bash scripts/dev-build.sh --clean
+```
+
+Release/Baseline 与日常开发分离：`bash scripts/release-build.sh --id <id> --test`。
+产物回收：`python3 scripts/artifact-gc.py`（默认 dry-run），策略在 `scripts/artifacts.json`。
+脚本通过 `git worktree list` 找到主工作区；不要复制依赖树，也不要为每次试验新建完整构建目录。
+详见 [工作区与构建系统](WORKSPACE_BUILD.zh-CN.md)。
