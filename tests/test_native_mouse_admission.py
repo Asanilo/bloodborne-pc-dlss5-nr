@@ -51,7 +51,7 @@ int main() {
         assert(!MouseOverlapRefused());
         for (const char* bbsc : {"1", "1foo"}) {
             setenv("BB_BBSC", bbsc, 1);
-            assert(MouseOverlapRefused());
+            assert(!MouseOverlapRefused());
         }
         unsetenv("BB_BBSC");
     }
@@ -92,7 +92,7 @@ int main() {
     }
     for (const char* value : {"1", "1foo"}) {
         setenv("BB_BBSC", value, 1);
-        assert(bbnet_native_mouse_compatible() == 0);
+        assert(bbnet_native_mouse_compatible() == 1);
     }
 }
 ''')

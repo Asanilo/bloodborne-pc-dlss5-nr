@@ -30,7 +30,7 @@ protect_image = probe.index('protect(image, round_page(size), 0);')
 assert image_patch < mouse_patch < protect_image
 
 # Known overlapping writers fail closed before the candidate publishes anything.
-for marker in ('BB_ONLINE', 'BB_BBSC', 'BB_RE_CAMERA', 'BB_RE_ENTRY',
+for marker in ('BB_ONLINE', 'BB_RE_CAMERA', 'BB_RE_ENTRY',
                'runtime_net_native_mouse_compatible'):
     assert marker in glue, marker
 assert glue.index('NATIVE_MOUSE status=refused') < glue.index('BbMouseLook::PatchImage')

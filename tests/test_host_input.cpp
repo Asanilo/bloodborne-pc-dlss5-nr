@@ -107,4 +107,42 @@ int main() {
     tagged.CancelMotion();
     tagged.Read(&state);
     assert(!state.mouse_x && !state.mouse_y && cancellations == 1 && capture_changes >= 4);
+
+    // Cinematic ownership is independent of focus/menu blocking. It also works
+    // when a game-thread force toggle arrives without any new SDL events.
+    tagged.Key(26, true);
+    tagged.Button(1, true);
+    tagged.Motion(10, 20);
+    tagged.Wheel(1, 1);
+    const auto before_cine = epoch;
+    tagged.CinematicActive(true);
+    assert(tagged.CinematicActive() && !active && epoch > before_cine);
+    const auto after_cine = epoch;
+    tagged.CinematicActive(true);
+    assert(epoch == after_cine); // a repeated setter is not another mode change
+    tagged.Block(true);
+    tagged.Block(false);
+    tagged.Capture(true);
+    tagged.Key(26, true);
+    tagged.Button(1, true);
+    tagged.Motion(100, 100);
+    tagged.Wheel(1, 1);
+    tagged.Read(&state);
+    assert(!state.blocked); // physical controller remains available
+    assert(!state.keys[26] && !state.mouse_captured && !state.mouse_buttons);
+    assert(!state.mouse_x && !state.mouse_y && !state.wheel_up && !state.wheel_down);
+    tagged.CinematicActive(false);
+    tagged.Read(&state);
+    assert(!state.keys[26] && !state.mouse_captured && !state.mouse_x);
+    tagged.Capture(true);
+    tagged.Key(26, true);
+    tagged.Motion(2, 3);
+    tagged.Read(&state);
+    assert(state.keys[26] && state.mouse_captured && state.mouse_x == 2 && state.mouse_y == 3);
+    tagged.Block(true);
+    tagged.CinematicActive(true);
+    tagged.CinematicActive(false);
+    tagged.Read(&state);
+    assert(state.blocked); // cinematic release cannot remove a real focus/menu block
+
 }

@@ -391,15 +391,14 @@ static bool MouseOverlapRefused() {
     const char* requested = std::getenv("BB_NATIVE_MOUSE");
     if (!requested || std::strcmp(requested, "1") != 0) return false;
     const char* online = std::getenv("BB_ONLINE");
-    const char* bbsc = std::getenv("BB_BBSC");
     const char* camera_probe = std::getenv("BB_RE_CAMERA");
     const char* entry_probe = std::getenv("BB_RE_ENTRY");
     const bool online_refused = online && online[0] == '1' &&
-        ((bbsc && bbsc[0] == '1') || !runtime_net_native_mouse_compatible());
+        !runtime_net_native_mouse_compatible();
     if (online_refused || (camera_probe && camera_probe[0] == '1') ||
         (entry_probe && entry_probe[0])) {
-        std::printf("NATIVE_MOUSE status=refused: overlapping online/diagnostic camera writer; "
-                    "default=off runtime_validation=not_claimed\n");
+        std::printf("NATIVE_MOUSE status=refused: unreviewed online module or diagnostic camera writer; "
+                    "requested=1 installed=0 route=stick\n");
         return true;
     }
     return false;
@@ -415,7 +414,7 @@ extern "C" void bbgpu_prepare_mouse_image(unsigned char* image, uint64_t size,
         ranges[i] = {segments[i].address, segments[i].size, segments[i].flags};
     if (!BbMouseLook::PreAttest(image, size, ranges, count,
                                 BbFrameRate::CameraRedirectSequence()))
-        std::printf("NATIVE_MOUSE status=%s default=off runtime_validation=not_claimed\n",
+        std::printf("NATIVE_MOUSE status=%s requested=1 installed=0 route=stick\n",
                     BbMouseLook::Status());
 }
 
@@ -435,8 +434,9 @@ extern "C" void bbgpu_patch_mouse_image(unsigned char* image, uint64_t size,
                                          have_proof ? &proof : nullptr);
     }
     if (requested)
-        std::printf("NATIVE_MOUSE status=%s default=off runtime_validation=not_claimed\n",
-                    BbMouseLook::Status());
+        std::printf("NATIVE_MOUSE status=%s requested=1 installed=%u route=%s\n",
+                    BbMouseLook::Status(), unsigned(BbMouseLook::Available()),
+                    BbMouseLook::Available() ? "native" : "stick");
 }
 
 extern "C" int bbgpu_route_mouse(uint64_t epoch, float pitch, float yaw) {

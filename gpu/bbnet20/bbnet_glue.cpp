@@ -488,10 +488,11 @@ BBNET_EXPORT void bbnet_image_mapped(uint8_t* image, uint64_t size) {
 }
 
 BBNET_EXPORT int bbnet_native_mouse_compatible() {
-    // THD's mapped callback records the image; its later signaling data-byte write is
-    // outside the camera/context/constants. Only BBSC enables runtime code/camera writers.
-    const char* bbsc = std::getenv("BB_BBSC");
-    return !bbsc || bbsc[0] != '1';
+    // Reviewed BBSC patch tables and cinematic hook (0x15715f0) do not touch the
+    // native camera [0x143ac60,0x143fad0) or constants [0x48f25f0,0x48f2630).
+    // Cinematic mode transfers keyboard/mouse ownership and cancels native epochs.
+    // Writable guest code alone is not an overlapping camera writer.
+    return 1;
 }
 
 BBNET_EXPORT void bbnet_image_ready(uint64_t base, uint64_t size) {
@@ -564,7 +565,7 @@ BBNET_EXPORT void bbnet_image_ready(uint64_t base, uint64_t size) {
         std::fflush(stdout);
         std::printf("BBSC probe: byte %#x\n", unsigned(*reinterpret_cast<volatile u8*>(at)));
     }
-    // The cinematic camera (F1, keyboard and mouse): BBSC sees the window's events first.
+    // The cinematic camera (F6 in bbport): BBSC takes input only while active.
     if (Core::Bbsc::SwitchEnabled("SHADPS4_BBSC_CINEMATIC")) {
         bbgpu_add_event_filter([](const void* event, void* window) -> int {
             return Core::Bbsc::CinematicHandleEvent(*static_cast<const SDL_Event*>(event),

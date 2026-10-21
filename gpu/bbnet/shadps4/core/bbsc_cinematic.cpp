@@ -4,7 +4,7 @@
 // Input side of the BBSC cinematic camera. While it is on, the keyboard and mouse fly the camera
 // and never reach the game (shadPS4 would otherwise map them to the pad and move the hunter too);
 // the controller is untouched. Keys:
-//   F1 on/off | hold right mouse: look | WASD move | E / Space up, Q / C down
+//   F6 on/off in bbport (F1 upstream/mod) | hold right mouse: look | WASD move | E / Space up, Q / C down
 //   Shift fast, Alt slow | wheel: speed | Z / X zoom, V reset zoom | , . roll, / reset roll
 //   arrow keys: look | [ ] smoothing (glide) less / more
 
@@ -17,12 +17,30 @@
 #include "core/bbsc_cinematic.h"
 #include "core/bbsc_persistence.h"
 
+#ifdef BBNET_PORT_VERSION
+extern "C" void bbgpu_cinematic_input_active(int active);
+#endif
+
 namespace Core::Bbsc {
 namespace {
 
 std::mutex cine_mutex;
 CinematicInput cine_state;
 bool looking = false;
+#ifdef BBNET_PORT_VERSION
+constexpr SDL_Keycode toggle_key = SDLK_F6;
+#else
+constexpr SDL_Keycode toggle_key = SDLK_F1;
+#endif
+
+// Called under cine_mutex; publish ownership and invalidate native work before
+// changing mode. HostInput never queries cinematic state under its own lock.
+void SetEnabled(bool enabled) {
+#ifdef BBNET_PORT_VERSION
+    bbgpu_cinematic_input_active(enabled);
+#endif
+    cine_state.enabled = enabled;
+}
 
 bool CinematicEnabledBySwitch() {
     static const bool enabled = SwitchEnabled("SHADPS4_BBSC_CINEMATIC");
@@ -75,20 +93,29 @@ void ReleaseAll(SDL_Window* window) {
 
 } // namespace
 
+const char* CinematicToggleKeyName() {
+#ifdef BBNET_PORT_VERSION
+    return "F6";
+#else
+    return "F1";
+#endif
+}
+
 bool CinematicHandleEvent(const SDL_Event& event, SDL_Window* window) {
     if (!CinematicEnabledBySwitch()) {
         return false;
     }
     std::scoped_lock lock{cine_mutex};
-    if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_F1) {
+    if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == toggle_key) {
         if (!event.key.repeat) {
-            cine_state.enabled = !cine_state.enabled;
+            SetEnabled(!cine_state.enabled);
             ReleaseAll(window);
-            LOG_INFO(Debug, "BBSC cinematic camera: {} (F1)", cine_state.enabled ? "on" : "off");
+            LOG_INFO(Debug, "BBSC cinematic camera: {} ({})", cine_state.enabled ? "on" : "off",
+                     CinematicToggleKeyName());
         }
         return true;
     }
-    if (event.type == SDL_EVENT_KEY_UP && event.key.key == SDLK_F1) {
+    if (event.type == SDL_EVENT_KEY_UP && event.key.key == toggle_key) {
         return true;
     }
     if (!cine_state.enabled) {
@@ -98,7 +125,7 @@ bool CinematicHandleEvent(const SDL_Event& event, SDL_Window* window) {
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
         const SDL_Keycode key = event.key.key;
-        if (key >= SDLK_F2 && key <= SDLK_F12) {
+        if (key >= SDLK_F1 && key <= SDLK_F12) {
             return false; // the emulator's own hotkeys (fullscreen, fps, pause...) keep working
         }
         SetKey(key, event.type == SDL_EVENT_KEY_DOWN);
@@ -144,12 +171,18 @@ CinematicInput TakeCinematicInput() {
 
 void CinematicForceOff() {
     std::scoped_lock lock{cine_mutex};
+    SetEnabled(false);
+#ifdef BBNET_PORT_VERSION
+    ReleaseAll(nullptr); // window thread resynchronizes SDL relative mode on its next update
+#else
     cine_state = CinematicInput{};
+#endif
 }
 
 void CinematicForceOn() {
     std::scoped_lock lock{cine_mutex};
     if (!cine_state.enabled) {
+        SetEnabled(true);
         cine_state = CinematicInput{};
         cine_state.enabled = true;
     }

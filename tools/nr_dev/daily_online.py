@@ -11,7 +11,7 @@ FIELDS = ('thd_server', 'thd_online_id', 'thd_token', 'online_server', 'online_c
 def add_arguments(parser):
     parser.add_argument('--online-pool', choices=('offline', 'thd', 'shadnet'), default='offline')
     parser.add_argument('--online-account-config', help='explicit canonical launcher settings JSON; secrets stay private')
-    parser.add_argument('--bbsc', action='store_true', help='explicit shadnet BBSC hooks; native mouse will fall back')
+    parser.add_argument('--bbsc', action='store_true', help='explicit shadnet BBSC hooks; cinematic camera uses F6 and transfers mouse ownership')
 
 
 def validate_args(args):

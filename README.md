@@ -71,12 +71,15 @@ With a prepared AppImage or installation, open the AppImage or `./launch.sh`:
 | Key | Action |
 | :--- | :--- |
 | F1 | Release mouse capture; click the game to recapture |
+| F6 | Toggle the BBSC cinematic camera, when BBSC is enabled |
 | F8 | First press enables NR in-game; later presses toggle the NR effect |
 | Delete | Open NR controls; select Apply after changing parameters |
 | Insert / L3+R3 | Open bbport settings |
 
 The compact HUD shows FPS and NR status. Open **Delete → Detailed NR diagnostics**
 for the full counters. Toggling the effect keeps the NR service running.
+BBSC can coexist with native mouse look. Its cinematic camera takes keyboard/mouse
+input while active and returns it to normal gameplay when closed.
 
 The current NR profile uses DLSS Quality, 1920×1080, 16:9 or Auto, jitter and object
 motion enabled. Choose Old or Auto memory; under NR, Auto selects the matching old

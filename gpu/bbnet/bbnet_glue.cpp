@@ -481,10 +481,9 @@ extern "C" __attribute__((visibility("default"))) uintptr_t bbnet_resolve(const 
 }
 
 extern "C" __attribute__((visibility("default"))) int bbnet_native_mouse_compatible() {
-    // BBSC owns runtime code patches and a separate cinematic camera. Ordinary online
-    // imports do not patch the camera or retain writable executable guest mappings.
-    const char* bbsc = std::getenv("BB_BBSC");
-    return !bbsc || bbsc[0] != '1';
+    // Shared reviewed BBSC tables/cinematic path: distinct native camera sites,
+    // and explicit keyboard/mouse ownership handoff for the cinematic camera.
+    return 1;
 }
 
 extern "C" __attribute__((visibility("default"))) void bbnet_image_ready(std::uint64_t base,
@@ -558,7 +557,7 @@ extern "C" __attribute__((visibility("default"))) void bbnet_image_ready(std::ui
         std::fflush(stdout);
         std::printf("BBSC probe: byte %#x\n", unsigned(*reinterpret_cast<volatile u8*>(at)));
     }
-    // The cinematic camera (F1, keyboard and mouse): BBSC sees the window's events first.
+    // The cinematic camera (F6 in bbport): BBSC takes input only while active.
     if (Core::Bbsc::SwitchEnabled("SHADPS4_BBSC_CINEMATIC")) {
         bbgpu_add_event_filter([](const void* event, void* window) -> int {
             return Core::Bbsc::CinematicHandleEvent(*static_cast<const SDL_Event*>(event),

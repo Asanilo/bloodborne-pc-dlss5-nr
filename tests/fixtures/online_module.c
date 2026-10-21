@@ -7,9 +7,11 @@ const unsigned *bbnet_test_calls(void) { return calls; }
 int bbnet_native_mouse_compatible(void) {
 #ifdef INVALID_MOUSE_CAPABILITY
     return 2;
-#else
+#elif defined(LEGACY_BBSC_REFUSAL)
     const char *bbsc=getenv("BB_BBSC");
     return !bbsc || bbsc[0]!='1';
+#else
+    return 1;
 #endif
 }
 #endif

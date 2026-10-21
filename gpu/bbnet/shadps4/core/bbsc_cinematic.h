@@ -6,12 +6,14 @@
 // BBSC cinematic camera (2026-09-28): a free camera for filming, flown with keyboard and mouse while
 // the controller keeps playing the hunter. The window side (sdl_window.cpp) feeds it input; the
 // game side (bloodborne_re.cpp, BbscCinematicCameraHook) turns the game's own debug free camera on
-// and moves it. Switch SHADPS4_BBSC_CINEMATIC (default on). F1 toggles it.
+// and moves it. Switch SHADPS4_BBSC_CINEMATIC (default on). F6 toggles it in bbport; F1 in upstream/mod builds.
 
 union SDL_Event;
 struct SDL_Window;
 
 namespace Core::Bbsc {
+
+const char* CinematicToggleKeyName();
 
 // Window thread. True when the event belongs to the cinematic camera and must not reach the game.
 bool CinematicHandleEvent(const SDL_Event& event, SDL_Window* window);

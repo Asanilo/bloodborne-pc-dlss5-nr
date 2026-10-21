@@ -10286,7 +10286,7 @@ void PS4_SYSV_ABI BbscCinematicCameraHook(u64 /*tag*/, const GuestRegisterSnapsh
                 Bbsc::CinematicForceOn();
                 in.enabled = true;
                 LOG_INFO(Debug, "BBSC cinematic camera: on by itself - dead, the partner fights on "
-                                "(F1 / L3 + R3 turns it off)");
+                                "({} / L3 + R3 turns it off)", Bbsc::CinematicToggleKeyName());
             }
         }
         if (bbsc_spectate_active || hp == 0) {
@@ -10473,8 +10473,9 @@ void InstallBbscCinematicHook() {
 #else
     constexpr const char* Look = "hold right mouse to look";
 #endif
-    LOG_INFO(Debug, "BBSC cinematic camera: ready - F1 on/off, {}, WASD, E/Q up/down, Shift/Alt "
-                    "fast/slow, wheel speed, Z/X zoom, , . roll, [ ] glide", Look);
+    LOG_INFO(Debug, "BBSC cinematic camera: ready - {} on/off, {}, WASD, E/Q up/down, Shift/Alt "
+                    "fast/slow, wheel speed, Z/X zoom, , . roll, [ ] glide",
+             Bbsc::CinematicToggleKeyName(), Look);
 }
 
 void InstallBbscDreamHooks() {

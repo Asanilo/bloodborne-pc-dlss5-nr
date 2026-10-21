@@ -64,6 +64,9 @@ limited acceptance below does not make this preview "stable".
 - The selected INI (including bindings), language, Mods/patches and save directory
   are passed to the managed runner. Incompatible NR settings are rejected with an
   explanation; turn NR off to use the ordinary upscaler settings.
+- Native mouse and the built-in BBSC module can coexist. BBSC's cinematic camera
+  uses F6, takes keyboard/mouse input only while active, and cancels pending native
+  motion at handoff. F1 remains mouse release. Actual multiplayer remains unverified.
 - Player saves run from a locked private copy. Only proven normal teardown can
   sync progress back, with the original launcher's backups and restore lock.
   An abnormal exit or save-sync error keeps the private progress for recovery.

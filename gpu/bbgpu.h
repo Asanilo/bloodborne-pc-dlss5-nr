@@ -42,6 +42,8 @@ typedef struct {
     uint64_t mouse_epoch; /* stamped when motion is queued; never relabel an old batch */
 } BbHostInput;
 void bbgpu_read_host_input(BbHostInput *input);
+// Cinematic owns keyboard/mouse independently of focus/menu blocking.
+void bbgpu_cinematic_input_active(int active);
 /* Native mouse candidate: one batch has exactly one route. */
 enum { BB_MOUSE_DROPPED=0, BB_MOUSE_NATIVE_QUEUED=1, BB_MOUSE_STICK=2 };
 int bbgpu_route_mouse(uint64_t epoch, float pitch, float yaw);

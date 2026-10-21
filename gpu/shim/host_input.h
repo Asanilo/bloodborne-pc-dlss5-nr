@@ -14,12 +14,33 @@ class HostInput {
     EpochFn epoch_fn;
     CaptureFn capture_fn;
     CancelFn cancel_fn;
-    bool capturing{};
+    bool cinematic_active{};
     bool capture_known{};
 public:
     explicit HostInput(EpochFn epoch = nullptr, CaptureFn capture = nullptr,
                        CancelFn cancel = nullptr)
         : epoch_fn(epoch), capture_fn(capture), cancel_fn(cancel) {}
+    // Independent keyboard/mouse owner: blocked remains focus/menu only, so the
+    // physical controller can keep playing during the cinematic camera.
+    void CinematicActive(bool active) {
+        std::scoped_lock guard{mutex};
+        if (cinematic_active == active) return;
+        cinematic_active = active;
+        const int blocked = state.blocked;
+        state = {};
+        state.blocked = blocked;
+        capture_known = true;
+        if (capture_fn) capture_fn(false);
+        if (cancel_fn) cancel_fn();
+    }
+    bool CinematicActive() {
+        std::scoped_lock guard{mutex};
+        return cinematic_active;
+    }
+    bool Captured() {
+        std::scoped_lock guard{mutex};
+        return state.mouse_captured != 0;
+    }
     void Block(bool blocked) {
         std::scoped_lock guard{mutex};
         if (blocked != bool(state.blocked)) {
@@ -34,9 +55,8 @@ public:
     // hold native work from a previous capture.
     void Capture(bool captured) {
         std::scoped_lock guard{mutex};
-        const int value = captured && !state.blocked ? 1 : 0;
+        const int value = captured && !state.blocked && !cinematic_active ? 1 : 0;
         if (capture_known && state.mouse_captured == value) return;
-        capturing = captured;
         capture_known = true;
         state.mouse_captured = value;
         state.mouse_buttons = 0;
@@ -55,18 +75,18 @@ public:
     }
     void Key(unsigned key, bool down) {
         std::scoped_lock guard{mutex};
-        if (!state.blocked && key < 512) state.keys[key] = down;
+        if (!state.blocked && !cinematic_active && key < 512) state.keys[key] = down;
     }
     void Button(unsigned button, bool down) {
         std::scoped_lock guard{mutex};
-        if (state.blocked || !state.mouse_captured || button < 1 || button > 5) return;
+        if (state.blocked || cinematic_active || !state.mouse_captured || button < 1 || button > 5) return;
         const auto mask = 1u << (button - 1);
         if (down) state.mouse_buttons |= mask;
         else state.mouse_buttons &= ~mask;
     }
     void Motion(float x, float y) {
         std::scoped_lock guard{mutex};
-        if (!state.blocked && state.mouse_captured) {
+        if (!state.blocked && !cinematic_active && state.mouse_captured) {
             const auto epoch = epoch_fn ? epoch_fn() : 0;
             if (state.mouse_epoch != epoch) state.mouse_x = state.mouse_y = 0;
             state.mouse_epoch = epoch;
@@ -76,7 +96,7 @@ public:
     }
     void Wheel(int up, int down) {
         std::scoped_lock guard{mutex};
-        if (state.blocked || !state.mouse_captured) return;
+        if (state.blocked || cinematic_active || !state.mouse_captured) return;
         state.wheel_up = std::min(state.wheel_up + up, 16);
         state.wheel_down = std::min(state.wheel_down + down, 16);
     }

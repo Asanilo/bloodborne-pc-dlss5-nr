@@ -116,6 +116,7 @@ void PatchImage(unsigned char*,uint64_t,const Segment*,uint64_t){++published;}
 void PatchImageWithProof(unsigned char*,uint64_t,const Segment*,uint64_t,
                          const BbFrameRate::CameraRedirectProof*){++published;}
 const char* Status(){return "TEST";}
+bool Available(){return published!=0;}
 }
 ''' + function(bridge, 'static bool MouseOverlapRefused()') + '\n' + function(bridge, 'extern "C" void bbgpu_patch_mouse_image(') + '\n' + \
         function(net, 'int runtime_net_enabled(') + r'''
@@ -138,7 +139,7 @@ int main(){
         enabled,published=bridge_case(value)
         assert enabled==1 and published==0, (value,enabled,published)
         assert bridge_case(value,compatible='1') == (1,1)
-        assert bridge_case(value,compatible='1',bbsc='1foo') == (1,0)
+        assert bridge_case(value,compatible='1',bbsc='1foo') == (1,1)
     assert bridge_case('0') == (0,1)
     assert bridge_case('0','10') == (0,0)
     assert bridge_case('0','0') == (0,1)

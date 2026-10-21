@@ -19,7 +19,8 @@ class ModulePublication(unittest.TestCase):
                         '-o', str(cls.out / 'test')], check=True)
         for name, flags in [('module', []), ('missing', ['-DNO_INIT']),
                             ('unknown', ['-DNO_MOUSE_CAPABILITY']),
-                            ('invalid', ['-DINVALID_MOUSE_CAPABILITY'])]:
+                            ('invalid', ['-DINVALID_MOUSE_CAPABILITY']),
+                            ('legacy', ['-DLEGACY_BBSC_REFUSAL'])]:
             subprocess.run([*common, '-fPIC', '-shared', *flags,
                             str(ROOT / 'tests/fixtures/online_module.c'),
                             '-o', str(cls.out / (name + '.so'))], check=True)
@@ -36,4 +37,5 @@ class ModulePublication(unittest.TestCase):
     def test_missing_exports_never_publish_hooks(self): self.run_case('missing', 'fail')
     def test_unknown_capability_refuses_mouse(self): self.run_case('unknown', 'ok')
     def test_noncanonical_capability_refuses_mouse(self): self.run_case('invalid', 'ok')
-    def test_bbsc_capability_refuses_mouse(self): self.run_case('module', 'bbsc')
+    def test_bbsc_capability_admits_reviewed_mouse_path(self): self.run_case('module', 'bbsc', 1)
+    def test_legacy_module_bbsc_refusal_is_still_respected(self): self.run_case('legacy', 'bbsc')

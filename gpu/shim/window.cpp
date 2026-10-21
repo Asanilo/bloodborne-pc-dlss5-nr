@@ -18,6 +18,7 @@
 
 static HostInput host_input{BbMouseLook::Epoch, BbMouseLook::SetCapture, BbMouseLook::Cancel};
 extern "C" void bbgpu_read_host_input(BbHostInput* input) { host_input.Read(input); }
+extern "C" void bbgpu_cinematic_input_active(int active) { host_input.CinematicActive(active != 0); }
 extern "C" void bbgpu_cancel_mouse_input(void) { host_input.CancelMotion(); }
 
 
@@ -224,7 +225,12 @@ void WindowSDL::TakeMouse(double& dx, double& dy, int& up, int& down) {
 // Mouse look: relative mode while the window holds the mouse (runtime_pad.c turns its motion into
 // the right stick). Motion from before is dropped, so taking the mouse does not turn the camera.
 void WindowSDL::CaptureMouse(bool capture) {
-    if (capture == mouse_captured.load(std::memory_order_relaxed)) {
+    // The cinematic camera controls SDL relative mode while it owns input.
+    // Explicit releases still take effect, including F1, focus loss and close.
+    if (capture && host_input.CinematicActive()) return;
+    if (capture == mouse_captured.load(std::memory_order_relaxed) &&
+        capture == SDL_GetWindowRelativeMouseMode(window) &&
+        capture == host_input.Captured()) {
         host_input.Capture(capture);
         return;
     }
@@ -240,10 +246,13 @@ void WindowSDL::CaptureMouse(bool capture) {
     }
     mouse_captured.store(capture, std::memory_order_relaxed);
     relative_mouse = capture;
-    host_input.Capture(capture);
     if (capture) {
+        // Same SDL mode can survive an automatic cinematic mode switch. Drop
+        // already queued camera motion before publishing the new host capture.
+        SDL_FlushEvent(SDL_EVENT_MOUSE_MOTION);
         capture_settle_ms = SDL_GetTicks() + 100;
     }
+    host_input.Capture(capture);
     static bool told;
     if (capture && !told) {
         told = true;
@@ -510,6 +519,9 @@ void WindowSDL::UpdateCursor() {
     if (blocked || mouse_user_released || !BbSettings::Get().mouse_capture ||
         BbOverlay::MenuOpen() || text_active || bbgpu_pointer_wanted() != 0) {
         CaptureMouse(false);
+    } else if (!host_input.CinematicActive()) {
+        // Cinematic may have changed SDL mode without changing our capture intent.
+        CaptureMouse(mouse_captured.load(std::memory_order_relaxed));
     }
     // Issue #3: the OS cursor over the game. Hidden in fullscreen, and in a window after 3 s
     // without moving the mouse; always shown while the settings menu or a game's pointer menu is
