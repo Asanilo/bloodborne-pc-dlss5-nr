@@ -39,6 +39,10 @@ public:
     /// The setting is on and the GPU can.
     bool Wanted() const;
 
+    /// Real game-frame boundary only. Missing scenes, toggles and long pauses reset FG history.
+    void OnFrameStart();
+    void Retire(); ///< Recording owner only, after exit has frozen new FG accesses.
+
     /// What the scene of this frame was rendered with (render size: depth and motion).
     struct Scene {
         vk::Image color;   ///< output size, the upscaled scene (UI not drawn yet), General
@@ -74,6 +78,7 @@ public:
         vk::Format format;
         u32 width, height;
         u64 frame;
+        std::shared_ptr<std::atomic<bool>> recorded;
     };
     bool TakeOutput(VAddr display, Output& out);
 
@@ -94,6 +99,8 @@ private:
     bool scene_captured = false; ///< this frame's, not yet interpolated
     u64 frame_id = 0;
     bool reset_next = true;
+    bool dispatched_last_frame = false;
+    u64 last_frame_ns = 0;
     u64 scene_id = 0;        ///< the captured scene's frame id (its Prepare's and Dispatch's)
     bool scene_reset = true; ///< it starts over (nothing before it to interpolate from)
     /// The scene's depth, copied at the capture (the game reuses its depth buffer before the
@@ -111,6 +118,7 @@ private:
         u32 width = 0, height = 0;
         u64 frame = 0;
         bool ready = false;
+        std::shared_ptr<std::atomic<bool>> recorded;
     };
     std::mutex targets_mutex;
     std::unordered_map<VAddr, Target> targets;

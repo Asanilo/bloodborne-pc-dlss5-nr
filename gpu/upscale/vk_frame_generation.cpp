@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "upscale/vk_frame_generation.h"
+#include "upscale/frame_generation_lifecycle.h"
 #include "bbport_toggles.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 
 #include <vk_mem_alloc.h>
@@ -86,6 +88,7 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
         supported = true;
     }
     settings.frame_generation_supported = supported;
+    FgLifecycle::enabled.store(std::getenv("BB_FRAME_GEN") != nullptr);
     std::printf("Frame generation: FSR 3.1 %s%s%s\n", supported ? "available" : "unavailable",
                 supported ? "" : ": ", supported ? "" : settings.frame_generation_problem.load());
 }
@@ -95,7 +98,47 @@ FrameGeneration::~FrameGeneration() {
 }
 
 bool FrameGeneration::Wanted() const {
-    return supported && !failed && BbSettings::Get().frame_generation.load(std::memory_order_relaxed);
+    return supported && !failed && !FgLifecycle::exit_requested.load() &&
+           BbSettings::Get().frame_generation.load(std::memory_order_relaxed);
+}
+
+void FrameGeneration::Retire() {
+    if (!FgLifecycle::Pending()) return;
+    // Includes every encode from our output into a per-Frame image, not only FG dispatches.
+    scheduler.Finish();
+    Destroy();
+    std::scoped_lock lock{targets_mutex};
+    targets.clear();
+    depth_copy = VideoCore::HostImage{};
+    hudless = VideoCore::HostImage{};
+    scene_captured = hudless_ready = false;
+    FgLifecycle::draw_retired.store(true);
+    std::printf("FG_DRAW_RETIRED actual_GPU_complete=1 context_targets_depth_hudless_released=1\n");
+}
+
+void FrameGeneration::OnFrameStart() {
+    // Consume a one-shot request at a real-frame boundary, like the experimental menu switch.
+    // Writers should rename a complete file containing 0 or 1 onto this private path.
+    static const char* control = std::getenv("BB_FRAME_GEN_CONTROL");
+    if (control) {
+        if (FILE* file = std::fopen(control, "r")) {
+            int value = -1;
+            const bool valid = std::fscanf(file, "%d", &value) == 1 && (value == 0 || value == 1);
+            std::fclose(file);
+            if (valid && std::remove(control) == 0)
+                BbSettings::Get().frame_generation.store(value == 1, std::memory_order_relaxed);
+        }
+    }
+    const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (!Wanted() || !dispatched_last_frame || now - last_frame_ns > 250'000'000) {
+        reset_next = true;
+    }
+    last_frame_ns = now;
+    dispatched_last_frame = false;
+    scene_captured = hudless_ready = false;
+    std::scoped_lock lock{targets_mutex};
+    for (auto& [address, target] : targets) target.ready = false;
 }
 
 void FrameGeneration::Destroy() {
@@ -113,6 +156,10 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
         return true;
     }
     Destroy();
+    // Destroy() has waited for the draw stream, including the presenter's source encode.
+    // The HUD-less copy belongs to the context's size/format, not the session's first size.
+    hudless = VideoCore::HostImage{};
+    hudless_ready = false;
     const auto device = instance.GetDevice();
     FfxVkPortableDeviceInfo device_info{};
     device_info.structSize = sizeof(device_info);
@@ -235,6 +282,11 @@ void FrameGeneration::CaptureScene(const Scene& in) {
 
 
 void FrameGeneration::CaptureHudless(vk::Image color) {
+    static const bool enabled = [] {
+        const char* value = std::getenv("BB_FRAME_GEN_HUDLESS");
+        return value && value[0] == '1';
+    }();
+    if (!enabled) return;
     if (!scene_captured || color != scene.color || hudless_ready) {
         return;
     }
@@ -279,11 +331,12 @@ void FrameGeneration::CaptureHudless(vk::Image color) {
 
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     Stats();
-    if (!scene_captured || color != scene.color || !context) {
+    if (!Wanted() || !scene_captured || color != scene.color || !context) {
         return;
     }
     ++stat_interpolated;
     scene_captured = false;
+    dispatched_last_frame = true;
     const u64 id = scene_id;
     const bool reset = scene_reset;
 
@@ -328,6 +381,7 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
         // frame after a reset has nothing before it to interpolate from.
         target->ready = !reset;
         target->frame = id;
+        target->recorded = std::make_shared<std::atomic<bool>>(false);
         if (target->ready) ++stat_ready;
     }
 
@@ -339,7 +393,11 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                                      FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
     // The UI-less frame (CaptureHudless): FSR interpolates it and lays the UI over unmoved. Without
     // one (no UI drawn this frame) the whole frame is interpolated.
-    if (hudless_ready && !BbToggle::Disabled(1u << 30)) {
+    static const bool use_hudless = [] {
+        const char* value = std::getenv("BB_FRAME_GEN_HUDLESS");
+        return value && value[0] == '1';
+    }();
+    if (use_hudless && hudless_ready && !BbToggle::Disabled(1u << 30)) {
         dispatch.hudlessColor = Describe(vk::Image(hudless), scene.color_format, scene.width,
                                          scene.height, ColorUsage, vk::ImageAspectFlagBits::eColor,
                                          FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
@@ -414,7 +472,8 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
 
     scheduler.EndRendering();
     scheduler.Record([this, prepare, source, dispatch, color, out = vk::Image(target->image),
-                      target](vk::CommandBuffer cmdbuf) mutable {
+                      recorded = target->recorded, width = target->width,
+                      height = target->height](vk::CommandBuffer cmdbuf) mutable {
         const auto all = vk::PipelineStageFlagBits2::eAllCommands;
         // The UI drew into it; the display pass reads it after.
         ImageBarrier(cmdbuf, color, all, vk::AccessFlagBits2::eMemoryWrite,
@@ -429,6 +488,7 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                                     ? ffxVkPortableFrameGenerationContextRecordDispatch(context, &dispatch)
                                     : prepared;
         const bool ok = dispatched == FFX_VK_PORTABLE_OK;
+        recorded->store(ok, std::memory_order_release);
         if (!ok) {
             static int told = 0;
             if (told++ < 4) {
@@ -445,12 +505,17 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
             // Shown anyway (it was handed out as ready): the real frame twice, not garbage.
             ImageBarrier(cmdbuf, out, all, vk::AccessFlagBits2::eMemoryRead,
                          vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferWrite);
+            ImageBarrier(cmdbuf, color, all, vk::AccessFlagBits2::eMemoryWrite,
+                         vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferRead);
             cmdbuf.copyImage(color, vk::ImageLayout::eGeneral, out, vk::ImageLayout::eGeneral,
                              vk::ImageCopy{.srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
                                            .dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
-                                           .extent = {target->width, target->height, 1}});
+                                           .extent = {width, height, 1}});
             ImageBarrier(cmdbuf, out, vk::PipelineStageFlagBits2::eTransfer,
                          vk::AccessFlagBits2::eTransferWrite, all, vk::AccessFlagBits2::eMemoryRead);
+            ImageBarrier(cmdbuf, color, vk::PipelineStageFlagBits2::eTransfer,
+                         vk::AccessFlagBits2::eTransferRead, all,
+                         vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
         }
     });
 }
@@ -468,7 +533,7 @@ bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
     }
     ++stat_taken;
     Target& t = it->second;
-    out = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame};
+    out = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame, t.recorded};
     t.ready = false;
     return true;
 }

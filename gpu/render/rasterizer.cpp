@@ -10,6 +10,7 @@
 #include "render/native_async_state.h"
 #include "render/native_async_pre_sr_policy.h"
 #include "upscale/vk_temporal_upscaler.h"
+#include "upscale/frame_generation_lifecycle.h"
 #include <vk_mem_alloc.h>
 
 namespace Vulkan {
@@ -1196,8 +1197,9 @@ void Rasterizer::DispatchIndirectRecord(const ComputePipeline* pipeline, VAddr a
 }
 
 void Rasterizer::RequestNativeExitPump() noexcept {
-    if (!BbNativeAsyncPreSr::Enabled() || !BbNativeAsync::ExitRequested() ||
-        BbNativeAsync::ExitComplete() || BbNativeAsync::ExitHeld()) return;
+    const bool native_pending = BbNativeAsyncPreSr::Enabled() && BbNativeAsync::ExitRequested() &&
+                                !BbNativeAsync::ExitComplete() && !BbNativeAsync::ExitHeld();
+    if (!native_pending && !FgLifecycle::Pending()) return;
     bool expected=false;
     if (!native_exit_pump_pending.compare_exchange_strong(expected,true)) return;
     if (!liverpool || !upscaler) {

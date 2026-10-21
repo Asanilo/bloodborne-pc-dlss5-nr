@@ -42,6 +42,7 @@
 #include "core/signals.h"
 #include "sdl_window.h"
 #include "render/rasterizer.h"
+#include "upscale/frame_generation_lifecycle.h"
 
 extern "C" {
 // runtime_net.c: explicit contract of the successfully initialized, mapped online module.
@@ -286,6 +287,20 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             SDL_Delay(2);
         }
         LOG_INFO(Frontend, "Window closed by user");
+        if (Vulkan::FgLifecycle::enabled.load()) {
+            Vulkan::FgLifecycle::exit_requested.store(true);
+            while (!Vulkan::FgLifecycle::Complete() && !Vulkan::FgLifecycle::held.load()) {
+                if (auto* rasterizer = Core::Memory::Instance()->GetRasterizer())
+                    rasterizer->RequestNativeExitPump();
+                else Vulkan::FgLifecycle::held.store(true);
+                SDL_Delay(20);
+            }
+            if (!Vulkan::FgLifecycle::Complete()) {
+                std::fprintf(stderr,"FG_EXIT_HOLD functional=FAIL actual_completion=UNKNOWN forced_exit=0\n");
+                return;
+            }
+            std::printf("FG_EXIT_PROOF draw_GPU_complete=1 present_GPU_complete=1 resources_released=1\n");
+        }
         if(BbNativeAsync::OptIn()||BbNativeAsyncPreSr::Enabled()) {
             BbNativeAsync::RequestExit();
             const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(5);
