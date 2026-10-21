@@ -4,10 +4,7 @@
 #include <utility>
 inline const char* BbChinese(const char* text) {
     static constexpr std::pair<std::string_view, const char*> entries[] = {
-        {"Enable NR###nr_scene_confirm", "启用 NR###nr_scene_confirm"},
         {"Enable NR", "启用 NR"},
-        {"Confirm your character is controllable", "请确认你已能控制角色"},
-        {"Cancel", "取消"},
         {"NR request failed; see menu", "NR 请求失败；请查看菜单"},
         {"Detailed NR diagnostics", "NR 详细诊断"},
         {"NR error (see menu)", "NR 错误（查看菜单）"},

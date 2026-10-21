@@ -57,7 +57,10 @@ limited acceptance below does not make this preview "stable".
 
 - The original Settings / Online / Log pages are retained, with an NRBridge
   section for NR, native mouse, checked local dependencies and artifact identity.
-  NR activation still requires confirming that the actual game scene is visible.
+  NR activation requires confirming that the character is controllable. With the
+  in-game-start capable Native, press F8 in a controllable scene; the launcher button
+  remains available. Later F8 presses toggle the effect while Helper keeps running.
+  The compact HUD shows FPS/status; full counters are in Delete's diagnostics.
 - The selected INI (including bindings), language, Mods/patches and save directory
   are passed to the managed runner. Incompatible NR settings are rejected with an
   explanation; turn NR off to use the ordinary upscaler settings.

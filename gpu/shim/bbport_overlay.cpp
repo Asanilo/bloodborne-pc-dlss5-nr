@@ -5,7 +5,6 @@
 #endif
 #include "bbport_overlay.h"
 #include "nr_ui_start_request.h"
-#include "nr_ui_input_drain.h"
 #include "render/nr_runtime_control.h"
 #include "render/native_async_pre_sr_policy.h"
 
@@ -67,10 +66,8 @@ std::mutex imgui_mutex; // the ImGui context: window thread (input) and present 
 bool initialized = false;
 std::atomic<bool> menu_open{false};
 bool l3_down = false, r3_down = false;
-bool nr_scene_prompt = false;
 bool nr_start_requested = false;
 bool nr_start_error = false;
-BbNRUiInput::Drain nr_input_drain;
 bool dirty = false; // settings changed while open: saved on close
 float base_scale = 1.0f;
 // The game's text dialog (ImeDialog, the character name), typed on the keyboard: drawn while it
@@ -91,10 +88,6 @@ float frame_ms_avg = 0.0f;
 float PixelDensity(SDL_WindowID id);
 
 void SetOpen(bool value) {
-    if (!value && nr_scene_prompt) {
-        nr_input_drain.Arm();
-        nr_scene_prompt = false;
-    }
     if (menu_open.exchange(value) == value) {
         return;
     }
@@ -212,37 +205,15 @@ bool NRStartAvailable() {
     return available;
 }
 
-// Shares the settings menu's cursor, input capture and save-on-close lifecycle.
-void OpenNRScenePrompt() {
-    std::printf("NRBRIDGE_NATIVE_INGAME_START_V1 scene_confirmation_opened\n");
-    nr_scene_prompt = true;
-    SetOpen(true);
-}
-
-void NRScenePrompt() {
-    const auto* viewport=ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x+viewport->WorkSize.x*.5f,
-                                 viewport->WorkPos.y+viewport->WorkSize.y*.5f),
-                            ImGuiCond_Always,ImVec2(.5f,.5f));
-    ImGui::Begin(BbSettings::MenuText("Enable NR###nr_scene_confirm", "Включить NR###nr_scene_confirm"),nullptr,
-                 ImGuiWindowFlags_AlwaysAutoResize|ImGuiWindowFlags_NoCollapse);
-    ImGui::TextUnformatted(BbSettings::MenuText("Confirm your character is controllable", "Подтвердите, что персонажем можно управлять"));
-    const bool confirm=ImGui::Button(BbSettings::MenuText("Enable NR", "Включить NR"));
-    ImGui::SetItemDefaultFocus();
-    if(confirm) {
-        const auto result=BbNRUiStart::Publish();
-        nr_start_error=result==BbNRUiStart::Result::Rejected;
-        if(!nr_start_error) {
-            nr_start_requested=true;
-            SetOpen(false);
-        }
-    }
-    ImGui::SameLine();
-    if(ImGui::Button(BbSettings::MenuText("Cancel", "Отмена"))) {
-        SetOpen(false);
-    }
-    if(nr_start_error)ImGui::TextUnformatted(BbSettings::MenuText("NR request failed; see menu", "Ошибка запроса NR; см. меню"));
-    ImGui::End();
+// F8 or the menu button is the player's explicit scene attestation. The
+// runner still validates the live game and performs its existing safe startup.
+bool RequestNRStart() {
+    const auto result=BbNRUiStart::Publish();
+    nr_start_error=result==BbNRUiStart::Result::Rejected;
+    if(!nr_start_error)nr_start_requested=true;
+    std::printf("NRBRIDGE_NATIVE_INGAME_START_V1 player_scene_attestation disposition=%s\n",
+                nr_start_error?"rejected":result==BbNRUiStart::Result::AlreadyRequested?"already_requested":"published");
+    return !nr_start_error;
 }
 
 void NRGpuSamples(const BbNR::Snapshot& actual,bool compact) {
@@ -272,7 +243,7 @@ void NRControls() {
     static std::string error;bool changed=false;
     ImGui::Text("%s | config %s",BbNR::StatusName(actual.status),actual.applied_revision<request.revision?"pending":"applied");
     if(actual.status==BbNR::Status::Unavailable && NRStartAvailable() && !nr_start_requested) {
-        if(ImGui::Button(BbSettings::MenuText("Enable NR", "Включить NR"))) OpenNRScenePrompt();
+        if(ImGui::Button(BbSettings::MenuText("Enable NR", "Включить NR"))) RequestNRStart();
     }
     if(nr_start_error)ImGui::TextUnformatted(BbSettings::MenuText("NR request failed; see menu", "Ошибка запроса NR; см. меню"));
     ImGui::BeginDisabled(actual.status==BbNR::Status::Unavailable || actual.status==BbNR::Status::Pending);
@@ -1264,43 +1235,15 @@ bool HandleEvent(const SDL_Event& event) {
         return false;
     }
     ImGuiIO& io = ImGui::GetIO();
-    uint32_t input_key=0;
-    bool input_down=false;
-    if(event.type==SDL_EVENT_KEY_DOWN || event.type==SDL_EVENT_KEY_UP) {
-        input_down=event.type==SDL_EVENT_KEY_DOWN;
-        switch(event.key.key) {
-        case SDLK_RETURN: input_key=BbNRUiInput::Enter;break;
-        case SDLK_KP_ENTER: input_key=BbNRUiInput::KeypadEnter;break;
-        case SDLK_SPACE: input_key=BbNRUiInput::Space;break;
-        case SDLK_ESCAPE: input_key=BbNRUiInput::Escape;break;
-        case SDLK_DELETE: input_key=BbNRUiInput::Delete;break;
-        default:break;
-        }
-    } else if(event.type==SDL_EVENT_MOUSE_BUTTON_DOWN || event.type==SDL_EVENT_MOUSE_BUTTON_UP) {
-        input_down=event.type==SDL_EVENT_MOUSE_BUTTON_DOWN;
-        if(event.button.button==SDL_BUTTON_LEFT)input_key=BbNRUiInput::MouseLeft;
-    } else if(event.type==SDL_EVENT_GAMEPAD_BUTTON_DOWN || event.type==SDL_EVENT_GAMEPAD_BUTTON_UP) {
-        input_down=event.type==SDL_EVENT_GAMEPAD_BUTTON_DOWN;
-        if(event.gbutton.button==SDL_GAMEPAD_BUTTON_SOUTH)input_key=BbNRUiInput::South;
-        else if(event.gbutton.button==SDL_GAMEPAD_BUTTON_LEFT_STICK)input_key=BbNRUiInput::L3;
-        else if(event.gbutton.button==SDL_GAMEPAD_BUTTON_RIGHT_STICK)input_key=BbNRUiInput::R3;
-    }
-    const bool drained_release=input_key && nr_input_drain.Event(input_key,input_down);
-    // Keep the final release consumed even though it just cleared the drain.
-    const bool is_open = menu_open || nr_input_drain.Active() || drained_release;
+    const bool is_open = menu_open;
     switch (event.type) {
     case SDL_EVENT_WINDOW_FOCUS_LOST:
     case SDL_EVENT_WINDOW_FOCUS_GAINED:
         io.AddFocusEvent(event.type == SDL_EVENT_WINDOW_FOCUS_GAINED);
-        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
-            l3_down = r3_down = false;
-            nr_input_drain.Clear();
-        }
+        if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) l3_down = r3_down = false;
         return false;
     case SDL_EVENT_GAMEPAD_REMOVED:
         l3_down = r3_down = false;
-        nr_input_drain.Clear(BbNRUiInput::Gamepad);
-        io.AddKeyEvent(ImGuiKey_GamepadFaceDown,false);
         return false;
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP: {
@@ -1316,7 +1259,7 @@ bool HandleEvent(const SDL_Event& event) {
                 const char* disposition = "accepted";
                 if(nr_key==8 && status.status==BbNR::Status::Unavailable) {
                     if(nr_start_requested)disposition="ignored_start_pending";
-                    else if(NRStartAvailable()) {OpenNRScenePrompt();disposition="scene_confirmation";}
+                    else if(NRStartAvailable()) disposition=RequestNRStart()?"start_requested":"rejected_start_request";
                     else disposition="ignored_unavailable";
                 }
                 else if(nr_key==8 && status.status==BbNR::Status::Pending)disposition="ignored_start_pending";
@@ -1433,7 +1376,7 @@ bool MenuOpen() {
 
 bool CapturesInput() {
     // The text dialog too: keys typed into it (Backspace is the touchpad) stay out of the game.
-    return menu_open || prompt_active || nr_input_drain.Active();
+    return menu_open || prompt_active;
 }
 
 void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
@@ -1485,7 +1428,7 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     ImGui_ImplVulkan_NewFrame();
     ImGui::NewFrame();
     if (menu_open) {
-        if(nr_scene_prompt) NRScenePrompt(); else Menu();
+        Menu();
     }
     if(!menu_open) NRHud();
     if (BbSettings::Get().show_fps && !menu_open && !PersistentNRHudEnabled()) {

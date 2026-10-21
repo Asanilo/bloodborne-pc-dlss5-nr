@@ -115,13 +115,13 @@ def main():
   if getattr(a,'launcher_settings',None):
    print('\n使用启动器选择的存档；正常退休后安全同步，失败时保留本轮私人副本。Space/Cross 继续；WASD/鼠标或手柄操作。',flush=True)
   else:print('\n游戏使用独立私有存档'+('，续用 '+a.continue_session if a.continue_session else '（新NRTest seed）')+'。Space/Cross 继续；WASD/鼠标或手柄操作。',flush=True)
-  print('F8：游戏内确认首次启用／已启用后切换 NR 效果；Delete：详细设置。',flush=True) if getattr(a,'ingame_nr_start',False) else print('F8：已启用后切换 NR 效果；Delete：详细设置。',flush=True)
+  print('F8：首次按下启用 NR／后续切换 NR 效果；Delete：详细设置。',flush=True) if getattr(a,'ingame_nr_start',False) else print('F8：已启用后切换 NR 效果；Delete：详细设置。',flush=True)
   if a.daily:print('日常模式：无固定游戏时长；正常关闭窗口退出。',flush=True)
   else:print(f'计划 {a.seconds} 秒后请求正常关闭；独立watchdog为{a.watchdog_seconds}秒，关闭仍需真实GPU退休。',flush=True)
   if getattr(a,'sr_only',False):
    print('SR-only：不会启动 Helper 或 NR。',flush=True)
    return child.wait()
-  if getattr(a,'ingame_nr_start',False):prompt='进入可操作场景后按 F8，在游戏内确认开启 NR；也可点击启动器的开启 NR 按钮。'
+  if getattr(a,'ingame_nr_start',False):prompt='进入可操作场景后直接按 F8 开启 NR；也可点击启动器的开启 NR 按钮。'
   elif getattr(a,'launcher_settings',None):prompt='进入可操作场景后，点击启动器的开启 NR 按钮。'
   else:prompt='进入可控制的实际游戏场景后，在本终端按 Enter 开启 NR。'
   print('NR_SCENE_READY_WAIT: '+prompt,flush=True)

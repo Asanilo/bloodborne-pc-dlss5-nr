@@ -61,8 +61,8 @@ With a prepared AppImage or installation, open the AppImage or `./launch.sh`:
 
 1. Choose your game and save directories, then configure the local **NR runtime inputs**.
 2. Leave **NR** and **native mouse** enabled; select DLSS Quality and 1920×1080.
-3. Start the game, enter a controllable scene, then select **Enable NR after entering
-   gameplay** in the launcher and confirm.
+3. Start the game, enter a controllable scene, then press **F8** to enable NR
+   without leaving the game. The launcher's confirmation button remains available.
 4. When finished, let progress finish saving before closing the launcher.
 
 <details>
@@ -71,9 +71,12 @@ With a prepared AppImage or installation, open the AppImage or `./launch.sh`:
 | Key | Action |
 | :--- | :--- |
 | F1 | Release mouse capture; click the game to recapture |
-| F8 | Switch SR/NR display |
+| F8 | First press enables NR in-game; later presses toggle the NR effect |
 | Delete | Open NR controls; select Apply after changing parameters |
 | Insert / L3+R3 | Open bbport settings |
+
+The compact HUD shows FPS and NR status. Open **Delete → Detailed NR diagnostics**
+for the full counters. Toggling the effect keeps the NR service running.
 
 The current NR profile uses DLSS Quality, 1920×1080, 16:9 or Auto, jitter and object
 motion enabled. Choose Old or Auto memory; under NR, Auto selects the matching old

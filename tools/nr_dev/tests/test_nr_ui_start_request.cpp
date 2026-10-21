@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "gpu/shim/nr_ui_start_request.h"
-#include "gpu/shim/nr_ui_input_drain.h"
 #include <cassert>
 #include <fstream>
 #include <iostream>
@@ -38,41 +37,7 @@ static ssize_t PartialFailure(int fd,const void* data,size_t) {
     errno=ENOSPC;return -1;
 }
 static ssize_t ZeroWrite(int,const void*,size_t){return 0;}
-static void ReplayInputDrain() {
-    using namespace BbNRUiInput;
-    const uint32_t keys[]={Enter,KeypadEnter,Space,Escape,Delete,MouseLeft,South,L3,R3};
-    for(const auto key:keys) {
-        Drain state;
-        // SDL DOWN, then render activates/closes the prompt while physically held.
-        assert(!state.Event(key,true));state.Arm();assert(state.Active());
-        assert(state.Event(key,false));assert(!state.Active());
-        // SDL DOWN+UP were both received before render. ImGui may still be
-        // processing DOWN, but a delayed logical activation must not arm drain.
-        assert(!state.Event(key,true));assert(!state.Event(key,false));
-        state.Arm();assert(!state.Active());
-        // Release arriving between logical activation and another render stays clear.
-        state.Event(key,true);state.Arm();assert(state.Event(key,false));
-        state.Arm();assert(!state.Active());
-        // Lost focus clears actual held state as well as published capture state.
-        state.Event(key,true);state.Arm();state.Clear();
-        assert(!state.Active());state.Arm();assert(!state.Active());
-    }
-    Drain simultaneous;
-    simultaneous.Event(Enter,true);simultaneous.Event(South,true);
-    simultaneous.Arm();assert(simultaneous.Active());
-    assert(simultaneous.Event(Enter,false));assert(simultaneous.Active());
-    assert(simultaneous.Event(South,false));assert(!simultaneous.Active());
-    // A second activation input pressed during drain cannot leak into game polling.
-    simultaneous.Event(MouseLeft,true);simultaneous.Arm();
-    simultaneous.Event(South,true);simultaneous.Event(MouseLeft,false);
-    assert(simultaneous.Active());assert(simultaneous.Event(South,false));assert(!simultaneous.Active());
-    // Disconnect clears the removed device while retaining a still-held keyboard key.
-    simultaneous.Event(Enter,true);simultaneous.Event(South,true);simultaneous.Event(L3,true);
-    simultaneous.Arm();simultaneous.Clear(Gamepad);assert(simultaneous.Active());
-    assert(simultaneous.Event(Enter,false));simultaneous.Arm();assert(!simultaneous.Active());
-}
 int main(int argc,char** argv) {
-    ReplayInputDrain();
     assert(argc==2);const std::string root=fs::canonical(argv[1]);
     setenv("BB_NR_DAILY","1",1);setenv("NRBRIDGE_HOME",root.c_str(),1);
     fs::create_directories(root+"/runs/ui-test");
@@ -126,5 +91,5 @@ int main(int argc,char** argv) {
     assert(partial_evidence);
     fs::create_directory_symlink(s.run,root+"/runs/alias");bad=s;bad.run=root+"/runs/alias";bad.session="alias";bad.request=bad.run+"/nr-ui-start-request";
     assert(BbNRUiStart::Publish(bad)==Result::Rejected);
-    std::cout<<"NR UI intent scope, permissions, duplicate, malformed, symlink, atomic publication, faults, partial, EINTR and input event replay checks passed\n";
+    std::cout<<"NR UI intent scope, permissions, duplicate, malformed, symlink, atomic publication, faults, partial and EINTR checks passed\n";
 }

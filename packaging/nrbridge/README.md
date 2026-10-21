@@ -47,6 +47,9 @@ new build identity; selecting the reference binary does not rebuild it.
   settings markers. Explicit environment paths take precedence. Standalone files
   use their selected `NRBRIDGE_HOME` and full-launcher configuration.
 - GUI and `--play` delegate to the same managed coordinator, with scene confirmation.
+  A Native with the in-game-start capability can publish that confirmation from
+  F8 without switching windows; older binaries retain the launcher/CLI path.
+  This is a first-start request followed by effect bypass, not Helper restart.
   There is no fixed daily session shutdown; job/retirement checks remain. The mount
   stays owned while its managed child runs, and HOLD blocks unsafe GUI close.
 - Selected saves run under the original save locks/backups as private copies and

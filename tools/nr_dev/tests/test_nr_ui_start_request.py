@@ -1,4 +1,4 @@
-"""Compile the real publisher and input drain event replay; no game or GPU execution."""
+"""Compile and exercise the real UI intent publisher; no game or GPU execution."""
 import subprocess
 import tempfile
 import unittest
