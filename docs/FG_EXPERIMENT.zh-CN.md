@@ -11,7 +11,7 @@ bash scripts/dev-build.sh --test
 # 实测前的增量构建：同时记录 Runner 所需源码身份与四产物 SHA，不复制二进制
 python3 tools/fg_dev/build.py
 # 设置 NRBRIDGE_HOME 为已有、已密封运行输入所属的专用开发目录。
-python3 tools/nr_dev/play.py --daily --sr-only --experimental-fg fsr31 \
+python3 tools/nr_dev/play.py --daily --sr-only --experimental-fg fsr31-hudless \
   --native-build "$PWD/out" --local-inputs "$NRBRIDGE_HOME/localinputs/CONFIG.json" \
   --session fg-UNIQUE-SESSION
 ```
@@ -26,8 +26,8 @@ PreSR 无 peer 退出审核。启动前后都须保持被选中的 `out` 产物�
 | 参数 | 后端 | HUD 路径 | 实测状态 |
 |---|---|---|---|
 | `fsr31` | 已有 SDK 1.1.4 portable FI/OF | 整帧插值 | 已在 RTX 4060 Laptop 诊所运行、实际成对 Present、正常退休 |
-| `fsr31-hudless` | 同一基线 | 首个 UI draw 前捕获，交给 FSR HUD 分离 | 独立画质对照；不能预先认为能解决全部双影 |
-| `fsr316` | 已有 FSR-Vulkan SDK 2.3 / analytical FG 3.1.6 | 整帧插值 | 独立实验；不替换默认基线 |
+| `fsr31-hudless` | 同一基线 | 首个 UI draw 前捕获，交给 FSR HUD 分离 | 已实测运动/开关/分辨率重建；当前建议的游玩实验配置 |
+| `fsr316` | 已有 FSR-Vulkan SDK 2.3 / analytical FG 3.1.6 | 整帧插值 | 已实呈840对、正常GPU退休；HUD仍有重影，保留为独立PoC |
 
 Delete 菜单在显式 `BB_FRAME_GEN` 实验会话显示 FG 开关。也可向本轮 `RUN/fg-control`
 原子重命名一个内容为 `0` 或 `1` 的完整文件。请求在 scene/display 边界消费；关闭不
@@ -87,7 +87,7 @@ presenter 输入图像，并非 compositor scanout；捕获会扰动性能，不
 - 末段保留日志样本：真实间隔 median **16.68 ms**，合并 Present median **8.71 ms**，
   p95 **9.40 ms**。这不是扫描输出测量，不能宣称固定的物理 120 Hz 或输入延迟改善。
 - 相机旋转、短移动、菜单打开/关闭、FG 关闭/重开有实测；关闭区间只产生真实 Present，
-  重开恢复生成。Bloodborne 游戏菜单不等同于真正暂停；最小化/恢复和分辨率变更仍需专项实测。
+  重开恢复生成。Bloodborne 游戏菜单不等同于真正暂停；本轮后续已补窗口缩放与分辨率重建，真正最小化到0×0仍待专项实测。
 - 两轮都是 `PASS_NORMAL_TEARDOWN`、returncode 0、实际 Native last-use proof、无残留、
   无 watchdog/监督信号；FG_DRAW_RETIRED、FG_PRESENT_RETIRED、FG_EXIT_PROOF 全部存在。
 - 16 张交替 readback 保留为无损 PNG，逐张还原原 BGRA 字节验证通过；可比较的 7 张
@@ -146,3 +146,57 @@ presenter 输入图像，并非 compositor scanout；捕获会扰动性能，不
   输入结束使用 fence 和输出 reader 退休，不能直接复用 NR 的 CONSUMED 作为 FG 完成证明。
   只有 native loader 能力查询和具体 PE Vulkan create/evaluate PoC 明确后，才决定是否承担
   额外跨进程中点调度延迟；本轮没有把 D3D12/Wine 桥接当成已实现功能。
+
+## 后续候选与专项验证
+
+- `974cc8f` / `fg-hudless-validation`：实际呈现1576对、正常退休。运动截图中 HUD 比整帧
+  插值样本更稳定，但场景边缘、后处理和局部双影仍需长期观察。validation 降到约23个
+  真实帧/秒；这是诊断开销，不用于比较后端性能。
+- `543f43b` / `fg-316-validation`：3.1.6 实际呈现840对、正常退休。R32F 输入由 D32 float
+  aspect→设备 buffer→R32F image 转存，无 CPU 读回；provider imported views 走实际完成
+  tick 退休。当前整帧方案仍有明显 HUD 重影，未证明新版算法改善本游戏画质。
+- `6e53c4d` / `fg-hudless-playable`：真实11770、生成9072累计成功 Present；保留日志9071对
+  身份/顺序核验无错。真实间隔 median16.69ms、合并间隔 median8.72ms；全局统计包含启动、
+  读回、手动关闭FG、分辨率/窗口变化和暂停，不能把整体 p95 当成无干扰热性能。
+- 上述热候选完成1080p→720p→1080p、窗口1920×1080→1280×720→恢复、相机/短移动、FG
+  关/开以及一秒进程 SIGSTOP/SIGCONT。进程暂停时独占锁保留，身份由 Runner 验证，finally
+  恢复；这和 Bloodborne 游戏菜单的“不暂停”有区别。实际最小化仍未验收。
+- 相机持续运动的第二组16张交替读回中，7张可双侧比较的 generated 都不等于相邻 real；
+  对相邻 real 的 MAE 约1.38–2.34/255，real-to-real MAE约2.24–3.20/255。它们确实是
+  不同的运动中间图像，仍不等同于物理扫描或主观流畅度的完整测量。全部像素无损保留为
+  约27MB PNG，回读重建BGRA逐字节验证后删除了约133MB冗余raw。
+- `7e9d58f` 将长间隔检查移到 Interpolate 之前，恢复后的第一个 dispatch 直接 reset；
+  原 display-copy 之后的 OnFrameStart 检查继续保留。日志 `FG_HISTORY_RESET` 区分 scene 与
+  gap；reset帧不输出生成帧。
+
+validation 的具体结果必须和正常退休分开：`f8dc0f1` 将 Presenter 的 sRGB source view
+限制为 sampled-only；`08c3c98` 独立修复共享 upscaler 的 NGX transfer-clear usage 与前后
+屏障。3.1.6 复测中，已未再出现 NGX 的 transfer-clear 缺失usage/随后的 blit RAW 报告。
+仍存在游戏通用 image view / fragment output / dynamic rendering VUID，以及标题阶段
+（尚无生成帧）就出现的 WSI WRITE_AFTER_PRESENT 报告。`543f43b` 补了每个 Acquire 二进制
+信号量对应的实际消费 tick，避免双 Present 轮转下无证据复用，但该报告仍存在。
+**不能宣称整体验证全绿，也未把它直接当成 validation 误报。** GPU 正常退休、无残留、
+内核preflight通过，不代替这些未解决的 API correctness 问题。
+
+原生 NGX 能力查询实测：同一 RTX 4060 Laptop/驱动/loader 上，SuperSampling 查询
+result=0x00000001（成功），FrameGeneration result=0xbad00012，即本机 SDK 定义的
+`NVSDK_NGX_Result_FAIL_NotImplemented`。失败返回时 `FeatureSupported=0` 是未有效填充的
+输出，**不是支持证明**。未创建 VkDevice/feature、未提交 GPU工作，instance正常销毁。
+这个结果定位的是当前本机组合，不能泛化为“Vulkan没有DLSS FG”或“RTX4060硬件不支持FG”。
+
+最终暂停修复实测：`7e9d58f` / `fg-pause-final` 成功呈现真实6043、生成2078；暂停后首个
+恢复 dispatch 为 `FG_HISTORY_RESET fg_frame=1543 scene_reset=0 gap_reset=1`，日志中没有
+fg_frame=1543 的 generated Present，随后恢复成对输出并正常退出。最终增量 `--test`
+和35项针对性 Python CPU回归通过。
+
+本轮六个私有会话全部 `PASS_NORMAL_TEARDOWN`，累计成功真实36514、生成19723，零残留、
+零watchdog、均有独立FG退出证明。全局守卫最后为 retired；没有改玩家 current/正式存档。
+每轮启动的首个WSI resize失败均单独计数，没有作为成功Present。读取/编译后的FSR子模块
+构建补丁脏状态保留，不把它当成需要覆盖或更新的上游代码。
+
+本机便捷入口保存在 Git 忽略的 `out/play-fg.sh`（参数仍走原有受管Runner及密封输入检查）；
+运行 `bash out/play-fg.sh`，Delete菜单可关闭FG。正式配置与安装入口不变。
+公开可移植入口仍是本文开头显式指定 `NRBRIDGE_HOME`/`--local-inputs` 的命令。
+本轮逻辑新增约452MB：FG `out` 相对起点约66MB、六轮私有运行约386MB；共享ccache变化
+未在NR/FG之间分摊，Btrfs压缩后的实际物理增长不能由此直接推算。无新增SDK/依赖副本、
+Release目录或AppImage。
