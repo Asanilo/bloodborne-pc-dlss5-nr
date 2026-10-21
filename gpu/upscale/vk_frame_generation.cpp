@@ -10,6 +10,7 @@
 #include <vk_mem_alloc.h>
 
 #include "bbport_settings.h"
+#include "buffers/buffer.h"
 #include "ffx_vk_portable.h"
 #include "ffx_vk_fsr3_3_1_5_bridge.h"
 #include <cstring>
@@ -157,6 +158,7 @@ void FrameGeneration::Retire() {
     std::scoped_lock lock{targets_mutex};
     targets.clear();
     depth_copy = VideoCore::HostImage{};
+    depth_transfer.reset();
     hudless = VideoCore::HostImage{};
     scene_captured = hudless_ready = false;
     FgLifecycle::draw_retired.store(true);
@@ -286,30 +288,43 @@ void FrameGeneration::CaptureScene(const Scene& in) {
     // the upscaled scene is not only its HUD, and FSR pastes any difference uninterpolated,
     // a double image). Optical flow needs that finished frame: Prepare runs at the display pass.
     // The depth is copied now, while it is this frame's (the game reuses its depth buffer).
-    if (!depth_copy || depth_copy_format != in.depth_format || depth_copy_w != in.render_width ||
+    const auto copy_format = use316 ? vk::Format::eR32Sfloat : in.depth_format;
+    if (use316 && in.depth_format != vk::Format::eD32Sfloat &&
+        in.depth_format != vk::Format::eD32SfloatS8Uint) {
+        scene_captured = false;
+        reset_next = true;
+        std::printf("Frame generation: 3.1.6 needs a 32-bit float depth source\n");
+        return;
+    }
+    if (!depth_copy || depth_copy_format != copy_format || depth_copy_w != in.render_width ||
         depth_copy_h != in.render_height) {
         scheduler.Finish();
         depth_copy = VideoCore::HostImage(instance.GetDevice(), instance.GetAllocator());
         depth_copy.Create(vk::ImageCreateInfo{
             .imageType = vk::ImageType::e2D,
-            .format = in.depth_format,
+            .format = copy_format,
             .extent = {in.render_width, in.render_height, 1},
             .mipLevels = 1,
             .arrayLayers = 1,
             .samples = vk::SampleCountFlagBits::e1,
             .tiling = vk::ImageTiling::eOptimal,
             .usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst |
-                     vk::ImageUsageFlagBits::eDepthStencilAttachment,
+                     (use316 ? vk::ImageUsageFlags{} : vk::ImageUsageFlagBits::eDepthStencilAttachment),
             .initialLayout = vk::ImageLayout::eUndefined,
         });
-        depth_copy_format = in.depth_format;
+        if (use316) depth_transfer = std::make_unique<VideoCore::Buffer>(instance, 0,
+            u64(in.render_width) * in.render_height * sizeof(float), VideoCore::MemoryType::DeviceLocal,
+            "FG 3.1.6 depth format transfer");
+        depth_copy_format = copy_format;
         depth_copy_w = in.render_width;
         depth_copy_h = in.render_height;
     }
     scheduler.Record([depth = in.depth, copy = vk::Image(depth_copy), w = in.render_width,
-                      h = in.render_height](vk::CommandBuffer cmdbuf) {
+                      h = in.render_height, buffer = depth_transfer ? depth_transfer->Handle() : vk::Buffer{}]
+                     (vk::CommandBuffer cmdbuf) {
         const auto all = vk::PipelineStageFlagBits2::eAllCommands;
         const vk::ImageSubresourceRange range{vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1};
+        const vk::ImageSubresourceRange copy_range = buffer ? ColorRange : range;
         const std::array<vk::ImageMemoryBarrier2, 2> before{{
             {.srcStageMask = all, .srcAccessMask = vk::AccessFlagBits2::eMemoryWrite,
              .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
@@ -320,7 +335,7 @@ void FrameGeneration::CaptureScene(const Scene& in) {
              .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
              .dstAccessMask = vk::AccessFlagBits2::eTransferWrite,
              .oldLayout = vk::ImageLayout::eUndefined, .newLayout = vk::ImageLayout::eGeneral,
-             .image = copy, .subresourceRange = range},
+             .image = copy, .subresourceRange = copy_range},
         }};
         cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 2, .pImageMemoryBarriers = before.data()});
         const vk::ImageCopy region{
@@ -328,7 +343,31 @@ void FrameGeneration::CaptureScene(const Scene& in) {
             .dstSubresource = {vk::ImageAspectFlagBits::eDepth, 0, 0, 1},
             .extent = {w, h, 1},
         };
-        cmdbuf.copyImage(depth, vk::ImageLayout::eGeneral, copy, vk::ImageLayout::eGeneral, region);
+        if (buffer) {
+            // Image->buffer extracts exactly the D32 float aspect; buffer->image writes the
+            // same bytes as R32F. No incompatible depth/color image copy and no CPU readback.
+            const vk::BufferMemoryBarrier2 writable{
+                .srcStageMask = all,
+                .srcAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+                .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
+                .dstAccessMask = vk::AccessFlagBits2::eTransferWrite,
+                .buffer = buffer, .size = VK_WHOLE_SIZE,
+            };
+            cmdbuf.pipelineBarrier2({.bufferMemoryBarrierCount = 1, .pBufferMemoryBarriers = &writable});
+            vk::BufferImageCopy transfer{
+                .imageSubresource = {vk::ImageAspectFlagBits::eDepth, 0, 0, 1}, .imageExtent = {w, h, 1},
+            };
+            cmdbuf.copyImageToBuffer(depth, vk::ImageLayout::eGeneral, buffer, transfer);
+            auto readable = writable;
+            readable.srcStageMask = vk::PipelineStageFlagBits2::eCopy;
+            readable.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
+            readable.dstAccessMask = vk::AccessFlagBits2::eTransferRead;
+            cmdbuf.pipelineBarrier2({.bufferMemoryBarrierCount = 1, .pBufferMemoryBarriers = &readable});
+            transfer.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+            cmdbuf.copyBufferToImage(buffer, copy, vk::ImageLayout::eGeneral, transfer);
+        } else {
+            cmdbuf.copyImage(depth, vk::ImageLayout::eGeneral, copy, vk::ImageLayout::eGeneral, region);
+        }
         const std::array<vk::ImageMemoryBarrier2, 2> after{{
             {.srcStageMask = vk::PipelineStageFlagBits2::eCopy,
              .srcAccessMask = vk::AccessFlagBits2::eTransferRead, .dstStageMask = all,
@@ -339,7 +378,7 @@ void FrameGeneration::CaptureScene(const Scene& in) {
              .srcAccessMask = vk::AccessFlagBits2::eTransferWrite, .dstStageMask = all,
              .dstAccessMask = vk::AccessFlagBits2::eMemoryRead,
              .oldLayout = vk::ImageLayout::eGeneral, .newLayout = vk::ImageLayout::eGeneral,
-             .image = copy, .subresourceRange = range},
+             .image = copy, .subresourceRange = copy_range},
         }};
         cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 2, .pImageMemoryBarriers = after.data()});
     });
@@ -509,9 +548,10 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     }
     FfxVkPortableFrameGenerationPrepareInfo prepare{};
     prepare.structSize = sizeof(prepare);
-    prepare.depth = Describe(vk::Image(depth_copy), scene.depth_format, scene.render_width,
+    prepare.depth = Describe(vk::Image(depth_copy), depth_copy_format, scene.render_width,
                              scene.render_height, vk::ImageUsageFlagBits::eSampled,
-                             vk::ImageAspectFlagBits::eDepth, FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
+                             use316 ? vk::ImageAspectFlagBits::eColor : vk::ImageAspectFlagBits::eDepth,
+                             FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
     prepare.motionVectors = Describe(scene.motion, vk::Format::eR16G16Sfloat, scene.render_width,
                                      scene.render_height,
                                      vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,

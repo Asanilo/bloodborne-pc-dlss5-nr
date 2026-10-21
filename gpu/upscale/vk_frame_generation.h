@@ -26,6 +26,7 @@
 
 struct FfxVkPortableFrameGenerationContext;
 struct FfxVkFsr3_3_1_6FrameGenerationContext;
+namespace VideoCore { struct Buffer; }
 
 namespace Vulkan {
 
@@ -110,6 +111,7 @@ private:
     /// The scene's depth, copied at the capture (the game reuses its depth buffer before the
     /// display pass, where Prepare runs).
     VideoCore::HostImage depth_copy;
+    std::unique_ptr<VideoCore::Buffer> depth_transfer; ///< 3.1.6 consumes R32F, not D32S8.
     VideoCore::HostImage hudless;     ///< the frame without its UI (CaptureHudless)
     bool hudless_ready = false;       ///< taken for the captured scene
     vk::Format depth_copy_format{};
