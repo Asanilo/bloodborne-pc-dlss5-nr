@@ -4,7 +4,7 @@ This is a sanitized summary. Raw logs, machine identifiers, private paths and
 saves stay in ignored development data. No historical failure is retroactively
 converted into a pass.
 
-## Reference runtime
+## Last GPU-exercised reference runtime
 
 | Component | Identity |
 |---|---|
@@ -19,6 +19,33 @@ cbbe474 + c031a37: the latter removes the extra confirmation dialog. An initial
 cold build was followed by a focused incremental rebuild of that simplification;
 both passed the Native build's CPU tests. Later documentation commits are not
 another Native build.
+
+## Launcher translations and slow-walk restoration
+
+The subsequent installed Native is 025503b53ecf66d69ba08e4dff93737b84f06e56.
+Its only runtime input change from a037043 restores the missing slow-walk default:
+hold Left Alt with WASD for the existing reduced stick magnitude. Left Ctrl remains
+L3. The launcher exposes the slow-walk binding again, and explicit old bindings or
+intentional unbindings still take precedence. The 0.6 merge had retained the walk
+implementation while dropping its default and launcher row.
+
+The launcher now translates the missing online, Discord, log and current control
+labels into Chinese, including the table-driven options. Game/service names,
+technical identifiers and canonical key names remain recognizable. Regression
+checks cover the translation catalog and formatting placeholders. The actual
+packaged full launcher was instantiated with private offline settings: translated
+pages, account controls, log buttons, Left Alt walk and Ctrl L3 were checked.
+No account sign-in or game launch was invoked by that widget check.
+
+The update passed the 8 native-input CPU cases normally and under ASan/UBSan,
+the Native build's CPU tests, and 211 Python checks (28 optional cases skipped).
+The CLI-only private-image fixture is exercised separately by the input test
+runner, not imported through unittest discovery. The input checks exercise
+sustained slow-walk, release to full movement, Ctrl/L3 separation, custom keys,
+and unaffected independent gamepad axes. This focused incremental build and GUI
+check do not constitute a new GPU/gameplay acceptance; the a037043 GPU evidence
+below remains specific to that earlier binary. The installed previous runtime
+and package are preserved; formal save/config file hashes were unchanged.
 
 ## BBSC and native mouse coexistence
 
