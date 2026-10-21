@@ -1,0 +1,198 @@
+{
+  "schema": "nrbridge-migration-v1",
+  "repository": "https://github.com/Asanilo/OptiScaler-Linux-NR",
+  "commit": "713f8ac99959fcdf470b2600c2645a1e5b24b7c8",
+  "nrbridge_tree": "6cdc70ff18a31609eeba8721ce6d9d08c6665a9e",
+  "files": [
+    {
+      "source": "nrbridge/README.md",
+      "target": "nrbridge/README.md",
+      "sha256": "22288d19813a15f1ad2c13deffcc45b1e9c1faa3873549a60e049b3e5195b234"
+    },
+    {
+      "source": "nrbridge/build.py",
+      "target": "nrbridge/build.py",
+      "sha256": "97fd49b564920d79dd56bcd73dff427a772b45f7466f490e7934679d69a9c42d"
+    },
+    {
+      "source": "nrbridge/build_support.py",
+      "target": "nrbridge/build_support.py",
+      "sha256": "da681540e0a742965c5cf3df64eec13f1bf56fe2e1ff9eeb229e1d77f0df65da"
+    },
+    {
+      "source": "nrbridge/forwarder/README.md",
+      "target": "nrbridge/forwarder/README.md",
+      "sha256": "ee1fa0b427ee2ee56c647976eac787fef865f3367ca60c421279b677662f13b7"
+    },
+    {
+      "source": "nrbridge/forwarder/build.py",
+      "target": "nrbridge/forwarder/build.py",
+      "sha256": "0cba92237f0cf4e814380aa856a29f92d406518bb432044bd50c7fdc8cf5fc07"
+    },
+    {
+      "source": "nrbridge/forwarder/parameter_abi.h",
+      "target": "nrbridge/forwarder/parameter_abi.h",
+      "sha256": "184b6f19d5d5248f02c3c69e8d62aaf1d7867b691b597e114bac1f64fe46a2be"
+    },
+    {
+      "source": "nrbridge/forwarder/shutdown_bridge.cpp",
+      "target": "nrbridge/forwarder/shutdown_bridge.cpp",
+      "sha256": "85b0ba5caf3b4571b13d33b7aeb627761b6d0984efa4b1a9a4220e16dca8887c"
+    },
+    {
+      "source": "nrbridge/forwarder/source-provenance.json",
+      "target": "nrbridge/forwarder/source-provenance.json",
+      "sha256": "10c0a9dd430bc2f65f9236f8893480d5cf6a1f585cfdca0aaaaf906bcc624526"
+    },
+    {
+      "source": "nrbridge/protocol/effective-spec.json",
+      "target": "nrbridge/protocol/effective-spec.json",
+      "sha256": "671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b"
+    },
+    {
+      "source": "nrbridge/protocol/export.py",
+      "target": "nrbridge/protocol/export.py",
+      "sha256": "f546d5d30f7a0fb5ab4d21ef43a0596ba84c0089942094c192b1d763d60ecffb"
+    },
+    {
+      "source": "nrbridge/protocol/native_runtime_model.h",
+      "target": "nrbridge/protocol/native_runtime_model.h",
+      "sha256": "92c16609685a651a405842126b6160fd02376c2be034d2142f365bda119a0205"
+    },
+    {
+      "source": "nrbridge/protocol/pre_sr_wire.h",
+      "target": "nrbridge/protocol/pre_sr_wire.h",
+      "sha256": "50c9ed37cdfbf948d07ce153b7b146a966c616ddef864cdab709c792f8395d4f"
+    },
+    {
+      "source": "nrbridge/retirement.py",
+      "target": "nrbridge/retirement.py",
+      "sha256": "816ac320496c800608e441e02743e0267eaece831cf4f86ba25698b22aec2c92"
+    },
+    {
+      "source": "nrbridge/runtime/fixture_util.h",
+      "target": "nrbridge/runtime/fixture_util.h",
+      "sha256": "e84cc94db63d8fbdf5cf19ca3bec67c5901be54d2e440dea0f5acd273100f42d"
+    },
+    {
+      "source": "nrbridge/runtime/lowres_production_adapter.h",
+      "target": "nrbridge/runtime/lowres_production_adapter.h",
+      "sha256": "62bacf308b2e5be87ffddeceb3240654b5d08f967986e40509da3475eac66f06"
+    },
+    {
+      "source": "nrbridge/runtime/runtime_config.h",
+      "target": "nrbridge/runtime/runtime_config.h",
+      "sha256": "27d3d543f2e93e2d3ecb5fd5cb1aebccb8186d0b32f4a239eb19dcaa7cc69763"
+    },
+    {
+      "source": "nrbridge/runtime/runtime_frame.h",
+      "target": "nrbridge/runtime/runtime_frame.h",
+      "sha256": "03dff62923fc204421bb6d501bc346265e1123534a4a6d12ee39a1fe94eb68a6"
+    },
+    {
+      "source": "nrbridge/runtime/runtime_types.h",
+      "target": "nrbridge/runtime/runtime_types.h",
+      "sha256": "3f4787589254cf77fb52323520cb3dcb21277260c539f6d232b84f4bc0789879"
+    },
+    {
+      "source": "nrbridge/runtime/transport.h",
+      "target": "nrbridge/runtime/transport.h",
+      "sha256": "afde02b9cd4a89a750f744d21db1b06111298d6324bc4ab8578face1d88c450e"
+    },
+    {
+      "source": "nrbridge/runtime/wine_runtime_model.cpp",
+      "target": "nrbridge/runtime/wine_runtime_model.cpp",
+      "sha256": "c2d0ef16eab3b5086447b37972bd93c9ad1035cdc4b66d4bea8bee104d7ea67a"
+    },
+    {
+      "source": "nrbridge/shaders.py",
+      "target": "nrbridge/shaders.py",
+      "sha256": "21a55ab939d3f14ca6fb3f2c82a41754d43270dc5b5bb68ad25f85abe9c04ffc"
+    },
+    {
+      "source": "nrbridge/shaders/dlssnr-frozen.hlsl",
+      "target": "nrbridge/shaders/dlssnr-frozen.hlsl",
+      "sha256": "300ae85d8c9272bf923d7845673e3e88365de999dc9815dd02b48e6d45f18761"
+    },
+    {
+      "source": "nrbridge/shaders/regenerate.py",
+      "target": "nrbridge/shaders/regenerate.py",
+      "sha256": "90c51dfd26908a2e87c4393fc4cc559cb41a1830963b7f63daf131768c420f09"
+    },
+    {
+      "source": "nrbridge/source-provenance.json",
+      "target": "nrbridge/source-provenance.json",
+      "sha256": "426a2a8baceee0aa2b962445d13a34a3cc0dc1fd90c6aa40c888e3054594d7ef"
+    },
+    {
+      "source": "nrbridge/tests/test_build.py",
+      "target": "nrbridge/tests/test_build.py",
+      "sha256": "f8123232b8cb77011b981ee6ee72413b0353777a1da9bf3a8d50f90367bd711c"
+    },
+    {
+      "source": "nrbridge/tests/test_daily_transport.cpp",
+      "target": "nrbridge/tests/test_daily_transport.cpp",
+      "sha256": "251a50a4f7c5bf82f935af68c1d9294282e85de19830d0500ba152a2e829f1b3"
+    },
+    {
+      "source": "nrbridge/tests/test_protocol.cpp",
+      "target": "nrbridge/tests/test_protocol.cpp",
+      "sha256": "5e16cdc29aed287be410556806b0087fc1cfbf614623f9f9c488f7324c53fb63"
+    },
+    {
+      "source": "nrbridge/tests/test_retirement.py",
+      "target": "nrbridge/tests/test_retirement.py",
+      "sha256": "957355ccc0de3d37a72473c836c88266d66fc357a9f16af3ef3e34c721bf9a11"
+    },
+    {
+      "source": "nrbridge/tests/test_runtime_config.cpp",
+      "target": "nrbridge/tests/test_runtime_config.cpp",
+      "sha256": "1b3e7b8157a94d61c7e64f35fbe01ced62dfcc6eb176e632e2ebc611c2d199bc"
+    },
+    {
+      "source": "nrbridge/tests/wire_check.cpp",
+      "target": "nrbridge/tests/wire_check.cpp",
+      "sha256": "e25bd70fbee39dad99b1fb70429ea4eabb1459cb0329900524e55e061b7c178c"
+    },
+    {
+      "source": "LICENSE",
+      "target": "nrbridge/LICENSE.GPL-3.0",
+      "sha256": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986"
+    },
+    {
+      "source": "OptiScaler/dlssnr/forwarder/dlssnr_forwarder.cpp",
+      "target": "nrbridge/forwarder/dlssnr_forwarder.cpp",
+      "sha256": "6e355af2305bf9584dbfc1b8701ffd9e9bc0341ee32d79ee8976403f81841b5a"
+    },
+    {
+      "source": "OptiScaler/shaders/dlssnr/DlssNr_Common.h",
+      "target": "nrbridge/shaders/DlssNr_Common.h",
+      "sha256": "7f426697a883463a4eb90b29892d2c8e910a6f120158b9b3c8d6ad231728103e"
+    },
+    {
+      "source": "OptiScaler/shaders/dlssnr/precompile/DlssNr_Shader_Vk.spv",
+      "target": "nrbridge/shaders/DlssNr_Shader_Vk.spv",
+      "sha256": "7b44aeb1876f61c8c102979225edb10287189d1d8eddfa0a65186cf026c80239"
+    },
+    {
+      "source": "OptiScaler/shaders/dlssnr/precompile/DlssNr_Shader_Vk.h",
+      "target": "nrbridge/shaders/DlssNr_Shader_Vk.h",
+      "sha256": "3f55d94613971648adf29b506dfb7669ef9ea59c136172eb35a54279c769523c"
+    },
+    {
+      "source": "OptiScaler/shaders/shader_tools/build_precompiled_shader_vk.bat",
+      "target": "nrbridge/shaders/upstream-tools/build_precompiled_shader_vk.bat",
+      "sha256": "15a804ad2b6caff343d0d04561404c88892cdf451503a2d8197c8d31b8361c54"
+    },
+    {
+      "source": "OptiScaler/shaders/shader_tools/create_header.py",
+      "target": "nrbridge/shaders/upstream-tools/create_header.py",
+      "sha256": "2585317ebfbef001cc6427a46d8d031dd592a7a6488e04f937ae0ffa509b73d5"
+    },
+    {
+      "source": "poc/game_nr/LICENSE-NOTES.md",
+      "target": "nrbridge/UPSTREAM-LICENSE-NOTES.md",
+      "sha256": "2dfa216ac6a1a80270591c012e401a9934ae356718564cb3ed8b7393ee1e85ba"
+    }
+  ]
+}

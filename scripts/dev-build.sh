@@ -106,4 +106,10 @@ echo "dev-build: $target"
 echo "  out:   $build_out"
 echo "  deps:  $deps"
 echo "  cache: $CCACHE_DIR"
-exec bash "$target/build.sh" "${build_args[@]}"
+bash "$target/build.sh" "${build_args[@]}"
+# Record the exact reusable development artifacts for the managed NR Runner.
+# This does not freeze/copy a release or claim GPU acceptance.
+git rev-parse HEAD > "$build_out/source-head.txt"
+git diff --ignore-submodules=all --binary HEAD > "$build_out/source-diff.patch"
+sha256sum "$build_out/bb-probe" "$build_out/gpu/libbbgpu.so" \
+    "$build_out/libbbport_dlss.so" "$build_out"/libnvidia-ngx-dlss.so.* > "$build_out/artifacts.sha256"

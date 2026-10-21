@@ -1,0 +1,153 @@
+{
+  "schema": "nrbridge-forwarder-source-v1",
+  "helper_base": "f527d8f2f12d474a66bbb4c1e231d6cd9b673476",
+  "sources": {
+    "shutdown_bridge.cpp": {
+      "original": "upstream/build_out/nr-runtime-poc-20261010/poc/nr_runtime/shutdown_bridge.cpp",
+      "sha256": "85b0ba5caf3b4571b13d33b7aeb627761b6d0984efa4b1a9a4220e16dca8887c",
+      "git_state": "untracked; original preserved",
+      "original_worktree_head": "eaada4c2667a26947f6b934008870025e3e1cfb5",
+      "original_branch": "poc/nr-runtime-20261010"
+    },
+    "parameter_abi.h": {
+      "original": "upstream/build_out/nr-runtime-poc-20261010/poc/nr_runtime/parameter_abi.h",
+      "sha256": "184b6f19d5d5248f02c3c69e8d62aaf1d7867b691b597e114bac1f64fe46a2be",
+      "git_state": "untracked; original preserved",
+      "original_worktree_head": "eaada4c2667a26947f6b934008870025e3e1cfb5",
+      "original_branch": "poc/nr-runtime-20261010"
+    },
+    "build.py": {
+      "original": "upstream/build_out/nr-runtime-poc-20261010/poc/nr_runtime/build.py",
+      "sha256": "5028c351b5cbd5e2d87d06ff592399be96737b595a466819768f0ad40b30c040",
+      "git_state": "untracked; original preserved",
+      "original_worktree_head": "eaada4c2667a26947f6b934008870025e3e1cfb5",
+      "original_branch": "poc/nr-runtime-20261010"
+    }
+  },
+  "production_source": {
+    "path": "nrbridge/forwarder/dlssnr_forwarder.cpp",
+    "sha256": "6e355af2305bf9584dbfc1b8701ffd9e9bc0341ee32d79ee8976403f81841b5a",
+    "matches_original_worktree_bytes": true
+  },
+  "compiler": {
+    "path": "historical-dependencies/build/toolchain/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64/bin/x86_64-w64-mingw32-clang++",
+    "sha256": "c9b86311ade81d53235c93fafabdf98328d094de344ea9a9038e0dab6695ee9f"
+  },
+  "original_forwarder": {
+    "path": "upstream/build_out/nr-runtime-poc-20261010/build_out/poc-runtime-20261010/nvngx.dll_dlssnr.dll",
+    "sha256": "744a1b5b95d8721925261b454366cd3463eb158f02ddde02ad8e554b47386c75",
+    "exports": [
+      {
+        "ordinal": 1,
+        "name": "dlssnr_call_create"
+      },
+      {
+        "ordinal": 2,
+        "name": "dlssnr_call_evaluate"
+      },
+      {
+        "ordinal": 3,
+        "name": "dlssnr_call_last_create"
+      },
+      {
+        "ordinal": 4,
+        "name": "dlssnr_call_last_init"
+      },
+      {
+        "ordinal": 5,
+        "name": "dlssnr_call_probe_float"
+      },
+      {
+        "ordinal": 6,
+        "name": "dlssnr_call_release"
+      },
+      {
+        "ordinal": 7,
+        "name": "dlssnr_call_set_extras"
+      },
+      {
+        "ordinal": 8,
+        "name": "dlssnr_call_set_float_slot"
+      },
+      {
+        "ordinal": 9,
+        "name": "dlssnr_d3d11_create"
+      },
+      {
+        "ordinal": 10,
+        "name": "dlssnr_d3d11_init"
+      },
+      {
+        "ordinal": 11,
+        "name": "dlssnr_d3d11_last_create"
+      },
+      {
+        "ordinal": 12,
+        "name": "dlssnr_d3d11_last_init"
+      },
+      {
+        "ordinal": 13,
+        "name": "dlssnr_d3d11_probe"
+      },
+      {
+        "ordinal": 14,
+        "name": "dlssnr_d3d11_release"
+      },
+      {
+        "ordinal": 15,
+        "name": "dlssnr_d3d11_requirements"
+      },
+      {
+        "ordinal": 16,
+        "name": "dlssnr_last_ratio_result"
+      },
+      {
+        "ordinal": 17,
+        "name": "dlssnr_last_ratio_stage"
+      },
+      {
+        "ordinal": 18,
+        "name": "dlssnr_query_scaling_ratio"
+      },
+      {
+        "ordinal": 19,
+        "name": "dlssnr_vk_create"
+      },
+      {
+        "ordinal": 20,
+        "name": "dlssnr_vk_evaluate"
+      },
+      {
+        "ordinal": 21,
+        "name": "dlssnr_vk_init"
+      },
+      {
+        "ordinal": 22,
+        "name": "dlssnr_vk_last_create"
+      },
+      {
+        "ordinal": 23,
+        "name": "dlssnr_vk_last_init"
+      },
+      {
+        "ordinal": 24,
+        "name": "dlssnr_vk_probe"
+      },
+      {
+        "ordinal": 25,
+        "name": "dlssnr_vk_release"
+      },
+      {
+        "ordinal": 26,
+        "name": "nr_poc_vk_shutdown"
+      }
+    ]
+  },
+  "original_flags": [
+    "-std=c++17",
+    "-static",
+    "-shared",
+    "-ld3d12"
+  ],
+  "scope": "Only shutdown shim and parameter ABI source ownership; original multi-target build.py is recipe provenance, not migrated. No runtime selection change."
+}
