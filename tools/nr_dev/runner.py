@@ -782,6 +782,7 @@ def launch_supervised(args,signals):
               BB_SEQUENCE_DUMP_TRIGGER=str(run/'fg-sequence-trigger'),BB_FPS_LIMIT='60')
    env['BB_FRAME_GEN_HUDLESS']='1' if args.experimental_fg=='fsr31-hudless' else '0'
    env['BB_FRAME_GEN_BACKEND']='fsr316' if args.experimental_fg=='fsr316' else 'fsr31'
+   env['BB_PRESET_FILE']=str(run/'sr-control')
    (run/'dump').mkdir()
    if getattr(args,'fg_validation',False):
     validation=WT/'out/deps/vulkan-validation/usr'
