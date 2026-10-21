@@ -16,11 +16,11 @@
 
 ## 交接状态（2026-10-22）
 
-| 线 | 当前 tip | 构建基础设施 |
+| 线 | 包含的构建相关提交 | 构建基础设施 |
 |---|---|---|
-| `master` | `8aae671` | `build.sh`/`packaging/appimage.sh` 支持 `BB_OUT_DIR`；`scripts/` 全套 |
-| `nrbridge` | `59ed7cb` | 同一套 `scripts/` 和本文档；保留分支自己的 `build.sh`（`BB_BUILD_DIR`、在线/prepared deps） |
-| `fg` | `59ed7cb` | 同 `nrbridge` |
+| `master` | `ca37cd6`、`03a9332`、`331aaa3`、`3fdb611`、`4a988fc`、`8aae671` | `build.sh`/`packaging/appimage.sh` 支持 `BB_OUT_DIR`；`scripts/` 全套 |
+| `nrbridge` | `59ed7cb`、`b07a7ea` | 同一套 `scripts/` 和本文档；保留分支自己的 `build.sh`（`BB_BUILD_DIR`、在线/prepared deps） |
+| `fg` | `59ed7cb`、`b07a7ea` | 同 `nrbridge` |
 
 `ca37cd6`、`03a9332`、`331aaa3`、`3fdb611` 只在 `master` 历史中。NR/FG 通过
 `59ed7cb` 获得等价的脚本和文档内容，没有合并整个 `master`，也没有改动 `build.sh`、
