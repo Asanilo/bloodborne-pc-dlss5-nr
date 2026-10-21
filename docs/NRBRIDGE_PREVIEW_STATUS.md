@@ -8,7 +8,7 @@ converted into a pass.
 
 | Component | Identity |
 |---|---|
-| Native | c031a37bc462a63c80bb4015d447704f7dd2ef1e |
+| Native | a037043fc989e46683958366186bae057b7b0630 |
 | Helper source | 713f8ac99959fcdf470b2600c2645a1e5b24b7c8 |
 | Helper PE build | 1eddac56e4de26c0 |
 | Forwarder build | 9a8251430ccfa68a |
@@ -19,6 +19,38 @@ cbbe474 + c031a37: the latter removes the extra confirmation dialog. An initial
 cold build was followed by a focused incremental rebuild of that simplification;
 both passed the Native build's CPU tests. Later documentation commits are not
 another Native build.
+
+## BBSC and native mouse coexistence
+
+The a037043 update removes a local blanket refusal when the built-in BBSC module
+is enabled. Review of its fixed patch/write ranges found no overlap with the
+native camera detour, protected camera region or constants. Unknown modules and
+actual alternate camera-hook modes retain their existing admission checks; this
+is a reviewed built-in contract, not a live detector of arbitrary future writes.
+
+BBSC cinematic camera uses F6 in bbport, leaving F1 for mouse release. Entering
+or leaving cinematic mode cancels pending native input, advances its epoch and
+clears held input. Normal capture resumes through the existing focus/menu/capture
+intent, flushing queued motion and settling before publishing a fresh capture.
+The guest detour and register protection, NR, Helper protocol and GPU lifecycle
+are unchanged.
+
+The packaged a037043 runtime loaded a private save with BBSC and the native camera
+hook both actually installed. In-game F6 on/off was exercised before and during NR;
+F8 started NR without a terminal or dialog. It finished 343 jobs (336 captured /
+7 obsolete / 0 skip), passed normal Native/Helper GPU, FD and model retirement,
+and synced its private save. Independent post-exit checks found no project holders
+or new kernel GPU fault; 17 formal save/config files were unchanged. IP sockets
+were denied and a dummy account fixture was used: actual login, multiplayer and
+physical mouse feel with BBSC remain unverified. This run used the AppImage's
+built-in extract-and-run path because the test's no-new-privileges filter prevents
+FUSE mounting.
+
+CPU checks passed: 8 native-mouse cases both normally and with ASan/UBSan,
+4 compiled cinematic variants using both source copies and port/upstream hotkeys,
+production capture-resumption tests, native admission/module loading, 291 developer
+checks, 57 frontend/packaging checks, and the Native build's CPU tests. This was a
+focused incremental build; earlier cold-build evidence is not a new cold build.
 
 ## In-game activation and compact HUD
 
