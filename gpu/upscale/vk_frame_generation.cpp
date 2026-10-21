@@ -444,7 +444,15 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     scene_captured = false;
     dispatched_last_frame = true;
     const u64 id = scene_id;
-    const bool reset = scene_reset;
+    // OnFrameStart is after this call at the display-copy boundary. A pause must invalidate
+    // the FIRST resumed dispatch, not the one after it. No generated output on that reset.
+    const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const bool reset = scene_reset || !last_dispatch_ns || now - last_dispatch_ns > 250'000'000;
+    last_dispatch_ns = now;
+    if (reset) std::printf("FG_HISTORY_RESET fg_frame=%llu scene_reset=%u gap_reset=%u\n",
+        (unsigned long long)id, scene_reset,
+        !scene_reset && reset);
 
     Target* target;
     {

@@ -106,6 +106,7 @@ private:
     bool reset_next = true;
     bool dispatched_last_frame = false;
     u64 last_frame_ns = 0;
+    u64 last_dispatch_ns = 0;
     u64 scene_id = 0;        ///< the captured scene's frame id (its Prepare's and Dispatch's)
     bool scene_reset = true; ///< it starts over (nothing before it to interpolate from)
     /// The scene's depth, copied at the capture (the game reuses its depth buffer before the
