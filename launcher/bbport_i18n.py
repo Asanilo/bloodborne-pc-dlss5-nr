@@ -9,6 +9,21 @@ import os
 from bbport_zh import ZH
 
 EN = {
+    # Current upstream keyboard/gamepad labels.
+    "Крест (взаимодействие)": "Cross (interact)",
+    "Круг (уклонение, бег; на клавиатуре — Space и Shift ниже)": "Circle (dodge, sprint; keyboard: Space and Shift below)",
+    "Кувырок (короткое нажатие Круга; Shift+Space — прыжок)": "Dodge (tap Circle; Shift+Space to jump)",
+    "Бег (удержание Круга)": "Sprint (hold Circle)",
+    "Квадрат (быстрый предмет)": "Square (quick item)",
+    "Треугольник (флакон крови)": "Triangle (blood vial)",
+    "L1 (трансформация оружия)": "L1 (transform weapon)",
+    "R1 (атака)": "R1 (attack)",
+    "L2 (выстрел)": "L2 (shoot)",
+    "R2 (сильная атака)": "R2 (heavy attack)",
+    "R3 (захват цели)": "R3 (lock on)",
+    "Options (меню; в меню игры Escape — «назад», Круг)": "Options (menu; Escape goes back in game menus, Circle)",
+    "Крестовина влево (оружие левой руки)": "D-pad left (left-hand weapon)",
+    "Крестовина вправо (оружие правой руки)": "D-pad right (right-hand weapon)",
     # Window, pages, buttons
     "Запустить": "Play",
     "Остановить": "Stop",
