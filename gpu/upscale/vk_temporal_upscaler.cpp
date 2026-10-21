@@ -44,6 +44,7 @@
 #include "render/scheduler.h"
 #include "textures/texture_cache.h"
 #include "upscale/vk_frame_generation.h"
+#include "upscale/frame_generation_lifecycle.h"
 
 namespace Vulkan {
 
@@ -484,6 +485,13 @@ bool TemporalUpscaler::RasterScaling() const {
 }
 
 void TemporalUpscaler::PumpNativeExitOwner() noexcept {
+    try {
+        if (frame_generation) frame_generation->Retire();
+    } catch (...) {
+        FgLifecycle::held.store(true);
+        std::fprintf(stderr,"FG_RETIRE_HOLD functional=FAIL actual_completion=UNKNOWN forced_free=0\n");
+        return;
+    }
     if (!BbNativeAsyncPreSr::Enabled() || !BbNativeAsync::ExitRequested() ||
         BbNativeAsync::ExitComplete() || BbNativeAsync::ExitHeld()) return;
     try {
@@ -523,6 +531,10 @@ void TemporalUpscaler::PollNativeFrameBoundary() noexcept {
 }
 
 bool TemporalUpscaler::OnFrameStart() {
+    if (frame_generation) frame_generation->OnFrameStart();
+    const bool fg_wanted = frame_generation && frame_generation->Wanted();
+    if (fg_wanted != frame_generation_route) reset = true;
+    frame_generation_route = fg_wanted;
     PollNativeFrameBoundary();
 #if NRBRIDGE_LEGACY_EXPERIMENTS
     const auto& p0_settings=BbSettings::Get();
@@ -2316,7 +2328,10 @@ float TemporalUpscaler::SceneMipBias() const {
 }
 
 bool TemporalUpscaler::Scaled() const {
-    return scaled_session || target_width != 1920 || target_height != 1080;
+    // FG needs the existing output-size scene/UI/display path even at 1920x1080.
+    // The native HDR SR route has no CaptureScene/Interpolate handoff.
+    return scaled_session || target_width != 1920 || target_height != 1080 ||
+           frame_generation_route;
 }
 
 void TemporalUpscaler::OnColorTarget(VideoCore::ImageId color) {
