@@ -1,5 +1,10 @@
 # Linux Vulkan FG 实验线
 
+NR + DLSS SR + HUDless FG 的当前可玩集成位于独立分支 `integration/nr-sr-fg`，
+GPU 构建 `0dff031`。联动入口、真实源接口和联合退休见
+[三者联动](NR_SR_FG_INTEGRATION.zh-CN.md)，画面变软的受控对照见
+[FG 模糊调查](FG_BLUR_INVESTIGATION.zh-CN.md)。下文保留独立 FG 线的基线与历史研究。
+
 ## 基线与启动
 
 FG 开发在 `fg` worktree；起点 `d2216f6`，构建设施 `59ed7cb`。不覆盖 NR worktree、玩家

@@ -1,6 +1,6 @@
 # NR + DLSS SR + FSR FG 集成实验
 
-状态：**第一阶段可玩 Experimental 已通过实机；GPU 构建为 `0dff031`。模糊对照进行中。**
+状态：**第一阶段可玩 Experimental 已通过实机；GPU 构建为 `0dff031`。模糊对照已完成，见 [调查结果](FG_BLUR_INVESTIGATION.zh-CN.md)。**
 集成分支 `integration/nr-sr-fg` 从 FG `05aecdf` 合入 NR `47665ac`；两条已验收分支保留。
 目标配置为 1080p Quality、Old memory、NR 310.9.16 SF Preset B、HUDless FSR 3.1 x2。
 
@@ -67,7 +67,8 @@ FG draw、FG Present 和 NR Pre-SR 的实际退休证明。热测日志轮转后
 F8 的真实 SDL/Overlay 回执确认 revision 1→2→3 与 cache/raw/cache 切换；FG 独立
 关闭时 NR/SR 继续运行，恢复只重置 FG。覆盖转镜/短移、游戏菜单、全屏 resize、
 1 秒 Native 暂停后首个恢复 dispatch 的 gap reset，未绕过 GPU 退休。
-热测采样真实间隔中位数 19.27 ms、全部 Present 10.98 ms，生成/真实比 1.0；仅为 CPU
+排除截图且逐源核验实际 NR cache_selected 的10秒窗口内，真实459、生成459（约46/92
+真实/全部Present每秒）；间隔中位数19.80 ms / 11.40 ms，生成/真实比1.0。仅为 CPU
 成功 Present-return 间隔，不是物理 scanout、端到端输入延迟或整轮平均 FPS。
 
 实际生成图像已按 Present 顺序捕获，无损 PNG 往返验证后删除等价 raw 重复件；
@@ -75,11 +76,13 @@ F8 的真实 SDL/Overlay 回执确认 revision 1→2→3 与 cache/raw/cache 切
 画面正在运动。画质仍为 Experimental，运动边缘可能重影。
 
 validation 仍报告既有 WSI WRITE-AFTER-PRESENT、着色器接口 Location、sRGB view usage、
-dynamicRenderingUnusedAttachments、部分游戏 draw layout 问题；不声明 validation 全净。
+dynamicRenderingUnusedAttachments、部分 draw layout 问题；同类别曾在独立线出现，
+不等于每个具体 hazard 均已证明与旧问题同源。不声明 validation 全净。
 第一阶段新增约 1.6 GiB 私有运行目录/PNG，未打包或复制 Native 构建、SDK、模型。
 
-## 第二阶段
+## 第二阶段结果
 
-同分辨率、同 SR 路径对照 FG 开关，区分生成/真实图像与后续显示缩放；再比较
-HUDless/whole-frame、静态/转镜/快速运动，并仅在 SR-only 下测 1440p。
-不为模糊对照扩展 NR 分辨率，不预设必须修改 FSR 插值算法。
+已完成同分辨率 FG 开关、生成/真实帧、静态/运动、HUDless/whole-frame 和 SR-only
+1440p 对照。静态真实帧未复现整体软化；1080p→2K线性放大已确认，whole-frame 的
+运动 HUD 明显错位。保留 HUDless31 默认；完整方法、指标和限制见
+[FG 模糊调查](FG_BLUR_INVESTIGATION.zh-CN.md)。
