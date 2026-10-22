@@ -137,7 +137,10 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     settings.frame_generation_supported = supported;
     const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
     use316 = backend && std::strcmp(backend, "fsr316") == 0;
-    FgLifecycle::enabled.store(std::getenv("BB_FRAME_GEN") != nullptr);
+    const char* sm = std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION");
+    const bool smooth_motion = sm && std::strcmp(sm, "1") == 0;
+    FgLifecycle::driver_smooth_motion.store(smooth_motion);
+    FgLifecycle::enabled.store(std::getenv("BB_FRAME_GEN") != nullptr || smooth_motion);
     std::printf("Frame generation: FSR 3.1 %s%s%s\n", supported ? "available" : "unavailable",
                 supported ? "" : ": ", supported ? "" : settings.frame_generation_problem.load());
 }
@@ -147,7 +150,8 @@ FrameGeneration::~FrameGeneration() {
 }
 
 bool FrameGeneration::Wanted() const {
-    return supported && !failed && !FgLifecycle::exit_requested.load() &&
+    return supported && !failed && !FgLifecycle::driver_smooth_motion.load() &&
+           !FgLifecycle::exit_requested.load() &&
            BbSettings::Get().frame_generation.load(std::memory_order_relaxed);
 }
 

@@ -219,7 +219,11 @@ def audit_session(run,termination=None):
   raw=(run/'game.log').read_bytes();text=raw.decode(errors='replace')
   log_hashes={'game.log':hashlib.sha256(raw).hexdigest()}
  need(not re.search(r'NATIVE_\S*(?:HOLD|QUARANTINE|ASSOCIATION_REJECTED)|functional=FAIL',text),'no failed native resource/association proof')
- if manifest.get('environment',{}).get('BB_FRAME_GEN') == '1':
+ if manifest.get('smooth_motion') is True:
+  sm=rows(text,'SM_EXIT_PROOF')
+  need(len(sm)==1 and all(sm[0].get(k)=='1' for k in ('device_idle_before','swapchain_destroy_returned','device_idle_after')),
+       'Smooth Motion requires actual device-idle and driver swapchain teardown proof')
+ if manifest.get('environment',{}).get('BB_FRAME_GEN') == '1' or manifest.get('smooth_motion') is True:
   fg=rows(text,'FG_EXIT_PROOF')
   need(len(fg)==1 and all(fg[0].get(k)=='1' for k in
        ('draw_GPU_complete','present_GPU_complete','resources_released')),

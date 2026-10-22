@@ -191,6 +191,17 @@ void Swapchain::DestroyResources() {
     present_ready.clear();
 }
 
+bool Swapchain::RetireDriverLayer() {
+    const auto device = instance.GetDevice();
+    if (device.waitIdle() != vk::Result::eSuccess) return false;
+    DestroyResources();
+    if (swapchain) device.destroySwapchainKHR(swapchain);
+    swapchain = vk::SwapchainKHR{};
+    // The layer's destroy must join its swapchain workers. Observe device completion
+    // again after that call; an application's timeline alone cannot retire layer work.
+    return device.waitIdle() == vk::Result::eSuccess;
+}
+
 void Swapchain::Recreate(u32 width_, u32 height_) {
     LOG_DEBUG(Render_Vulkan, "Recreating the swapchain: {}x{}, HDR {}", width_, height_, use_hdr);
     Create(width_, height_);

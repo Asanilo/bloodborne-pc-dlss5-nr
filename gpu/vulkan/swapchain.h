@@ -32,6 +32,8 @@ public:
     void MarkAcquireSubmitted(vk::Semaphore timeline, u64 tick);
     /// Presents the acquired image; false when the swapchain has to be recreated.
     bool Present();
+    /// Present owner only, after admission stops and all application schedulers drain.
+    bool RetireDriverLayer();
 
     /// Switches the images to HDR10 (PQ) or back, when the surface supports it.
     void SetHDR(bool hdr);

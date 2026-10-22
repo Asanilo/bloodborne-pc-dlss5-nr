@@ -7,6 +7,8 @@ def workspace_root():
  if not value or any(c in value for c in ('\x00','\n',':')) or not path.is_absolute() or str(path)!=value or path.resolve()!=path or path in (Path('/'),Path.home()):raise ValueError('NRBRIDGE_HOME requires a dedicated canonical absolute directory')
  return path
 ROOT=workspace_root();WT=Path(__file__).resolve().parents[2];ASSETS=ROOT/'assets/CUSA03173';SEED=ROOT/'seed/private-NRTest-seed'
+_sm_spec=importlib.util.spec_from_file_location('nr_dev_smooth_motion',Path(__file__).with_name('smooth_motion.py'))
+smooth_motion=importlib.util.module_from_spec(_sm_spec);_sm_spec.loader.exec_module(smooth_motion)
 GE=Path.home()/'.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64'
 _runtime_spec=importlib.util.spec_from_file_location('nr_dev_runtime_inputs',Path(__file__).with_name('runtime_inputs.py'))
 runtime_inputs=importlib.util.module_from_spec(_runtime_spec);_runtime_spec.loader.exec_module(runtime_inputs)
@@ -609,6 +611,7 @@ def control(args):
   atomic(run/'stop-request.json',{'game':game,'monotonic_ns':time.monotonic_ns(),'scope':'normal window close request; not retirement proof'})
 
 def validate_daily_manifest(run,manifest):
+ smooth_motion.validate_manifest(run,manifest)
  environment=manifest.get('environment',{})
  for directory in (run/'profile',run/'profile/user'):
   if directory.resolve()!=directory or directory.is_symlink() or not directory.is_dir():raise ValueError('daily private profile directory drift')
@@ -629,6 +632,7 @@ def validate_daily_manifest(run,manifest):
  if ui_start.ENVIRONMENT in environment:ui_start.validate(run,manifest)
 
 def check_fg_capability(args, build):
+ smooth_motion.check_capability(args,build)
  # Fail before creating a session when a launcher selects FG on an older installed runtime.
  if not getattr(args, 'experimental_fg', None):return
  data=(Path(build)/'gpu/libbbgpu.so').read_bytes()
@@ -636,6 +640,7 @@ def check_fg_capability(args, build):
   raise ValueError('Experimental FG requires a rebuilt M1 Native runtime; selected build is unsupported')
 
 def validate_daily_args(args):
+ smooth_motion.validate_args(args)
  daily_online.validate_args(args)
  daily=getattr(args,'daily',False)
  if getattr(args,'experimental_fg',None) and not (daily and (getattr(args,'sr_only',False) or getattr(args,'fg_native',False))):
@@ -800,8 +805,9 @@ def launch_supervised(args,signals):
     env.update(BB_VK_VALIDATION='1',BB_VK_VALIDATION_SYNC='1',
                VK_LAYER_PATH=str(validation/'share/vulkan/explicit_layer.d'),
                LD_LIBRARY_PATH=str(validation/'lib')+':'+str(sysroot_lib))
+  if getattr(args,'smooth_motion',False):env.update(smooth_motion.environment(run))
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
-  manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False)
+  manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False);manifest['smooth_motion']=getattr(args,'smooth_motion',False)
   if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)
   atomic(run/'manifest.json',manifest)
   with (run/'game.log').open('w') as log:
@@ -896,6 +902,7 @@ def parse_args(argv=None):
  daily_online.add_arguments(p)
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316'],help='native FSR FG x2; daily SR-only or explicit Native HDR integration')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
+ p.add_argument('--smooth-motion',action='store_true',help='exclusive driver-level NVIDIA Smooth Motion experiment')
  p.add_argument('--fg-validation',action='store_true',help='explicit FG core/sync validation')
  player_settings.add_arguments(p)
  a=p.parse_args(argv)

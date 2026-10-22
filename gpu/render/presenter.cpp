@@ -713,8 +713,21 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                 owned.interp_view = vk::ImageView{};
                 owned.interp_image = vk::Image{};
             }
+            if (FgLifecycle::driver_smooth_motion.load()) {
+                if (!swapchain.RetireDriverLayer()) {
+                    std::fprintf(stderr,"SM_EXIT_HOLD functional=FAIL device_idle=UNKNOWN\n");
+                    FgLifecycle::held.store(true);
+                    release();
+                    return;
+                }
+                std::printf("SM_EXIT_PROOF device_idle_before=1 swapchain_destroy_returned=1 device_idle_after=1 scope=Vulkan_layer_API_contract\n");
+            }
             FgLifecycle::present_retired.store(true);
             std::printf("FG_PRESENT_RETIRED actual_GPU_readers_complete=1 new_generated_presents=0\n");
+        }
+        if (FgLifecycle::driver_smooth_motion.load()) {
+            release();
+            return; // Never re-acquire or admit more driver interpolation after shutdown begins.
         }
     }
     // Frame generation: the interpolated frame first, the real one half a frame later (the
