@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Incrementally build this worktree and record Runner provenance without copying artifacts."""
+import fcntl
 import hashlib
 from pathlib import Path
 import subprocess
@@ -15,6 +16,14 @@ def source():
 
 
 def main():
+    # Protect mutable out/ from a live managed GPU session while replacing artifacts.
+    # CPU builds remain allowed during a boot HOLD; this does not admit GPU work.
+    with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
+        fcntl.flock(lock,fcntl.LOCK_EX | fcntl.LOCK_NB)
+        build()
+
+
+def build():
     before = source()
     subprocess.run(['bash', 'scripts/dev-build.sh', *sys.argv[1:]], cwd=ROOT, check=True)
     if source() != before:

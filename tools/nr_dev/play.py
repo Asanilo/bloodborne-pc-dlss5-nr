@@ -22,6 +22,7 @@ def parse_args(argv=None):
  p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + NR + FG route')
  p.add_argument('--smooth-motion',action='store_true',help='driver-level NVIDIA interpolation; excludes application FG')
+ p.add_argument('--fg-profile',action='store_true',help='bounded FG CPU and GPU stage timing')
  p.add_argument('--fg-validation',action='store_true',help='Vulkan core/sync validation for the FG experiment')
  p.add_argument('--session',default='play-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
  p.add_argument('--seconds',type=int,default=480,help='计划正常关闭时间（含准备时间）')
@@ -90,6 +91,7 @@ def launch_command(a):
  if getattr(a,'experimental_fg',None):command+=['--experimental-fg',a.experimental_fg]
  if getattr(a,'fg_native',False):command+=['--fg-native']
  if getattr(a,'fg_validation',False):command+=['--fg-validation']
+ if getattr(a,'fg_profile',False):command+=['--fg-profile']
  if getattr(a,'smooth_motion',False):command+=['--smooth-motion']
  if getattr(a,'dlssg_model',None):command+=['--dlssg-model',a.dlssg_model,'--dlssg-prefix-session',a.dlssg_prefix_session,'--dlssg-transport',a.dlssg_transport]
  for flag in ('daily','joystick_mouse','pm4_cold_trace','pm4_producer_context','native_mouse'):

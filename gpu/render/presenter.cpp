@@ -737,6 +737,13 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     // Frame generation: the interpolated frame first, the real one half a frame later (the
     // interval between real frames, smoothed).
     using Clock = std::chrono::steady_clock;
+    static const bool fg_profile = std::getenv("BB_FG_PROFILE") != nullptr;
+    const bool sample = fg_profile && !blank && is_game_frame && !is_reusing_frame &&
+                        frame->c1_source_game_frame && frame->c1_source_game_frame % 120 == 0;
+    const auto profile_start = Clock::now();
+    auto profile_ready = profile_start;
+    double generated_present_ms=0, pace_sleep_ms=0;
+    auto profile_ms=[](auto a,auto b){return std::chrono::duration<double,std::milli>(b-a).count();};
     if (!blank && is_game_frame && !is_reusing_frame) {
         const double ms = double(frame->prepare_ns - last_prepare_ns) / 1e6;
         if (last_prepare_ns && ms > 2.0 && ms < (frame->fg_strict_source ? 1000.0 : 100.0))
@@ -756,7 +763,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         // Pacing starts when the images are actually ready, not before waiting for rendering.
         // This also publishes the recording result; failed dispatch copies are never counted
         // or presented as generated frames.
-        WaitRendered(frame);
+        WaitRendered(frame);profile_ready=Clock::now();
         frame->has_interp = frame->has_interp && frame->interp_recorded &&
                             frame->interp_recorded->load(std::memory_order_acquire);
     }
@@ -773,13 +780,18 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     }
     if (!blank && frame->has_interp && frame->interp_image) {
         frame->has_interp = false;
+        const auto gen_start=Clock::now();
         if (PresentImage(frame, frame->interp_image, false, false, is_reusing_frame)) {
+            const auto pace_start=Clock::now();generated_present_ms=profile_ms(gen_start,pace_start);
             std::this_thread::sleep_until(Clock::now() + std::chrono::duration_cast<Clock::duration>(
                                                     std::chrono::duration<double, std::milli>(
                                                         std::clamp(fg_interval_ms * 0.5, 1.0, 50.0))));
+            pace_sleep_ms=profile_ms(pace_start,Clock::now());
         }
     }
+    const auto real_start=Clock::now();
     PresentImage(frame, {}, true, is_game_frame && !blank, is_reusing_frame);
+    if(sample)std::printf("FG_PACING_PROFILE source=%llu queue_age_cpu_ms=%.3f wait_render_cpu_ms=%.3f generated_present_cpu_ms=%.3f pacing_sleep_cpu_ms=%.3f real_present_cpu_ms=%.3f total_cpu_ms=%.3f interval_estimate_ms=%.3f\n",(unsigned long long)frame->c1_source_game_frame,profile_ms(Clock::time_point(std::chrono::nanoseconds(frame->prepare_ns)),profile_start),profile_ms(profile_start,profile_ready),generated_present_ms,pace_sleep_ms,profile_ms(real_start,Clock::now()),profile_ms(profile_start,Clock::now()),fg_interval_ms);
     release();
 }
 

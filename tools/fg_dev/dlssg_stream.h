@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CPU single-slot transport. GPU images are private to this process, never shared.
 #include "../../gpu/upscale/dlssg_cpu_slot.h"
+#include "dlssg_gpu_timing.h"
 void Probe::stream(const char* root) {
   require(snippet&&feature&&create_result==1,"created FG feature for stream");
   using J=nlohmann::json;
@@ -24,6 +25,7 @@ void Probe::stream(const char* root) {
   const std::string session=config.at("session");require(!session.empty(),"stream session");
   fixture=std::make_unique<FgFixture>(device,physical,command,gdpa,i<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties"));auto& g=*fixture;
   constexpr unsigned W=1920,H=1080,RW=1280,RH=720;
+  FgGpuTiming timing(device,physical,gdpa,i<PFN_vkGetPhysicalDeviceProperties>("vkGetPhysicalDeviceProperties"),i<PFN_vkGetPhysicalDeviceQueueFamilyProperties>("vkGetPhysicalDeviceQueueFamilyProperties"),family);
   struct Slot{FgFixture::Image color,depth,motion,output;FgFixture::Buffer color_upload,depth_upload,motion_upload,readback,disabled;};
   auto descriptors=std::make_shared<std::array<Slot,2>>();input_descriptors=descriptors;auto& slots=*descriptors;
   for(auto& s:slots)s={g.image(VK_FORMAT_R8G8B8A8_UNORM,false),g.image(VK_FORMAT_R32_SFLOAT,false,RW,RH),g.image(VK_FORMAT_R16G16_SFLOAT,false,RW,RH),g.image(VK_FORMAT_R8G8B8A8_UNORM,true),g.buffer(size_t(W)*H*4),g.buffer(size_t(RW)*RH*4),g.buffer(size_t(RW)*RH*4),g.buffer(size_t(W)*H*4,true),g.buffer(4,true)};
@@ -66,17 +68,20 @@ void Probe::stream(const char* root) {
     ull("DLSSG.BackbufferFrameID",source);ui("DLSSG.Reset",reset);
     ptr("DLSSG.Backbuffer",&s.color.ngx);ptr("DLSSG.Depth",&s.depth.ngx);ptr("DLSSG.MVecs",&s.motion.ngx);ptr("DLSSG.OutputInterpolated",&s.output.ngx);ptr("DLSSG.OutputDisableInterpolation",&s.disabled.ngx);
     api(d<PFN_vkResetCommandBuffer>("vkResetCommandBuffer")(command,0),"stream reset command");VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};api(d<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(command,&begin),"stream begin");
-    g.upload(s.color,s.color_upload);g.upload(s.depth,s.depth_upload);g.upload(s.motion,s.motion_upload);
+    timing.Mark(command,0);g.upload(s.color,s.color_upload);g.upload(s.depth,s.depth_upload);g.upload(s.motion,s.motion_upload);
     g.barrier(s.output,initialized[sequence%2]?VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL);
     d<PFN_vkCmdFillBuffer>("vkCmdFillBuffer")(command,s.disabled.buffer,0,4,0xffffffffu);
     VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;d<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,0,nullptr);
+    timing.Mark(command,1);const auto evaluate_record_start=cpu_ms();
     const int result=sym<int(*)(void*,const void*,const void*)>(bridge,"fg_evaluate")(command,feature,params);
-    g.readback(s.output,s.readback);g.host(s.disabled,false);api(d<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(command),"stream end");api(d<PFN_vkResetFences>("vkResetFences")(device,1,&fence),"stream reset fence");VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&command;
-    inflight=true;g.safe=false;api(d<PFN_vkQueueSubmit>("vkQueueSubmit")(queue,1,&submit,fence),"stream submit");api(d<PFN_vkWaitForFences>("vkWaitForFences")(device,1,&fence,VK_TRUE,10000000000ull),"stream actual GPU fence");inflight=false;g.safe=true;api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),"stream actual device idle");initialized[sequence%2]=true;
+    const auto evaluate_record_ms=cpu_ms()-evaluate_record_start;timing.Mark(command,2);
+    g.readback(s.output,s.readback);g.host(s.disabled,false);timing.Mark(command,3);api(d<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(command),"stream end");api(d<PFN_vkResetFences>("vkResetFences")(device,1,&fence),"stream reset fence");VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&command;
+    const auto submit_start=cpu_ms();inflight=true;g.safe=false;api(d<PFN_vkQueueSubmit>("vkQueueSubmit")(queue,1,&submit,fence),"stream submit");const auto wait_start=cpu_ms();api(d<PFN_vkWaitForFences>("vkWaitForFences")(device,1,&fence,VK_TRUE,10000000000ull),"stream actual GPU fence");const auto idle_start=cpu_ms();inflight=false;g.safe=true;api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),"stream actual device idle");const auto idle_end=cpu_ms();timing.safe=true;initialized[sequence%2]=true;
     unsigned disabled=0;memcpy(&disabled,s.disabled.mapped,4);bool eligible=result==1&&(disabled&255)==0;
     const auto gpu_completed=cpu_ms();
     if(eligible){if(mapped){memcpy(payload.At(DlssgCpu::OutputOffset,DlssgCpu::ColorBytes),s.readback.mapped,DlssgCpu::ColorBytes);payload.Publish();}else write_bytes("output-color.raw",s.readback.mapped,size_t(W)*H*4);}
     J response=request;response.erase("camera");response.update(J{{"result",unsigned(result)},{"disable_word",disabled},{"eligible",eligible},{"actual_GPU_complete",true},{"output_bytes",eligible?size_t(W)*H*4:0},{"input_copy_ms",input_copied-started},{"record_fence_idle_ms",gpu_completed-input_copied},{"output_copy_ms",cpu_ms()-gpu_completed},{"helper_service_ms",cpu_ms()-started},{"native_gpu_readers",0}});
+    if(timing.pool){response.update(timing.Read());response.update(J{{"evaluate_record_cpu_ms",evaluate_record_ms},{"submit_cpu_ms",wait_start-submit_start},{"fence_wait_cpu_ms",idle_start-wait_start},{"device_idle_cpu_ms",idle_end-idle_start}});}
     atomic_text(std::string(root)+"/response.json",response.dump()+"\n");
     // Do not overwrite the CPU response until its exact consumer ACK (copied or discarded).
     while(true){if(exists("consumed.json")){auto ack=read_json("consumed.json");if(ack.at("sequence")==next){require(ack.at("session")==session&&ack.at("epoch")==generation&&ack.at("source_game_frame")==source,"exact CPU consumer ACK");break;}}Sleep(1);}

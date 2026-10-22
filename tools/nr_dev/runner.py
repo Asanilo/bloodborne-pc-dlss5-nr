@@ -802,6 +802,7 @@ def launch_supervised(args,signals):
    env.update(BB_FRAME_GEN='1',BB_FRAME_GEN_AUDIT='1',BB_PRESENT_MODE='Immediate',
               BB_FRAME_GEN_CONTROL=str(run/'fg-control'),
               BB_SEQUENCE_DUMP_TRIGGER=str(run/'fg-sequence-trigger'),BB_FPS_LIMIT='60')
+   if getattr(args,'fg_profile',False):env['BB_FG_PROFILE']='1'
    if getattr(args,'fg_native',False):env['BB_FRAME_GEN_NATIVE']='1'
    env['BB_FRAME_GEN_HUDLESS']='1' if args.experimental_fg=='fsr31-hudless' else '0'
    env['BB_FRAME_GEN_BACKEND']='fsr316' if args.experimental_fg=='fsr316' else 'fsr31'
@@ -923,6 +924,7 @@ def parse_args(argv=None):
  p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse one normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
  p.add_argument('--smooth-motion',action='store_true',help='exclusive driver-level NVIDIA Smooth Motion experiment')
+ p.add_argument('--fg-profile',action='store_true',help='bounded FG CPU and GPU stage timing')
  p.add_argument('--fg-validation',action='store_true',help='explicit FG core/sync validation')
  player_settings.add_arguments(p)
  a=p.parse_args(argv)

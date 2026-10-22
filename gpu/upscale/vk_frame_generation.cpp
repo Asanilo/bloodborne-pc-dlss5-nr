@@ -544,7 +544,9 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                     target.strict_source = true;
                     target.previous_source_game_frame = previous_source;
                     scheduler.Record([image=vk::Image(target.image),buffer=dlssg_upload->Handle(),
-                                      recorded=target.recorded,w=scene.width,h=scene.height](vk::CommandBuffer cmd) {
+                                      recorded=target.recorded,w=scene.width,h=scene.height,
+                                      timing=&dlssg_capture->timing,source=scene.source_game_frame](vk::CommandBuffer cmd) {
+                        timing->upload_source=source;timing->upload_pending=bool(timing->pool);timing->Mark(cmd,4);
                         const vk::BufferMemoryBarrier2 upload{
                             .srcStageMask=vk::PipelineStageFlagBits2::eHost,.srcAccessMask=vk::AccessFlagBits2::eHostWrite,
                             .dstStageMask=vk::PipelineStageFlagBits2::eCopy,.dstAccessMask=vk::AccessFlagBits2::eTransferRead,
@@ -558,7 +560,7 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                         cmd.copyBufferToImage(buffer,image,vk::ImageLayout::eGeneral,copy);
                         ImageBarrier(cmd,image,vk::PipelineStageFlagBits2::eCopy,vk::AccessFlagBits2::eTransferWrite,
                             vk::PipelineStageFlagBits2::eFragmentShader,vk::AccessFlagBits2::eShaderRead);
-                        recorded->store(true,std::memory_order_release);
+                        timing->Mark(cmd,5);recorded->store(true,std::memory_order_release);
                     });
                 }
             }

@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 #include "buffers/buffer.h"
 #include "render/scheduler.h"
+#include "upscale/dlssg_native_timing.h"
 #include "upscale/vk_frame_generation.h"
 #include "vulkan/instance.h"
 
@@ -68,7 +69,8 @@ class DlssgInputCapture {
     }
 
 public:
-    DlssgInputCapture(const Instance& i, Scheduler& s, bool live=false) : instance(i), scheduler(s), continuous(live) {
+    DlssgNativeTiming timing;
+    DlssgInputCapture(const Instance& i, Scheduler& s, bool live=false) : instance(i), scheduler(s), continuous(live), timing(i) {
         const char* d = std::getenv(live?"BB_DLSSG_STREAM_DIR":"BB_DLSSG_CAPTURE_DIR");
         const char* t = std::getenv("BB_DLSSG_CAPTURE_TRIGGER");
         if (!d || !*d || (!live && (!t || !*t))) throw std::runtime_error("DLSSG capture requires private paths");
@@ -95,18 +97,26 @@ public:
             motion = std::make_unique<VideoCore::Buffer>(instance, 0, u64(1280)*720*4, VideoCore::MemoryType::HostCached, "DLSSG MV capture");
             color = std::make_unique<VideoCore::Buffer>(instance, 0, u64(1920)*1080*4, VideoCore::MemoryType::HostCached, "DLSSG color capture");
         }
-        pending = in;
+        pending = in;timing.source=in.source_game_frame;timing.guides=DlssgNativeTiming::Clock::now();
+        scheduler.Record([this](vk::CommandBuffer cmd){timing.Mark(cmd,0);});
         Copy(in.depth, *depth, 1280, 720, vk::ImageAspectFlagBits::eDepth);
         Copy(in.motion, *motion, 1280, 720, vk::ImageAspectFlagBits::eColor);
+        scheduler.Record([this](vk::CommandBuffer cmd){timing.Mark(cmd,1);});
         have_guides = true;
         return true;
     }
     bool ReadColor(const FrameGeneration::Scene& in, vk::Image image) {
         if (!have_guides || in.source_game_frame != pending.source_game_frame) return false;
+        const auto started=DlssgNativeTiming::Clock::now();
+        scheduler.Record([this](vk::CommandBuffer cmd){timing.Mark(cmd,2);});
         Copy(image, *color, 1920, 1080, vk::ImageAspectFlagBits::eColor);
+        scheduler.Record([this](vk::CommandBuffer cmd){timing.Mark(cmd,3);});
         readback_tick = scheduler.CurrentTick();
+        const auto recorded=DlssgNativeTiming::Clock::now();
         scheduler.Finish(); // Host reads never precede actual GPU completion.
+        const auto completed=DlssgNativeTiming::Clock::now();
         for(auto* buffer:{color.get(),depth.get(),motion.get()})buffer->Invalidate(0,buffer->SizeBytes());
+        timing.ReadInput(DlssgNativeTiming::Ms(started,recorded),DlssgNativeTiming::Ms(recorded,completed),DlssgNativeTiming::Ms(completed,DlssgNativeTiming::Clock::now()));
         have_guides=false;
         return true;
     }

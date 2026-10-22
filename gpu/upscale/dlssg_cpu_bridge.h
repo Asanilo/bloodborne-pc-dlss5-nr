@@ -73,18 +73,22 @@ public:
                 std::memcpy(payload.At(DlssgCpu::MotionOffset,DlssgCpu::GuideBytes),input.MotionBytes().data(),DlssgCpu::GuideBytes);
                 payload.Publish();
             }else{WriteBytes(root+"/input-color.raw",input.ColorBytes());WriteBytes(root+"/input-depth.raw",input.DepthBytes());WriteBytes(root+"/input-motion.raw",input.MotionBytes());}
+            const auto copied=Clock::now();
             const u64 next=sequence+1;
             J request{{"schema","dlssg-cpu-stream-v1"},{"session",session},{"sequence",next},{"epoch",epoch},{"source_game_frame",scene.source_game_frame},{"previous_source_game_frame",last_source},{"reset",reset},{"display",display},{"wire_order","game-scene-bytes"},{"transport",mapped?"mapped-v1":"files-v1"},{"camera",camera.constants}};
-            Atomic(root+"/request.json",request);
+            Atomic(root+"/request.json",request);const auto published=Clock::now();
             const auto response=Wait("response.json",[&](const J& j){return j.at("sequence")==next;});
+            const auto responded=Clock::now();
             for(auto& [key,value]:request.items())if(key!="camera")Need(response.at(key)==value,"exact DLSSG response session/epoch/source-pair/display/sequence");
             Need(response.at("actual_GPU_complete")==true&&response.at("native_gpu_readers")==0,"DLSSG output actual private GPU completion");
             const bool eligible=response.at("eligible");
             if(eligible){Need(response.at("result")==1&&(response.at("disable_word").get<unsigned>()&255)==0&&response.at("output_bytes")==upload.SizeBytes(),"DLSSG GPU eligibility");
                 if(mapped){payload.Acquire();Need(upload.SizeBytes()==DlssgCpu::ColorBytes,"DLSSG mapped output extent");std::memcpy(upload.mapped_data.data(),payload.At(DlssgCpu::OutputOffset,DlssgCpu::ColorBytes),DlssgCpu::ColorBytes);}
                 else{const auto path=root+"/output-color.raw";Need(!std::filesystem::is_symlink(path)&&std::filesystem::file_size(path)==upload.SizeBytes(),"DLSSG exact CPU output length");FILE* f=std::fopen(path.c_str(),"rb");Need(f,"DLSSG CPU output open");bool ok=std::fread(upload.mapped_data.data(),1,upload.SizeBytes(),f)==upload.SizeBytes();ok=std::fclose(f)==0&&ok;Need(ok,"DLSSG CPU output complete read");}upload.Flush(0,upload.SizeBytes());}
+            const auto output_copied=Clock::now();
             Atomic(root+"/consumed.json",J{{"session",session},{"sequence",next},{"epoch",epoch},{"source_game_frame",scene.source_game_frame},{"disposition",eligible?"copied_to_Native_owned_staging":"disabled_output_discarded"}});
             sequence=next;last_source=scene.source_game_frame;previous_camera=std::move(camera);last_completed=Clock::now();
+            if(std::getenv("BB_FG_PROFILE")&&sequence%120==0){auto ms=[](auto a,auto b){return std::chrono::duration<double,std::milli>(b-a).count();};J profile{{"source",last_source},{"sequence",sequence},{"CPU_input_copy_ms",ms(started,copied)},{"request_publish_cpu_ms",ms(copied,published)},{"response_wait_cpu_ms",ms(published,responded)},{"CPU_output_copy_flush_ms",ms(responded,output_copied)},{"consume_ack_cpu_ms",ms(output_copied,last_completed)},{"roundtrip_cpu_ms",ms(started,last_completed)}};for(auto key:{"input_copy_ms","output_copy_ms","helper_service_ms","input_transfer_gpu_ms","evaluate_queue_gpu_ms","output_transfer_gpu_ms","evaluate_record_cpu_ms","submit_cpu_ms","fence_wait_cpu_ms","device_idle_cpu_ms"})if(response.contains(key))profile[key]=response.at(key);std::printf("DLSSG_BRIDGE_PROFILE %s\n",profile.dump().c_str());}
             if(sequence<=3||sequence%60==0)std::printf("DLSSG_NATIVE_OUTPUT sequence=%llu source=%llu previous=%llu epoch=%llu eligible=%u helper_ms=%.3f CPU_roundtrip_ms=%.3f display=0x%llx\n",(unsigned long long)sequence,(unsigned long long)last_source,(unsigned long long)request.at("previous_source_game_frame").get<u64>(),(unsigned long long)epoch,eligible,response.at("helper_service_ms").get<double>(),std::chrono::duration<double,std::milli>(last_completed-started).count(),(unsigned long long)display);
             return eligible;
         }catch(const std::exception& error){failed=true;FgLifecycle::held.store(true);std::fprintf(stderr,"DLSSG_NATIVE_HOLD functional=FAIL reason=%s forced_retirement=0\n",error.what());std::fflush(stderr);std::abort();}

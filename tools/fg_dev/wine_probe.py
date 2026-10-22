@@ -10,7 +10,7 @@ from build_wine_probe import identity, source_identity
 from wine_probe_result import evaluate_status
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('session');p.add_argument('--local-inputs',required=True);p.add_argument('--snippet',action='store_true');p.add_argument('--cuda-interop',action='store_true');p.add_argument('--evaluate-fixture',action='store_true');p.add_argument('--game-inputs');p.add_argument('--reuse-inputs',action='store_true');p.add_argument('--stream-fixture',action='store_true');p.add_argument('--transport',choices=['files-v1','mapped-v1'],default='files-v1');p.add_argument('--model',default='/usr/lib/nvidia/wine/nvngx_dlssg.dll');p.add_argument('--prefix-session',default='m2-sm-1080q-r1');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('session');p.add_argument('--local-inputs',required=True);p.add_argument('--snippet',action='store_true');p.add_argument('--cuda-interop',action='store_true');p.add_argument('--evaluate-fixture',action='store_true');p.add_argument('--game-inputs');p.add_argument('--reuse-inputs',action='store_true');p.add_argument('--stream-fixture',action='store_true');p.add_argument('--profile',action='store_true');p.add_argument('--transport',choices=['files-v1','mapped-v1'],default='files-v1');p.add_argument('--model',default='/usr/lib/nvidia/wine/nvngx_dlssg.dll');p.add_argument('--prefix-session',default='m2-sm-1080q-r1');a=p.parse_args()
  r=runner.checked_run(a.session);assert not r.exists()
  binding=runner.runtime_inputs.load(a.local_inputs,runner.ROOT);config=binding['config'];ge=Path(config['ge_files'])
  previous=runner.checked_run(a.prefix_session);old=json.loads((previous/'result.json').read_text());assert old['status']=='PASS_NORMAL_TEARDOWN';peer_retirement.audit_session(previous)
@@ -22,6 +22,7 @@ def main():
   env.update(WINEPREFIX=str(prefix),WINELOADERNOEXEC='1',WINEDLLOVERRIDES='mscoree,mshtml=;nvapi64=n;dxgi=n',WINEDLLPATH=str(ge/'lib/vkd3d')+':'+str(ge/'lib/wine'),DXVK_ENABLE_NVAPI='1',NVIDIA_WINE_DLL_DIR=config['ngx_dir'],WINEDEBUG='-all,warn+vulkan,err+vulkan',VK_LOADER_LAYERS_DISABLE='~implicit~',NVPRESENT_ENABLE_SMOOTH_MOTION='0',DLSSNR_DISABLE='1',DLSSNR_AUTO_DOWNLOAD='0')
   ipc=Path(tempfile.mkdtemp(prefix='bb-dlssg-',dir='/tmp')) if a.stream_fixture else r
   command=[str(ge/'lib/wine/x86_64-unix/wine-preloader'),str(ge/'lib/wine/x86_64-unix/wine'),str(exe),'Z:'+str(ipc).replace('/','\\'),str(ge)]
+  if a.profile:env['BB_FG_PROFILE']='1'
   if a.cuda_interop:
    assert a.snippet
    cuda=SOURCE/'out/nvcuda.dll';assert cuda.is_file()
