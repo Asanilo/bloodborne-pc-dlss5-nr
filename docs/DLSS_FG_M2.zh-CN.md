@@ -380,3 +380,32 @@ Helper只保留两个4-byte状态读回，无整图Host上传/读回。
 CPU bridge仍是独立回退。GPU分支稳态只等待覆盖Evaluate及输出copy的实际fence，
 DeviceWaitIdle保留初始化/teardown；三张像素对照验证了本次队列完成边界。
 `out/m22-mailbox-fixture-verification.json` 保存简短统计及像素SHA；35项CPU检查通过。
+
+### M2.2 GPU mailbox 已进入游戏 Present（2026-10-23）
+
+`--dlssg-transport gpu-dmabuf-v1` 现在选择原生 GPU mailbox；默认 `mapped-v1` CPU
+桥仍保留。Native D32→device-local buffer→R32F、RG16F、1080p color 全在GPU内复制，
+Helper仍用两组私有历史输入，输出copy到Native自有FG target。每次consume保留真实
+完成ACK，FG target/Present另行退休；没有额外真实帧排队，没有改变NR源编号。
+
+`m22-native-mailbox-validation-r27`：2287请求、2283实际生成Present，独立FG关/开、
+有界转镜及完整正常退休通过。Native core/sync validation与r17同为既有五类；没有
+观察到新增copy/ownership错误类别，但既有类别有日志限流，不能宣称validation clean。
+只读复审修复了录制线程对mailbox状态的竞争，以及失败时排队closure/owner保活。
+
+`m22-native-mailbox-profile-r28`：无validation，1080p Quality/Old memory，同一猎人
+梦境私有存档、静置相机。实际成功Present返回时间的10秒样本：
+
+| 模式 | 真实FPS | 生成Present FPS | 合计Present FPS |
+|---|---:|---:|---:|
+| SR-only（同run FG关） | 60.0 | 0 | 60.0 |
+| SR + GPU mailbox DLSSG | 49.7 | 49.7 | 99.4 |
+| NR B + SR + GPU mailbox DLSSG | 44.7 | 44.7 | 89.4 |
+
+NR联动样本447/447真实Present均cache_selected=1。NR/FG双方和Present正常退休，无
+残留。对照历史CPU桥r24约39.4+39.5=78.9、NR联动r21约35.3+35.4=70.7；仍需同轮
+CPU/FSR对照。短暂转镜和截图未发现HUD异常，不作为人工手感或全部运动画质验收。
+Present返回不是屏幕scanout，也不是输入延迟测量。
+
+简短统计：`out/m22-live-mailbox-report.json`；构建为d9ff188加run内完整来源patch。
+下一步测量并优化consumer Finish及1ms控制轮询；保持真实GPU完成边界，不增加整帧缓存。

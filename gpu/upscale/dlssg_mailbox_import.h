@@ -66,8 +66,10 @@ struct MailboxImport {
             for(const auto& raw:raw_payloads)Need(!(raw==value),"Helper original DMA-BUF payload still owned");
         }
     }
-    void Ownership(VkCommandBuffer cmd,unsigned role,bool acquire,bool write){
-        Need(!destroyed,"GPU mailbox use after destroy");used=true;complete=false;
+    // Called by the owner before queuing work; recording workers only emit barriers.
+    void MarkUse(){Need(!destroyed,"GPU mailbox use after destroy");used=true;complete=false;}
+    void Ownership(VkCommandBuffer cmd,unsigned role,bool acquire,bool write) const {
+        Need(!destroyed,"GPU mailbox use after destroy");
         VkImageMemoryBarrier b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};b.oldLayout=b.newLayout=VK_IMAGE_LAYOUT_GENERAL;
         b.srcQueueFamilyIndex=acquire?VK_QUEUE_FAMILY_EXTERNAL:family;b.dstQueueFamilyIndex=acquire?family:VK_QUEUE_FAMILY_EXTERNAL;
         const auto access=write?VK_ACCESS_TRANSFER_WRITE_BIT:VK_ACCESS_TRANSFER_READ_BIT;b.srcAccessMask=acquire?0:access;b.dstAccessMask=acquire?access:0;

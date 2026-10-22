@@ -19,6 +19,7 @@
 #include "vulkan/instance.h"
 #include "upscale/dlssg_input_capture.h"
 #include "upscale/dlssg_cpu_bridge.h"
+#include "upscale/dlssg_gpu_bridge.h"
 
 namespace Vulkan {
 
@@ -142,8 +143,13 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     if (backend && std::strcmp(backend, "dlssg-capture") == 0)
         dlssg_capture = std::make_unique<DlssgInputCapture>(instance, scheduler);
     if (backend && std::strcmp(backend, "dlssg") == 0) {
-        dlssg_capture = std::make_unique<DlssgInputCapture>(instance, scheduler, true);
-        dlssg_bridge = std::make_unique<DlssgCpuBridge>();
+        const char* transport = std::getenv("BB_DLSSG_TRANSPORT");
+        if (transport && std::strcmp(transport, "gpu-dmabuf-v1") == 0) {
+            dlssg_gpu = std::make_unique<DlssgGpuBridge>(instance, scheduler);
+        } else {
+            dlssg_capture = std::make_unique<DlssgInputCapture>(instance, scheduler, true);
+            dlssg_bridge = std::make_unique<DlssgCpuBridge>();
+        }
     }
     const char* sm = std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION");
     const bool smooth_motion = sm && std::strcmp(sm, "1") == 0;
@@ -168,6 +174,7 @@ void FrameGeneration::Retire() {
     // Includes every encode from our output into a per-Frame image, not only FG dispatches.
     scheduler.Finish();
     if (dlssg_bridge && !dlssg_bridge->Retire()) return;
+    if (dlssg_gpu && !dlssg_gpu->Retire()) return;
     Destroy();
     std::scoped_lock lock{targets_mutex};
     targets.clear();
@@ -205,6 +212,15 @@ void FrameGeneration::OnFrameStart() {
 }
 
 void FrameGeneration::Destroy() {
+    if (dlssg_gpu) {
+        scheduler.Finish();
+        if (!dlssg_gpu->Retire()) {
+            // Recording closures capture the owner; unknown GPU completion retains it too.
+            (void)dlssg_gpu.release();
+            return;
+        }
+        dlssg_gpu.reset();
+    }
     if (dlssg_bridge) {
         scheduler.Finish();
         if (!dlssg_bridge->Retire()) return; // No normal draw-retired proof on unknown Helper state.
@@ -296,9 +312,9 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 
 void FrameGeneration::CaptureScene(const Scene& in) {
     scene_captured = false;
-    if (dlssg_capture) {
+    if (dlssg_capture || dlssg_gpu) {
         scene = in;
-        scene_captured = Wanted() && dlssg_capture->Guides(in);
+        scene_captured = Wanted() && (dlssg_gpu ? dlssg_gpu->Guides(in) : dlssg_capture->Guides(in));
         scene_id = in.source_game_frame;
         scene_reset = reset_next || in.reset;
         if (scene_captured) reset_next = false;
@@ -430,7 +446,7 @@ bool FrameGeneration::BindSceneColor(vk::Image color, vk::Format format, u32 wid
 }
 
 void FrameGeneration::CaptureHudless(vk::Image color) {
-    if (dlssg_capture) return;
+    if (dlssg_capture || dlssg_gpu) return;
     static const bool enabled = [] {
         const char* value = std::getenv("BB_FRAME_GEN_HUDLESS");
         return value && value[0] == '1';
@@ -530,6 +546,23 @@ FrameGeneration::Target& FrameGeneration::PrepareTarget(VAddr display, u64 id, b
 }
 
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
+    if (dlssg_gpu) {
+        if (Wanted() && scene_captured && color && color == scene.color) {
+            const u64 previous_source = dlssg_gpu->LastSource();
+            const bool eligible = dlssg_gpu->Evaluate(scene, color, display, scene_reset);
+            dispatched_last_frame = true;
+            if (eligible && !FgLifecycle::held.load()) {
+                auto& target = PrepareTarget(display, scene_id, false);
+                target.strict_source = true;
+                target.previous_source_game_frame = previous_source;
+                dlssg_gpu->Consume(vk::Image(target.image), target.recorded);
+            } else {
+                dlssg_gpu->Consume({}); // Disabled still returns output ownership after real GPU use.
+            }
+        }
+        scene_captured = false;
+        return;
+    }
     if (dlssg_capture) {
         if (Wanted() && scene_captured && color && color == scene.color) {
             if (!dlssg_bridge) dlssg_capture->Color(scene, color);

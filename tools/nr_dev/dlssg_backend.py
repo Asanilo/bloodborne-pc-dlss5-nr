@@ -1,4 +1,4 @@
-"""Explicit Experimental DLSSG CPU backend inputs; no NVIDIA runtime installation."""
+"""Explicit Experimental DLSSG backend inputs; no NVIDIA runtime installation."""
 import hashlib
 import importlib.util
 import json
@@ -22,8 +22,9 @@ def validate_args(args):
 
 def check(args,build):
     if getattr(args,'experimental_fg',None)!='dlssg':return None
-    if b'DLSSG_CPU_BRIDGE_READY' not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
-        raise ValueError('DLSSG requires rebuilt Native CPU bridge')
+    marker=b'DLSSG_GPU_BRIDGE_READY' if getattr(args,'dlssg_transport',None)=='gpu-dmabuf-v1' else b'DLSSG_CPU_BRIDGE_READY'
+    if marker not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
+        raise ValueError('DLSSG requires rebuilt Native selected bridge')
     source=Path(__file__).resolve().parents[2]
     spec=importlib.util.spec_from_file_location('dlssg_wine_build_inputs',source/'tools/fg_dev/build_wine_probe.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -49,14 +50,15 @@ def prepare(args,build,run,binding,runner):
     prefix=previous/'profile/wine-prefix'
     if not prefix.is_dir() or prefix.resolve()!=prefix:raise ValueError('existing private DLSSG prefix required')
     source=state['source'];ipc=Path(tempfile.mkdtemp(prefix='bb-dlssg-',dir='/tmp'))
-    config={'schema':'dlssg-native-cpu-v1','session':args.session,'run':str(run),'ipc':str(ipc),
+    gpu=args.dlssg_transport=='gpu-dmabuf-v1'
+    config={'schema':'dlssg-native-gpu-v1' if gpu else 'dlssg-native-cpu-v1','session':args.session,'run':str(run),'ipc':str(ipc),
             'prefix':str(prefix),'ge_files':binding['config']['ge_files'],'ngx_dir':binding['config']['ngx_dir'],
             'executable':str(source/'out/wine-dlssg-probe.exe'),'adapter':str(source/'out/nvngx.dll_dlssg.dll'),
             'model':state['model']['path'],'cuda':str(source/'out/nvcuda.dll'),
             'identities':{k:state[k] for k in ['model','cuda','core']},'helper_build':state['build'],
-            'transport':args.dlssg_transport,'reused_retired_prefix':args.dlssg_prefix_session,'scope':'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
+            'transport':args.dlssg_transport,'reused_retired_prefix':args.dlssg_prefix_session,'scope':'DMA-BUF GPU mailbox; private persistent FG history; actual GPU last-use ACK' if gpu else 'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
     path=run/'dlssg-config.json';runner['atomic'](path,config)
-    return {'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),
+    return {'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),'BB_DLSSG_TRANSPORT':args.dlssg_transport,
             'BB_DLSSG_CONFIG_SHA256':hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -69,6 +71,12 @@ def validate_manifest(run,manifest):
     config=json.loads(path.read_text())
     if config['session']!=manifest['session'] or config['run']!=str(run) or config['ipc']!=env.get('BB_DLSSG_STREAM_DIR') or env.get('BB_FRAME_GEN_NATIVE')!='1':
         raise ValueError('DLSSG private scope drift')
+    transport=config.get('transport','files-v1')
+    schema='dlssg-native-gpu-v1' if transport=='gpu-dmabuf-v1' else 'dlssg-native-cpu-v1'
+    if transport not in ('files-v1','mapped-v1','gpu-dmabuf-v1') or config.get('schema')!=schema:
+        raise ValueError('DLSSG transport/schema mismatch')
+    if env.get('BB_DLSSG_TRANSPORT',transport if transport!='gpu-dmabuf-v1' else None)!=transport:
+        raise ValueError('DLSSG sealed transport drift')
     # NR's owner requires its canonical per-session prefix. FG prefix reuse
     # cannot override that independent process boundary.
     if env.get('BB_NR_NATIVE_ORIGIN_PREFIX')!=str(Path(run)/'profile/wine-prefix'):

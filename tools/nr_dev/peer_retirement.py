@@ -209,6 +209,52 @@ def audit_daily(run,session):
 
 def rows(text,event):
  return [dict(re.findall(r'(\w+)=([^\s]+)',line)) for line in text.splitlines() if line.startswith(event+' ')]
+def audit_dlssg_gpu(run,session,text):
+ # This audits recorded completion facts; it never admits GPU work or repairs HOLD.
+ proof=rows(text,'DLSSG_GPU_BRIDGE_RETIRED')
+ need(len(proof)==1 and all(proof[0].get(k)=='1' for k in
+      ('helper_GPU_complete','feature_released','child_reaped','Native_shared_GPU_complete','imports_destroyed')),
+      'GPU mailbox actual Native copy/release and Helper retirement')
+ report=load(run/'dlssg-retired.json');terminal=report['terminal'];launch=load(run/'dlssg-launch.json')
+ imported=load(run/'dlssg-gpu-import.json');meta=imported['metadata'];closed=imported['FD_retired']
+ pair=report['last_request_pair'];schema='dlssg-gpu-mailbox-v1'
+ for record in (terminal,launch,imported,meta,closed,pair):
+  need(record.get('schema')==schema and record.get('session')==session,'GPU mailbox exact terminal session/schema')
+ def uint(record,key):
+  value=record.get(key);need(type(value) is int and 0<=value<=2**64-1,'GPU mailbox integer '+key);return value
+ need(uint(report,'wait_status')==0 and uint(report,'launcher_pid')==uint(launch,'launcher_pid')>0
+      and report.get('Native_shared_GPU_complete') is True and report.get('Native_imports_destroyed') is True,
+      'GPU mailbox normal child reap and destroyed Native imports')
+ keys=('sequence','epoch','source_game_frame','previous_source_game_frame','display')
+ need(all(uint(terminal,k)==uint(pair,k) for k in keys),'GPU mailbox final exact source pair')
+ sequence=uint(terminal,'sequence');tick=uint(report,'native_last_use_tick');input_tick=uint(report,'last_native_input_tick')
+ need(proof[0].get('sequence')==str(sequence) and uint(terminal,'native_last_use_tick')==tick
+      and type(report.get('native_shared_used')) is bool and report['native_shared_used']==bool(tick),
+      'GPU mailbox actual maximum Native use and no-use scope')
+ if sequence:
+  need(tick>input_tick>0 and uint(terminal,'epoch')>0 and
+       uint(terminal,'source_game_frame')>uint(terminal,'previous_source_game_frame'),
+       'GPU mailbox output completed after producer input')
+ else:
+  need(input_tick==0 and all(uint(pair,k)==0 for k in keys),'GPU mailbox explicit zero-request pair')
+ need(all(terminal.get(k) is True for k in ('actual_GPU_complete','feature_released','device_destroyed','native_imports_released'))
+      and all(uint(terminal,k)==0 for k in ('shared_images_owned','export_raw_fd_owned','native_gpu_readers')),
+      'GPU mailbox both owners fully retired')
+ need(imported.get('raw_payloads_absent') is True and meta.get('completed_GPU') is True
+      and uint(terminal,'helper_serial')==uint(meta,'initial_release_serial')+sequence
+      and uint(meta,'initial_release_serial')>0 and uint(closed,'export_raw_fd_owned')==0,
+      'GPU mailbox initial release, completed request serial and raw FD audit')
+ resources=meta.get('resources',[])
+ need(type(resources) is list and len(resources)==4,'GPU mailbox four imported images')
+ expected=[('color',37,1920,1080),('depth',100,1280,720),('motion',83,1280,720),('output',37,1920,1080)]
+ for resource,(role,fmt,width,height) in zip(resources,expected):
+  need(resource.get('role')==role and uint(resource,'format')==fmt and uint(resource,'width')==width
+       and uint(resource,'height')==height and resource.get('dedicated') is True and uint(resource,'offset')==0,
+       'GPU mailbox imported role/format/dedicated contract')
+  need(uint(resource,'fd')>0,'GPU mailbox raw FD number')
+ need(exact_typed(closed.get('closed_fd'),[{'role':r['role'],'fd':r['fd']} for r in resources]),
+      'GPU mailbox exact exported FD retirement')
+
 def audit_session(run,termination=None):
  run=Path(run);manifest=load(run/'manifest.json');session=manifest['session']
  result=termination if termination is not None else load(run/'result.json')
@@ -224,16 +270,20 @@ def audit_session(run,termination=None):
  if manifest.get('environment',{}).get('BB_FRAME_GEN_BACKEND')=='dlssg':
   dlssg_backend.validate_manifest(run,manifest)
   if (run/'dlssg-launch.json').exists():
-   proof_dlssg=rows(text,'DLSSG_CPU_BRIDGE_RETIRED')
-   need(len(proof_dlssg)==1 and all(proof_dlssg[0].get(k)=='1' for k in ('helper_GPU_complete','feature_released','child_reaped','Native_staging_GPU_complete')),'DLSSG actual Helper and Native upload owner retirement')
-   report=load(run/'dlssg-retired.json');terminal=report['terminal'];launch=load(run/'dlssg-launch.json')
-   need(report.get('wait_status')==0 and report.get('launcher_pid')==launch['launcher_pid'] and report.get('Native_staging_GPU_complete') is True and report.get('shared_GPU_resources')==0,'DLSSG actual normal waitpid/private resource scope')
-   need(terminal.get('session')==session and terminal.get('schema')=='dlssg-cpu-stream-v1' and type(terminal.get('sequence')) is int and terminal['sequence']>=1 and terminal.get('native_gpu_readers')==0 and all(terminal.get(k) is True for k in ('cpu_slot_consumed','actual_GPU_complete','feature_released','device_destroyed')),'DLSSG consumed sequence and private GPU terminal')
+   gpu=manifest['environment'].get('BB_DLSSG_TRANSPORT')=='gpu-dmabuf-v1'
+   if gpu:
+    audit_dlssg_gpu(run,session,text)
+   else:
+    proof_dlssg=rows(text,'DLSSG_CPU_BRIDGE_RETIRED')
+    need(len(proof_dlssg)==1 and all(proof_dlssg[0].get(k)=='1' for k in ('helper_GPU_complete','feature_released','child_reaped','Native_staging_GPU_complete')),'DLSSG actual Helper and Native upload owner retirement')
+    report=load(run/'dlssg-retired.json');terminal=report['terminal'];launch=load(run/'dlssg-launch.json')
+    need(report.get('wait_status')==0 and report.get('launcher_pid')==launch['launcher_pid'] and report.get('Native_staging_GPU_complete') is True and report.get('shared_GPU_resources')==0,'DLSSG actual normal waitpid/private resource scope')
+    need(terminal.get('session')==session and terminal.get('schema')=='dlssg-cpu-stream-v1' and type(terminal.get('sequence')) is int and terminal['sequence']>=1 and terminal.get('native_gpu_readers')==0 and all(terminal.get(k) is True for k in ('cpu_slot_consumed','actual_GPU_complete','feature_released','device_destroyed')),'DLSSG consumed sequence and private GPU terminal')
    helper_text=(run/'dlssg-helper.log').read_text(errors='replace')
    expected='FG_POC_RETIRED actual_GPU_complete=1 feature_released=1 core_shutdown=1 device_destroyed=1 native_readers=0'
    need(helper_text.splitlines().count(expected)==1 and 'FG_POC_HOLD' not in helper_text,'DLSSG actual unique Helper device teardown')
   else:
-   no_dlssg=rows(text,'DLSSG_CPU_BRIDGE_NO_PEER')
+   no_dlssg=rows(text,'DLSSG_GPU_BRIDGE_NO_PEER' if manifest['environment'].get('BB_DLSSG_TRANSPORT')=='gpu-dmabuf-v1' else 'DLSSG_CPU_BRIDGE_NO_PEER')
    need(len(no_dlssg)==1 and no_dlssg[0].get('no_helper_created')=='1' and not (run/'dlssg-helper.log').exists() and not (run/'dlssg-retired.json').exists(),'DLSSG explicit no-Helper exit')
  if manifest.get('smooth_motion') is True:
   sm=rows(text,'SM_EXIT_PROOF')

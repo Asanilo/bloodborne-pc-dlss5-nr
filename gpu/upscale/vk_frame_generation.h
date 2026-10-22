@@ -34,6 +34,7 @@ class Instance;
 class Scheduler;
 class DlssgInputCapture;
 class DlssgCpuBridge;
+class DlssgGpuBridge;
 
 class FrameGeneration {
 public:
@@ -106,6 +107,7 @@ private:
     bool use316 = false;
     std::unique_ptr<DlssgInputCapture> dlssg_capture;
     std::unique_ptr<DlssgCpuBridge> dlssg_bridge;
+    std::unique_ptr<DlssgGpuBridge> dlssg_gpu;
     std::unique_ptr<VideoCore::Buffer> dlssg_upload;
     std::mutex context316_mutex; ///< Record/retire may run on different scheduler owners.
     u32 context_render_w = 0, context_render_h = 0, context_w = 0, context_h = 0;

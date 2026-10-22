@@ -13,7 +13,7 @@ import runner
 class NativeDlssgTests(unittest.TestCase):
     def test_fg_prefix_cannot_override_nr_owner_scope(self):
         with tempfile.TemporaryDirectory() as temp:
-            run=Path(temp);path=run/'dlssg-config.json';path.write_text(json.dumps({'session':'cpu','run':str(run),'ipc':'/tmp/bb-dlssg-cpu'}))
+            run=Path(temp);path=run/'dlssg-config.json';path.write_text(json.dumps({'schema':'dlssg-native-cpu-v1','session':'cpu','run':str(run),'ipc':'/tmp/bb-dlssg-cpu'}))
             env={'BB_FRAME_GEN_BACKEND':'dlssg','BB_FRAME_GEN_NATIVE':'1','BB_DLSSG_STREAM_CONFIG':str(path),
                  'BB_DLSSG_CONFIG_SHA256':hashlib.sha256(path.read_bytes()).hexdigest(),'BB_DLSSG_STREAM_DIR':'/tmp/bb-dlssg-cpu',
                  'BB_NR_NATIVE_ORIGIN_PREFIX':str(run/'profile/wine-prefix')}
