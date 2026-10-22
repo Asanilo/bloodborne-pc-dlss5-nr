@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Finite offscreen entry probe; a successful Create is NOT generated-frame
 // evidence.
+#define api fg_verbose_api
 #include "fixture_util.h"
+#undef api
+static void api(VkResult result,const char* stage){if(result!=VK_SUCCESS||!getenv("FG_POC_STREAM"))fg_verbose_api(result,stage);}
 #define NGX_SNIPPET_BUILD
 #include "dlssg_fixture.h"
 #include <algorithm>
@@ -21,6 +24,7 @@ static std::string win(std::string s) {
   return "Z:" + s;
 }
 static void __cdecl model_log(const char *message, int level, int source) {
+  if(getenv("FG_POC_STREAM")&&level>1)return;
   printf("FG_MODEL_LOG level=%d source=%d %s\n", level, source,
          message ? message : "<null>");
 }
@@ -41,6 +45,8 @@ struct Probe {
   NVSDK_NGX_Parameter *params{};
   NVSDK_NGX_Handle *feature{};
   std::unique_ptr<FgFixture> fixture;
+  std::shared_ptr<void> input_descriptors;
+  nlohmann::json stream_terminal;
   bool core_attempted = false, inflight = false;
   unsigned create_result = 0;
   template <class T> T i(const char *n) {
@@ -272,6 +278,10 @@ struct Probe {
       // or return values.
       reinterpret_cast<void(__thiscall *)(void *, const char *, int)>(vt[4])(
           params, "Minimum.Logging.Level", 2);
+      if(getenv("FG_POC_STREAM")) {
+        reinterpret_cast<void(__thiscall*)(void*,const char*,int)>(vt[4])(params,"Minimum.Logging.Level",1);
+        reinterpret_cast<void(__thiscall*)(void*,const char*,int)>(vt[4])(params,"Disable.Other.Logging.Sinks",1);
+      }
       reinterpret_cast<void(__thiscall *)(void *, const char *,
                                           unsigned long long)>(vt[0])(
           params, "Log.Callback",
@@ -321,7 +331,7 @@ struct Probe {
                    "DLSSG.MVecsSubrectHeight", "DLSSG.DepthSubrectHeight"})
       set(params, k, 1080);
     set(params, "DLSSG.DynamicResolution", 0);
-    if (getenv("FG_POC_INPUT_MANIFEST")) {
+    if (getenv("FG_POC_INPUT_MANIFEST")||getenv("FG_POC_STREAM")) {
       set(params,"DLSSG.InternalWidth",1280); set(params,"DLSSG.InternalHeight",720);
       set(params,"DLSSG.MVecsSubrectWidth",1280); set(params,"DLSSG.MVecsSubrectHeight",720);
       set(params,"DLSSG.DepthSubrectWidth",1280); set(params,"DLSSG.DepthSubrectHeight",720);
@@ -355,6 +365,7 @@ struct Probe {
         create_result);
   }
   void evaluate(const char *run);
+  void stream(const char *run);
   void retire() {
     require(!inflight, "outstanding GPU submission");
     if (device)
@@ -381,6 +392,7 @@ struct Probe {
       bridge = nullptr;
     }
     fixture.reset();
+    input_descriptors.reset();
     if (params) {
       require(sym<decltype(&NVSDK_NGX_VULKAN_DestroyParameters)>(
                   core, "NVSDK_NGX_VULKAN_DestroyParameters")(params) ==
@@ -417,6 +429,7 @@ struct Probe {
   }
 };
 #include "dlssg_evaluate_fixture.h"
+#include "dlssg_stream.h"
 int main(int argc, char **argv) {
   setvbuf(stdout, nullptr, _IONBF, 0);
   if (argc != 3 && argc != 4)
@@ -425,10 +438,12 @@ int main(int argc, char **argv) {
   bool retiring = false;
   try {
     p.init(argv[1], argv[2], argc == 4 ? argv[3] : nullptr);
-    if (getenv("FG_POC_EVALUATE") && p.feature && p.create_result == 1)
+    if (getenv("FG_POC_STREAM")) p.stream(argv[1]);
+    else if (getenv("FG_POC_EVALUATE") && p.feature && p.create_result == 1)
       p.evaluate(argv[1]);
     retiring = true;
     p.retire();
+    if(getenv("FG_POC_STREAM")){require(!p.stream_terminal.is_null(),"stream fully consumed terminal");p.stream_terminal.update(nlohmann::json{{"actual_GPU_complete",true},{"feature_released",true},{"device_destroyed",true},{"native_gpu_readers",0}});atomic_text(std::string(argv[1])+"/stream-retired.json",p.stream_terminal.dump()+"\n");}
     return 0;
   } catch (const std::exception &e) {
     fprintf(stderr, "FG_POC_UNAVAILABLE reason=%s\n", e.what());

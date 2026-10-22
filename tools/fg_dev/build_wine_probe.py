@@ -14,6 +14,7 @@ INPUTS = [
     'tools/fg_dev/dlssg_snippet_bridge.cpp',
     'tools/fg_dev/dlssg_fixture.h',
     'tools/fg_dev/dlssg_evaluate_fixture.h',
+    'tools/fg_dev/dlssg_stream.h',
     'nrbridge/runtime/fixture_util.h',
     'gpu/third_party/nlohmann/include/nlohmann/json.hpp',
 ]

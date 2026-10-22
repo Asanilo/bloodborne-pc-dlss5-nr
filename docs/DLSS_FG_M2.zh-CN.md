@@ -53,6 +53,27 @@ GPU 会话分别为 `m2-sm-1080q-r1` 和 `m2-wine-*-r1` 至 `r10`。
 后续 r11–r13 也均正常退休，没有新 HOLD。r11 逻辑大小约 168 MB（其中输入图像
 约 94 MB），r12、r13 各约 67 MB；仍只复用原 Wine prefix，没有新增完整游戏环境。
 
+### 常驻 Helper 单槽 CPU 协议
+
+`m2-wine-stream-fixture-r14`、`m2-wine-stream-tmpfs-r15`、
+`m2-wine-stream-cached-r16` 均完成六条真实游戏输入请求、五张有效输出以及实际消费
+ACK、停止、Release/Shutdown/device destroy，均正常退休。三张保存的有效输出与
+r12 逐字节一致。GPU input image/view/NGX descriptor 一直保留至 Release；两组交替
+输入，上一真实帧不被当前请求覆写。GPU 输出在同一 Evaluate 命令流后复制至 CPU，
+真实 fence/idle 完成后才原子发布响应，Native 消费 ACK 后才允许覆盖 CPU 槽。
+
+r14 普通 Btrfs 文件的有效请求服务约 44–48 ms，r15 仅换到 tmpfs 仍约 37–40 ms。
+r16 定位到 HOST_VISIBLE|COHERENT 读回内存 type 2（flags=0x6）不具备 CPU cache，
+将输出读回/状态缓冲改用 HOST_CACHED type 3（flags=0xe）后，服务降为约 10–12 ms。
+其中输入复制约 2.6–3.9 ms，记录命令、实际 fence 和 idle 约 5 ms，输出复制约
+2.3–3.8 ms。这是六次离屏请求的 CPU 服务区间，不是纯推理 GPU 时间，也不是游戏
+帧率或输入延迟。没有绕过 fence、退休或型号限制。
+
+传输槽为单个私有 `/tmp/bb-dlssg-*` 目录，正常退出且所有 CPU 输出已消费后清理。
+失败则保留槽和真实 HOLD。持久记录只保留协议终态、日志、三个对照图像；每次常驻
+协议试验约新增 25 MB 证据，不新增完整环境。CPU 协议/相机/FG 工具测试当前 28 项
+通过，Native 可玩路径尚在接入。
+
 ## Wine 离屏入口
 
 复用已有 GE-Proton11-7、LLVM MinGW、共享 Vulkan/NGX 头文件及一份已正常退休的私有

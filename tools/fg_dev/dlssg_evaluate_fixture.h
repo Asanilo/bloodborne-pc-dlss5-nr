@@ -65,7 +65,8 @@ void Probe::evaluate(const char *run) {
     FgFixture::Buffer color_upload, depth_upload, motion_upload, readback,
         disabled;
   };
-  std::vector<Frame> frames;
+  auto descriptors=std::make_shared<std::vector<Frame>>();
+  input_descriptors=descriptors;auto& frames=*descriptors;
   frames.reserve(6);
   const bool reuse_inputs=getenv("FG_POC_REUSE_INPUTS")!=nullptr;
   for (unsigned n = 0; n < 6; ++n) {

@@ -86,7 +86,7 @@ struct FgFixture {
                                     format, width, height};
     return r;
   }
-  Buffer buffer(uint64_t bytes) {
+  Buffer buffer(uint64_t bytes, bool cached=false) {
     buffers.emplace_back();
     Buffer& r = buffers.back();
     r.size = bytes;
@@ -103,9 +103,12 @@ struct FgFixture {
         device, r.buffer, &q);
     VkMemoryAllocateInfo a{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
     a.allocationSize = q.size;
-    a.memoryTypeIndex =
-        type(q.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-                                   VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    const auto host=VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT|VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    uint32_t flags=host;
+    if(cached)for(unsigned j=0;j<properties.memoryTypeCount;++j)
+      if((q.memoryTypeBits&(1u<<j))&&(properties.memoryTypes[j].propertyFlags&(host|VK_MEMORY_PROPERTY_HOST_CACHED_BIT))==(host|VK_MEMORY_PROPERTY_HOST_CACHED_BIT))flags=host|VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
+    a.memoryTypeIndex=type(q.memoryTypeBits,flags);
+    printf("FG_HOST_BUFFER bytes=%llu requested_cached=%u memory_type=%u property_flags=0x%x\n",(unsigned long long)bytes,unsigned(cached),a.memoryTypeIndex,properties.memoryTypes[a.memoryTypeIndex].propertyFlags);
     api(fn<PFN_vkAllocateMemory>("vkAllocateMemory")(device, &a, nullptr,
                                                      &r.memory),
         "fixture buffer memory");
