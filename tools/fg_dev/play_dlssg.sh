@@ -12,7 +12,8 @@ case "$preset" in
   -h|--help) printf '%s\n' 'Usage: bash out/play-dlssg.sh [A|B|old] [play options]' \
     'Validated: B, 1080p Quality, Old memory model; Hunters Dream private save.' \
     'F8: NR start/toggle. Delete: independent DLSS FG checkbox.' \
-    'Optional fallback: --dlssg-transport files-v1'; exit 0 ;;
+    'GPU mailbox: --dlssg-transport gpu-dmabuf-v1' \
+    'CPU default: mapped-v1; file fallback: --dlssg-transport files-v1'; exit 0 ;;
   *) printf '%s\n' 'Usage: bash out/play-dlssg.sh [A|B|old] [play options]' >&2; exit 2 ;;
 esac
 exec python3 "$source_root/tools/nr_dev/play.py" --daily --fg-native \

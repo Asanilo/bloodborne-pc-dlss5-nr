@@ -7,7 +7,7 @@ import subprocess
 from build_wine_probe import identity
 ROOT=Path(__file__).resolve().parents[2]
 INPUTS=['tools/fg_dev/native_gpu_probe.cpp','gpu/upscale/dlssg_gpu_contract.h',
-        'gpu/upscale/dlssg_mailbox_import.h','gpu/upscale/dlssg_gpu_peer.h',
+        'gpu/upscale/dlssg_mailbox_import.h','gpu/upscale/dlssg_gpu_peer.h','gpu/upscale/dlssg_directory_wake.h',
         'gpu/render/native_pre_sr_spawn_log.h','gpu/third_party/nlohmann/include/nlohmann/json.hpp']
 
 

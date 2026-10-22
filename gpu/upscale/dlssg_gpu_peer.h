@@ -7,18 +7,20 @@
 #include <thread>
 #include <sys/wait.h>
 #include "dlssg_mailbox_import.h"
+#include "dlssg_directory_wake.h"
 #include "../render/native_pre_sr_spawn_log.h"
 extern char** environ;
 namespace DlssgGpu {
 struct Peer {
     using Clock=std::chrono::steady_clock;
+    DirectoryWake wake;
     J config;std::string root,run,session;pid_t child=-1,exporter=-1;uint64_t child_ticks=0,exporter_ticks=0;int status=0;bool reaped=false,retired=false;
     explicit Peer(J c):config(std::move(c)),root(config.at("ipc")),run(config.at("run")),session(config.at("session")){}
     ~Peer(){if(child>0&&!retired)std::fprintf(stderr,"DLSSG_GPU_PEER_HOLD normal_retirement_unproved=1\n");}
     static J Read(const std::string& path){Need(std::filesystem::is_regular_file(path)&&!std::filesystem::is_symlink(path)&&std::filesystem::file_size(path)<131072,"GPU bounded regular metadata");std::ifstream f(path);J j;f>>j;return j;}
     static void Atomic(const std::string& path,const J& j){const auto temp=path+".tmp";const auto text=j.dump()+"\n";std::ofstream f(temp,std::ios::binary|std::ios::trunc);f.write(text.data(),text.size());f.close();Need(bool(f)&&std::rename(temp.c_str(),path.c_str())==0,"GPU metadata atomic publish");}
     void Check(){Need(!reaped,"GPU helper already exited");int result=waitpid(child,&status,WNOHANG);if(result==child){reaped=true;throw std::runtime_error("GPU helper premature exit");}Need(result==0||errno==EINTR,"GPU helper waitpid");Need(Ticks(child)==child_ticks,"GPU launcher stable identity");if(exporter>0)Need(Ticks(exporter)==exporter_ticks,"GPU exporter stable identity");}
-    template<class Accept>J Wait(const char* name,Accept accept,unsigned seconds=30){auto deadline=Clock::now()+std::chrono::seconds(seconds);while(Clock::now()<deadline){Check();auto path=root+"/"+name;if(std::filesystem::exists(path)){auto j=Read(path);Session(j,session);if(accept(j))return j;}std::this_thread::sleep_for(std::chrono::milliseconds(1));}throw std::runtime_error(std::string("GPU peer wait timeout: ")+name);}
+    template<class Accept>J Wait(const char* name,Accept accept,unsigned seconds=30){auto deadline=Clock::now()+std::chrono::seconds(seconds);while(Clock::now()<deadline){Check();auto path=root+"/"+name;if(std::filesystem::exists(path)){auto j=Read(path);Session(j,session);if(accept(j))return j;}wake.Pause();}throw std::runtime_error(std::string("GPU peer wait timeout: ")+name);}
     J Wait(const char* name,unsigned seconds=30){return Wait(name,[](const J&){return true;},seconds);}
     static std::string Normalize(std::string value){std::replace(value.begin(),value.end(),'\\','/');if(value.rfind("Z:",0)==0)value.erase(0,2);return value;}
     static pid_t Parent(pid_t pid){std::istringstream in(Proc("/proc/"+std::to_string(pid)+"/status"));std::string l;while(std::getline(in,l))if(l.rfind("PPid:",0)==0)return pid_t(std::stol(l.substr(5)));return -1;}
@@ -46,6 +48,7 @@ struct Peer {
     J Start(MailboxImport& imported){
         Need(child<0,"one GPU peer");struct stat st{};Need(lstat(root.c_str(),&st)==0&&S_ISDIR(st.st_mode)&&st.st_uid==getuid()&&(st.st_mode&0777)==0700,"GPU private IPC root");
         Need(std::filesystem::is_empty(root),"fresh GPU IPC root");
+        const bool notified=wake.Open(root);std::printf("DLSSG_GPU_CONTROL_WAKE mode=%s GPU_completion_proof=unchanged\n",notified?"inotify":"poll_1ms");
         J settings{{"schema",Schema},{"session",session},{"transport","gpu-dmabuf-v1"},{"native_pid",getpid()},{"native_start_ticks",Ticks(getpid())}};settings.update(imported.Identity());Atomic(root+"/stream-config.json",settings);
         const std::string ge=config.at("ge_files"),prefix=config.at("prefix"),preloader=ge+"/lib/wine/x86_64-unix/wine-preloader",wine=ge+"/lib/wine/x86_64-unix/wine";
         std::vector<std::string> argv{preloader,wine,config.at("executable"),"Z:"+root,ge,config.at("adapter")};std::vector<char*> av;for(auto& a:argv)av.push_back(a.data());av.push_back(nullptr);
