@@ -47,7 +47,7 @@ struct Probe {
   std::unique_ptr<FgFixture> fixture;
   std::shared_ptr<void> input_descriptors;
   nlohmann::json stream_terminal;
-  bool core_attempted = false, inflight = false;
+  bool core_attempted = false, inflight = false, shared_active = false;
   unsigned create_result = 0;
   template <class T> T i(const char *n) {
     return reinterpret_cast<T>(gipa(instance, n));
@@ -367,7 +367,7 @@ struct Probe {
   void evaluate(const char *run);
   void stream(const char *run);
   void retire() {
-    require(!inflight, "outstanding GPU submission");
+    require(!inflight && !shared_active, "GPU/shared peer retirement boundary");
     if (device)
       api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),
           "device idle before release");
@@ -447,7 +447,7 @@ int main(int argc, char **argv) {
     return 0;
   } catch (const std::exception &e) {
     fprintf(stderr, "FG_POC_UNAVAILABLE reason=%s\n", e.what());
-    if (!retiring && !p.inflight) {
+    if (!retiring && !p.inflight && !p.shared_active) {
       try {
         p.retire();
         return 0;
@@ -455,6 +455,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "FG_POC_RETIRE_ERROR %s\n", r.what());
       }
     }
+    if (p.shared_active && p.fixture) p.fixture->safe=false;
     fprintf(stderr,
             "FG_POC_HOLD actual_GPU_completion=UNKNOWN forced_retirement=0\n");
     return 3;

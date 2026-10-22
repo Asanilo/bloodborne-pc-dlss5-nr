@@ -355,3 +355,28 @@ Astra必须项：
   idle仅0.03ms，首先优化像素Host往返及整条producer提交等待，而不是只删idle。
 
 本轮按用户要求停止在上述续接点，无运行中GPU任务，不启动下一次PoC。
+
+
+### M2.2 GPU mailbox 离屏通过（2026-10-23）
+
+切换主会话模型后继续。DSH B交接已读取；额外只读子代理复审了实际新代码，修复了
+Native编译歧义、零请求退休，并保持核心代码单执行者。未动NR模块或退休守卫。
+
+`m22-mailbox-zero-r25` 已实际创建/导入4张独立dedicated DMA-BUF（RGBA8/R32F/RG16F），
+精确UUID/driverUUID/driver版本、requirements、fd dev/inode/target核对，原始FD消费及
+Native payload消失审计成功。零请求也完成STOP_READY→Native imports释放→Helper
+共享/私有资源释放→正常reap→Native device destroy，PASS_NORMAL_TEARDOWN。
+
+`m22-mailbox-six-r26` 实际喂入既有六帧游戏输入，5张有效输出；保存的三张生成图与
+r20 CPU Bridge逐字节一致。首张disabled仍完成Native output acquire/release和真实fence，
+随后精确consumed，最后完整正常退休；无HOLD/残留。暖请求Helper服务中位3.51ms，
+GPU输入copy约0.14ms、Evaluate queue约2.81ms、输出copy约0.035ms；Native响应等待
+约4.59ms。这是离屏共享图像结果，尚不是实机Present性能结论。Native fixture为载入
+原始测试输入和验证输出仍使用本地Host buffer；跨Native/Wine图像传输为GPU-only，
+Helper只保留两个4-byte状态读回，无整图Host上传/读回。
+
+可复用实现为 `gpu/upscale/dlssg_gpu_contract.h`、`dlssg_mailbox_import.h`、
+`dlssg_gpu_peer.h`，Helper exporter适配既有 `nrbridge/runtime/transport.h`。
+CPU bridge仍是独立回退。GPU分支稳态只等待覆盖Evaluate及输出copy的实际fence，
+DeviceWaitIdle保留初始化/teardown；三张像素对照验证了本次队列完成边界。
+`out/m22-mailbox-fixture-verification.json` 保存简短统计及像素SHA；35项CPU检查通过。
