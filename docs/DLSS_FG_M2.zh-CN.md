@@ -409,3 +409,9 @@ Present返回不是屏幕scanout，也不是输入延迟测量。
 
 简短统计：`out/m22-live-mailbox-report.json`；构建为d9ff188加run内完整来源patch。
 下一步测量并优化consumer Finish及1ms控制轮询；保持真实GPU完成边界，不增加整帧缓存。
+
+`m22-native-mailbox-async-r29`：消费输出改为Flush并复用scheduler既有GPU完成线程，
+真实consumer tick到达后才发布ACK；回调按值拥有旧request/tick，下一Exchange与退休
+均等待ACK已发布，未引入新的帧队列。关FG超过44秒后恢复成功，正常退休。10秒静态
+样本49.7+49.7=99.4 Present FPS，与同步版近似；本项移除了显式consumer CPU等待，
+尚未证明额外吞吐或输入延迟收益。回调不依赖下一Guides，关FG不会卡在Helper消费超时。

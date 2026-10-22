@@ -63,7 +63,8 @@ struct Peer {
         return ready;
     }
     J Exchange(const J& request,uint64_t prior_serial){Session(request,session);Atomic(root+"/request.json",request);auto r=Wait("response.json",[&](const J& j){return U(j,"sequence")==U(request,"sequence");});for(auto& [k,v]:request.items())if(k!="camera")Need(r.at(k)==v,"GPU exact response request");Need(B(r,"helper_GPU_complete")&&B(r,"output_released")&&U(r,"helper_serial")>prior_serial,"GPU helper actual fence/release");return r;}
-    void Consume(const J& request,uint64_t helper_serial,uint64_t tick){auto ack=Pair(request);ack.update(J{{"helper_serial_echo",helper_serial},{"native_last_use_tick",tick},{"native_GPU_complete",true},{"output_released",true}});Consumed(ack,request,helper_serial);Atomic(root+"/consumed.json",ack);}
+    static void PublishConsumed(const std::string& directory,const J& request,uint64_t helper_serial,uint64_t tick){auto ack=Pair(request);ack.update(J{{"helper_serial_echo",helper_serial},{"native_last_use_tick",tick},{"native_GPU_complete",true},{"output_released",true}});Consumed(ack,request,helper_serial);Atomic(directory+"/consumed.json",ack);}
+    void Consume(const J& request,uint64_t helper_serial,uint64_t tick){PublishConsumed(root,request,helper_serial,tick);}
     J Retire(MailboxImport& imported,const J& request,uint64_t helper_serial){
         const J pair=Pair(request);auto stop=pair;stop["helper_serial_echo"]=helper_serial;Atomic(root+"/stream-stop.json",stop);
         auto ready=Wait("gpu-stop-ready.json");Need(Pair(ready)==pair&&B(ready,"helper_GPU_complete")&&U(ready,"helper_serial")==helper_serial,"GPU exact STOP_READY");

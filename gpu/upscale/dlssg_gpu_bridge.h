@@ -6,6 +6,7 @@
 #include "upscale/dlssg_gpu_peer.h"
 #include "upscale/dlssg_native_timing.h"
 #include "upscale/frame_generation_lifecycle.h"
+#include <future>
 namespace Vulkan {
 class DlssgGpuBridge {
   using J = DlssgGpu::J;
@@ -19,6 +20,8 @@ class DlssgGpuBridge {
   uint64_t sequence = 0, epoch = 0, last_source = 0, helper_serial = 0,
            guide_source = 0, last_recorded_tick = 0;
   bool guides = false, pending = false, retired = false;
+  std::future<double> consumed_ack;
+  uint64_t consumed_tick = 0;
   J last_request, response;
   DlssgCamera::Camera previous_camera, current_camera;
   Clock::time_point last_completed{};
@@ -96,6 +99,25 @@ class DlssgGpuBridge {
            "GPU mailbox actual Native last use");
       mailbox->Observed(last_recorded_tick);
     }
+  }
+
+  void WaitConsumedAck() {
+    if (!consumed_ack.valid())
+      return;
+    const auto start = Clock::now();
+    Need(consumed_ack.wait_for(std::chrono::seconds(30)) == std::future_status::ready,
+         "GPU asynchronous consumer ACK deadline");
+    const double publish_ms =
+        consumed_ack.get(); // Propagates callback failure to HOLD.
+    Need(scheduler.IsFree(consumed_tick),
+         "GPU asynchronous consumer actual completion");
+    if (std::getenv("BB_FG_PROFILE") && sequence % 120 == 0)
+      std::printf("DLSSG_GPU_ACK_PROFILE sequence=%llu source=%llu "
+                  "Native_copy_tick=%llu join_cpu_ms=%.3f publish_cpu_ms=%.3f "
+                  "actual_GPU_complete=1\n",
+                  (unsigned long long)sequence, (unsigned long long)last_source,
+                  (unsigned long long)consumed_tick,
+                  DlssgNativeTiming::Ms(start, Clock::now()), publish_ms);
   }
 
 public:
@@ -209,6 +231,7 @@ public:
       scheduler.Finish();
       const auto completed = Clock::now();
       Observe();
+      WaitConsumedAck();
       timing.ReadInput(DlssgNativeTiming::Ms(started, recorded),
                        DlssgNativeTiming::Ms(recorded, completed), 0, true);
       guides = false;
@@ -306,18 +329,43 @@ public:
         if (recorded)
           recorded->store(true, std::memory_order_release);
       });
-      scheduler.Finish();
-      Observe();
-      peer->Consume(last_request, helper_serial, tick);
+      Need(!consumed_ack.valid(), "one asynchronous consumer ACK");
+      auto completed = std::make_shared<std::promise<double>>();
+      consumed_ack = completed->get_future();
+      consumed_tick = tick;
+      // Existing completion thread waits the actual current tick, including
+      // output release. Own every captured value: pause/FG-off must not delay
+      // ACK, and no callback borrows us.
+      scheduler.DeferPriorityOperation(
+          [directory = peer->root, request = last_request,
+           serial = helper_serial, tick, completed] {
+            try {
+              const auto start = Clock::now();
+              DlssgGpu::Peer::PublishConsumed(directory, request, serial, tick);
+              completed->set_value(DlssgNativeTiming::Ms(start, Clock::now()));
+            } catch (...) {
+              completed->set_exception(std::current_exception());
+            }
+          });
+      const auto submit_start = Clock::now();
+      scheduler.Flush(); // Submit now; Present encoding stays later in the same
+                         // draw stream.
+      const auto submitted = Clock::now();
       sequence = DlssgGpu::U(last_request, "sequence");
       last_source = DlssgGpu::U(last_request, "source_game_frame");
       previous_camera = std::move(current_camera);
-      last_completed = Clock::now();
+      last_completed = submitted;
       pending = false;
+      if (std::getenv("BB_FG_PROFILE") && sequence % 120 == 0)
+        std::printf("DLSSG_GPU_CONSUMER_SUBMIT_PROFILE sequence=%llu "
+                    "source=%llu flush_cpu_ms=%.3f explicit_GPU_wait=0\n",
+                    (unsigned long long)sequence,
+                    (unsigned long long)last_source,
+                    DlssgNativeTiming::Ms(submit_start, submitted));
       if (sequence <= 3 || sequence % 120 == 0)
         std::printf("DLSSG_GPU_NATIVE_OUTPUT sequence=%llu source=%llu "
                     "epoch=%llu eligible=%u Native_copy_tick=%llu "
-                    "helper_serial=%llu pixel_host_transfer_bytes=0\n",
+                    "helper_serial=%llu pixel_host_transfer_bytes=0 ACK_after_actual_GPU=async\n",
                     (unsigned long long)sequence,
                     (unsigned long long)last_source, (unsigned long long)epoch,
                     unsigned(bool(target)), (unsigned long long)tick,
@@ -338,6 +386,7 @@ public:
       Need(!pending, "GPU completed request before stop");
       scheduler.Finish();
       Observe();
+      WaitConsumedAck();
       peer->Retire(*mailbox, last_request, helper_serial);
       depth_transfer.reset();
       retired = true;
