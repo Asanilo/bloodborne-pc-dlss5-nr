@@ -372,7 +372,13 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
         scene_started = false;
         DumpTracedInputs();
         DumpPassImages('p');
-        upscaler->OnDisplayPassStart(regs.color_buffers[0].Address());
+        std::vector<VAddr> display_inputs;
+        if (const auto* stage = pipeline->GetStages()[u32(Shader::SwStage::Fragment)]) {
+            for (const auto& image : stage->images) {
+                if (!image.is_written) display_inputs.push_back(image.GetSharp(*stage).Address());
+            }
+        }
+        upscaler->OnDisplayPassStart(regs.color_buffers[0].Address(), display_inputs);
         camera_motion->OnDisplayPass(cb_descs[0].first);
         if (upscaler->OnFrameStart()) {
             object_motion->InvalidateHistory();
