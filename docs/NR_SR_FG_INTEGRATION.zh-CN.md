@@ -1,6 +1,6 @@
 # NR + DLSS SR + FSR FG 集成实验
 
-状态：**受控 GPU 测试通过；玩家确认模糊消失、手感可接受、HUD 正常；NR关闭时仍有植被贴片位置错误，FG关联待验证。当前修复构建为 `2a31955`，
+状态：**受控 GPU 测试通过；玩家确认模糊消失、手感可接受、HUD 正常；NR关闭时仍有植被贴片位置错误，FG关联待验证。玩家验收构建为 `2a31955`，
 原三者联动基线为 `0dff031`。模糊对照见 [调查结果](FG_BLUR_INVESTIGATION.zh-CN.md)。**
 集成分支 `integration/nr-sr-fg` 从 FG `05aecdf` 合入 NR `47665ac`；两条已验收分支保留。
 目标配置为 1080p Quality、Old memory、NR 310.9.16 SF Preset B、HUDless FSR 3.1 x2。
@@ -170,3 +170,51 @@ https://github.com/deadinside28/bloodborne_pc#future 。AMD FSR3.1接入说明�
 不正确或缺失的运动矢量会造成重影，插帧放大相关伪影：
 https://gpuopen.com/download/FidelityFX_Super_Resolution_3-1_Release-Overview_and_Integration.pdf 。
 上述资料支持优先检查FG运动/遮挡输入，不足以证明本次根因。
+
+
+## 续档首启修复与跨日志审核（2026-10-22）
+
+NR线最小修复 `dc25fe3` 已独立cherry-pick为集成 `a8669b4`：真实首次F8/Enable在
+发布既有场景marker之前只提交 `display_bypass=false`，保留其余配置、model staged值，
+不推进reset/capture/model动作编号。实际发布顺序/权限/幂等CPU用例通过，现有out增量
+构建通过，四产物SHA通过，源差异为0；未创建新构建树或AppImage。
+
+会话 `vegetation-first-f8-r2` 从玩家梦境检查点复制，首次F8前确为bypass=true；仅一次
+真实F8后false，实际SR日志出现cache_selected=1，且FG生成Present继续。随后NR关闭
+进行FG开关局部采样。当前画面里的空中落叶和粒子经玩家确认正常，**本轮没有复现**
+玩家指定的“FG开启、大幅转镜、草丛贴片飞到空中”；小幅转镜与门旁树叶样本不构成
+该故障验收，不能记为修复或排除。
+
+此轮进程rc0、无残留、无watchdog/监督中断，但原审核结果为HOLD。只读追查确认
+FG_DRAW_RETIRED/FG_PRESENT_RETIRED/FG_EXIT_PROOF位于game.log.1，最终NR退出证明
+位于game.log；原audit_session只读后者，造成跨轮转的假阳性缺证。保留原result与
+当前boot的HOLD receipt，不人工清除、不据此启动新GPU会话。只读诊断与SHA保存在
+out/first-f8-retirement-rotation-diagnosis.json。
+
+后续定位固定NR关闭（可用本机入口追加 `--sr-only`）、DLSS SR/分辨率不变，只切FG；
+在同一有草丛位置进行实际大幅转镜，并标记真实/生成帧。优先确认仅生成帧错位还是
+真实帧已经错位，不改正常落叶粒子，也不把NR开关外观差异当作该空间故障。
+
+
+上游 `vk_frame_generation.h` 另有更具体的设计注释：超分后还会绘制非HUD内容，
+HUDless差分合成可能将其不经插值贴回而造成双影。当前HUDless31对HUD有效，但不能
+据此假定其差分只包含HUD。后续在NR关闭、同SR域下比较FG off/HUDless31/whole-frame，
+并检查草丛ROI是否进入HUDless差分；不先把整帧模式改为默认，因为其运动HUD重影已复现。
+该注释只提供合成阶段的候选解释，仍未证明本次草片飞天根因。
+
+
+跨轮转审核修复由NR `ca08889` 独立cherry-pick为集成 `6c4cbce`，只改Python审核/测试，
+Native二进制仍为 `a8669b4`。读取严格按game.log.1→game.log原始字节顺序，保留每份
+SHA/字节/状态SHA；仍要求完整capture、无error、failure_latched=false、常规文件与
+大小界限，不补行、不去重。集成保留FG_EXIT_PROOF恰好一条且三项完成值均为1的要求。
+新增FG CPU用例覆盖前文件FG证明+后文件NR证明、跨文件重复FG拒绝、未完成draw拒绝。
+本地日志9、NR审计16、FG入口/证明4项CPU回归通过，首启真实发布CPU用例亦通过。
+
+在集成分支对r2只读重审通过 `PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP`，
+原result、原retirement-audit与全局HOLD receipt前后SHA完全不变。报告为
+out/first-f8-readonly-reaudit.json。保留窗口2735对生成→真实Present，无身份/顺序错误；
+这些证明不代表草丛故障复现或画质通过。守卫只允许原pending会话退休，不支持把已经
+hold的receipt补写为retired，因此继续GPU仍需新boot；不增加放行例外。
+
+本轮两份私有会话合计逻辑新增约2.29GiB（含HOLD保留的生成输入与raw），未另外
+复制Native/SDK/模型或打包。猎人梦境源检查点在测试后再次逐文件SHA核验未变。
