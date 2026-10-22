@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Offline terminal/tuple/GPU-FD audit extracted from the verified prior audit, no ledger imports."""
-import json,hashlib,re,argparse,math
+import json,hashlib,re,argparse,math,importlib.util
 from pathlib import Path
+_log_spec=importlib.util.spec_from_file_location('nr_retirement_daily_log',Path(__file__).with_name('daily_log.py'))
+daily_log=importlib.util.module_from_spec(_log_spec);_log_spec.loader.exec_module(daily_log)
 def load(p):return json.loads(Path(p).read_text())
 def need(v,reason):
  if not v:raise ValueError(reason)
@@ -209,10 +211,13 @@ def audit_session(run,termination=None):
  run=Path(run);manifest=load(run/'manifest.json');session=manifest['session']
  result=termination if termination is not None else load(run/'result.json')
  need(result.get('returncode')==0 and result.get('residuals')==[] and result.get('watchdog_expired') is False,'normal actual process exit, no recorded residual or watchdog expiry')
- text=(run/'game.log').read_text(errors='replace')
+ log_evidence=None
  if manifest.get('daily') is True:
-  state=load(run/'game-log-state.json')
-  need(state.get('failure_latched') is False and state.get('error') is None and state.get('complete') is True,'daily bounded log never lost a recorded failure')
+  text,log_evidence=daily_log.read_completed(run)
+  log_hashes=log_evidence['file_sha256']
+ else:
+  raw=(run/'game.log').read_bytes();text=raw.decode(errors='replace')
+  log_hashes={'game.log':hashlib.sha256(raw).hexdigest()}
  need(not re.search(r'NATIVE_\S*(?:HOLD|QUARANTINE|ASSOCIATION_REJECTED)|functional=FAIL',text),'no failed native resource/association proof')
  proof=rows(text,'NATIVE_ASYNC_PRE_SR_EXIT_PROOF')
  need(len(proof)==1 and proof[0].get('actual_source_cache_SR_GPU_lastuse_complete')=='1' and proof[0].get('managed_owner_joined')=='1' and proof[0].get('peer_retirement')=='OWNER_PROOF','exact PreSR last-use and joined-owner exit proof')
@@ -227,7 +232,11 @@ def audit_session(run,termination=None):
   need(not (run/'frames').exists() or not any((run/'frames').rglob('async-input-*.json')),'no-peer exit contradicts job input evidence')
   out={'retirement':'PASS_NO_PEER_NO_SNAPSHOT_NORMAL_EXIT','path':'NO_PEER_NORMAL_EXIT','nopeer':nopeer[0]}
  out.update(session=session,native_exit_proof=proof[0],quality='NOT_ACCEPTED',scope='offline recorded normal teardown evidence; current host safety remains independently checked')
- for name in ('game.log','manifest.json','result.json'):
+ if log_evidence is not None:
+  out['daily_game_log']=log_evidence
+  out['game-log-state.json_sha256']=log_evidence['state_sha256']
+ for name,digest in log_hashes.items():out[name+'_sha256']=digest
+ for name in ('manifest.json','result.json'):
   if (run/name).is_file():out[name+'_sha256']=hashlib.sha256((run/name).read_bytes()).hexdigest()
  return out
 
