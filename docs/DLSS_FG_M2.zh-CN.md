@@ -258,3 +258,100 @@ SM 使用 `play.py --daily --smooth-motion ...` 独立启动，与 FSR/游戏内
 目前磁盘新增主要是恢复的一份 Native 增量构建（约 700 MB）及一份 SM 私有运行环境
 （逻辑大小约 741 MB）。后续 Wine PoC 复用该 prefix，仅保留日志和有界图像，
 不重复生成 AppImage 或完整运行环境。精确增量以各阶段记录为准。
+
+
+## M2.2 续接点：分段计时完成，GPU mailbox 尚未接入
+
+用户要求本轮测试完成后汇报并停下，待主会话升级 Astra 后继续。此处不是 M2.2 性能
+目标完成声明。Native/Helper 计时实现提交 `e69032a`；本轮未改 NR 渲染/历史模块。
+`--fg-profile` 每 120 帧输出少量阶段采样，默认关闭。新增 Native 输入读回和上传 GPU
+query、Wine 上传/Evaluate/输出读回 GPU query，以及 CPU copy/IPC/fence/idle/Present
+pacing 分段。GPU query 是对应 Vulkan queue 的命令区间，不单独隔离内部 CUDA/OFA；
+CPU 等待与其中 GPU 工作重叠，不得相加成总帧耗时。
+
+`m22-cpu-stage-profile-r23`：离屏六条已记录真实游戏输入、五张有效输出、真实 fence/
+idle，三张保留输出与 r20 逐字节一致，完整正常退休。暖 Evaluate queue 中位约2.77ms。
+`m22-native-cpu-profile-r24`：1080p Quality、Old、猎人梦境，NR未启动。2822条请求，
+2819次生成 Present；保留的2819张生成帧全部配对 `Rprev→I→R`，零配对拒绝。末段
+10秒成功Present-return采样为39.4真实+39.5生成=78.9总Present FPS。此轮只为CPU桥
+计时基线，不能将相对M2.1的帧率变化称为性能优化收益。两轮均PASS_NORMAL_TEARDOWN、
+rc0、完整Native staging/Present/Helper正常退出、无残留、无watchdog，global receipt
+retired；临时CPU槽正常回收。当前不需要新重启。
+
+r24保留23–24个稀疏样本的中位数：
+
+| 阶段 | CPU wall | GPU queue interval |
+|---|---:|---:|
+| Native depth/MV读回 | 包含于下述Finish | 0.566ms |
+| guides之后至最终颜色复制前 | — | 1.797ms |
+| Native最终颜色读回 | 包含于下述Finish | 0.619ms |
+| Native读回Finish等待 | 9.880ms | 包含此前排队工作，不能当作纯copy耗时 |
+| Native输入写CPU共享槽 | 1.310ms | — |
+| request原子发布 | 0.101ms | — |
+| Native等待Helper响应 | 8.774ms | 包含Helper全过程及轮询/唤醒 |
+| Wine CPU槽→上传buffer | 0.892ms | — |
+| Wine上传GPU输入 | 包含于fence | 1.204ms |
+| Evaluate录制 / queue区间 | 0.244ms | 2.568ms |
+| Wine输出读回 | 包含于fence | 0.624ms |
+| Wine实际fence等待 | 4.503ms | 包含上面输入/Evaluate/输出区间 |
+| Wine额外DeviceWaitIdle | 0.031ms | 不支持将它视为主要耗时来源 |
+| Wine读回buffer→CPU共享槽 | 0.509ms | — |
+| Native读输出+Flush | 0.310ms | — |
+| Native上传生成图 | 下次真实完成后读query | 0.692ms |
+| CPU桥全往返 | 10.934ms | 包含Helper服务约6.416ms |
+| Presenter进入时排队年龄 / WaitRendered | 0.043 / 1.079ms | — |
+| 插帧→真实帧有意pacing sleep | 12.562ms | 半真实帧间隔，不可直接删掉制造突发Present |
+| generated / real Present调用 | 0.434 / 0.487ms | 不是scanout/端到端输入延迟 |
+
+原始有界统计 `out/m22-profile-report.json`，GPU运行原始证据仍在NRROOT对应runs。
+两个run持久逻辑新增约93.5MB；未创建新的完整Wine prefix/依赖树/AppImage。
+M2.1四个Native运行产物、Helper exe/adapter及来源清单保存于
+`out/m21-verified-645c200/`，Btrfs reflink，逻辑约310MB，当前独占239.15MiB；新构建
+替换旧块后独占量会变化。恢复标签 `archive/m2.1-dlssg-645c200`。构建对象/缓存增量
+未单独计量。Native和Wine编译、34项FG CPU检查与既有Native --test全部通过。
+
+### 下一步的架构边界
+
+DSH B 交接：`/tmp/m2.2-mailbox-handoff-20261022.md`。已通过 Herdr 核对实际FG pane
+`wD:p1`并协调；工具继承的HERDR_PANE_ID=wC:p1指向NR会话，不得据此误投。Herdr
+上下文实际按cwd/title核对。唯一获授权的Astra只读审查已完成：子代理
+`/root/m22_gpu_architecture_review`，不要在同一轮重复发起完整审查。
+
+首选：Wine导出4张DMA-BUF mailbox，Native pidfd_getfd/import，Native GPU copy输入，
+Wine GPU copy到既有两组私有历史输入，Evaluate私有输出再copy至mailbox，Native copy
+至自有FG target。沿用现有TakeOutput/Present及严格真实source pair；生成帧不推进NR。
+首版仅一个mailbox、两个私有历史槽，不并发Evaluate，不加一帧队列，不假设外部Semaphore。
+
+已写但**未接入/未GPU验证**的草稿：`tools/fg_dev/dlssg_mailbox_export.h`（当前未跟踪）。
+它适配nrbridge/runtime/transport.h现有公开API，固定RGBA8 1080、R32F/RG16F720、
+独立dedicated DMA_BUF allocation、offset0、usage15，reuse query/metadata/initial_release/
+retire_fds，GPU copy进私有图/从私有输出回共享图。仅通过MinGW -fsyntax-only，不在
+Helper构建INPUTS中，没有改变当前运行时。不要把它当作已交付GPU互操作。
+
+Astra必须项：
+
+- 三输入、一个输出分别定义GENERAL布局与EXTERNAL所有权；初始化所有4张可统一
+  release，第一轮Helper也必须acquire输出。disabled输出仍要明确acquire/release归还。
+- Native imports核对真实UUID/driverUUID、角色format/extent/usage、external features、
+  exact memory requirements/dedicated/type/offset；pidfd duplicate核对dev/inode/target；
+  Helper原始FD在import ACK后经公开Vulkan import消费，Native按payload审计消失。
+- 不能照搬CPU桥stop→waitpid。必须STOP_READY→Native所有已录制/已提交共享最后使用
+  实际完成、释放所有权并销毁imports→NATIVE_RELEASED→Helper正常释放→terminal/reap。
+  Helper本地idle不能证明Native读完。现有Probe catch中!inflight自动retire只适用于
+  CPU/private版；共享active时任意未确认失败必须HOLD，禁止自动销毁共享图像。
+- Native consumed只在共享图像最后GPU访问完成后发。若输出copy到Native自有目标，
+  consumed可绑定copy+release实际tick；Present采样的是独立自有图，仍按现有证明退休。
+  若直接采样共享output，才必须等Present GPU最后读取；首版不走直接共享Present。
+- 单槽先稳态实际fence+ACK；不要等待尚未提交的copy，也不能持submit_mutex等IPC。
+  Native scheduler tick和Helper serial分域。统一请求/Helper fence阶段超时预算，
+  Helper等待consumed/NativeReleased必须有对端身份检查及有界HOLD，不能超时free。
+- 保持所有NGX private image/view/descriptor到Release/Shutdown完成，覆盖n−2私有槽前
+  n−1 Evaluate必须实际完成。source/previous/sequence/epoch/display完整回显。
+- D32/D32S8→R32F经device-local buffer的DEPTH→COLOR raw-copy，补transfer buffer
+  write→read barrier及源图恢复；RGBA/BGRA按M2.1原始字节语义做像素对照。
+- 先六帧离屏GPU共享PoC：真实输入/输出copy、disabled消费、两槽复用、FD/双阶段
+  完整退休和三张像素比较；再替换live通道，最后测FSR/CPU桥/GPU桥同场景。
+- 稳态删除whole-device idle之前确认输出GPU copy与fence覆盖的完成合同；本轮实测
+  idle仅0.03ms，首先优化像素Host往返及整条producer提交等待，而不是只删idle。
+
+本轮按用户要求停止在上述续接点，无运行中GPU任务，不启动下一次PoC。
