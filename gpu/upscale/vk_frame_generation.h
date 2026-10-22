@@ -21,10 +21,13 @@
 #include <unordered_map>
 
 #include "common/types.h"
+#include "upscale/frame_generation_turn_guard.h"
 #include "textures/image.h"
 #include "vulkan/vk_common.h"
 
 struct FfxVkPortableFrameGenerationContext;
+struct FfxVkFsr3_3_1_6FrameGenerationContext;
+namespace VideoCore { struct Buffer; }
 
 namespace Vulkan {
 
@@ -39,9 +42,13 @@ public:
     /// The setting is on and the GPU can.
     bool Wanted() const;
 
+    /// Real game-frame boundary only. Missing scenes, toggles and long pauses reset FG history.
+    void OnFrameStart();
+    void Retire(); ///< Recording owner only, after exit has frozen new FG accesses.
+
     /// What the scene of this frame was rendered with (render size: depth and motion).
     struct Scene {
-        vk::Image color;   ///< output size, the upscaled scene (UI not drawn yet), General
+        vk::Image color;   ///< output-size General; native HDR route binds LDR later at UI
         vk::Format color_format;
         u32 width, height; ///< output size
         vk::Image depth;   ///< render size, General
@@ -52,11 +59,14 @@ public:
         float frame_ms;
         float camera_near, camera_far, vertical_fov;
         bool reset;
+        u64 source_game_frame; ///< Real renderer source only; never advanced by Present.
         /// The camera in the world (FSR's frame interpolation uses them).
         float camera_position[3], camera_up[3], camera_right[3], camera_forward[3];
     };
     /// End of the upscaler's scaled run (recording thread): keeps the HUD-less copy and the inputs.
     void CaptureScene(const Scene& scene);
+    /// Native HDR SR captures guides before tonemapping; bind its finished LDR target at UI.
+    bool BindSceneColor(vk::Image color, vk::Format format, u32 width, u32 height, u64 source);
 
     /// The first UI draw of the frame is about to run over `color` (the scene's image): what it
     /// holds now is the frame without its UI, post processing included (recording thread).
@@ -74,6 +84,8 @@ public:
         vk::Format format;
         u32 width, height;
         u64 frame;
+        std::shared_ptr<std::atomic<bool>> recorded;
+        u64 source_game_frame;
     };
     bool TakeOutput(VAddr display, Output& out);
 
@@ -85,8 +97,15 @@ private:
     Scheduler& scheduler;
     bool supported = false;
     bool failed = false;
+    bool fast_turn_guard = false;
+    bool turn_was_suppressed = false;
+    u64 turn_suppressed_frames = 0;
+    FgQuality::TurnGuard turn_guard;
 
     FfxVkPortableFrameGenerationContext* context = nullptr;
+    FfxVkFsr3_3_1_6FrameGenerationContext* context316 = nullptr;
+    bool use316 = false;
+    std::mutex context316_mutex; ///< Record/retire may run on different scheduler owners.
     u32 context_render_w = 0, context_render_h = 0, context_w = 0, context_h = 0;
     vk::Format context_format{};
 
@@ -94,11 +113,15 @@ private:
     bool scene_captured = false; ///< this frame's, not yet interpolated
     u64 frame_id = 0;
     bool reset_next = true;
+    bool dispatched_last_frame = false;
+    u64 last_frame_ns = 0;
+    u64 last_dispatch_ns = 0;
     u64 scene_id = 0;        ///< the captured scene's frame id (its Prepare's and Dispatch's)
     bool scene_reset = true; ///< it starts over (nothing before it to interpolate from)
     /// The scene's depth, copied at the capture (the game reuses its depth buffer before the
     /// display pass, where Prepare runs).
     VideoCore::HostImage depth_copy;
+    std::unique_ptr<VideoCore::Buffer> depth_transfer; ///< 3.1.6 consumes R32F, not D32S8.
     VideoCore::HostImage hudless;     ///< the frame without its UI (CaptureHudless)
     bool hudless_ready = false;       ///< taken for the captured scene
     vk::Format depth_copy_format{};
@@ -110,7 +133,10 @@ private:
         vk::Format format{};
         u32 width = 0, height = 0;
         u64 frame = 0;
+        u64 source_game_frame = 0;
+        VAddr display = 0;
         bool ready = false;
+        std::shared_ptr<std::atomic<bool>> recorded;
     };
     std::mutex targets_mutex;
     std::unordered_map<VAddr, Target> targets;

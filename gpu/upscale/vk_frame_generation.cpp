@@ -1,14 +1,20 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "upscale/vk_frame_generation.h"
+#include "upscale/frame_generation_lifecycle.h"
+#include "upscale/frame_generation_contract.h"
 #include "bbport_toggles.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 
 #include <vk_mem_alloc.h>
 
 #include "bbport_settings.h"
+#include "buffers/buffer.h"
 #include "ffx_vk_portable.h"
+#include "ffx_vk_fsr3_3_1_5_bridge.h"
+#include <cstring>
 #include "render/scheduler.h"
 #include "vulkan/instance.h"
 
@@ -57,6 +63,49 @@ void ImageBarrier(vk::CommandBuffer cmdbuf, vk::Image image, vk::PipelineStageFl
     cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier});
 }
 
+FfxVkFsr3_3_1_6FrameGenerationImage Describe316(const FfxVkPortableImage& image) {
+    return {image.image, image.format, image.extent.width, image.extent.height,
+            VK_IMAGE_LAYOUT_GENERAL, image.usage};
+}
+
+int Record316(FfxVkFsr3_3_1_6FrameGenerationContext* context,
+              const FfxVkPortableFrameGenerationPrepareInfo& prepare,
+              const FfxVkPortableFrameGenerationDispatchInfo& dispatch) {
+    FfxVkFsr3_3_1_6FrameGenerationPrepareInfo p{};
+    p.commandBuffer = prepare.commandBuffer;
+    p.color = Describe316(dispatch.currentColor);
+    p.depth = Describe316(prepare.depth);
+    p.motionVectors = Describe316(prepare.motionVectors);
+    p.renderWidth = prepare.renderSize.width; p.renderHeight = prepare.renderSize.height;
+    p.jitterOffsetX = prepare.jitterOffset.x; p.jitterOffsetY = prepare.jitterOffset.y;
+    p.motionVectorScaleX = prepare.motionVectorScale.x;
+    p.motionVectorScaleY = prepare.motionVectorScale.y;
+    p.frameTimeMilliseconds = prepare.frameTimeMilliseconds;
+    p.minLuminance = prepare.minLuminance; p.maxLuminance = prepare.maxLuminance;
+    p.transferFunction = FFX_VK_FSR3_3_1_6_FRAMEGEN_TRANSFER_SRGB;
+    p.cameraNear = prepare.cameraNear; p.cameraFar = prepare.cameraFar;
+    p.viewSpaceToMeters = prepare.viewSpaceToMeters;
+    p.cameraVerticalFovRadians = prepare.cameraVerticalFovRadians;
+    const auto camera = [](float (&out)[3], const auto& in) {
+        out[0] = in.x; out[1] = in.y; out[2] = in.z;
+    };
+    camera(p.cameraPosition, prepare.cameraPosition); camera(p.cameraUp, prepare.cameraUp);
+    camera(p.cameraRight, prepare.cameraRight); camera(p.cameraForward, prepare.cameraForward);
+    p.frameId = prepare.frameId; p.reset = prepare.reset;
+    auto result = ffxVkFsr3_3_1_6FrameGenerationContextRecordPrepare(context, &p);
+    if (result != FFX_VK_FSR3_3_1_6_FRAMEGEN_OK) return int(result);
+    FfxVkFsr3_3_1_6FrameGenerationDispatchInfo d{};
+    d.commandBuffer = dispatch.commandBuffer;
+    d.color = p.color; d.output = Describe316(dispatch.output);
+    d.displayWidth = dispatch.displaySize.width; d.displayHeight = dispatch.displaySize.height;
+    d.frameTimeMilliseconds = p.frameTimeMilliseconds;
+    d.cameraNear = p.cameraNear; d.cameraFar = p.cameraFar;
+    d.viewSpaceToMeters = p.viewSpaceToMeters; d.cameraVerticalFovRadians = p.cameraVerticalFovRadians;
+    d.minLuminance = p.minLuminance; d.maxLuminance = p.maxLuminance;
+    d.transferFunction = p.transferFunction; d.frameId = p.frameId; d.reset = p.reset;
+    return int(ffxVkFsr3_3_1_6FrameGenerationContextRecordDispatch(context, &d));
+}
+
 } // namespace
 
 namespace {
@@ -86,6 +135,13 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
         supported = true;
     }
     settings.frame_generation_supported = supported;
+    const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
+    use316 = backend && std::strcmp(backend, "fsr316") == 0;
+    const char* guard = std::getenv("BB_FRAME_GEN_FAST_TURN_GUARD");
+    fast_turn_guard = guard && std::strcmp(guard, "1") == 0;
+    if (fast_turn_guard)
+        std::printf("FG_FAST_TURN_GUARD enabled=1 enter_degrees=2 release_degrees=1 quiet_real_frames=2 scope=FG_only\n");
+    FgLifecycle::enabled.store(std::getenv("BB_FRAME_GEN") != nullptr);
     std::printf("Frame generation: FSR 3.1 %s%s%s\n", supported ? "available" : "unavailable",
                 supported ? "" : ": ", supported ? "" : settings.frame_generation_problem.load());
 }
@@ -95,10 +151,57 @@ FrameGeneration::~FrameGeneration() {
 }
 
 bool FrameGeneration::Wanted() const {
-    return supported && !failed && BbSettings::Get().frame_generation.load(std::memory_order_relaxed);
+    return supported && !failed && !FgLifecycle::exit_requested.load() &&
+           BbSettings::Get().frame_generation.load(std::memory_order_relaxed);
+}
+
+void FrameGeneration::Retire() {
+    if (!FgLifecycle::Pending()) return;
+    // Includes every encode from our output into a per-Frame image, not only FG dispatches.
+    scheduler.Finish();
+    Destroy();
+    std::scoped_lock lock{targets_mutex};
+    targets.clear();
+    depth_copy = VideoCore::HostImage{};
+    depth_transfer.reset();
+    hudless = VideoCore::HostImage{};
+    scene_captured = hudless_ready = false;
+    FgLifecycle::draw_retired.store(true);
+    std::printf("FG_DRAW_RETIRED actual_GPU_complete=1 context_targets_depth_hudless_released=1\n");
+}
+
+void FrameGeneration::OnFrameStart() {
+    // Consume a one-shot request at a real-frame boundary, like the experimental menu switch.
+    // Writers should rename a complete file containing 0 or 1 onto this private path.
+    static const char* control = std::getenv("BB_FRAME_GEN_CONTROL");
+    if (control) {
+        if (FILE* file = std::fopen(control, "r")) {
+            int value = -1;
+            const bool valid = std::fscanf(file, "%d", &value) == 1 && (value == 0 || value == 1);
+            std::fclose(file);
+            if (valid && std::remove(control) == 0)
+                BbSettings::Get().frame_generation.store(value == 1, std::memory_order_relaxed);
+        }
+    }
+    const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (!Wanted() || !dispatched_last_frame || now - last_frame_ns > 250'000'000) {
+        reset_next = true;
+    }
+    last_frame_ns = now;
+    dispatched_last_frame = false;
+    scene_captured = hudless_ready = false;
+    // Rasterizer calls this immediately AFTER Interpolate, before the display draw and
+    // PrepareFrame. Its one-shot output must survive until that flip consumes it.
 }
 
 void FrameGeneration::Destroy() {
+    if (context316) {
+        scheduler.Finish(); // Runs actual-completion RetireFrame callbacks before destruction.
+        std::scoped_lock lock{context316_mutex};
+        ffxVkFsr3_3_1_6FrameGenerationContextDestroy(context316);
+        context316 = nullptr;
+    }
     if (context) {
         scheduler.Finish();
         ffxVkPortableFrameGenerationContextDestroy(context);
@@ -108,11 +211,15 @@ void FrameGeneration::Destroy() {
 
 bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 width, u32 height,
                                     vk::Format format) {
-    if (context && context_render_w == render_width && context_render_h == render_height &&
+    if ((context || context316) && context_render_w == render_width && context_render_h == render_height &&
         context_w == width && context_h == height && context_format == format) {
         return true;
     }
     Destroy();
+    // Destroy() has waited for the draw stream, including the presenter's source encode.
+    // The HUD-less copy belongs to the context's size/format, not the session's first size.
+    hudless = VideoCore::HostImage{};
+    hudless_ready = false;
     const auto device = instance.GetDevice();
     FfxVkPortableDeviceInfo device_info{};
     device_info.structSize = sizeof(device_info);
@@ -138,8 +245,19 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
         failed = true;
         return false;
     }
-    if (ffxVkPortableFrameGenerationContextCreate(&device_info, &create, &context) !=
-        FFX_VK_PORTABLE_OK) {
+    bool created = false;
+    if (use316) {
+        const FfxVkFsr3_3_1_6FrameGenerationCreateInfo info{
+            instance.GetPhysicalDevice(), device, render_width, render_height,
+            width, height, static_cast<VkFormat>(format),
+        };
+        created = ffxVkFsr3_3_1_6FrameGenerationContextCreate(&info, &context316) ==
+                  FFX_VK_FSR3_3_1_6_FRAMEGEN_OK;
+    } else {
+        created = ffxVkPortableFrameGenerationContextCreate(&device_info, &create, &context) ==
+                  FFX_VK_PORTABLE_OK;
+    }
+    if (!created) {
         std::printf("Frame generation: the context could not be made\n");
         context = nullptr;
         failed = true;
@@ -151,6 +269,7 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
     context_h = height;
     context_format = format;
     reset_next = true;
+    std::printf("Frame generation backend: %s\n", use316 ? "FSR 3.1.6 (SDK 2.3) experimental" : "FSR 3.1 (SDK 1.1.4)");
     std::printf("Frame generation: %ux%u from %ux%u scenes (%s)\n", width, height, render_width,
                 render_height, vk::to_string(format).c_str());
     return true;
@@ -158,9 +277,13 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 
 void FrameGeneration::CaptureScene(const Scene& in) {
     scene_captured = false;
-    if (!Wanted() || !EnsureContext(in.render_width, in.render_height, in.width, in.height,
+    if (!Wanted() || !in.depth || !in.motion || !in.width || !in.height ||
+        !in.render_width || !in.render_height ||
+        !EnsureContext(in.render_width, in.render_height, in.width, in.height,
                                     in.color_format)) {
         reset_next = true;
+        turn_guard.Reset();
+        turn_was_suppressed = false;
         return;
     }
     scene = in;
@@ -168,36 +291,64 @@ void FrameGeneration::CaptureScene(const Scene& in) {
     scene_id = ++frame_id;
     hudless_ready = false;
     scene_reset = reset_next || in.reset;
+    if (fast_turn_guard) {
+        const auto decision = turn_guard.Observe(
+            {in.camera_forward[0], in.camera_forward[1], in.camera_forward[2]}, scene_reset);
+        if (decision.suppress) ++turn_suppressed_frames;
+        if (decision.suppress != turn_was_suppressed)
+            std::printf("FG_TURN_FALLBACK suppress=%u source_game_frame=%llu fg_frame=%llu step_degrees=%.5f suppressed_real_scenes=%llu scope=FG_history_only\n",
+                decision.suppress, (unsigned long long)in.source_game_frame,
+                (unsigned long long)scene_id, decision.degrees,
+                (unsigned long long)turn_suppressed_frames);
+        turn_was_suppressed = decision.suppress;
+        // Keep recording Prepare/Dispatch and all retirement obligations. A reset
+        // output is already ineligible for TakeOutput/Present. Only FG history is
+        // reset; the real frame, SR and NR continue through their normal path.
+        scene_reset = scene_reset || decision.suppress;
+    }
     reset_next = false;
     ++stat_captured;
     // The frame is interpolated as shown, UI and all (no HUD-less image: what the game draws over
     // the upscaled scene is not only its HUD, and FSR pastes any difference uninterpolated,
     // a double image). Optical flow needs that finished frame: Prepare runs at the display pass.
     // The depth is copied now, while it is this frame's (the game reuses its depth buffer).
-    if (!depth_copy || depth_copy_format != in.depth_format || depth_copy_w != in.render_width ||
+    const auto copy_format = use316 ? vk::Format::eR32Sfloat : in.depth_format;
+    if (use316 && in.depth_format != vk::Format::eD32Sfloat &&
+        in.depth_format != vk::Format::eD32SfloatS8Uint) {
+        scene_captured = false;
+        reset_next = true;
+        std::printf("Frame generation: 3.1.6 needs a 32-bit float depth source\n");
+        return;
+    }
+    if (!depth_copy || depth_copy_format != copy_format || depth_copy_w != in.render_width ||
         depth_copy_h != in.render_height) {
         scheduler.Finish();
         depth_copy = VideoCore::HostImage(instance.GetDevice(), instance.GetAllocator());
         depth_copy.Create(vk::ImageCreateInfo{
             .imageType = vk::ImageType::e2D,
-            .format = in.depth_format,
+            .format = copy_format,
             .extent = {in.render_width, in.render_height, 1},
             .mipLevels = 1,
             .arrayLayers = 1,
             .samples = vk::SampleCountFlagBits::e1,
             .tiling = vk::ImageTiling::eOptimal,
             .usage = vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst |
-                     vk::ImageUsageFlagBits::eDepthStencilAttachment,
+                     (use316 ? vk::ImageUsageFlags{} : vk::ImageUsageFlagBits::eDepthStencilAttachment),
             .initialLayout = vk::ImageLayout::eUndefined,
         });
-        depth_copy_format = in.depth_format;
+        if (use316) depth_transfer = std::make_unique<VideoCore::Buffer>(instance, 0,
+            u64(in.render_width) * in.render_height * sizeof(float), VideoCore::MemoryType::DeviceLocal,
+            "FG 3.1.6 depth format transfer");
+        depth_copy_format = copy_format;
         depth_copy_w = in.render_width;
         depth_copy_h = in.render_height;
     }
     scheduler.Record([depth = in.depth, copy = vk::Image(depth_copy), w = in.render_width,
-                      h = in.render_height](vk::CommandBuffer cmdbuf) {
+                      h = in.render_height, buffer = depth_transfer ? depth_transfer->Handle() : vk::Buffer{}]
+                     (vk::CommandBuffer cmdbuf) {
         const auto all = vk::PipelineStageFlagBits2::eAllCommands;
         const vk::ImageSubresourceRange range{vk::ImageAspectFlagBits::eDepth, 0, 1, 0, 1};
+        const vk::ImageSubresourceRange copy_range = buffer ? ColorRange : range;
         const std::array<vk::ImageMemoryBarrier2, 2> before{{
             {.srcStageMask = all, .srcAccessMask = vk::AccessFlagBits2::eMemoryWrite,
              .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
@@ -208,7 +359,7 @@ void FrameGeneration::CaptureScene(const Scene& in) {
              .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
              .dstAccessMask = vk::AccessFlagBits2::eTransferWrite,
              .oldLayout = vk::ImageLayout::eUndefined, .newLayout = vk::ImageLayout::eGeneral,
-             .image = copy, .subresourceRange = range},
+             .image = copy, .subresourceRange = copy_range},
         }};
         cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 2, .pImageMemoryBarriers = before.data()});
         const vk::ImageCopy region{
@@ -216,7 +367,31 @@ void FrameGeneration::CaptureScene(const Scene& in) {
             .dstSubresource = {vk::ImageAspectFlagBits::eDepth, 0, 0, 1},
             .extent = {w, h, 1},
         };
-        cmdbuf.copyImage(depth, vk::ImageLayout::eGeneral, copy, vk::ImageLayout::eGeneral, region);
+        if (buffer) {
+            // Image->buffer extracts exactly the D32 float aspect; buffer->image writes the
+            // same bytes as R32F. No incompatible depth/color image copy and no CPU readback.
+            const vk::BufferMemoryBarrier2 writable{
+                .srcStageMask = all,
+                .srcAccessMask = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
+                .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
+                .dstAccessMask = vk::AccessFlagBits2::eTransferWrite,
+                .buffer = buffer, .size = VK_WHOLE_SIZE,
+            };
+            cmdbuf.pipelineBarrier2({.bufferMemoryBarrierCount = 1, .pBufferMemoryBarriers = &writable});
+            vk::BufferImageCopy transfer{
+                .imageSubresource = {vk::ImageAspectFlagBits::eDepth, 0, 0, 1}, .imageExtent = {w, h, 1},
+            };
+            cmdbuf.copyImageToBuffer(depth, vk::ImageLayout::eGeneral, buffer, transfer);
+            auto readable = writable;
+            readable.srcStageMask = vk::PipelineStageFlagBits2::eCopy;
+            readable.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
+            readable.dstAccessMask = vk::AccessFlagBits2::eTransferRead;
+            cmdbuf.pipelineBarrier2({.bufferMemoryBarrierCount = 1, .pBufferMemoryBarriers = &readable});
+            transfer.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
+            cmdbuf.copyBufferToImage(buffer, copy, vk::ImageLayout::eGeneral, transfer);
+        } else {
+            cmdbuf.copyImage(depth, vk::ImageLayout::eGeneral, copy, vk::ImageLayout::eGeneral, region);
+        }
         const std::array<vk::ImageMemoryBarrier2, 2> after{{
             {.srcStageMask = vk::PipelineStageFlagBits2::eCopy,
              .srcAccessMask = vk::AccessFlagBits2::eTransferRead, .dstStageMask = all,
@@ -227,15 +402,30 @@ void FrameGeneration::CaptureScene(const Scene& in) {
              .srcAccessMask = vk::AccessFlagBits2::eTransferWrite, .dstStageMask = all,
              .dstAccessMask = vk::AccessFlagBits2::eMemoryRead,
              .oldLayout = vk::ImageLayout::eGeneral, .newLayout = vk::ImageLayout::eGeneral,
-             .image = copy, .subresourceRange = range},
+             .image = copy, .subresourceRange = copy_range},
         }};
         cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 2, .pImageMemoryBarriers = after.data()});
     });
 }
 
 
+bool FrameGeneration::BindSceneColor(vk::Image color, vk::Format format, u32 width, u32 height,
+                                     u64 source) {
+    if (!Wanted() || !scene_captured || !color || scene.color || scene.source_game_frame != source ||
+        scene.color_format != format || scene.width != width || scene.height != height) return false;
+    scene.color = color;
+    std::printf("FG_NATIVE_BIND source_game_frame=%llu fg_frame=%llu output=%ux%u hdr_SR=1\n",
+        (unsigned long long)source, (unsigned long long)scene_id, width, height);
+    return true;
+}
+
 void FrameGeneration::CaptureHudless(vk::Image color) {
-    if (!scene_captured || color != scene.color || hudless_ready) {
+    static const bool enabled = [] {
+        const char* value = std::getenv("BB_FRAME_GEN_HUDLESS");
+        return value && value[0] == '1';
+    }();
+    if (!enabled) return;
+    if (!color || !scene.color || !scene_captured || color != scene.color || hudless_ready) {
         return;
     }
     if (!hudless) {
@@ -279,20 +469,33 @@ void FrameGeneration::CaptureHudless(vk::Image color) {
 
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     Stats();
-    if (!scene_captured || color != scene.color || !context) {
+    if (!FgContract::CanInterpolate(Wanted(), scene_captured, color, scene.color,
+                                    context || context316)) {
+        std::scoped_lock lock{targets_mutex};
+        for (auto& [address, target] : targets) target.ready = false;
+        reset_next = true;
         return;
     }
     ++stat_interpolated;
     scene_captured = false;
+    dispatched_last_frame = true;
     const u64 id = scene_id;
-    const bool reset = scene_reset;
+    // OnFrameStart is after this call at the display-copy boundary. A pause must invalidate
+    // the FIRST resumed dispatch, not the one after it. No generated output on that reset.
+    const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const bool reset = scene_reset || !last_dispatch_ns || now - last_dispatch_ns > 250'000'000;
+    last_dispatch_ns = now;
+    if (reset) std::printf("FG_HISTORY_RESET fg_frame=%llu scene_reset=%u gap_reset=%u\n",
+        (unsigned long long)id, scene_reset,
+        !scene_reset && reset);
 
     Target* target;
     {
         std::scoped_lock lock{targets_mutex};
         // One output for all display buffers: the interpolation, the display pass and the
-        // presenter's encode are all in the draw stream's order. `display` is the UI target.
-        (void)display;
+        // presenter's encode are all in the draw stream's order. Bind the destination even
+        // though storage is shared: another VideoOut address cannot consume this output.
         target = &targets[0];
         if (!target->image || target->format != scene.color_format || target->width != scene.width ||
             target->height != scene.height) {
@@ -328,6 +531,9 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
         // frame after a reset has nothing before it to interpolate from.
         target->ready = !reset;
         target->frame = id;
+        target->source_game_frame = scene.source_game_frame;
+        target->display = display;
+        target->recorded = std::make_shared<std::atomic<bool>>(false);
         if (target->ready) ++stat_ready;
     }
 
@@ -339,7 +545,11 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                                      FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
     // The UI-less frame (CaptureHudless): FSR interpolates it and lays the UI over unmoved. Without
     // one (no UI drawn this frame) the whole frame is interpolated.
-    if (hudless_ready && !BbToggle::Disabled(1u << 30)) {
+    static const bool use_hudless = [] {
+        const char* value = std::getenv("BB_FRAME_GEN_HUDLESS");
+        return value && value[0] == '1';
+    }();
+    if (use_hudless && hudless_ready && !BbToggle::Disabled(1u << 30)) {
         dispatch.hudlessColor = Describe(vk::Image(hudless), scene.color_format, scene.width,
                                          scene.height, ColorUsage, vk::ImageAspectFlagBits::eColor,
                                          FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
@@ -384,9 +594,10 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     }
     FfxVkPortableFrameGenerationPrepareInfo prepare{};
     prepare.structSize = sizeof(prepare);
-    prepare.depth = Describe(vk::Image(depth_copy), scene.depth_format, scene.render_width,
+    prepare.depth = Describe(vk::Image(depth_copy), depth_copy_format, scene.render_width,
                              scene.render_height, vk::ImageUsageFlagBits::eSampled,
-                             vk::ImageAspectFlagBits::eDepth, FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
+                             use316 ? vk::ImageAspectFlagBits::eColor : vk::ImageAspectFlagBits::eDepth,
+                             FFX_VK_PORTABLE_RESOURCE_STATE_GENERIC_READ);
     prepare.motionVectors = Describe(scene.motion, vk::Format::eR16G16Sfloat, scene.render_width,
                                      scene.render_height,
                                      vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled,
@@ -414,7 +625,8 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
 
     scheduler.EndRendering();
     scheduler.Record([this, prepare, source, dispatch, color, out = vk::Image(target->image),
-                      target](vk::CommandBuffer cmdbuf) mutable {
+                      recorded = target->recorded, width = target->width,
+                      height = target->height](vk::CommandBuffer cmdbuf) mutable {
         const auto all = vk::PipelineStageFlagBits2::eAllCommands;
         // The UI drew into it; the display pass reads it after.
         ImageBarrier(cmdbuf, color, all, vk::AccessFlagBits2::eMemoryWrite,
@@ -424,16 +636,22 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                      vk::AccessFlagBits2::eShaderStorageWrite, vk::ImageLayout::eUndefined);
         prepare.commandBuffer = cmdbuf;
         dispatch.commandBuffer = cmdbuf;
-        const auto prepared = ffxVkPortableFrameGenerationContextPrepare(context, &prepare, &source);
-        const auto dispatched = prepared == FFX_VK_PORTABLE_OK
-                                    ? ffxVkPortableFrameGenerationContextRecordDispatch(context, &dispatch)
-                                    : prepared;
-        const bool ok = dispatched == FFX_VK_PORTABLE_OK;
+        int prepared = 0, dispatched = 0;
+        if (use316) {
+            std::scoped_lock lock{context316_mutex};
+            dispatched = Record316(context316, prepare, dispatch);
+        } else {
+            prepared = int(ffxVkPortableFrameGenerationContextPrepare(context, &prepare, &source));
+            dispatched = prepared == 0
+                ? int(ffxVkPortableFrameGenerationContextRecordDispatch(context, &dispatch)) : prepared;
+        }
+        const bool ok = dispatched == 0;
+        recorded->store(ok, std::memory_order_release);
         if (!ok) {
             static int told = 0;
             if (told++ < 4) {
                 std::printf("Frame generation: the interpolation could not be recorded (%s %d)\n",
-                            prepared != FFX_VK_PORTABLE_OK ? "prepare" : "dispatch", int(dispatched));
+                            prepared != 0 ? "prepare" : "dispatch", dispatched);
             }
         }
         ImageBarrier(cmdbuf, color, vk::PipelineStageFlagBits2::eComputeShader,
@@ -445,14 +663,27 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
             // Shown anyway (it was handed out as ready): the real frame twice, not garbage.
             ImageBarrier(cmdbuf, out, all, vk::AccessFlagBits2::eMemoryRead,
                          vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferWrite);
+            ImageBarrier(cmdbuf, color, all, vk::AccessFlagBits2::eMemoryWrite,
+                         vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferRead);
             cmdbuf.copyImage(color, vk::ImageLayout::eGeneral, out, vk::ImageLayout::eGeneral,
                              vk::ImageCopy{.srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
                                            .dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
-                                           .extent = {target->width, target->height, 1}});
+                                           .extent = {width, height, 1}});
             ImageBarrier(cmdbuf, out, vk::PipelineStageFlagBits2::eTransfer,
                          vk::AccessFlagBits2::eTransferWrite, all, vk::AccessFlagBits2::eMemoryRead);
+            ImageBarrier(cmdbuf, color, vk::PipelineStageFlagBits2::eTransfer,
+                         vk::AccessFlagBits2::eTransferRead, all,
+                         vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
         }
     });
+    if (use316) {
+        // This callback is invoked only after the draw submission's timeline tick completed.
+        // It covers partial failed records as well; recording success is never retirement.
+        scheduler.DeferPriorityOperation([this, ctx = context316, id] {
+            std::scoped_lock lock{context316_mutex};
+            ffxVkFsr3_3_1_6FrameGenerationContextRetireFrame(ctx, id);
+        });
+    }
 }
 
 bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
@@ -460,16 +691,21 @@ bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
         return false;
     }
     std::scoped_lock lock{targets_mutex};
-    (void)display;
     const auto it = targets.find(0);
     if (it == targets.end() || !it->second.ready) {
         ++stat_missed;
         return false;
     }
-    ++stat_taken;
     Target& t = it->second;
-    out = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame};
-    t.ready = false;
+    t.ready = false; // including a rejected destination: never leave stale output for later
+    if (t.display != display) {
+        ++stat_missed;
+        reset_next = true;
+        return false;
+    }
+    ++stat_taken;
+    out = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame, t.recorded,
+           t.source_game_frame};
     return true;
 }
 

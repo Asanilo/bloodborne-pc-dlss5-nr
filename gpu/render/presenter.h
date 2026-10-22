@@ -17,6 +17,7 @@
 
 #include "platform/videoout/videoout.h"
 #include "render/present_passes.h"
+#include "render/present_extent.h"
 #include "vulkan/instance.h"
 #include "render/runtime.h"
 #include "render/scheduler.h"
@@ -71,6 +72,10 @@ struct Frame {
     vk::Image interp_image{};
     vk::ImageView interp_view{};
     bool has_interp = false;
+    std::shared_ptr<std::atomic<bool>> interp_recorded;
+    u64 fg_frame = 0;
+    u64 present_tick = 0; ///< Includes an intermediate present even if the final one was skipped.
+    u64 prepare_ns = 0;
 };
 
 class Presenter {
@@ -139,11 +144,15 @@ private:
     std::mutex free_mutex;
     std::condition_variable free_cv;
     std::deque<u64> recent_frame_ticks; ///< BB_FRAMES_AHEAD bound (PrepareFrame)
+    std::mutex fg_images_mutex; ///< Resize/encode owner versus normal-exit Present retirement.
+    u64 last_prepare_ns = 0;
+    double fg_interval_ms = 16.667;
+    u64 present_real = 0, present_generated = 0, present_other = 0, present_failed = 0;
 
     /// Written by the present thread, read by the command processor thread.
     std::atomic<float> expected_ratio{16.0f / 9.0f};
-    std::atomic<u32> expected_width{1920};
-    std::atomic<u32> expected_height{1080};
+    // Publish one complete extent across the present and draw threads, including tiny resizes.
+    std::atomic<u64> expected_extent{PresentSizing::Pack({1920, 1080})};
 };
 
 } // namespace Vulkan

@@ -608,6 +608,10 @@ def control(args):
   subprocess.run(['niri','msg','action','close-window','--id',str(own[0]['id'])],check=True,timeout=5)
   atomic(run/'stop-request.json',{'game':game,'monotonic_ns':time.monotonic_ns(),'scope':'normal window close request; not retirement proof'})
 
+def check_fg_turn_guard_capability(enabled,build):
+ if enabled and b'FG_FAST_TURN_GUARD enabled=1' not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
+  raise ValueError('selected Native build lacks FG fast-turn fallback capability')
+
 def validate_daily_manifest(run,manifest):
  environment=manifest.get('environment',{})
  for directory in (run/'profile',run/'profile/user'):
@@ -627,10 +631,22 @@ def validate_daily_manifest(run,manifest):
  elif environment.get('BB_FRAME_STATS')!='0':raise ValueError('diagnostic daily frame statistics drift')
  daily_online.validate_manifest(run,manifest)
  if ui_start.ENVIRONMENT in environment:ui_start.validate(run,manifest)
+ guard=manifest.get('fg_fast_turn_guard',False)
+ if type(guard) is not bool or (guard and (environment.get('BB_FRAME_GEN')!='1' or environment.get('BB_FRAME_GEN_FAST_TURN_GUARD')!='1')) or (not guard and environment.get('BB_FRAME_GEN_FAST_TURN_GUARD') not in (None,'0')):
+  raise ValueError('FG fast-turn fallback manifest/environment drift')
+ check_fg_turn_guard_capability(guard,manifest.get('native_build',''))
 
 def validate_daily_args(args):
  daily_online.validate_args(args)
  daily=getattr(args,'daily',False)
+ if getattr(args,'experimental_fg',None) and not (daily and (getattr(args,'sr_only',False) or getattr(args,'fg_native',False))):
+  raise ValueError('experimental FG requires daily SR-only or explicit --fg-native integration')
+ if getattr(args,'fg_native',False) and not (daily and getattr(args,'experimental_fg',None)):
+  raise ValueError('--fg-native requires daily experimental FG')
+ if getattr(args,'fg_validation',False) and not getattr(args,'experimental_fg',None):
+  raise ValueError('FG validation requires an explicit FG experiment')
+ if getattr(args,'fg_fast_turn_guard',False) and not getattr(args,'experimental_fg',None):
+  raise ValueError('FG fast-turn fallback requires an explicit FG experiment')
  if getattr(args,'sr_only',False) and not daily:raise ValueError('SR-only selection requires daily mode')
  if type(daily) is not bool:raise ValueError('daily mode requires strict boolean')
  if not daily:return
@@ -711,6 +727,7 @@ def launch_supervised(args,signals):
  native_mouse_scope.requested(args)
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
+ check_fg_turn_guard_capability(getattr(args,'fg_fast_turn_guard',False),build)
  binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None
  ge_files=GE/'files';sysroot_lib=WT/'out/deps/root/usr/lib'
  if binding is not None:
@@ -771,8 +788,25 @@ def launch_supervised(args,signals):
    if player is None:env['BB_FRAME_STATS']='0'
    env.pop('BB_FRAME_LOG',None)
   env.update(nr);env.update(online_env);command=['bash',str(WT/'run.sh')]
+  if getattr(args,'experimental_fg',None):
+   # SR-only and explicit Native HDR integration retain the managed PreSR retirement audit.
+   env.update(BB_FRAME_GEN='1',BB_FRAME_GEN_AUDIT='1',BB_PRESENT_MODE='Immediate',
+              BB_FRAME_GEN_CONTROL=str(run/'fg-control'),
+              BB_SEQUENCE_DUMP_TRIGGER=str(run/'fg-sequence-trigger'),BB_FPS_LIMIT='60')
+   if getattr(args,'fg_native',False):env['BB_FRAME_GEN_NATIVE']='1'
+   env['BB_FRAME_GEN_HUDLESS']='1' if args.experimental_fg=='fsr31-hudless' else '0'
+   env['BB_FRAME_GEN_BACKEND']='fsr316' if args.experimental_fg=='fsr316' else 'fsr31'
+   env['BB_FRAME_GEN_FAST_TURN_GUARD']='1' if getattr(args,'fg_fast_turn_guard',False) else '0'
+   env['BB_PRESET_FILE']=str(run/'sr-control')
+   (run/'dump').mkdir()
+   if getattr(args,'fg_validation',False):
+    validation=WT/'out/deps/vulkan-validation/usr'
+    env.update(BB_VK_VALIDATION='1',BB_VK_VALIDATION_SYNC='1',
+               VK_LAYER_PATH=str(validation/'share/vulkan/explicit_layer.d'),
+               LD_LIBRARY_PATH=str(validation/'lib')+':'+str(sysroot_lib))
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
   manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False)
+  manifest['fg_fast_turn_guard']=getattr(args,'fg_fast_turn_guard',False)
   if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)
   atomic(run/'manifest.json',manifest)
   with (run/'game.log').open('w') as log:
@@ -865,6 +899,10 @@ def launch_supervised(args,signals):
 def parse_args(argv=None):
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--daily',action='store_true');p.add_argument('--joystick-mouse',action='store_true');p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3)
  daily_online.add_arguments(p)
+ p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316'],help='native FSR FG x2; daily SR-only or explicit Native HDR integration')
+ p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
+ p.add_argument('--fg-validation',action='store_true',help='explicit FG core/sync validation')
+ p.add_argument('--fg-fast-turn-guard',action='store_true',help='opt-in real-frame fallback during rapid camera turns')
  player_settings.add_arguments(p)
  a=p.parse_args(argv)
  try:

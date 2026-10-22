@@ -44,6 +44,7 @@
 #include "render/scheduler.h"
 #include "textures/texture_cache.h"
 #include "upscale/vk_frame_generation.h"
+#include "upscale/frame_generation_lifecycle.h"
 
 namespace Vulkan {
 
@@ -484,6 +485,13 @@ bool TemporalUpscaler::RasterScaling() const {
 }
 
 void TemporalUpscaler::PumpNativeExitOwner() noexcept {
+    try {
+        if (frame_generation) frame_generation->Retire();
+    } catch (...) {
+        FgLifecycle::held.store(true);
+        std::fprintf(stderr,"FG_RETIRE_HOLD functional=FAIL actual_completion=UNKNOWN forced_free=0\n");
+        return;
+    }
     if (!BbNativeAsyncPreSr::Enabled() || !BbNativeAsync::ExitRequested() ||
         BbNativeAsync::ExitComplete() || BbNativeAsync::ExitHeld()) return;
     try {
@@ -515,7 +523,7 @@ void TemporalUpscaler::PollNativeFrameBoundary() noexcept {
     native_pre_sr_source_visited = false;
     const auto& p0_settings=BbSettings::Get();
     try {
-        native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter&&!p0_settings.frame_generation);
+        native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter&&(!p0_settings.frame_generation||NativeFrameGeneration()));
         if (!source_visited) native_async_pre_sr.DrainUnavailable(scheduler);
     }
     catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_POLL_HOLD reason=%s unknown_partial_use_retained=1\n",e.what());}
@@ -523,6 +531,10 @@ void TemporalUpscaler::PollNativeFrameBoundary() noexcept {
 }
 
 bool TemporalUpscaler::OnFrameStart() {
+    if (frame_generation) frame_generation->OnFrameStart();
+    const bool fg_wanted = frame_generation && frame_generation->Wanted() && !NativeFrameGeneration();
+    if (fg_wanted != frame_generation_route) reset = true;
+    frame_generation_route = fg_wanted;
     PollNativeFrameBoundary();
 #if NRBRIDGE_LEGACY_EXPERIMENTS
     const auto& p0_settings=BbSettings::Get();
@@ -641,6 +653,7 @@ bool TemporalUpscaler::OnFrameStart() {
     ui_read_barrier = false;
     done_this_frame = false;
     ldr_target = {};
+    native_fg_color = {};
     scene_color = {};
     snapshot_taken = false;
     opaque_valid = false;
@@ -774,7 +787,7 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
         .samples = vk::SampleCountFlagBits::e1,
         .tiling = vk::ImageTiling::eOptimal,
         .usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled |
-                 vk::ImageUsageFlagBits::eTransferSrc,
+                 vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst,
         .initialLayout = vk::ImageLayout::eUndefined,
     });
     output_view = Check(device.createImageViewUnique({
@@ -1446,7 +1459,8 @@ void TemporalUpscaler::Run() {
         cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier});
     };
     const auto all = vk::PipelineStageFlagBits2::eAllCommands;
-    const auto rw = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite;
+    // NGX may transfer-clear its output; include transfer writes in the HDR route too.
+    const auto rw = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite;
     // Previous contents are not needed: the layouts start from undefined every frame.
     own_barrier(vk::Image(motion_image), vk::ImageLayout::eUndefined, all,
                 vk::AccessFlagBits2::eNone, vk::ImageLayout::eGeneral,
@@ -1553,6 +1567,7 @@ void TemporalUpscaler::Run() {
             dispatched = true;
         }
     }
+    const bool fg_source_reset = last_dlss_called ? last_dlss_reset : reset;
     if (dispatched) {
         const u64 source_game_frame =
             BbStats::gpu_frames.load(std::memory_order_relaxed);
@@ -2258,6 +2273,12 @@ void TemporalUpscaler::Run() {
         }
 #endif
     }
+    // All HDR SR/merge commands are recorded before this call can drain/rebuild FG resources.
+    // Copy depth now, before postprocessing reuses it. Motion remains owned until next SR.
+    if (dispatched && NativeFrameGeneration()) {
+        crumb.reset();
+        CaptureFrameGenScene(input_depth, depth_format, w, h, ow, oh, frame_ms, fg_source_reset);
+    }
 }
 
 vk::ImageView TemporalUpscaler::CachedView(const VideoCore::Image& image, vk::Format format,
@@ -2315,8 +2336,20 @@ float TemporalUpscaler::SceneMipBias() const {
     return render > 0.0f && render < output ? std::log2(render / output) : 0.0f;
 }
 
+bool TemporalUpscaler::NativeFrameGeneration() const {
+    static const bool enabled = [] {
+        const char* value = std::getenv("BB_FRAME_GEN_NATIVE");
+        return value && value[0] == '1';
+    }();
+    // A stable rendering route even with FG off: F8/FG toggles never switch NR's HDR domain.
+    return enabled && !scaled_session && target_width == 1920 && target_height == 1080;
+}
+
 bool TemporalUpscaler::Scaled() const {
-    return scaled_session || target_width != 1920 || target_height != 1080;
+    // FG needs the existing output-size scene/UI/display path even at 1920x1080.
+    // The native HDR SR route has no CaptureScene/Interpolate handoff.
+    return scaled_session || target_width != 1920 || target_height != 1080 ||
+           frame_generation_route;
 }
 
 void TemporalUpscaler::OnColorTarget(VideoCore::ImageId color) {
@@ -2335,6 +2368,23 @@ void TemporalUpscaler::OnColorTarget(VideoCore::ImageId color) {
 void TemporalUpscaler::OnDraw(u64 vs_hash, VideoCore::ImageId color,
                               VideoCore::ImageId depth, bool native_viewport) {
     if (!Scaled() && vs_hash == ui_trigger_vs) done_this_frame = true;
+    if (!Scaled() && (vs_hash == ui_trigger_vs || UiComposition::MovieShader(vs_hash))) {
+        if (NativeFrameGeneration() && color && frame_generation && !native_fg_color &&
+            !FrameCapture::IsDisplayBuffer(texture_cache.GetImage(color).info.guest_address)) {
+            auto& image = texture_cache.GetImage(color);
+            if (frame_generation->BindSceneColor(image.GetImage(), image.info.pixel_format,
+                    image.info.size.width, image.info.size.height,
+                    BbStats::gpu_frames.load(std::memory_order_relaxed))) {
+                native_fg_color = color;
+                scheduler.EndRendering();
+                runtime.Transit(&image, vk::ImageLayout::eGeneral,
+                    vk::PipelineStageFlagBits2::eAllCommands,
+                    vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
+                runtime.FlushBarriers();
+                frame_generation->CaptureHudless(image.GetImage());
+            }
+        }
+    }
     // bbport (issue #67, patch by bmy): a UI draw without a color target (a Scaleform mask, color
     // writes off) writes the stencil the UI's next draws test, so it must go into the UI's
     // output-size depth like them. Left in the guest depth, the mask was lost when the next UI
@@ -2715,7 +2765,8 @@ void TemporalUpscaler::RunScaled() {
         const auto cmdbuf = scheduler.CommandBuffer(); // after the commands recorded above
         barrier(vk::Image(output_image), vk::ImageAspectFlagBits::eColor,
                 vk::ImageLayout::eUndefined, all, vk::AccessFlagBits2::eNone,
-                vk::ImageLayout::eGeneral, all, rw);
+                vk::ImageLayout::eGeneral, all,
+                vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
         bool ok4 = true;
         if (BbSettings::Get().upscaler == BbSettings::UpscalerTaa) {
             RecordTaa(cmdbuf, color_view, depth_view);
@@ -2830,7 +2881,8 @@ void TemporalUpscaler::RunScaled() {
                 ExtraSharpen(vk::Image(output_image), false, ow, oh);
             }
             barrier(vk::Image(output_image), vk::ImageAspectFlagBits::eColor,
-                    vk::ImageLayout::eGeneral, all, rw, vk::ImageLayout::eGeneral,
+                    vk::ImageLayout::eGeneral, all, vk::AccessFlagBits2::eMemoryWrite,
+                    vk::ImageLayout::eGeneral,
                     vk::PipelineStageFlagBits2::eBlit, vk::AccessFlagBits2::eTransferRead);
             barrier(vk::Image(ui_image), vk::ImageAspectFlagBits::eColor,
                     vk::ImageLayout::eGeneral, all, rw, vk::ImageLayout::eGeneral,
@@ -3137,8 +3189,8 @@ void TemporalUpscaler::CaptureFrameGenScene(vk::Image depth_image, vk::Format de
     }
     const float sign = BbToggle::Disabled(1u << 26) ? -1.0f : 1.0f;
     FrameGeneration::Scene scene{
-        .color = vk::Image(ui_image),
-        .color_format = ui_format,
+        .color = NativeFrameGeneration() ? vk::Image{} : vk::Image(ui_image),
+        .color_format = NativeFrameGeneration() ? vk::Format::eR8G8B8A8Unorm : ui_format,
         .width = ow,
         .height = oh,
         .depth = depth_image,
@@ -3153,6 +3205,7 @@ void TemporalUpscaler::CaptureFrameGenScene(vk::Image depth_image, vk::Format de
         .camera_far = 3000.0f,
         .vertical_fov = camera_motion.VerticalFov(),
         .reset = frame_reset,
+        .source_game_frame = BbStats::gpu_frames.load(std::memory_order_relaxed),
         .camera_position = {},
         .camera_up = {},
         .camera_right = {},
@@ -3163,7 +3216,7 @@ void TemporalUpscaler::CaptureFrameGenScene(vk::Image depth_image, vk::Format de
     frame_generation->CaptureScene(scene);
 }
 
-void TemporalUpscaler::OnDisplayPassStart(VAddr address) {
+void TemporalUpscaler::OnDisplayPassStart(VAddr address, std::span<const VAddr> sampled_addresses) {
     // Periodically clean up stale proxy render targets to prevent VRAM leak during level transitions.
     static u64 last_cleanup_frame = 0;
     const u64 current_frame = BbStats::frame_number.load(std::memory_order_relaxed);
@@ -3194,7 +3247,23 @@ void TemporalUpscaler::OnDisplayPassStart(VAddr address) {
             }
         }
     }
-    if (frame_generation && ui_phase && ui_image) {
+    if (NativeFrameGeneration() && frame_generation) {
+        vk::Image finished{};
+        if (native_fg_color) {
+            auto& image = texture_cache.GetImage(native_fg_color);
+            // Prove the actual display shader reads this HUD target. Same dimensions alone
+            // cannot bind an auxiliary LDR image to the real VideoOut frame.
+            if (std::ranges::find(sampled_addresses, image.info.guest_address) != sampled_addresses.end()) {
+                scheduler.EndRendering();
+                runtime.Transit(&image, vk::ImageLayout::eGeneral,
+                    vk::PipelineStageFlagBits2::eAllCommands,
+                    vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
+                runtime.FlushBarriers();
+                finished = image.GetImage();
+            }
+        }
+        frame_generation->Interpolate(finished, address);
+    } else if (frame_generation && ui_phase && ui_image) {
         frame_generation->Interpolate(vk::Image(ui_image), address);
     }
 }
@@ -3578,7 +3647,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         if(native_async_pre_sr.Enabled()) {
             native_pre_sr_source_visited = true;
             bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pre_sr_pending_audit.has_value();}
-            const bool supported=hdr&&!Scaled()&&w==1280&&h==720&&ow==1920&&oh==1080&&settings.preset==1&&settings.jitter&&!settings.frame_generation&&!pending;
+            const bool supported=hdr&&!Scaled()&&w==1280&&h==720&&ow==1920&&oh==1080&&settings.preset==1&&settings.jitter&&(!settings.frame_generation||NativeFrameGeneration())&&!pending;
             native_async_pre_sr.BeginSource(pre_source,supported);
             native_async_pre_sr.PrepareCurrentMasks(scheduler,pre_source,supported);
             bool pre_source_recorded=false;

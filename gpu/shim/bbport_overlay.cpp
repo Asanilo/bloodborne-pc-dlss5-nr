@@ -4,6 +4,7 @@
 #include "render/p0_status.h"
 #endif
 #include "bbport_overlay.h"
+#include "upscale/frame_generation_lifecycle.h"
 #include "nr_ui_start_request.h"
 #include "render/nr_runtime_control.h"
 #include "render/native_async_pre_sr_policy.h"
@@ -84,6 +85,28 @@ std::string prompt_title, prompt_text;
 // Present rate for the FPS counter.
 std::chrono::steady_clock::time_point last_present{};
 float frame_ms_avg = 0.0f;
+
+bool FgCounter() {
+    using namespace Vulkan::FgLifecycle;
+    if (!enabled.load()) return false;
+    static auto start = std::chrono::steady_clock::now();
+    static unsigned long long previous_real = 0, previous_generated = 0, previous_other = 0;
+    static double real_fps = 0, generated_fps = 0, present_fps = 0;
+    const auto now = std::chrono::steady_clock::now();
+    const double seconds = std::chrono::duration<double>(now - start).count();
+    if (seconds >= 1.0) {
+        const auto real = real_presents.load(std::memory_order_relaxed);
+        const auto generated = generated_presents.load(std::memory_order_relaxed);
+        const auto other = other_presents.load(std::memory_order_relaxed);
+        real_fps = (real - previous_real) / seconds;
+        generated_fps = (generated - previous_generated) / seconds;
+        present_fps = real_fps + generated_fps + (other - previous_other) / seconds;
+        previous_real = real; previous_generated = generated; previous_other = other;
+        start = now;
+    }
+    ImGui::Text("Real %.0f | FG %.0f | Present %.0f", real_fps, generated_fps, present_fps);
+    return true;
+}
 
 float PixelDensity(SDL_WindowID id);
 
@@ -323,7 +346,7 @@ void NRHud() {
     else if(NRStartAvailable())state=BbSettings::MenuText("NR ready (F8)", "NR готов (F8)");
     else state=BbSettings::MenuText("NR unavailable", "NR недоступен");
     if(BbSettings::Get().show_fps) {
-        ImGui::Text("%.0f FPS | %s",frame_ms_avg>0.f?1000.f/frame_ms_avg:0.f,state);
+        if (!FgCounter()) ImGui::Text("%.0f FPS | %s",frame_ms_avg>0.f?1000.f/frame_ms_avg:0.f,state);
     } else ImGui::TextUnformatted(state);
     ImGui::End();
 }
@@ -1039,7 +1062,7 @@ void FpsCounter() {
                      ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
                      ImGuiWindowFlags_NoFocusOnAppearing);
     const auto& s = BbSettings::Get();
-    ImGui::Text(BbSettings::MenuText("%.0f FPS  %.1f ms  %s", "%.0f FPS  %.1f мс  %s"),
+    if (!FgCounter()) ImGui::Text(BbSettings::MenuText("%.0f FPS  %.1f ms  %s", "%.0f FPS  %.1f мс  %s"),
                 frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg,
                 s.upscaler == BbSettings::UpscalerFsr3     ? "FSR 3.1"
                 : s.upscaler == BbSettings::UpscalerFsr4   ? "FSR 4"

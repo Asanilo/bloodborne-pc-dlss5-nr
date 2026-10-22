@@ -150,6 +150,7 @@ void Swapchain::Create(u32 width_, u32 height_) {
     image_count = u32(images.size());
     views.resize(image_count);
     acquired.resize(image_count);
+    acquired_ticks.assign(image_count, 0);
     present_ready.resize(image_count);
     for (u32 i = 0; i < image_count; ++i) {
         views[i] = Check<"create swapchain view">(device.createImageView({
@@ -186,6 +187,7 @@ void Swapchain::DestroyResources() {
     }
     views.clear();
     acquired.clear();
+    acquired_ticks.clear();
     present_ready.clear();
 }
 
@@ -207,6 +209,17 @@ void Swapchain::SetHDR(bool hdr) {
 }
 
 bool Swapchain::AcquireNextImage() {
+    if (acquired_ticks[frame_index]) {
+        // Real+generated presents rotate this ring twice per game frame. A staging-Frame fence
+        // does not identify which acquire wait it covers. Prove the exact previous consumer
+        // completed before asking WSI to signal the same binary semaphore again.
+        const vk::SemaphoreWaitInfo wait{
+            .semaphoreCount = 1, .pSemaphores = &acquire_completion,
+            .pValues = &acquired_ticks[frame_index],
+        };
+        Check<"retire swapchain acquire wait">(
+            instance.GetDevice().waitSemaphores(wait, std::numeric_limits<u64>::max()));
+    }
     const vk::Result result = instance.GetDevice().acquireNextImageKHR(
         swapchain, std::numeric_limits<u64>::max(), acquired[frame_index], VK_NULL_HANDLE,
         &image_index);
@@ -223,6 +236,11 @@ bool Swapchain::AcquireNextImage() {
         Check<"acquire a swapchain image">(result);
     }
     return !needs_recreation;
+}
+
+void Swapchain::MarkAcquireSubmitted(vk::Semaphore timeline, u64 tick) {
+    acquire_completion = timeline;
+    acquired_ticks[frame_index] = tick;
 }
 
 bool Swapchain::Present() {

@@ -15,6 +15,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <span>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -175,7 +176,7 @@ public:
     bool DisplayOverride(VAddr address, Display& display);
     /// The game's display pass of `address` begins (recording thread): frame generation
     /// interpolates this frame now, its scene with the UI complete.
-    void OnDisplayPassStart(VAddr address);
+    void OnDisplayPassStart(VAddr address, std::span<const VAddr> sampled_addresses);
     /// The frame's UI is being drawn (after the scaled scene, before the display pass).
     bool InUiPhase() const {
         return ui_phase;
@@ -218,6 +219,7 @@ private:
     void PrepareUiDepth(VideoCore::ImageId depth);
     /// Render size below the scaled-preset output size (the resolution patch is on).
     [[nodiscard]] bool Scaled() const;
+    [[nodiscard]] bool NativeFrameGeneration() const;
     /// A target of the patched render size: the game allocates it with aligned dimensions
     /// (a 1916x1078 scene in 1916x1080 targets).
     [[nodiscard]] bool RenderTarget(u32 w, u32 h) const {
@@ -380,6 +382,8 @@ private:
     bool resources_taa = false;
     std::unique_ptr<Fsr4Upscaler> fsr4;
     std::unique_ptr<class FrameGeneration> frame_generation;
+    bool frame_generation_route = false; ///< Snapshotted at real-frame boundaries.
+    VideoCore::ImageId native_fg_color{}; ///< Same real frame's postprocessed LDR/UI target.
     bool hudless_taken = false; ///< this frame's UI-less image went to frame generation
     /// Inputs of this frame's scaled run, for frame generation (CaptureFrameGenScene).
     void CaptureFrameGenScene(vk::Image depth_image, vk::Format depth_format, u32 w, u32 h, u32 ow,
