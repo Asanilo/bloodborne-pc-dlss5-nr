@@ -1,6 +1,6 @@
 # NR + DLSS SR + FSR FG 集成实验
 
-状态：**受控 GPU 测试通过；玩家确认模糊消失、手感可接受、HUD 正常，仍有植被闪烁。当前修复构建为 `2a31955`，
+状态：**受控 GPU 测试通过；玩家确认模糊消失、手感可接受、HUD 正常；NR关闭时仍有植被贴片位置错误，FG关联待验证。当前修复构建为 `2a31955`，
 原三者联动基线为 `0dff031`。模糊对照见 [调查结果](FG_BLUR_INVESTIGATION.zh-CN.md)。**
 集成分支 `integration/nr-sr-fg` 从 FG `05aecdf` 合入 NR `47665ac`；两条已验收分支保留。
 目标配置为 1080p Quality、Old memory、NR 310.9.16 SF Preset B、HUDless FSR 3.1 x2。
@@ -155,5 +155,18 @@ Experimental已知问题，黑屏/冻结/崩溃或退出HOLD则本轮不能通�
 NR on采样，最初两组纠正标为helper-bypass。该问题交NR线作独立最小修复。
 
 本轮正常退出 rc0、无残留，NR source/cache/SR 与FG draw/Present退休证明齐全；
-160张采样PNG均逐字节还原原BGRA后删除等价raw，保留约539MiB PNG，本轮私有目录
-逻辑新增约1.26GiB。未复制构建/依赖/模型，原始猎人梦境检查点保持不变。
+160张采样PNG均逐字节还原原BGRA后删除等价raw；GC dry-run后进一步精简重复旁路
+与未证实运动样本，保留四态静态完整序列及其余首末真实帧，共76张约257MiB PNG，
+完整采样哈希/状态清单保留，本轮私有目录逻辑新增约0.98GiB。未复制构建/依赖/模型，原始猎人梦境检查点保持不变。
+
+
+玩家进一步明确：需要排查的是植被贴片飘到空中的空间位置错误，关闭NR时也会出现；
+纹理外观变化不属于本次待修问题。视频前半反复F8会影响跨帧分析，但不能据此解释掉
+此空间错位。下一步应固定NR关闭，只切FG并区分真实/生成帧。当前位置静态叶片样本
+未复现视频白花道路的明显漂浮，不能据其排除持续运动/遮挡场景中的故障。
+
+上游README明确FSR3.1 FG因与超分结合仍有伪影而隐藏，未具体确认植被漂浮症状：
+https://github.com/deadinside28/bloodborne_pc#future 。AMD FSR3.1接入说明第80页也提示
+不正确或缺失的运动矢量会造成重影，插帧放大相关伪影：
+https://gpuopen.com/download/FidelityFX_Super_Resolution_3-1_Release-Overview_and_Integration.pdf 。
+上述资料支持优先检查FG运动/遮挡输入，不足以证明本次根因。
