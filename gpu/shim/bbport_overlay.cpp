@@ -231,7 +231,7 @@ bool NRStartAvailable() {
 // F8 or the menu button is the player's explicit scene attestation. The
 // runner still validates the live game and performs its existing safe startup.
 bool RequestNRStart() {
-    const auto result=BbNRUiStart::Publish();
+    const auto result=BbNRUiStart::PublishEnabled();
     nr_start_error=result==BbNRUiStart::Result::Rejected;
     if(!nr_start_error)nr_start_requested=true;
     std::printf("NRBRIDGE_NATIVE_INGAME_START_V1 player_scene_attestation disposition=%s\n",
