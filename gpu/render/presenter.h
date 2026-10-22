@@ -17,6 +17,7 @@
 
 #include "platform/videoout/videoout.h"
 #include "render/present_passes.h"
+#include "render/present_extent.h"
 #include "vulkan/instance.h"
 #include "render/runtime.h"
 #include "render/scheduler.h"
@@ -150,8 +151,8 @@ private:
 
     /// Written by the present thread, read by the command processor thread.
     std::atomic<float> expected_ratio{16.0f / 9.0f};
-    std::atomic<u32> expected_width{1920};
-    std::atomic<u32> expected_height{1080};
+    // Publish one complete extent across the present and draw threads, including tiny resizes.
+    std::atomic<u64> expected_extent{PresentSizing::Pack({1920, 1080})};
 };
 
 } // namespace Vulkan

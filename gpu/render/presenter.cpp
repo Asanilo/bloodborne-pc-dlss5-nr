@@ -57,14 +57,11 @@ vk::Format FrameViewFormat(BbVideoOut::PixelFormat format) {
 
 /// `frame` fitted into `target` keeping its aspect, centered.
 vk::Rect2D Letterbox(vk::Extent2D frame, vk::Extent2D target) {
-    const float frame_aspect = float(frame.width) / float(frame.height);
-    const float target_aspect = float(target.width) / float(target.height);
-    vk::Extent2D size = target;
-    if (frame_aspect > target_aspect) {
-        size.height = u32(float(target.width) / frame_aspect);
-    } else {
-        size.width = u32(float(target.height) * frame_aspect);
-    }
+    // A frame prepared before a resize may still have the old aspect. Its destination must
+    // stay nonempty too, even before SetExpectedSize reaches the next prepared frame.
+    const auto fitted = PresentSizing::FitFrame({frame.width, frame.height},
+                                               {target.width, target.height});
+    const vk::Extent2D size{fitted.width, fitted.height};
     return {{s32(target.width - size.width) / 2, s32(target.height - size.height) / 2}, size};
 }
 
@@ -216,8 +213,8 @@ Frame* Presenter::GetRenderFrame() {
         Check<"wait for all frame readers">(
             instance.GetDevice().waitSemaphores(wait, std::numeric_limits<u64>::max()));
     }
-    const u32 width = expected_width.load(std::memory_order_relaxed);
-    const u32 height = expected_height.load(std::memory_order_relaxed);
+    const auto [width, height] =
+        PresentSizing::Unpack(expected_extent.load(std::memory_order_relaxed));
     if (frame->width != width || frame->height != height ||
         frame->is_hdr != swapchain.GetHDR()) {
         RecreateFrame(*frame, width, height);
@@ -513,17 +510,10 @@ void Presenter::WaitRendered(const Frame* frame) {
 }
 
 void Presenter::SetExpectedSize(u32 width, u32 height) {
-    if (width == 0 || height == 0) {
-        return; // minimised: keep the last size (a 0x0 frame image cannot be made, issue #31)
-    }
-    const float ratio = expected_ratio.load(std::memory_order_relaxed);
-    if (float(width) / float(height) > ratio) {
-        width = u32(float(height) * ratio);
-    } else {
-        height = u32(float(width) / ratio);
-    }
-    expected_width.store(width, std::memory_order_relaxed);
-    expected_height.store(height, std::memory_order_relaxed);
+    const auto fitted = PresentSizing::Fit(width, height,
+                                          expected_ratio.load(std::memory_order_relaxed));
+    if (!fitted.Valid()) return; // suspended surface: retain the last valid frame extent
+    expected_extent.store(PresentSizing::Pack(fitted), std::memory_order_relaxed);
 }
 
 void Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format format, u32 width,

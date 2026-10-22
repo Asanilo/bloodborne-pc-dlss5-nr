@@ -86,3 +86,17 @@ dynamicRenderingUnusedAttachments、部分 draw layout 问题；同类别曾在�
 1440p 对照。静态真实帧未复现整体软化；1080p→2K线性放大已确认，whole-frame 的
 运动 HUD 明显错位。保留 HUDless31 默认；完整方法、指标和限制见
 [FG 模糊调查](FG_BLUR_INVESTIGATION.zh-CN.md)。
+
+## 极窄窗口故障与修复候选
+
+玩家会话 `play-20261022-134653` 在 niri 将窗口缩至极窄后，Presenter 创建帧图像
+报 `ErrorInitializationFailed`，断言退出 rc23；无 GPU 退休证明，当前 boot 进入真实
+HOLD。第二次启动拒绝来自退休守卫，不是配置/存档损坏。该轮未启动 Helper。
+
+根因是非零表面（如1×894）经16:9 fit后得到1×0；原先只检查fit前的零尺寸。
+修复将正表面的fit结果限制在至少1像素且不超过表面，真正零表面保持最后有效帧尺寸；
+同时保护旧帧resize时的letterbox目标，避免零区域blit，并一次原子发布宽高。
+
+CPU回归覆盖薄/矮/零/恢复、常规1080p/1440p、无效比例和浮点转换边界，UBSan通过。
+修复候选尚需新boot的GPU resize/恢复/正常退出实测；不能借CPU通过清除当前HOLD。
+原GPU基线 `0dff031` 的常规尺寸联动验收仍保留，但它包含此极窄窗口问题。
