@@ -381,18 +381,22 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     frame->has_interp = false;
     frame->interp_recorded.reset();
     frame->fg_frame = 0;
+    frame->fg_strict_source = false;
+    frame->fg_previous_source = 0;
     FrameGeneration::Output interp{};
     if (upscaler.GetFrameGeneration() &&
         upscaler.GetFrameGeneration()->TakeOutput(cpu_address, interp) &&
         interp.width == source_size.width && interp.height == source_size.height &&
         // Native NR ledger already checks source+1, actual VideoOut address and merge tick.
         // Only that real source may own the generated image encoded beside it.
-        (upscaled || FgContract::SameRealSource(interp.source_game_frame,
+        ((!interp.strict_source && upscaled) || FgContract::SameRealSource(interp.source_game_frame,
                                                frame->c1_source_game_frame))) {
         EncodeInterpolated(frame, interp.image, interp.format, interp.width, interp.height,
                            view_info.format, encode);
         frame->interp_recorded = interp.recorded;
         frame->fg_frame = interp.frame;
+        frame->fg_strict_source = interp.strict_source;
+        frame->fg_previous_source = interp.previous_source_game_frame;
     }
 
     frame->c1_present_frame_number = BbStats::frame_number.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -735,17 +739,25 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     using Clock = std::chrono::steady_clock;
     if (!blank && is_game_frame && !is_reusing_frame) {
         const double ms = double(frame->prepare_ns - last_prepare_ns) / 1e6;
-        if (last_prepare_ns && ms > 2.0 && ms < 100.0)
+        if (last_prepare_ns && ms > 2.0 && ms < (frame->fg_strict_source ? 1000.0 : 100.0))
             fg_interval_ms = fg_interval_ms * 0.9 + ms * 0.1;
         else fg_interval_ms = 16.667;
         last_prepare_ns = frame->prepare_ns;
     }
     if (!blank && frame->has_interp) {
+        if (frame->fg_strict_source &&
+            (!is_game_frame || is_reusing_frame || !frame->fg_previous_source ||
+             last_real_game_source != frame->fg_previous_source)) {
+            std::printf("DLSSG_PRESENT_PAIR_REJECT current=%llu expected_previous=%llu actual_previous=%llu\n",
+                (unsigned long long)frame->c1_source_game_frame,(unsigned long long)frame->fg_previous_source,
+                (unsigned long long)last_real_game_source);
+            frame->has_interp = false;
+        }
         // Pacing starts when the images are actually ready, not before waiting for rendering.
         // This also publishes the recording result; failed dispatch copies are never counted
         // or presented as generated frames.
         WaitRendered(frame);
-        frame->has_interp = frame->interp_recorded &&
+        frame->has_interp = frame->has_interp && frame->interp_recorded &&
                             frame->interp_recorded->load(std::memory_order_acquire);
     }
     // BB_FRAME_GEN_ONLY=1 (diagnostics): only the interpolated frames are shown.
@@ -863,7 +875,10 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
         const bool presented = swapchain.Present();
         if (!presented) ++present_failed;
         else if (source) ++present_generated;
-        else if (is_game_frame && !is_reusing_frame && !blank) ++present_real;
+        else if (is_game_frame && !is_reusing_frame && !blank) {
+            ++present_real;
+            last_real_game_source = frame->c1_source_game_frame;
+        }
         else ++present_other;
         FgLifecycle::real_presents.store(present_real, std::memory_order_relaxed);
         FgLifecycle::generated_presents.store(present_generated, std::memory_order_relaxed);

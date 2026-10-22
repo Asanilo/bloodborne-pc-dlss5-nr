@@ -16,7 +16,8 @@ class DlssgInputCapture {
     std::unique_ptr<VideoCore::Buffer> depth, motion, color;
     FrameGeneration::Scene pending{};
     unsigned count = 0;
-    bool armed = false, have_guides = false;
+    bool armed = false, have_guides = false, continuous = false;
+    u64 readback_tick = 0;
     u64 previous_source = 0;
 
     void Copy(vk::Image image, VideoCore::Buffer& buffer, u32 w, u32 h,
@@ -67,15 +68,15 @@ class DlssgInputCapture {
     }
 
 public:
-    DlssgInputCapture(const Instance& i, Scheduler& s) : instance(i), scheduler(s) {
-        const char* d = std::getenv("BB_DLSSG_CAPTURE_DIR");
+    DlssgInputCapture(const Instance& i, Scheduler& s, bool live=false) : instance(i), scheduler(s), continuous(live) {
+        const char* d = std::getenv(live?"BB_DLSSG_STREAM_DIR":"BB_DLSSG_CAPTURE_DIR");
         const char* t = std::getenv("BB_DLSSG_CAPTURE_TRIGGER");
-        if (!d || !*d || !t || !*t) throw std::runtime_error("DLSSG capture requires private paths");
-        directory = d; trigger = t;
+        if (!d || !*d || (!live && (!t || !*t))) throw std::runtime_error("DLSSG capture requires private paths");
+        directory = d; if(t)trigger=t;armed=live;
     }
     // The FrameGeneration owner drains the scheduler before destroying these buffers.
     bool Guides(const FrameGeneration::Scene& in) {
-        if (count >= 6) return false;
+        if (!continuous && count >= 6) return false;
         if (!armed) {
             if (!std::filesystem::exists(trigger) || !std::filesystem::remove(trigger)) return false;
             std::filesystem::create_directory(directory);
@@ -100,11 +101,21 @@ public:
         have_guides = true;
         return true;
     }
-    void Color(const FrameGeneration::Scene& in, vk::Image image) {
-        if (!have_guides || in.source_game_frame != pending.source_game_frame) return;
+    bool ReadColor(const FrameGeneration::Scene& in, vk::Image image) {
+        if (!have_guides || in.source_game_frame != pending.source_game_frame) return false;
         Copy(image, *color, 1920, 1080, vk::ImageAspectFlagBits::eColor);
-        const auto tick = scheduler.CurrentTick();
-        scheduler.Finish(); // Diagnostic only: files never precede actual GPU completion.
+        readback_tick = scheduler.CurrentTick();
+        scheduler.Finish(); // Host reads never precede actual GPU completion.
+        for(auto* buffer:{color.get(),depth.get(),motion.get()})buffer->Invalidate(0,buffer->SizeBytes());
+        have_guides=false;
+        return true;
+    }
+    std::span<const u8> ColorBytes()const{return color->mapped_data;}
+    std::span<const u8> DepthBytes()const{return depth->mapped_data;}
+    std::span<const u8> MotionBytes()const{return motion->mapped_data;}
+    void Color(const FrameGeneration::Scene& in, vk::Image image) {
+        if(!ReadColor(in,image))return;
+        const auto tick=readback_tick;
         Write("color.raw", *color); Write("depth.raw", *depth); Write("motion.raw", *motion);
         using J = nlohmann::json;
         const auto vector = [](const float (&v)[3]) { return J::array({v[0],v[1],v[2]}); };

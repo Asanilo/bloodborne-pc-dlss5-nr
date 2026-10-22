@@ -9,6 +9,8 @@ def workspace_root():
 ROOT=workspace_root();WT=Path(__file__).resolve().parents[2];ASSETS=ROOT/'assets/CUSA03173';SEED=ROOT/'seed/private-NRTest-seed'
 _sm_spec=importlib.util.spec_from_file_location('nr_dev_smooth_motion',Path(__file__).with_name('smooth_motion.py'))
 smooth_motion=importlib.util.module_from_spec(_sm_spec);_sm_spec.loader.exec_module(smooth_motion)
+_dlssg_spec=importlib.util.spec_from_file_location('nr_dev_dlssg_backend',Path(__file__).with_name('dlssg_backend.py'))
+dlssg_backend=importlib.util.module_from_spec(_dlssg_spec);_dlssg_spec.loader.exec_module(dlssg_backend)
 GE=Path.home()/'.local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64'
 _runtime_spec=importlib.util.spec_from_file_location('nr_dev_runtime_inputs',Path(__file__).with_name('runtime_inputs.py'))
 runtime_inputs=importlib.util.module_from_spec(_runtime_spec);_runtime_spec.loader.exec_module(runtime_inputs)
@@ -612,6 +614,7 @@ def control(args):
 
 def validate_daily_manifest(run,manifest):
  smooth_motion.validate_manifest(run,manifest)
+ dlssg_backend.validate_manifest(run,manifest)
  environment=manifest.get('environment',{})
  for directory in (run/'profile',run/'profile/user'):
   if directory.resolve()!=directory or directory.is_symlink() or not directory.is_dir():raise ValueError('daily private profile directory drift')
@@ -633,6 +636,7 @@ def validate_daily_manifest(run,manifest):
 
 def check_fg_capability(args, build):
  smooth_motion.check_capability(args,build)
+ dlssg_backend.check(args,build)
  # Fail before creating a session when a launcher selects FG on an older installed runtime.
  if not getattr(args, 'experimental_fg', None):return
  data=(Path(build)/'gpu/libbbgpu.so').read_bytes()
@@ -643,6 +647,7 @@ def check_fg_capability(args, build):
 
 def validate_daily_args(args):
  smooth_motion.validate_args(args)
+ dlssg_backend.validate_args(args)
  daily_online.validate_args(args)
  daily=getattr(args,'daily',False)
  if getattr(args,'experimental_fg',None) and not (daily and (getattr(args,'sr_only',False) or getattr(args,'fg_native',False))):
@@ -811,6 +816,9 @@ def launch_supervised(args,signals):
                VK_LAYER_PATH=str(validation/'share/vulkan/explicit_layer.d'),
                LD_LIBRARY_PATH=str(validation/'lib')+':'+str(sysroot_lib))
   if getattr(args,'smooth_motion',False):env.update(smooth_motion.environment(run))
+  if getattr(args,'experimental_fg',None)=='dlssg':
+   env.update(BB_FRAME_GEN_BACKEND='dlssg',BB_DLSSG_STREAM_DIR='pending')
+   env.update(dlssg_backend.prepare(args,build,run,binding,globals()))
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
   manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False);manifest['smooth_motion']=getattr(args,'smooth_motion',False)
   if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)
@@ -889,6 +897,9 @@ def launch_supervised(args,signals):
     atomic(run/'result.json',result)
     if result['player_save_sync']['status']=='error':print('Save sync failed; private progress retained: '+str(run/'profile/user/savedata'),flush=True)
    if result['status']=='PASS_NORMAL_TEARDOWN':
+    if getattr(args,'experimental_fg',None)=='dlssg':
+     try:result['dlssg_cpu_slot_cleanup']=dlssg_backend.cleanup_cpu_slot(run,json.loads((run/'manifest.json').read_text()),result)
+     except (OSError,ValueError) as error:result['dlssg_cpu_slot_cleanup']={'status':'RETAINED_CPU_FILES','reason':str(error)}
     result['generated_inputs_cleanup']=retire_generated_inputs(run,result)
     atomic(run/'result.json',result)
    if daily:
@@ -905,7 +916,9 @@ def launch_supervised(args,signals):
 def parse_args(argv=None):
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--daily',action='store_true');p.add_argument('--joystick-mouse',action='store_true');p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3)
  daily_online.add_arguments(p)
- p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture'],help='FSR x2 or finite DLSSG input capture (no interpolation); daily SR-only or Native HDR integration')
+ p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG CPU x2, or finite DLSSG input capture')
+ p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental CPU bridge')
+ p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse one normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
  p.add_argument('--smooth-motion',action='store_true',help='exclusive driver-level NVIDIA Smooth Motion experiment')
  p.add_argument('--fg-validation',action='store_true',help='explicit FG core/sync validation')

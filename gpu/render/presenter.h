@@ -74,6 +74,8 @@ struct Frame {
     bool has_interp = false;
     std::shared_ptr<std::atomic<bool>> interp_recorded;
     u64 fg_frame = 0;
+    bool fg_strict_source = false;
+    u64 fg_previous_source = 0;
     u64 present_tick = 0; ///< Includes an intermediate present even if the final one was skipped.
     u64 prepare_ns = 0;
 };
@@ -146,6 +148,7 @@ private:
     std::deque<u64> recent_frame_ticks; ///< BB_FRAMES_AHEAD bound (PrepareFrame)
     std::mutex fg_images_mutex; ///< Resize/encode owner versus normal-exit Present retirement.
     u64 last_prepare_ns = 0;
+    u64 last_real_game_source = 0;
     double fg_interval_ms = 16.667;
     u64 present_real = 0, present_generated = 0, present_other = 0, present_failed = 0;
 

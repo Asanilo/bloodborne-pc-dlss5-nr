@@ -18,6 +18,7 @@
 #include "render/scheduler.h"
 #include "vulkan/instance.h"
 #include "upscale/dlssg_input_capture.h"
+#include "upscale/dlssg_cpu_bridge.h"
 
 namespace Vulkan {
 
@@ -140,6 +141,10 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     use316 = backend && std::strcmp(backend, "fsr316") == 0;
     if (backend && std::strcmp(backend, "dlssg-capture") == 0)
         dlssg_capture = std::make_unique<DlssgInputCapture>(instance, scheduler);
+    if (backend && std::strcmp(backend, "dlssg") == 0) {
+        dlssg_capture = std::make_unique<DlssgInputCapture>(instance, scheduler, true);
+        dlssg_bridge = std::make_unique<DlssgCpuBridge>();
+    }
     const char* sm = std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION");
     const bool smooth_motion = sm && std::strcmp(sm, "1") == 0;
     FgLifecycle::driver_smooth_motion.store(smooth_motion);
@@ -162,6 +167,7 @@ void FrameGeneration::Retire() {
     if (!FgLifecycle::Pending()) return;
     // Includes every encode from our output into a per-Frame image, not only FG dispatches.
     scheduler.Finish();
+    if (dlssg_bridge && !dlssg_bridge->Retire()) return;
     Destroy();
     std::scoped_lock lock{targets_mutex};
     targets.clear();
@@ -199,6 +205,12 @@ void FrameGeneration::OnFrameStart() {
 }
 
 void FrameGeneration::Destroy() {
+    if (dlssg_bridge) {
+        scheduler.Finish();
+        if (!dlssg_bridge->Retire()) return; // No normal draw-retired proof on unknown Helper state.
+        dlssg_bridge.reset();
+        dlssg_upload.reset();
+    }
     if (dlssg_capture) {
         scheduler.Finish();
         dlssg_capture.reset();
@@ -288,6 +300,8 @@ void FrameGeneration::CaptureScene(const Scene& in) {
         scene = in;
         scene_captured = Wanted() && dlssg_capture->Guides(in);
         scene_id = in.source_game_frame;
+        scene_reset = reset_next || in.reset;
+        if (scene_captured) reset_next = false;
         return;
     }
     if (!Wanted() || !in.depth || !in.motion || !in.width || !in.height ||
@@ -464,35 +478,7 @@ void FrameGeneration::CaptureHudless(vk::Image color) {
     });
 }
 
-void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
-    if (dlssg_capture) {
-        if (Wanted() && scene_captured && color && color == scene.color)
-            dlssg_capture->Color(scene, color);
-        scene_captured = false;
-        return;
-    }
-    Stats();
-    if (!FgContract::CanInterpolate(Wanted(), scene_captured, color, scene.color,
-                                    context || context316)) {
-        std::scoped_lock lock{targets_mutex};
-        for (auto& [address, target] : targets) target.ready = false;
-        reset_next = true;
-        return;
-    }
-    ++stat_interpolated;
-    scene_captured = false;
-    dispatched_last_frame = true;
-    const u64 id = scene_id;
-    // OnFrameStart is after this call at the display-copy boundary. A pause must invalidate
-    // the FIRST resumed dispatch, not the one after it. No generated output on that reset.
-    const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-    const bool reset = scene_reset || !last_dispatch_ns || now - last_dispatch_ns > 250'000'000;
-    last_dispatch_ns = now;
-    if (reset) std::printf("FG_HISTORY_RESET fg_frame=%llu scene_reset=%u gap_reset=%u\n",
-        (unsigned long long)id, scene_reset,
-        !scene_reset && reset);
-
+FrameGeneration::Target& FrameGeneration::PrepareTarget(VAddr display, u64 id, bool reset) {
     Target* target;
     {
         std::scoped_lock lock{targets_mutex};
@@ -539,6 +525,70 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
         target->recorded = std::make_shared<std::atomic<bool>>(false);
         if (target->ready) ++stat_ready;
     }
+
+    return *target;
+}
+
+void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
+    if (dlssg_capture) {
+        if (Wanted() && scene_captured && color && color == scene.color) {
+            if (!dlssg_bridge) dlssg_capture->Color(scene, color);
+            else if (dlssg_capture->ReadColor(scene, color)) {
+                if (!dlssg_upload) dlssg_upload = std::make_unique<VideoCore::Buffer>(instance, 0,
+                    u64(scene.width)*scene.height*4, VideoCore::MemoryType::HostUncached, "DLSSG Native owned upload");
+                const u64 previous_source = dlssg_bridge->LastSource();
+                const bool eligible = dlssg_bridge->Exchange(scene, display, scene_reset, *dlssg_capture, *dlssg_upload);
+                dispatched_last_frame = true;
+                if (eligible && !FgLifecycle::held.load()) {
+                    auto& target = PrepareTarget(display, scene_id, false);
+                    target.strict_source = true;
+                    target.previous_source_game_frame = previous_source;
+                    scheduler.Record([image=vk::Image(target.image),buffer=dlssg_upload->Handle(),
+                                      recorded=target.recorded,w=scene.width,h=scene.height](vk::CommandBuffer cmd) {
+                        const vk::BufferMemoryBarrier2 upload{
+                            .srcStageMask=vk::PipelineStageFlagBits2::eHost,.srcAccessMask=vk::AccessFlagBits2::eHostWrite,
+                            .dstStageMask=vk::PipelineStageFlagBits2::eCopy,.dstAccessMask=vk::AccessFlagBits2::eTransferRead,
+                            .srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,
+                            .buffer=buffer,.size=VK_WHOLE_SIZE,
+                        };
+                        cmd.pipelineBarrier2({.bufferMemoryBarrierCount=1,.pBufferMemoryBarriers=&upload});
+                        ImageBarrier(cmd,image,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead,
+                            vk::PipelineStageFlagBits2::eCopy,vk::AccessFlagBits2::eTransferWrite,vk::ImageLayout::eUndefined);
+                        const vk::BufferImageCopy copy{.imageSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.imageExtent={w,h,1}};
+                        cmd.copyBufferToImage(buffer,image,vk::ImageLayout::eGeneral,copy);
+                        ImageBarrier(cmd,image,vk::PipelineStageFlagBits2::eCopy,vk::AccessFlagBits2::eTransferWrite,
+                            vk::PipelineStageFlagBits2::eFragmentShader,vk::AccessFlagBits2::eShaderRead);
+                        recorded->store(true,std::memory_order_release);
+                    });
+                }
+            }
+        }
+        scene_captured = false;
+        return;
+    }
+    Stats();
+    if (!FgContract::CanInterpolate(Wanted(), scene_captured, color, scene.color,
+                                    context || context316)) {
+        std::scoped_lock lock{targets_mutex};
+        for (auto& [address, target] : targets) target.ready = false;
+        reset_next = true;
+        return;
+    }
+    ++stat_interpolated;
+    scene_captured = false;
+    dispatched_last_frame = true;
+    const u64 id = scene_id;
+    // OnFrameStart is after this call at the display-copy boundary. A pause must invalidate
+    // the FIRST resumed dispatch, not the one after it. No generated output on that reset.
+    const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const bool reset = scene_reset || !last_dispatch_ns || now - last_dispatch_ns > 250'000'000;
+    last_dispatch_ns = now;
+    if (reset) std::printf("FG_HISTORY_RESET fg_frame=%llu scene_reset=%u gap_reset=%u\n",
+        (unsigned long long)id, scene_reset,
+        !scene_reset && reset);
+
+    Target* target = &PrepareTarget(display, id, reset);
 
     FfxVkPortableFrameGenerationDispatchInfo dispatch{};
     dispatch.structSize = sizeof(dispatch);
@@ -708,7 +758,7 @@ bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
     }
     ++stat_taken;
     out = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame, t.recorded,
-           t.source_game_frame};
+           t.source_game_frame, t.strict_source, t.previous_source_game_frame};
     return true;
 }
 

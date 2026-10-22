@@ -4,6 +4,8 @@ import json,hashlib,re,argparse,math,importlib.util
 from pathlib import Path
 _log_spec=importlib.util.spec_from_file_location('nr_retirement_daily_log',Path(__file__).with_name('daily_log.py'))
 daily_log=importlib.util.module_from_spec(_log_spec);_log_spec.loader.exec_module(daily_log)
+_dlssg_spec=importlib.util.spec_from_file_location('nr_retirement_dlssg',Path(__file__).with_name('dlssg_backend.py'))
+dlssg_backend=importlib.util.module_from_spec(_dlssg_spec);_dlssg_spec.loader.exec_module(dlssg_backend)
 def load(p):return json.loads(Path(p).read_text())
 def need(v,reason):
  if not v:raise ValueError(reason)
@@ -219,6 +221,20 @@ def audit_session(run,termination=None):
   raw=(run/'game.log').read_bytes();text=raw.decode(errors='replace')
   log_hashes={'game.log':hashlib.sha256(raw).hexdigest()}
  need(not re.search(r'NATIVE_\S*(?:HOLD|QUARANTINE|ASSOCIATION_REJECTED)|functional=FAIL',text),'no failed native resource/association proof')
+ if manifest.get('environment',{}).get('BB_FRAME_GEN_BACKEND')=='dlssg':
+  dlssg_backend.validate_manifest(run,manifest)
+  if (run/'dlssg-launch.json').exists():
+   proof_dlssg=rows(text,'DLSSG_CPU_BRIDGE_RETIRED')
+   need(len(proof_dlssg)==1 and all(proof_dlssg[0].get(k)=='1' for k in ('helper_GPU_complete','feature_released','child_reaped','Native_staging_GPU_complete')),'DLSSG actual Helper and Native upload owner retirement')
+   report=load(run/'dlssg-retired.json');terminal=report['terminal'];launch=load(run/'dlssg-launch.json')
+   need(report.get('wait_status')==0 and report.get('launcher_pid')==launch['launcher_pid'] and report.get('Native_staging_GPU_complete') is True and report.get('shared_GPU_resources')==0,'DLSSG actual normal waitpid/private resource scope')
+   need(terminal.get('session')==session and terminal.get('schema')=='dlssg-cpu-stream-v1' and type(terminal.get('sequence')) is int and terminal['sequence']>=1 and terminal.get('native_gpu_readers')==0 and all(terminal.get(k) is True for k in ('cpu_slot_consumed','actual_GPU_complete','feature_released','device_destroyed')),'DLSSG consumed sequence and private GPU terminal')
+   helper_text=(run/'dlssg-helper.log').read_text(errors='replace')
+   expected='FG_POC_RETIRED actual_GPU_complete=1 feature_released=1 core_shutdown=1 device_destroyed=1 native_readers=0'
+   need(helper_text.splitlines().count(expected)==1 and 'FG_POC_HOLD' not in helper_text,'DLSSG actual unique Helper device teardown')
+  else:
+   no_dlssg=rows(text,'DLSSG_CPU_BRIDGE_NO_PEER')
+   need(len(no_dlssg)==1 and no_dlssg[0].get('no_helper_created')=='1' and not (run/'dlssg-helper.log').exists() and not (run/'dlssg-retired.json').exists(),'DLSSG explicit no-Helper exit')
  if manifest.get('smooth_motion') is True:
   sm=rows(text,'SM_EXIT_PROOF')
   need(len(sm)==1 and all(sm[0].get(k)=='1' for k in ('device_idle_before','swapchain_destroy_returned','device_idle_after')),

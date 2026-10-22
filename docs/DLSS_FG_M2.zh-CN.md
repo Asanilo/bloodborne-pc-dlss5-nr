@@ -74,6 +74,49 @@ r16 定位到 HOST_VISIBLE|COHERENT 读回内存 type 2（flags=0x6）不具备 
 协议试验约新增 25 MB 证据，不新增完整环境。CPU 协议/相机/FG 工具测试当前 28 项
 通过，Native 可玩路径尚在接入。
 
+## 首次 Native Present 与 NR 联动
+
+`m2-native-dlssg-validation-r17` 已在游戏窗口实际显示 DLSSG 输出，1080p Quality、
+Old memory、猎人梦境私有存档。4193 条 FG 请求，最终计数为 16457 次真实 Present、
+4188 次生成 Present（含标题、FG 关闭对照等不同阶段，不能用全程比值评估 x2）。
+有界保留日志窗口中的 1457 张生成帧全部满足 `R(n-1) → I(n-1,n) → R(n)`，
+没有迟到帧/源帧配对拒绝。八对实际 Present 编码图已 GPU 读回，颜色无明显红蓝交换，
+HUD 可辨；转镜仍需更多场景评价，不宣称修复 FSR 的全部植被缺陷。
+
+先以 NR 关闭测试 SR+DLSSG，关闭 FG 后真实帧单独运行；F8 开启 310.9.16 SF B、
+出现实际 `cache_selected=1` 后恢复 FG，epoch 重置、随后插帧均正常。生成 Present
+不进入 NR NotifyPresent/Evaluate 的真实帧路径。FG 历史编号独立，NR 仍使用原有时域协议。
+
+正常关闭后，FG Helper 成功 Release/Shutdown/device destroy、精确消费 ACK/正常 waitpid，
+Native staging/目标最后 GPU 使用和独立 Present 图像退休均通过；NR 既有完整 GPU/FD
+退休也通过。结果 `PASS_NORMAL_TEARDOWN`，无残留、新 HOLD 或守卫绕过。临时 CPU
+槽在全部退休后清理，JSON 终态保留。r17 逻辑新增约 886 MB，主要为原有 NR 日常流程
+首次创建的 Wine prefix 与一次八对读回；后续显式复用该已退休 prefix，避免重复环境。
+
+**性能尚不足以替代 FSR：** validation 下约 17–20 真实 FPS / 34–40 Present FPS，
+关闭 FG 的同轮片段约 47 真实 FPS。Helper 服务约 11–13 ms，Native CPU 往返约
+18–23 ms，另有同步 GPU 读回和调度等待。后续先关闭 validation 测量，再降低传输/
+同步开销，不能把两个 Present 当作基础性能提升。
+
+Validation 仍出现已记载类别：RuntimeSpirv Location-06272、dynamicRenderingUnusedAttachments-08912、
+Draw None-09600、ImageView usage-02275 和 WSI WRITE-AFTER-PRESENT。此次未观察到
+新的 CPU 上传/导引复制 hazard 类别；这不证明每个具体报错均与旧报告同源，也不宣称全净。
+
+实验启动需要显式模型和已退休私有 prefix；不修改玩家入口：
+
+```bash
+NRBRIDGE_HOME=/absolute/existing/nr-dev python3 tools/nr_dev/play.py \
+  --daily --fg-native --experimental-fg dlssg \
+  --dlssg-model /absolute/streamline-2.14.1/nvngx_dlssg.dll \
+  --dlssg-prefix-session m2-native-dlssg-validation-r17 \
+  --native-build "$PWD/out" \
+  --local-inputs /absolute/existing/nr-dev/localinputs/nr310-B-playable.json \
+  --continue-session play-20261022-141640 --session unique-session
+```
+
+F8 保留 NR 场景确认/开关，原 FG 开关保留；SM、FSR FG 与 DLSSG 互斥。
+上述命令当前为可交互但有明显性能限制的 Experimental 通道，尚不是本阶段最终性能交付。
+
 ## Wine 离屏入口
 
 复用已有 GE-Proton11-7、LLVM MinGW、共享 Vulkan/NGX 头文件及一份已正常退休的私有

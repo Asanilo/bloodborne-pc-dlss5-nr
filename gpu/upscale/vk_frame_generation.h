@@ -33,6 +33,7 @@ namespace Vulkan {
 class Instance;
 class Scheduler;
 class DlssgInputCapture;
+class DlssgCpuBridge;
 
 class FrameGeneration {
 public:
@@ -86,6 +87,8 @@ public:
         u64 frame;
         std::shared_ptr<std::atomic<bool>> recorded;
         u64 source_game_frame;
+        bool strict_source = false;
+        u64 previous_source_game_frame = 0;
     };
     bool TakeOutput(VAddr display, Output& out);
 
@@ -102,6 +105,8 @@ private:
     FfxVkFsr3_3_1_6FrameGenerationContext* context316 = nullptr;
     bool use316 = false;
     std::unique_ptr<DlssgInputCapture> dlssg_capture;
+    std::unique_ptr<DlssgCpuBridge> dlssg_bridge;
+    std::unique_ptr<VideoCore::Buffer> dlssg_upload;
     std::mutex context316_mutex; ///< Record/retire may run on different scheduler owners.
     u32 context_render_w = 0, context_render_h = 0, context_w = 0, context_h = 0;
     vk::Format context_format{};
@@ -131,12 +136,15 @@ private:
         u32 width = 0, height = 0;
         u64 frame = 0;
         u64 source_game_frame = 0;
+        bool strict_source = false;
+        u64 previous_source_game_frame = 0;
         VAddr display = 0;
         bool ready = false;
         std::shared_ptr<std::atomic<bool>> recorded;
     };
     std::mutex targets_mutex;
     std::unordered_map<VAddr, Target> targets;
+    Target& PrepareTarget(VAddr display, u64 id, bool reset);
 };
 
 } // namespace Vulkan
