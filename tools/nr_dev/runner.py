@@ -388,7 +388,7 @@ def checked_native_build(directory):
  build=Path(directory).absolute()
  if build.resolve()!=build or build.is_symlink():raise ValueError('Native build must use a real canonical directory')
  baseline=build.parent==ROOT/'build/baselines' and re.fullmatch('[0-9a-f]{40}',build.name)
- if build not in (ROOT/'build/native',WT/'out') and not baseline:raise ValueError('Native build must be worktree out, build/native or build/baselines/<full commit>')
+ if build not in (ROOT/'build/native',WT/'out') and not baseline:raise ValueError('Native build must be this checkout out/, build/native or build/baselines/<full commit>')
  def regular(relative):
   path=build/relative
   if path.resolve()!=path or not path.is_file() or path.is_symlink():raise ValueError('regular in-tree build input required: '+str(path))

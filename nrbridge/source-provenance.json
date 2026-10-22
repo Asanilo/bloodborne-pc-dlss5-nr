@@ -1,0 +1,192 @@
+{
+  "schema": "nrbridge-helper-source-v1",
+  "base_commit": "f527d8f2f12d474a66bbb4c1e231d6cd9b673476",
+  "native_source_head": "b219c51a34d92f92ddf7c22a8378e9fa2c99efdd",
+  "sources": [
+    {
+      "source": "historical-development/inputs/helper-f527/closure/67e6e48db451-fixture_util.h",
+      "source_sha256": "e84cc94db63d8fbdf5cf19ca3bec67c5901be54d2e440dea0f5acd273100f42d",
+      "target": "nrbridge/runtime/fixture_util.h",
+      "initial_sha256": "e84cc94db63d8fbdf5cf19ca3bec67c5901be54d2e440dea0f5acd273100f42d",
+      "changes": "byte-identical",
+      "migrated_sha256": "e84cc94db63d8fbdf5cf19ca3bec67c5901be54d2e440dea0f5acd273100f42d"
+    },
+    {
+      "source": "historical-development/inputs/helper-f527/closure/5a45d548e9ad-pre_sr_transport.h",
+      "source_sha256": "3db8425ca5ddc18aa4f1680c19615ef16ced7786e939825914c4e935f2b842a1",
+      "target": "nrbridge/runtime/transport.h",
+      "initial_sha256": "b1703cd104e385d0c799ee85650fb7799dbaedf2d9a7461e1c79d5643eb171c2",
+      "changes": "include relocation only",
+      "migrated_sha256": "afde02b9cd4a89a750f744d21db1b06111298d6324bc4ab8578face1d88c450e",
+      "initial_migrated_sha256": "b1703cd104e385d0c799ee85650fb7799dbaedf2d9a7461e1c79d5643eb171c2",
+      "update": "Astra-reviewed daily ring64 v2; bounded consumed-file cleanup, uint64 counters; finite diagnostics retained"
+    },
+    {
+      "source": "historical-development/inputs/helper-f527/closure/4c33b0134603-playable_runtime_types.h",
+      "source_sha256": "4817faf933be3eefb1c5b6fd0d82ad0eeacecdb78df8b8829e46e31c23202ef1",
+      "target": "nrbridge/runtime/runtime_types.h",
+      "initial_sha256": "3f4787589254cf77fb52323520cb3dcb21277260c539f6d232b84f4bc0789879",
+      "changes": "include relocation only",
+      "migrated_sha256": "3f4787589254cf77fb52323520cb3dcb21277260c539f6d232b84f4bc0789879"
+    },
+    {
+      "source": "historical-development/inputs/helper-f527/closure/70a6c235447b-lowres_production_adapter.h",
+      "source_sha256": "2d164374694259f40ea01361bf4597ea2b968b06f59c98b542640d417f85f91d",
+      "target": "nrbridge/runtime/lowres_production_adapter.h",
+      "initial_sha256": "163873192ac900ec7c8632e5270ff63911ea8d1d7b26bbd6ed4fcd6d2ea863bc",
+      "changes": "include relocation only",
+      "migrated_sha256": "f43606e9b10b8ce648dca92451f35508635e819156bf5ba41e628217bdcbe780",
+      "initial_migrated_sha256": "f996b33666115261d1ce65f06a5df8a037ddb8b94bcc207d06072367b450a7d4",
+      "update": "Astra-reviewed daily ring64 v2; bounded consumed-file cleanup, uint64 counters; finite diagnostics retained",
+      "upstream_sha256": "62bacf308b2e5be87ffddeceb3240654b5d08f967986e40509da3475eac66f06",
+      "local_change": "include relocation; runtime paths require explicit config"
+    },
+    {
+      "source": "historical-development/inputs/helper-f527/closure/21fc0d142f2f-pre_sr_wire.h",
+      "source_sha256": "6d7da59fd047b140a65014adc60692d0afc1df5d7bc4a476a2381d3aba8f747e",
+      "target": "nrbridge/protocol/pre_sr_wire.h",
+      "initial_sha256": "bc52ffa09da608b33652a955f00fe9bd3675b2251674cbd09ff8f9f97c0f7067",
+      "changes": "include relocation only",
+      "migrated_sha256": "50c9ed37cdfbf948d07ce153b7b146a966c616ddef864cdab709c792f8395d4f",
+      "initial_migrated_sha256": "bc52ffa09da608b33652a955f00fe9bd3675b2251674cbd09ff8f9f97c0f7067",
+      "update": "Astra-reviewed daily ring64 v2; bounded consumed-file cleanup, uint64 counters; finite diagnostics retained"
+    },
+    {
+      "source": "historical-development/native/tools/nr_dev/helper_runtime/runtime_frame.h",
+      "source_sha256": "523bab89aad76d54a1add31fba9c5d8eace1ccf01cb59e3072349afa9cef6db4",
+      "target": "nrbridge/runtime/runtime_frame.h",
+      "initial_sha256": "4aafe4cd982ef8fa35ec2b3b046ecb19d2f8c949705b9063b93995c16becd985",
+      "changes": "include relocation only",
+      "migrated_sha256": "03dff62923fc204421bb6d501bc346265e1123534a4a6d12ee39a1fe94eb68a6",
+      "initial_migrated_sha256": "4aafe4cd982ef8fa35ec2b3b046ecb19d2f8c949705b9063b93995c16becd985",
+      "update": "Astra-reviewed daily ring64 v2; bounded consumed-file cleanup, uint64 counters; finite diagnostics retained"
+    },
+    {
+      "source": "historical-development/native/tools/nr_dev/helper_runtime/wine_runtime_model.cpp",
+      "source_sha256": "039d865b53d0632c76919cecc13d1274bb72be6de9070d336c6d50e91cbbf6b1",
+      "target": "nrbridge/runtime/wine_runtime_model.cpp",
+      "initial_sha256": "dc35e80e0170cbc89942bbbc877823bf835ab33e92004720fd55f1dbfbff9dc3",
+      "changes": "include relocation and optional explicit runtime resource selection; NR algorithm, model settings and retirement unchanged",
+      "migrated_sha256": "cf572d86cfe460457bb368d5b6f1009364c7208589f14a7d519de3ef11611da7",
+      "initial_migrated_sha256": "0116284841d8d73098f305cff851972d7690aef35e580b724ee8889745d0476d",
+      "update": "Astra-reviewed daily ring64 v2; bounded consumed-file cleanup, uint64 counters; finite diagnostics retained",
+      "upstream_sha256": "c2d0ef16eab3b5086447b37972bd93c9ad1035cdc4b66d4bea8bee104d7ea67a",
+      "local_change": "explicit runtime v2 Preset A/B selection; verify hint parameter after actual creation fence; algorithms/protocol/retirement unchanged",
+      "pre_preset_sha256": "666704f1059d5a1b5a3bc975bd2ea719881394fc5bd9066242ae2ea2baa68305"
+    },
+    {
+      "source": "historical-development/native/gpu/shadps4/video_core/renderer_vulkan/native_runtime_model.h",
+      "source_sha256": "67fa656294fa38c6aca66f011a64211ae9fe79e44aad2f9a93fbe5cfcfcc732b",
+      "target": "nrbridge/protocol/native_runtime_model.h",
+      "initial_sha256": "67fa656294fa38c6aca66f011a64211ae9fe79e44aad2f9a93fbe5cfcfcc732b",
+      "changes": "byte-identical",
+      "migrated_sha256": "92c16609685a651a405842126b6160fd02376c2be034d2142f365bda119a0205",
+      "initial_migrated_sha256": "67fa656294fa38c6aca66f011a64211ae9fe79e44aad2f9a93fbe5cfcfcc732b",
+      "update": "Astra-reviewed daily ring64 v2; bounded consumed-file cleanup, uint64 counters; finite diagnostics retained"
+    },
+    {
+      "source": "historical-development/inputs/helper-f527/effective-generated-spec.json",
+      "source_sha256": "671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b",
+      "target": "nrbridge/protocol/effective-spec.json",
+      "initial_sha256": "671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b",
+      "changes": "byte-identical",
+      "migrated_sha256": "671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b"
+    },
+    {
+      "source": "historical-development/native/tools/nr_dev/helper_runtime/test_protocol.cpp",
+      "source_sha256": "5e16cdc29aed287be410556806b0087fc1cfbf614623f9f9c488f7324c53fb63",
+      "target": "nrbridge/tests/test_protocol.cpp",
+      "initial_sha256": "5e16cdc29aed287be410556806b0087fc1cfbf614623f9f9c488f7324c53fb63",
+      "changes": "byte-identical",
+      "migrated_sha256": "5e16cdc29aed287be410556806b0087fc1cfbf614623f9f9c488f7324c53fb63"
+    },
+    {
+      "source": "historical-development/native/tools/nr_dev/helper_runtime/test_retirement.py",
+      "source_sha256": "957355ccc0de3d37a72473c836c88266d66fc357a9f16af3ef3e34c721bf9a11",
+      "target": "nrbridge/tests/test_retirement.py",
+      "initial_sha256": "957355ccc0de3d37a72473c836c88266d66fc357a9f16af3ef3e34c721bf9a11",
+      "changes": "byte-identical",
+      "migrated_sha256": "957355ccc0de3d37a72473c836c88266d66fc357a9f16af3ef3e34c721bf9a11"
+    },
+    {
+      "source": "historical-development/native/tools/nr_dev/retirement.py",
+      "source_sha256": "816ac320496c800608e441e02743e0267eaece831cf4f86ba25698b22aec2c92",
+      "target": "nrbridge/retirement.py",
+      "initial_sha256": "816ac320496c800608e441e02743e0267eaece831cf4f86ba25698b22aec2c92",
+      "changes": "byte-identical",
+      "migrated_sha256": "816ac320496c800608e441e02743e0267eaece831cf4f86ba25698b22aec2c92"
+    },
+    {
+      "source": "historical-development/helper/poc/game_nr/async-pre-sr-play/wire_check.cpp",
+      "source_sha256": "e25bd70fbee39dad99b1fb70429ea4eabb1459cb0329900524e55e061b7c178c",
+      "target": "nrbridge/tests/wire_check.cpp",
+      "initial_sha256": "e25bd70fbee39dad99b1fb70429ea4eabb1459cb0329900524e55e061b7c178c",
+      "changes": "byte-identical",
+      "migrated_sha256": "e25bd70fbee39dad99b1fb70429ea4eabb1459cb0329900524e55e061b7c178c"
+    }
+  ],
+  "compiler": {
+    "path": "historical-dependencies/build/toolchain/llvm-mingw-20261006-ucrt-ubuntu-22.04-x86_64/bin/x86_64-w64-mingw32-clang++",
+    "sha256": "c9b86311ade81d53235c93fafabdf98328d094de344ea9a9038e0dab6695ee9f"
+  },
+  "external_dependency_pins": {
+    "vulkan/vk_icd.h": "ba22828f76de7231e7dfbb5d8564e7a58dd9f5dbeac8c1f0ff6c056c92db744a",
+    "vulkan/vk_layer.h": "a9fb1343e7e1fa3456189bf146f2186b8df46c1b1a01f88f8b9ae4cd25b1623c",
+    "vulkan/vk_platform.h": "a2cd9085c66776845d2524c3b0e73ccf4827ba046aa6f676c4b8ddbed47d6552",
+    "vulkan/vulkan.h": "096f50152d0b298d8df84a561a37d8190c8a60af34dff0e2cc8328b24491a640",
+    "vulkan/vulkan_android.h": "9dcce545a790b5b1ce00e103ade95c8efa4c8a0bf2ff39865d76a7d2f987aef2",
+    "vulkan/vulkan_beta.h": "bb43577a445c357c3f0c03572b3dd3ebd9fca39914c0092f7d77e942af05d3fc",
+    "vulkan/vulkan_core.h": "2f64fd6c7c3f342b0e44f039f1c359b7f0e6cfcb71a7dca1cc5156282faa3b51",
+    "vulkan/vulkan_directfb.h": "efecf5a15380f61c16ef257ed55a998f2cc651789bec22056ccc81d2518daefc",
+    "vulkan/vulkan_fuchsia.h": "17aedccaae68825bfa2954faec1bc9e953b106f1161e1b2ab26ab4cdccf21a06",
+    "vulkan/vulkan_ggp.h": "b68cbbf19b9397ee63dd6ba94526059bd2ff000c66083243758e3a04e215bd2c",
+    "vulkan/vulkan_ios.h": "ebaeffc3f4ec0484dcf34753678f1642caf73f6db4e17f11f1b82302151b918c",
+    "vulkan/vulkan_macos.h": "3ae5522081741e9021be86727e11949ad8c695e66f75e1c422e577afd7657f59",
+    "vulkan/vulkan_metal.h": "d5fe0caf881cc9c72ea2ba31ca86c684e97cdec6741d6e6298ecbd8f58dc8c5e",
+    "vulkan/vulkan_ohos.h": "3cc40f845b5fd75cda0d8a3b1f2782522a3591657f67c656a211b4639eb23b16",
+    "vulkan/vulkan_screen.h": "b9e7e7921b4be199c8ecfe518bd71bd8e533adbbab193714c542157b87b10e86",
+    "vulkan/vulkan_ubm.h": "ac106317c017d1975f26184d3979dba0352f10aa1cfc7ef5373be92fef6bd137",
+    "vulkan/vulkan_vi.h": "a53e35bb1b3113e6ef4932cb9358a27861a198d7865227ecd93555fecc73dd68",
+    "vulkan/vulkan_wayland.h": "6c4146149d45bcbb5a22c7540feaa396ee9a49f077737c7a343c62de5199fbc7",
+    "vulkan/vulkan_win32.h": "72f0b6de71287d3b04d12235e4f2fef8f343126f85be4963c516d31d5bb4c099",
+    "vulkan/vulkan_xcb.h": "3d49f5eb52090e72e1cf7cde545088225ac524a2ff1d1f35737e7d944474c1b7",
+    "vulkan/vulkan_xlib.h": "3c44e97d3f380eb912e01a79e9667457fdf5e18164f0b09b3c61431f421bc551",
+    "vulkan/vulkan_xlib_xrandr.h": "188233d112d812cca1777cfa6c1585073f1f2b033fa08b2f11c8d0757fcc232e",
+    "ngx/nvsdk_ngx.h": "13f33dc13ef1171233533037f32fe697394205e2a4d0cc849b6d14b121e27b4c",
+    "ngx/nvsdk_ngx_defs.h": "167b95e17b89ca22b5b23118fc145d10f4e169b08620d42c70a9b015f91c2299",
+    "ngx/nvsdk_ngx_helpers_vk.h": "1a74ad6c2fbab5c4269b8dc82c21127295af359e71d47c6654fab837f3053f26",
+    "ngx/nvsdk_ngx_params.h": "4d5ef282bca94d56629fa31f80d1d66961cbab53b31d272aeb7cf9a9e0ee5cd4",
+    "ngx/nvsdk_ngx_vk.h": "ce9deb614bc8a3d66ea4507bef4539f1f5927d3fdd5712751ca0faa7d96cc3ae",
+    "json/json.hpp": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63"
+  },
+  "effective_spec_sha256": "671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b",
+  "protocol_runtime_model_sha256": "67fa656294fa38c6aca66f011a64211ae9fe79e44aad2f9a93fbe5cfcfcc732b",
+  "shader": {
+    "production_spv": "nrbridge/shaders/DlssNr_Shader_Vk.spv",
+    "spv_sha256": "7b44aeb1876f61c8c102979225edb10287189d1d8eddfa0a65186cf026c80239",
+    "header_sha256": "3f55d94613971648adf29b506dfb7669ef9ea59c136172eb35a54279c769523c",
+    "hlsl_source_commit": "c3f70dc7",
+    "current_hlsl_last_change": "fee544fe",
+    "current_hlsl_matches_committed_spv_source": false,
+    "original_recipe": "OptiScaler/shaders/shader_tools/build_precompiled_shader_vk.bat",
+    "historical_hlsl_path": "nrbridge/shaders/dlssnr-frozen.hlsl",
+    "historical_hlsl_sha256": "300ae85d8c9272bf923d7845673e3e88365de999dc9815dd02b48e6d45f18761",
+    "original_dxc_flags": [
+      "-spirv",
+      "-T",
+      "cs_6_0",
+      "-E",
+      "CSMain",
+      "-O3",
+      "-Qstrip_debug",
+      "-D",
+      "VK_MODE",
+      "-Cc",
+      "-Vi"
+    ],
+    "hlsl_to_spv_validation": "NOT_RUN: original Windows DXC would require Wine; formal build uses frozen SPV and regenerates byte-identical array"
+  },
+  "runtime_defaults": {
+    "selection": "explicit nrbridge-helper-runtime-v1 config required; no bundled proprietary dependencies"
+  }
+}

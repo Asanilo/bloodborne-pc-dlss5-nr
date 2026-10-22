@@ -11,6 +11,8 @@ import re
 from pathlib import Path
 
 SCHEMA = 'nr-local-runtime-inputs-v1'
+PRESET_SCHEMA = 'nr-local-runtime-inputs-v2'
+PRESETS = ('Default', 'A', 'B')
 PINS_SCHEMA = 'nr-runtime-input-pins-v1'
 HELPER_PROTOCOL = {'runtime_model_schema': 'nr-runtime-model-v1',
                    'job_model_schema': 'nr-runtime-job-model-v1',
@@ -106,9 +108,14 @@ def load(path, root):
     path = canonical(str(path))
     need(path.parent == root / 'localinputs', 'config must be in ROOT/localinputs')
     config = read(path)
-    exact(config, ('schema', 'assets', 'seed', 'ge_files', 'sysroot_lib', 'helper',
-                   'forwarder', 'model', 'system_ngx', 'ngx_dir', 'pins'), 'invalid local config fields')
-    need(config['schema'] == SCHEMA, 'unsupported local config version')
+    need(isinstance(config, dict), 'invalid local config fields')
+    v2 = config.get('schema') == PRESET_SCHEMA
+    keys = ('schema', 'assets', 'seed', 'ge_files', 'sysroot_lib', 'helper',
+            'forwarder', 'model', 'system_ngx', 'ngx_dir', 'pins')
+    exact(config, (*keys, 'nr_preset') if v2 else keys, 'invalid local config fields')
+    need(config['schema'] in (SCHEMA, PRESET_SCHEMA), 'unsupported local config version')
+    if v2:
+        need(type(config['nr_preset']) is str and config['nr_preset'] in PRESETS, 'NR preset must be Default/A/B')
     exact(config['assets'], ('path', 'access'), 'invalid asset reference')
     need(config['assets']['access'] == 'read-only', 'assets must be referenced read-only')
     directories = {key: canonical(config[key], True)
@@ -132,6 +139,12 @@ def load(path, root):
          and manifest.get('status') == 'BUILD_ONLY_PASS'
          and manifest.get('artifact') == str(helper)
          and manifest.get('artifact_sha256') == sha(helper), 'Helper artifact identity drift')
+    if v2:
+        schemas, presets = manifest.get('runtime_config_schemas'), manifest.get('nr_presets')
+        need(isinstance(schemas, list) and 'nrbridge-helper-runtime-v2' in schemas
+             and isinstance(presets, dict) and presets == {'Default': 0, 'A': 1, 'B': 2}
+             and all(type(v) is int for v in presets.values()),
+             'selected Helper does not support explicit NR presets')
     protocol = manifest.get('protocol', {})
     need(isinstance(protocol, dict), 'invalid Helper protocol manifest')
     need(all(type(protocol.get(k)) is type(v) and
@@ -180,8 +193,11 @@ def load(path, root):
 
 def helper_config(binding):
     c = binding['config']
-    return {'schema': 'nrbridge-helper-runtime-v1',
-            **{k: c[k] for k in ('model', 'forwarder', 'ngx_dir', 'ge_files')}}
+    result = {'schema': 'nrbridge-helper-runtime-v1',
+              **{k: c[k] for k in ('model', 'forwarder', 'ngx_dir', 'ge_files')}}
+    if c['schema'] == PRESET_SCHEMA:
+        result.update(schema='nrbridge-helper-runtime-v2', nr_preset=c['nr_preset'])
+    return result
 
 
 def native_capability(build):

@@ -4,9 +4,8 @@ Player entry and feature status: [project README](../../README.md) and
 [Preview acceptance](../../docs/NRBRIDGE_PREVIEW_STATUS.md). This page is a build
 and CPU-development guide, not permission to launch historical GPU experiments.
 
-Native source lives in this repository. Helper/forwarder source lives in the
-independent [OptiScaler-Linux-NR](https://github.com/Asanilo/OptiScaler-Linux-NR)
-repository under `nrbridge/`. Protocol export identity is checked before building;
+Native and standalone Helper/forwarder sources live in this repository.
+The frozen import and dependency options are documented in [nrbridge](../../nrbridge/README.md). Protocol export identity is checked before building;
 Native must not invent a second Helper protocol.
 
 ## Prepare explicit inputs
@@ -17,7 +16,7 @@ installer. Choose canonical absolute directories on your own system:
 ```bash
 export NR_DEV_ROOT="$HOME/.local/share/bbport-nrbridge-dev"
 export NRBRIDGE_HOME="$NR_DEV_ROOT"
-export NR_HELPER_ROOT="/path/to/OptiScaler-Linux-NR"
+export NR_HELPER_ROOT="/path/to/this-checkout"  # optional; local subtree is default
 export NR_SOURCE_DEPS_ROOT="/path/to/prepared/source-deps"
 export NR_BUILD_ENV_ROOT="/path/to/prepared/build-env"
 export BB_ONLINE_DEPS_ROOT="/path/to/prepared/online-deps"
@@ -32,8 +31,8 @@ export BB_BUILD_DIR="$NR_DEV_ROOT/build/native"
   does not fix its absolute exports. Standard local default: this checkout's `out/deps`.
 - `BB_ONLINE_DEPS_ROOT` contains `root/usr` and `bbport-online-inputs.json` with
   checked JSON/miniupnpc and online-module inputs. Native online builds use its manifest.
-- Helper owns its compiler/SDK arguments and build manifest. Supply `--helper-root`
-  or `NR_HELPER_ROOT`; no other local repository is guessed by username/location.
+- Helper owns its compiler/SDK arguments and build manifest. The local subtree is
+  the default; `--helper-root` or `NR_HELPER_ROOT` can select an explicit checkout.
 - Game, saves, Wine/GE, model and NGX selections are private runtime inputs. Do not
   copy proprietary files or account state into Git or a distributable image.
 
@@ -46,12 +45,13 @@ home-relative development default. Runtime sealing and Runner use
 From the Native checkout:
 
 ```bash
-bash tools/nr_dev/build.sh --test
+bash scripts/dev-build.sh --test
+# Runner can use --native-build "$PWD/out" with the generated provenance.
 python3 tools/nr_dev/prepare_helper.py --helper-root "$NR_HELPER_ROOT"
 python3 "$NR_HELPER_ROOT/nrbridge/forwarder/build.py"
 ```
 
-Use the Helper repository's own documented compiler/SDK options where needed.
+Use `nrbridge/README.md` for the Helper compiler/SDK options.
 `prepare_helper.py --legacy-rebuild` is an isolated frozen-closure reproduction,
 not the normal Helper build. It never overwrites an accepted baseline.
 

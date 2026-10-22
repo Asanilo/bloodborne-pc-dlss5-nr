@@ -105,9 +105,25 @@ NRBridge 在这个基础上分工处理渲染与模型推理：
 游戏画面与运动信息 → 独立 NR Helper → 持久视觉历史 → 原生 DLSS SR → 屏幕
 ```
 
-Native 负责游戏渲染与历史更新，Helper 负责 NR 模型执行；二者通过版本化协议协作。
-Native 与 [OptiScaler-Linux-NR](https://github.com/Asanilo/OptiScaler-Linux-NR) 保持独立仓库，
-方便分别跟进上游。模型与游戏文件由用户自行提供。
+### 实验性 Native Linux Vulkan NR Bridge
+
+NRBridge 以 Bloodborne 为实际案例，展示 **DLSS 5 Neural Rendering 如何接入原生
+Linux Vulkan 游戏**。游戏侧提供颜色、深度、运动向量和持久时域历史。
+
+```text
+原生 Linux Vulkan → GPU 资源共享 → Wine 中的 NVIDIA NGX NR Helper
+→ 持久视觉历史 → 原生 DLSS Super Resolution → 显示
+```
+
+游戏和渲染接入在 Linux 原生运行；神经推理目前通过 Wine 使用 NVIDIA 的 Windows
+NGX 运行时，专有 NR 模型并非原生 Linux 实现。
+
+独立 Helper 的源码已从冻结的 OptiScaler-Linux-NR 快照迁入 [`nrbridge/`](nrbridge/README.md)，
+仍独立编译、跨进程运行。它的源码、版本化协议、GPU 同步和时域接入可供研究 Linux
+Neural Rendering 互操作的开发者参考。游戏与模型文件由用户自行提供。
+
+参见 [架构与 Helper 构建](nrbridge/README.md)、[Native 构建](tools/nr_dev/README.md)、
+[迁移和实机验证](docs/NRBRIDGE_MIGRATION.md)、[许可边界](nrbridge/LICENSE-NOTES.md)。
 
 <a id="docs"></a>
 

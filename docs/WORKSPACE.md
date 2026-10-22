@@ -7,7 +7,7 @@
 | bloodborne-pc-dlss5-nr: `nrbridge` | Current NRBridge/0.6 development and Preview source |
 | bloodborne-pc-dlss5-nr: `master` | Retained fork mainline; not automatically switched to NRBridge |
 | bloodborne-pc-dlss5-nr: `testing` | Retained upstream-testing reference |
-| OptiScaler-Linux-NR | Independent Helper/forwarder source and protocol owner |
+| `nrbridge/` | Standalone Helper/forwarder and canonical protocol source, frozen import from OptiScaler |
 | `upstream` remote | Original bbport history; retained for future normal merges |
 
 There are three retained local/Fork Native branches. Upstream 8185b88 and
@@ -20,7 +20,7 @@ longer required: its adapted implementation is in current source, and its origin
 candidate source/tests and unique evidence were verified and retained privately.
 No archive branches/tags were added for this retirement.
 
-## Helper repository snapshot
+## Upstream Helper reference snapshot (before migration)
 
 The Helper repository is inspected separately:13 local branches and2 worktrees.
 Its current `dev/nrbridge-helper-convergence-20261019` is2 commits ahead of
@@ -50,7 +50,8 @@ installed artifact is changed here.
 Build defaults are derived from the user home or checkout rather than a personal
 username. Use explicit preparation paths for a relocated checkout; an old CMake
 cache or generated environment file is not made portable merely by moving it.
-The Helper repository and online dependency root must be selected explicitly.
+The Helper subtree builds independently in this checkout; its compiler/SDK roots
+and the online dependency root can be selected explicitly. See `nrbridge/README.md`.
 
 Private defaults in Native resolve the actual UID home and fail closed on unsafe
 or conflicting paths. Explicit daily runtime selection remains distinct from the

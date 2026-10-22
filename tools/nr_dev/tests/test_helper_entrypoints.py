@@ -36,7 +36,7 @@ class HelperEntries(unittest.TestCase):
         self.assertFalse((self.root / 'inputs').exists())
         self.assertFalse((self.root / 'build').exists())
 
-    def test_helper_environment_selection_and_missing_selection(self):
+    def test_helper_environment_selection_and_local_default(self):
         environment = dict(os.environ, NR_DEV_ROOT=str(self.root),
                            NR_HELPER_ROOT=str(self.helper), PYTHONDONTWRITEBYTECODE='1')
         script = HERE / 'prepare_helper.py'
@@ -45,10 +45,9 @@ class HelperEntries(unittest.TestCase):
         self.assertEqual(selected.returncode, 0, selected.stderr)
         self.assertEqual(json.loads((self.helper / 'nrbridge/received.json').read_text()), ['--check-only'])
         environment.pop('NR_HELPER_ROOT')
-        missing = subprocess.run([sys.executable, str(script)], env=environment,
-                                 capture_output=True, text=True)
-        self.assertEqual(missing.returncode, 3)
-        self.assertIn('--helper-root or NR_HELPER_ROOT', missing.stderr)
+        # The bundled standalone subtree is the default, without an external checkout.
+        self.assertEqual(entry.HELPER, HERE.parents[1])
+        self.assertTrue((entry.HELPER / 'nrbridge/build.py').is_file())
         self.assertFalse((self.root / 'build').exists())
 
     def test_missing_helper_rejected_without_frozen_fallback(self):

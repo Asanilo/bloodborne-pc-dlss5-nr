@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 ROOT = Path(os.environ.get('NR_DEV_ROOT', os.environ.get('NRBRIDGE_HOME', str(Path.home() / 'Code/nrbridge-dev'))))
-HELPER = Path(os.environ['NR_HELPER_ROOT']) if os.environ.get('NR_HELPER_ROOT') else None
+HELPER = Path(os.environ['NR_HELPER_ROOT']) if os.environ.get('NR_HELPER_ROOT') else Path(__file__).resolve().parents[2]
 
 
 def sha(path):
@@ -24,7 +24,7 @@ def delegate(helper_root, arguments):
     script = helper_root / 'nrbridge/build.py'
     if not helper_root.is_absolute() or not script.is_file():
         raise ValueError('independent Helper repository required; select --helper-root /absolute/Helper')
-    # The Helper repository owns source, SDK selection, tests and provenance.
+    # The standalone Helper subtree owns source, SDK selection, tests and provenance.
     # Normal builds never read/re-export the historical frozen closure.
     return subprocess.run([sys.executable, str(script), *arguments], check=False).returncode
 
