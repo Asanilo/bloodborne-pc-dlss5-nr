@@ -823,6 +823,7 @@ def launch_supervised(args,signals):
   manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False);manifest['smooth_motion']=getattr(args,'smooth_motion',False)
   if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)
   atomic(run/'manifest.json',manifest)
+  if getattr(args,'experimental_fg',None)=='dlssg':dlssg_backend.validate_manifest(run,manifest)
   with (run/'game.log').open('w') as log:
    daily=getattr(args,'daily',False);capture=None
    if daily:

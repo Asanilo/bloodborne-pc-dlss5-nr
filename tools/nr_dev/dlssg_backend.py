@@ -57,7 +57,6 @@ def prepare(args,build,run,binding,runner):
             'reused_retired_prefix':args.dlssg_prefix_session,'scope':'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
     path=run/'dlssg-config.json';runner['atomic'](path,config)
     return {'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),
-            'BB_NR_NATIVE_ORIGIN_PREFIX':str(prefix),
             'BB_DLSSG_CONFIG_SHA256':hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -70,6 +69,10 @@ def validate_manifest(run,manifest):
     config=json.loads(path.read_text())
     if config['session']!=manifest['session'] or config['run']!=str(run) or config['ipc']!=env.get('BB_DLSSG_STREAM_DIR') or env.get('BB_FRAME_GEN_NATIVE')!='1':
         raise ValueError('DLSSG private scope drift')
+    # NR's owner requires its canonical per-session prefix. FG prefix reuse
+    # cannot override that independent process boundary.
+    if env.get('BB_NR_NATIVE_ORIGIN_PREFIX')!=str(Path(run)/'profile/wine-prefix'):
+        raise ValueError('DLSSG must preserve NR per-session prefix scope')
 
 
 def cleanup_cpu_slot(run,manifest,result):

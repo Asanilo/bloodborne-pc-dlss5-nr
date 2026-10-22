@@ -1,5 +1,7 @@
 """Native camera/admission CPU checks; no Vulkan device or Helper launch."""
 from pathlib import Path
+import json
+import hashlib
 import subprocess
 import tempfile
 import unittest
@@ -9,6 +11,18 @@ import runner
 
 
 class NativeDlssgTests(unittest.TestCase):
+    def test_fg_prefix_cannot_override_nr_owner_scope(self):
+        with tempfile.TemporaryDirectory() as temp:
+            run=Path(temp);path=run/'dlssg-config.json';path.write_text(json.dumps({'session':'cpu','run':str(run),'ipc':'/tmp/bb-dlssg-cpu'}))
+            env={'BB_FRAME_GEN_BACKEND':'dlssg','BB_FRAME_GEN_NATIVE':'1','BB_DLSSG_STREAM_CONFIG':str(path),
+                 'BB_DLSSG_CONFIG_SHA256':hashlib.sha256(path.read_bytes()).hexdigest(),'BB_DLSSG_STREAM_DIR':'/tmp/bb-dlssg-cpu',
+                 'BB_NR_NATIVE_ORIGIN_PREFIX':str(run/'profile/wine-prefix')}
+            manifest={'session':'cpu','environment':env}
+            runner.dlssg_backend.validate_manifest(run,manifest)
+            env['BB_NR_NATIVE_ORIGIN_PREFIX']='/another/retired/prefix'
+            with self.assertRaisesRegex(ValueError,'NR per-session prefix'):
+                runner.dlssg_backend.validate_manifest(run,manifest)
+
     def test_explicit_model_and_source_binding_required(self):
         with self.assertRaises(SystemExit):
             runner.parse_args(['start','cpu-dlssg','--daily','--fg-native','--local-inputs','/inputs','--experimental-fg','dlssg'])

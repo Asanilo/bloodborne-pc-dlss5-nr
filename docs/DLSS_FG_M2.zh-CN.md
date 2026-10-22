@@ -117,6 +117,19 @@ NRBRIDGE_HOME=/absolute/existing/nr-dev python3 tools/nr_dev/play.py \
 F8 保留 NR 场景确认/开关，原 FG 开关保留；SM、FSR FG 与 DLSSG 互斥。
 上述命令当前为可交互但有明显性能限制的 Experimental 通道，尚不是本阶段最终性能交付。
 
+### 无 validation 对照与 prefix 回归修复
+
+`m2-native-dlssg-perf-r18` 的 SR+DLSSG 片段达到约 28.5 真实 FPS、57 Present FPS，
+CPU 往返仍约 20 ms。随后尝试 NR 联动失败：M2 的 prefix 节省改动错误地覆盖了
+`BB_NR_NATIVE_ORIGIN_PREFIX`，违反既有 owner 的 `prefix == run/profile/wine-prefix`
+约束。NR 没有 spawn；准备端超时请求正常关闭。DLSSG 的 5328 条请求完成正常退休，
+但整轮未取得完整 NR 退休证据，真实全局 HOLD 保留，不能把正常 FG 退出当作全轮通过。
+
+已撤回对 NR prefix 的覆盖；FG 自己仍可复用其已退休 prefix，NR 继续使用原有每会话
+隔离目录。启动 GPU 前新增该 scope 的验证和 CPU 回归，避免启动后才发现路径错误。
+当前 boot 不再进行 GPU 验证，不清除凭据、不重写失败结果。需要修复和 CPU 验证
+完成后新的 boot 才能恢复实机。NR owner 源码和路径规则均不作放宽。
+
 ## Wine 离屏入口
 
 复用已有 GE-Proton11-7、LLVM MinGW、共享 Vulkan/NGX 头文件及一份已正常退休的私有
