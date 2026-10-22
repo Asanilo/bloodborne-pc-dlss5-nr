@@ -921,6 +921,7 @@ def parse_args(argv=None):
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG x2, or finite DLSSG input capture')
  p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental DLSSG bridge')
  p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1','gpu-dmabuf-v1'],default='mapped-v1',help='Experimental payload transport; GPU mailbox is opt-in')
+ p.add_argument('--dlssg-helper-wake',choices=['poll-v1','notify-v1'],default='poll-v1',help='GPU Helper control wake; poll-v1 retains the validated baseline')
  p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse one normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
  p.add_argument('--smooth-motion',action='store_true',help='exclusive driver-level NVIDIA Smooth Motion experiment')

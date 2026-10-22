@@ -16,6 +16,8 @@ def validate_args(args):
         return
     if not (getattr(args,'daily',False) and getattr(args,'fg_native',False)):
         raise ValueError('DLSSG requires daily --fg-native real-source binding')
+    if getattr(args,'dlssg_helper_wake','poll-v1')=='notify-v1' and getattr(args,'dlssg_transport',None)!='gpu-dmabuf-v1':
+        raise ValueError('notify-v1 requires gpu-dmabuf-v1')
     if not getattr(args,'dlssg_model',None):
         raise ValueError('DLSSG requires an explicit existing --dlssg-model path')
 
@@ -56,9 +58,9 @@ def prepare(args,build,run,binding,runner):
             'executable':str(source/'out/wine-dlssg-probe.exe'),'adapter':str(source/'out/nvngx.dll_dlssg.dll'),
             'model':state['model']['path'],'cuda':str(source/'out/nvcuda.dll'),
             'identities':{k:state[k] for k in ['model','cuda','core']},'helper_build':state['build'],
-            'transport':args.dlssg_transport,'reused_retired_prefix':args.dlssg_prefix_session,'scope':'DMA-BUF GPU mailbox; private persistent FG history; actual GPU last-use ACK' if gpu else 'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
+            'transport':args.dlssg_transport,'helper_wake':getattr(args,'dlssg_helper_wake','poll-v1') if gpu else 'poll-v1','reused_retired_prefix':args.dlssg_prefix_session,'scope':'DMA-BUF GPU mailbox; private persistent FG history; actual GPU last-use ACK' if gpu else 'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
     path=run/'dlssg-config.json';runner['atomic'](path,config)
-    return {'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),'BB_DLSSG_TRANSPORT':args.dlssg_transport,
+    return {'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),'BB_DLSSG_TRANSPORT':args.dlssg_transport,'BB_DLSSG_HELPER_WAKE':config['helper_wake'],
             'BB_DLSSG_CONFIG_SHA256':hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -77,6 +79,8 @@ def validate_manifest(run,manifest):
         raise ValueError('DLSSG transport/schema mismatch')
     if env.get('BB_DLSSG_TRANSPORT',transport if transport!='gpu-dmabuf-v1' else None)!=transport:
         raise ValueError('DLSSG sealed transport drift')
+    if config.get('helper_wake','poll-v1') not in ('poll-v1','notify-v1') or env.get('BB_DLSSG_HELPER_WAKE','poll-v1')!=config.get('helper_wake','poll-v1'):
+        raise ValueError('DLSSG sealed Helper wake drift')
     # NR's owner requires its canonical per-session prefix. FG prefix reuse
     # cannot override that independent process boundary.
     if env.get('BB_NR_NATIVE_ORIGIN_PREFIX')!=str(Path(run)/'profile/wine-prefix'):

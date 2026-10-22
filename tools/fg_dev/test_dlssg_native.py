@@ -30,6 +30,10 @@ class NativeDlssgTests(unittest.TestCase):
             runner.parse_args(['start','cpu-dlssg','--daily','--sr-only','--local-inputs','/inputs','--experimental-fg','dlssg','--dlssg-model','/model'])
         args=runner.parse_args(['start','cpu-dlssg','--daily','--fg-native','--local-inputs','/inputs','--experimental-fg','dlssg','--dlssg-model','/model'])
         self.assertTrue(args.fg_native)
+        self.assertEqual(args.dlssg_helper_wake,'poll-v1')
+        args.dlssg_helper_wake='notify-v1'
+        with self.assertRaisesRegex(ValueError,'requires gpu-dmabuf-v1'):
+            runner.dlssg_backend.validate_args(args)
 
     def test_native_camera_depth_and_inverse(self):
         root=Path(__file__).resolve().parents[2]

@@ -15,6 +15,7 @@ INPUTS = [
     'tools/fg_dev/dlssg_fixture.h',
     'tools/fg_dev/dlssg_evaluate_fixture.h',
     'tools/fg_dev/dlssg_stream.h',
+    'tools/fg_dev/dlssg_wine_wake.h',
     'tools/fg_dev/dlssg_gpu_timing.h',
     'tools/fg_dev/dlssg_mailbox_export.h',
     'gpu/upscale/dlssg_gpu_contract.h',

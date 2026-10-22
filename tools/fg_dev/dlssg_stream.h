@@ -5,6 +5,7 @@
 #include "dlssg_mailbox_export.h"
 #include "../../gpu/upscale/dlssg_gpu_contract.h"
 #include <sstream>
+#include "dlssg_wine_wake.h"
 void Probe::stream(const char* root) {
   require(snippet&&feature&&create_result==1,"created FG feature for stream");
   using J=nlohmann::json;
@@ -30,9 +31,15 @@ void Probe::stream(const char* root) {
   if(mapped)payload.Open(std::string(root)+"/slot.bin");
   const std::string session=config.at("session");require(!session.empty(),"stream session");
   auto proc_ticks=[](uint64_t pid){std::ifstream f("Z:/proc/"+std::to_string(pid)+"/stat");std::string t;std::getline(f,t);auto end=t.rfind(')');require(end!=std::string::npos,"GPU peer proc identity");std::istringstream in(t.substr(end+2));std::string v;for(unsigned k=0;k<=19;++k){require(bool(in>>v),"GPU peer proc fields");if(k==0)require(v!="Z"&&v!="X"&&v!="x","GPU peer live");if(k==19)return std::stoull(v);}return 0ull;};
+  const std::string helper_wake=config.value("helper_wake",std::string("poll-v1"));
+  require(helper_wake=="poll-v1"||helper_wake=="notify-v1","known Helper control wake");
+  DlssgWineWake control_wake;
+  if(gpu&&helper_wake=="notify-v1")control_wake.Open(root);
+  auto pause_control=[&](){control_wake.Pause();};
+  printf("DLSSG_STREAM_CONTROL_WAKE requested=%s actual=%s GPU_completion_proof=unchanged\n",helper_wake.c_str(),control_wake.Enabled()?"win32_notify":"poll_1ms");
   double peer_checked=-1000;uint64_t linux_exporter=0,exporter_ticks=0;
   auto check_peer=[&](){if(!gpu||cpu_ms()-peer_checked<250)return;require(proc_ticks(DlssgGpu::U(config,"native_pid"))==DlssgGpu::U(config,"native_start_ticks"),"GPU Native exact live process");if(linux_exporter)require(proc_ticks(linux_exporter)==exporter_ticks,"GPU Helper Linux identity");peer_checked=cpu_ms();};
-  auto wait_gpu=[&](const char* name,auto accept){auto deadline=cpu_ms()+30000;while(cpu_ms()<deadline){check_peer();if(exists(name)){auto j=read_json(name);DlssgGpu::Session(j,session);if(accept(j))return j;}Sleep(1);}throw Stop(3,std::string("GPU bounded control timeout: ")+name);};
+  auto wait_gpu=[&](const char* name,auto accept){auto deadline=cpu_ms()+30000;while(cpu_ms()<deadline){check_peer();if(exists(name)){auto j=read_json(name);DlssgGpu::Session(j,session);if(accept(j))return j;}pause_control();}throw Stop(3,std::string("GPU bounded control timeout: ")+name);};
   std::unique_ptr<FgMailboxExport> mailbox;
   if(gpu){
     atomic_text(std::string(root)+"/gpu-pid-request.json",J{{"schema",schema},{"session",session},{"exe",module(GetModuleHandleA(nullptr))},{"win_pid",GetCurrentProcessId()}}.dump()+"\n");
@@ -72,10 +79,10 @@ void Probe::stream(const char* root) {
         auto released=wait_gpu("gpu-native-released.json",[](const J&){return true;});require(DlssgGpu::Pair(released)==DlssgGpu::Pair(stop)&&DlssgGpu::B(released,"native_GPU_complete")&&DlssgGpu::U(released,"native_last_use_tick")>=last_native_tick&&DlssgGpu::U(released,"native_imported_images_owned")==0&&DlssgGpu::U(released,"native_duplicate_fd_owned")==0,"GPU Native imported images actually released");require(DlssgGpu::B(released,"native_shared_used")==bool(DlssgGpu::U(released,"native_last_use_tick")),"GPU zero-use or actual last-use proof");last_native_tick=DlssgGpu::U(released,"native_last_use_tick");mailbox->native_released=true;mailbox->destroy_released();shared_active=false;
       }break;}
 
-    if(!exists("request.json")){Sleep(1);continue;}
+    if(!exists("request.json")){pause_control();continue;}
     auto request=read_json("request.json");uint64_t next=request.at("sequence");
     if(gpu)DlssgGpu::Session(request,session);
-    if(next==sequence){Sleep(1);continue;}
+    if(next==sequence){pause_control();continue;}
     require(next==sequence+1&&request.at("schema")==schema&&request.at("session")==session,"request exact session/sequence");
     uint64_t source=request.at("source_game_frame"),previous=request.at("previous_source_game_frame"),generation=request.at("epoch");bool reset=request.at("reset");
     require(source>last_source&&previous==last_source&&generation>0&&((generation==epoch&&source==last_source+1&&!reset)||(generation>epoch&&reset)),"real source pair/epoch/reset contract");
@@ -111,12 +118,12 @@ void Probe::stream(const char* root) {
     const auto gpu_completed=cpu_ms();
     if(eligible&&!gpu){if(mapped){memcpy(payload.At(DlssgCpu::OutputOffset,DlssgCpu::ColorBytes),s.readback.mapped,DlssgCpu::ColorBytes);payload.Publish();}else write_bytes("output-color.raw",s.readback.mapped,size_t(W)*H*4);}
     J response=request;response.erase("camera");response.update(J{{"result",unsigned(result)},{"disable_word",disabled},{"eligible",eligible},{"actual_GPU_complete",true},{"output_bytes",eligible?size_t(W)*H*4:0},{"input_copy_ms",input_copied-started},{"record_fence_idle_ms",gpu_completed-input_copied},{"output_copy_ms",cpu_ms()-gpu_completed},{"helper_service_ms",cpu_ms()-started},{"native_gpu_readers",0}});
-    if(gpu){response.erase("native_gpu_readers");response.update(J{{"helper_GPU_complete",true},{"helper_serial",mailbox->serial},{"output_released",true},{"pixel_host_transfer_bytes",0}});}
+    if(gpu){response["helper_wake"]=control_wake.Enabled()?"win32_notify":"poll_1ms";response["wake_fallbacks"]=control_wake.Fallbacks();response.erase("native_gpu_readers");response.update(J{{"helper_GPU_complete",true},{"helper_serial",mailbox->serial},{"output_released",true},{"pixel_host_transfer_bytes",0}});}
     if(timing.pool){response.update(timing.Read());response.update(J{{"evaluate_record_cpu_ms",evaluate_record_ms},{"submit_cpu_ms",wait_start-submit_start},{"fence_wait_cpu_ms",idle_start-wait_start},{"device_idle_cpu_ms",idle_end-idle_start}});}
     atomic_text(std::string(root)+"/response.json",response.dump()+"\n");
     // Do not overwrite the CPU response until its exact consumer ACK (copied or discarded).
     const auto consume_deadline=cpu_ms()+30000;
-    while(true){check_peer();if(gpu)require(cpu_ms()<consume_deadline,"GPU consumed timeout; HOLD");if(exists("consumed.json")){auto ack=read_json("consumed.json");if(gpu)DlssgGpu::Session(ack,session);if(ack.at("sequence")==next){if(gpu){DlssgGpu::Consumed(ack,request,mailbox->serial);last_native_tick=DlssgGpu::U(ack,"native_last_use_tick");}require(ack.at("session")==session&&ack.at("epoch")==generation&&ack.at("source_game_frame")==source,"exact CPU consumer ACK");break;}}Sleep(1);}
+    while(true){check_peer();if(gpu)require(cpu_ms()<consume_deadline,"GPU consumed timeout; HOLD");if(exists("consumed.json")){auto ack=read_json("consumed.json");if(gpu)DlssgGpu::Session(ack,session);if(ack.at("sequence")==next){if(gpu){DlssgGpu::Consumed(ack,request,mailbox->serial);last_native_tick=DlssgGpu::U(ack,"native_last_use_tick");}require(ack.at("session")==session&&ack.at("epoch")==generation&&ack.at("source_game_frame")==source,"exact CPU consumer ACK");break;}}pause_control();}
     sequence=next;last_source=source;epoch=generation;last_request=request;
     if(sequence<=3||sequence%60==0)printf("DLSSG_STREAM_EVALUATED sequence=%llu source=%llu previous=%llu epoch=%llu result=0x%08x disable=%u service_ms=%.3f GPU_complete=1 native_presents=0\n",sequence,source,previous,epoch,unsigned(result),disabled,cpu_ms()-started);
   }

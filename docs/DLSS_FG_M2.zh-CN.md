@@ -486,3 +486,73 @@ AppImage。该数不含共享ccache的变化，不等于Btrfs物理占用。清�
 - Wine目录通知可先做CPU/文件系统PoC，再决定替换Sleep(1)；不是当前可玩版的前置条件。
 - 不增加额外真实帧缓存，不重复完整OptiScaler调查，不再为相同已通过边界反复GPU测试。
 - 基线`nrbridge@7489493`未修改；FSR子模块预先存在的dirty instrumentation保留不提交。
+
+### M2.2 单次控制路径优化实验（2026-10-23，基于69b4e13）
+
+本轮只优化Wine Helper控制唤醒，未重做mailbox、consumer ACK或Native inotify。
+先复查旧profiler和源码：`Scheduler::Finish()`是Flush→Wait(actual tick)，包含录制/
+提交及前序GPU完成，不能把8–11ms全部当作FG算法或直接删除。当前单槽在Helper响应后
+已释放输入，consumer ACK join约0.003ms；多一个slot本身不能消除同一真实帧的依赖。
+Presenter半间隔pacing保持不变，不通过突发Present制造吞吐量。更大范围的异步边界或
+跨帧流水线尚未实施，需要先单独评估延迟、所有权和退休取舍。
+
+本次选择可明确定位的CPU开销：Wine仍Sleep(1)轮询，旧数据Native响应等待比Helper
+服务多约1ms。新增`DlssgWineWake`，用Win32目录变化通知唤醒后重新扫描持久JSON。
+遵守[FindFirstChangeNotification](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirstchangenotificationa)
+和[FindNextChangeNotification](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findnextchangenotification)
+的重挂规则：先注册，扫描条件，再等待；只在实际signaled后重挂，超时重试原wait。
+通知不表示GPU完成；每个schema/session/source pair/serial及真实fence检查均保留。
+不支持或通知API失败则回退原Sleep(1)。CPU-only Linux→Wine原子替换测试65次通过，
+覆盖请求先于watch、连续rename、多个超时后继续唤醒，零fallback；中位往返0.370ms，
+P95 0.532ms，实际检查未加载Vulkan/DLSSG模块。测试自行重新编译并记录源码/产物SHA。
+
+新增`--dlssg-helper-wake poll-v1|notify-v1`，通过已封印的config传给Helper，manifest
+审计防止漂移，旧config按poll解释。**默认仍是poll-v1**：NR ON没有明确性能收益，
+不替换用户已确认手感正常的默认路径。通知仅作为独立实验选项保留：
+
+```bash
+bash out/play-dlssg.sh B --dlssg-transport gpu-dmabuf-v1 --dlssg-helper-wake notify-v1
+```
+
+同一构建、1080p Quality/Old memory、同一猎人梦境私有存档与静置相机，各10秒实际
+成功Present窗口。三个run分别为r33 poll、r34 notify、r35 FSR；每个run均采NR OFF/ON
+以及FG OFF/ON，FG OFF样本全部60真实/60 Present FPS。
+
+| 模式 | NR OFF真实/总Present FPS | NR ON真实/总Present FPS |
+|---|---:|---:|
+| FG OFF | 60.0 / 60.0 | 60.0 / 60.0 |
+| FSR 3.1 HUDless | 60.0 / 120.0 | 60.0 / 120.0 |
+| DLSS GPU poll | 49.5 / 99.1 | 45.5 / 91.0 |
+| DLSS GPU notify | 50.8 / 101.6 | 44.9 / 89.9 |
+
+| DLSS模式 | NR OFF真实帧间隔中位/P95 | NR ON真实帧间隔中位/P95 |
+|---|---:|---:|
+| poll | 19.848 / 22.701ms | 21.808 / 25.053ms |
+| notify | 19.487 / 21.797ms | 22.237 / 24.625ms |
+
+短窗口中NR OFF约+2.6%真实FPS，NR ON均值略低但尾部略好，不能宣称全场景加速。
+时序开销是更直接的结果（每窗口3–5个stage样本中位）：
+
+| 指标 | NR OFF poll→notify | NR ON poll→notify |
+|---|---:|---:|
+| Native响应等待CPU wall | 6.160→5.535ms | 5.743→5.630ms |
+| 响应等待减Helper服务（控制额外开销） | 1.471→0.878ms | 1.013→0.934ms |
+| producer Finish + 响应等待串行阻塞 | 14.914→14.326ms | 16.067→15.823ms |
+
+这些区间不是输入到屏幕延迟，不能加GPU区间推算端到端延迟。输入、DLSSG模型、source
+管理、输出路径和Present pacing未改；没有新增帧队列，也未取消任何实际GPU完成等待。
+最大剩余串行段仍是producer提交/完成与Helper实际工作。**本轮未恢复到接近60真实FPS，
+按用户要求在此次实验和回归后停止**，不自动展开更大流水线重构。
+
+r33/r34/r35均PASS_NORMAL_TEARDOWN，GPU/FD/NR/FG/Present退休及离线重审通过，无残留，
+生成/真实配对错误0。r34实际win32_notify、fallback=0，8513次生成Present。
+各run既有菜单首个real Present失败1次，生成帧无失败；本轮未改Vulkan命令或同步，
+未重新运行完整validation，已有五类问题没有被本轮宣称解决。
+40项FG CPU检查、16项审计回归、Native --test通过；最后CLI定向回归确认默认poll不变。
+统计`out/m22-helper-wake-comparison.json`，CPU通知证据`out/m22-wine-notify-cpu.json`。
+
+测试遵守原GPU独占锁及真实HOLD。测试产生的三个临时NR prefix在正常退休后，经原
+artifact-gc dry-run及其open_paths检查、独立GPU审计后回收，保留注册表快照、私有存档、
+日志和全部GPU/FD证明，回收1,976,936,694 bytes；清理后GPU审计仍通过。三个run合计
+保留288,699,239 bytes逻辑文件，不含编译缓存变化；无新分支、依赖树、AppImage或
+长期保留的新运行环境。预先存在的FSR子模块dirty instrumentation未提交。

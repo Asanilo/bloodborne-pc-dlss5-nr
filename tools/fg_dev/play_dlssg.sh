@@ -13,6 +13,7 @@ case "$preset" in
     'Validated: B, 1080p Quality, Old memory model; Hunters Dream private save.' \
     'F8: NR start/toggle. Delete: independent DLSS FG checkbox.' \
     'GPU mailbox: --dlssg-transport gpu-dmabuf-v1' \
+    'Opt-in Wine notification: --dlssg-helper-wake notify-v1 (default: poll-v1)' \
     'CPU default: mapped-v1; file fallback: --dlssg-transport files-v1'; exit 0 ;;
   *) printf '%s\n' 'Usage: bash out/play-dlssg.sh [A|B|old] [play options]' >&2; exit 2 ;;
 esac

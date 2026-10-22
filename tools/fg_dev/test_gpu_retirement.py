@@ -73,4 +73,17 @@ class GpuRetirementTests(unittest.TestCase):
             env['BB_DLSSG_TRANSPORT']=transport
             with self.assertRaisesRegex(ValueError,'transport drift'):dlssg_backend.validate_manifest(self.root,manifest)
 
+    def test_helper_wake_is_sealed_and_legacy_defaults_to_poll(self):
+        path=self.root/'dlssg-config.json'
+        cfg=dict(schema='dlssg-native-gpu-v1',session='test',run=str(self.root),ipc='/tmp/bb-dlssg-test',transport='gpu-dmabuf-v1',helper_wake='notify-v1')
+        path.write_text(json.dumps(cfg))
+        env=dict(BB_FRAME_GEN_BACKEND='dlssg',BB_FRAME_GEN_NATIVE='1',BB_DLSSG_TRANSPORT='gpu-dmabuf-v1',BB_DLSSG_HELPER_WAKE='notify-v1',
+                 BB_DLSSG_STREAM_CONFIG=str(path),BB_DLSSG_STREAM_DIR=cfg['ipc'],BB_DLSSG_CONFIG_SHA256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                 BB_NR_NATIVE_ORIGIN_PREFIX=str(self.root/'profile/wine-prefix'))
+        manifest=dict(session='test',environment=env);dlssg_backend.validate_manifest(self.root,manifest)
+        env['BB_DLSSG_HELPER_WAKE']='poll-v1'
+        with self.assertRaisesRegex(ValueError,'Helper wake drift'):dlssg_backend.validate_manifest(self.root,manifest)
+        del cfg['helper_wake'];path.write_text(json.dumps(cfg));env['BB_DLSSG_CONFIG_SHA256']=hashlib.sha256(path.read_bytes()).hexdigest()
+        del env['BB_DLSSG_HELPER_WAKE'];dlssg_backend.validate_manifest(self.root,manifest)
+
 if __name__=='__main__':unittest.main()
