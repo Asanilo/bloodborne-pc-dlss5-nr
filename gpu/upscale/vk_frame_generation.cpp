@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "upscale/vk_frame_generation.h"
 #include "upscale/frame_generation_lifecycle.h"
+#include "upscale/frame_generation_contract.h"
 #include "bbport_toggles.h"
 
 #include <atomic>
@@ -272,7 +273,9 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 
 void FrameGeneration::CaptureScene(const Scene& in) {
     scene_captured = false;
-    if (!Wanted() || !EnsureContext(in.render_width, in.render_height, in.width, in.height,
+    if (!Wanted() || !in.depth || !in.motion || !in.width || !in.height ||
+        !in.render_width || !in.render_height ||
+        !EnsureContext(in.render_width, in.render_height, in.width, in.height,
                                     in.color_format)) {
         reset_next = true;
         return;
@@ -385,13 +388,23 @@ void FrameGeneration::CaptureScene(const Scene& in) {
 }
 
 
+bool FrameGeneration::BindSceneColor(vk::Image color, vk::Format format, u32 width, u32 height,
+                                     u64 source) {
+    if (!Wanted() || !scene_captured || !color || scene.color || scene.source_game_frame != source ||
+        scene.color_format != format || scene.width != width || scene.height != height) return false;
+    scene.color = color;
+    std::printf("FG_NATIVE_BIND source_game_frame=%llu fg_frame=%llu output=%ux%u hdr_SR=1\n",
+        (unsigned long long)source, (unsigned long long)scene_id, width, height);
+    return true;
+}
+
 void FrameGeneration::CaptureHudless(vk::Image color) {
     static const bool enabled = [] {
         const char* value = std::getenv("BB_FRAME_GEN_HUDLESS");
         return value && value[0] == '1';
     }();
     if (!enabled) return;
-    if (!scene_captured || color != scene.color || hudless_ready) {
+    if (!color || !scene.color || !scene_captured || color != scene.color || hudless_ready) {
         return;
     }
     if (!hudless) {
@@ -435,9 +448,11 @@ void FrameGeneration::CaptureHudless(vk::Image color) {
 
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     Stats();
-    if (!Wanted() || !scene_captured || color != scene.color || (!context && !context316)) {
+    if (!FgContract::CanInterpolate(Wanted(), scene_captured, color, scene.color,
+                                    context || context316)) {
         std::scoped_lock lock{targets_mutex};
         for (auto& [address, target] : targets) target.ready = false;
+        reset_next = true;
         return;
     }
     ++stat_interpolated;
@@ -458,8 +473,8 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     {
         std::scoped_lock lock{targets_mutex};
         // One output for all display buffers: the interpolation, the display pass and the
-        // presenter's encode are all in the draw stream's order. `display` is the UI target.
-        (void)display;
+        // presenter's encode are all in the draw stream's order. Bind the destination even
+        // though storage is shared: another VideoOut address cannot consume this output.
         target = &targets[0];
         if (!target->image || target->format != scene.color_format || target->width != scene.width ||
             target->height != scene.height) {
@@ -495,6 +510,8 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
         // frame after a reset has nothing before it to interpolate from.
         target->ready = !reset;
         target->frame = id;
+        target->source_game_frame = scene.source_game_frame;
+        target->display = display;
         target->recorded = std::make_shared<std::atomic<bool>>(false);
         if (target->ready) ++stat_ready;
     }
@@ -653,16 +670,21 @@ bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
         return false;
     }
     std::scoped_lock lock{targets_mutex};
-    (void)display;
     const auto it = targets.find(0);
     if (it == targets.end() || !it->second.ready) {
         ++stat_missed;
         return false;
     }
-    ++stat_taken;
     Target& t = it->second;
-    out = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame, t.recorded};
-    t.ready = false;
+    t.ready = false; // including a rejected destination: never leave stale output for later
+    if (t.display != display) {
+        ++stat_missed;
+        reset_next = true;
+        return false;
+    }
+    ++stat_taken;
+    out = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame, t.recorded,
+           t.source_game_frame};
     return true;
 }
 

@@ -47,7 +47,7 @@ public:
 
     /// What the scene of this frame was rendered with (render size: depth and motion).
     struct Scene {
-        vk::Image color;   ///< output size, the upscaled scene (UI not drawn yet), General
+        vk::Image color;   ///< output-size General; native HDR route binds LDR later at UI
         vk::Format color_format;
         u32 width, height; ///< output size
         vk::Image depth;   ///< render size, General
@@ -58,11 +58,14 @@ public:
         float frame_ms;
         float camera_near, camera_far, vertical_fov;
         bool reset;
+        u64 source_game_frame; ///< Real renderer source only; never advanced by Present.
         /// The camera in the world (FSR's frame interpolation uses them).
         float camera_position[3], camera_up[3], camera_right[3], camera_forward[3];
     };
     /// End of the upscaler's scaled run (recording thread): keeps the HUD-less copy and the inputs.
     void CaptureScene(const Scene& scene);
+    /// Native HDR SR captures guides before tonemapping; bind its finished LDR target at UI.
+    bool BindSceneColor(vk::Image color, vk::Format format, u32 width, u32 height, u64 source);
 
     /// The first UI draw of the frame is about to run over `color` (the scene's image): what it
     /// holds now is the frame without its UI, post processing included (recording thread).
@@ -81,6 +84,7 @@ public:
         u32 width, height;
         u64 frame;
         std::shared_ptr<std::atomic<bool>> recorded;
+        u64 source_game_frame;
     };
     bool TakeOutput(VAddr display, Output& out);
 
@@ -124,6 +128,8 @@ private:
         vk::Format format{};
         u32 width = 0, height = 0;
         u64 frame = 0;
+        u64 source_game_frame = 0;
+        VAddr display = 0;
         bool ready = false;
         std::shared_ptr<std::atomic<bool>> recorded;
     };
