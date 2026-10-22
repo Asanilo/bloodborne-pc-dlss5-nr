@@ -45,6 +45,53 @@ A/B/旧模型分别选择对应封存 JSON；不要在运行中替换 DLL。`--c
 `out/play-integration.sh` 是被 `.gitignore` 的私人实验脚本，含机器路径及特定检查点，
 不作为公开入口。M1 公开入口为 `tools/nr_dev/play-m1.sh`，无需复制它或依赖其路径。
 
+## M1 合流后回归（2026-10-22）
+
+合并提交 `33ee709` 保留 `abf1b61` 及全部 FG/NR 原始历史与作者；
+`d0e385a` 撤销急转抑制。实际 GPU 构建为 `034a2d3`，构建源码差异为零。
+后续记录和空间整理不视作另一次 GPU 验收。
+
+- 现有 `out/` 增量构建及 Native 测试通过；302 项开发、58 项前端/打包、11 项 FG
+  CPU 回归通过。没有复制依赖、创建 worktree 或制作 AppImage。
+- 公开 `play-m1.sh` 在 RTX 4060 Laptop 载入原猎人梦境检查点的私有副本，
+  1080p Quality / Old memory / 310.9.16 SF B / HUDless FSR 3.1，无急转抑制。
+  模型请求和 readback 均为 2；内部权重不可读，不声称反查了权重文件。
+
+| 同一会话的实际 Present 捕获 | 真实 / 生成 | SR 输入 |
+|---|---:|---|
+| NR + SR + FG，短转镜 | 8 / 8 | NR cache |
+| 真实 F8 关闭 NR，FG 保持 | 8 / 8 | raw |
+| 恢复 NR、独立关闭 FG | 16 / 0 | NR cache |
+| 恢复 FG | 8 / 8 | NR cache |
+
+四段均无额外 SR reset。完成 851 次 Evaluate/Resolve（847 captured、4 obsolete），
+Feature 创建/释放各一次；rc0、无残留、无 watchdog/监督中断。
+NR 审核为 `PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP`，FG draw/Present 实际 GPU
+完成和资源释放证明齐全。全局 receipt 正常 retired；原检查点 SHA 与安装的
+current/previous 链接未变。64 帧捕获无损转 PNG 并逐字节回解核验。
+这是有针对性的功能和生命周期回归，不是植被伪影修复、画质或新 validation 全净验收。
+私人完整记录保留在 `out/m1-maintenance/` 和对应受管 run，未提交到公开源码。
+
+## 分支与工作空间收敛
+
+删除已完整合入的本地 `fg`（原 `05aecdf`）与 `integration/nr-sr-fg`（原 `abf1b61`）。
+远端实查没有这两条分支；没有 reset、force push 或历史改写。
+本地 `archive/m1-fsr-experiments` 标签指向 `abf1b61`，只作为实验恢复点，
+包含已弃用 guard，不作为默认运行基线。FSR 3.1.6 源码及显式实验选项仍在 `nrbridge`。
+
+FG 会话要求保留其 worktree 目录，因此只原地 detach 到 `abf1b61`，不移除目录。
+原始 `fg-evidence`、根目录图证/记录/脚本/产物 SHA 和子模块既有诊断补丁保留原路径；
+已拒绝的 guard 构建缓存被回收，历史 manifest 不改写，也不再声称原二进制仍可原地核验。
+后续开发只使用 NR 的一份可变构建；workspace-init 不再默认重建 FG 分支/worktree。
+
+先运行 `scripts/artifact-gc.py` dry-run，再用其删除与进程保护函数生成/核对精确清单，
+回收正常退休会话的 Wine prefix、两类缓存及旧 guard 构建，共65项、约7.06 GB逻辑大小。
+三个 HOLD 会话原样保留；所有存档/备份、配置、日志、截图、旧模型基线、Helper/模型、
+共享依赖和稳定安装保留。清理前后1071个受保护文件 SHA 完全一致。
+`du -s -B1` 工作区占用约21.89→15.80 GB（净减6.09 GB），含本轮新构建及验证数据。
+文件系统 df 受 Btrfs 压缩、共享及同期写入影响，约125.03→122.51 GB，不能与目录逻辑
+大小混算。未制作大型归档或公开二进制；既有许可兼容问题仍须在发布前解决。
+
 ## 接口与不变量
 
 - 原 `!frame_generation` 门限保护的是 HDR 原生 Pre-SR 域。只有显式原生 FG 路径，且

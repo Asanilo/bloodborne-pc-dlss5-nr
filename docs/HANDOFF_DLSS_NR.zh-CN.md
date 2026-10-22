@@ -39,3 +39,16 @@ Release/Baseline 与日常开发分离：`bash scripts/release-build.sh --id <id
 迁移来源闭包见 `nrbridge/migration.json`；许可边界与既有协议头问题见
 [nrbridge/LICENSE-NOTES.md](../nrbridge/LICENSE-NOTES.md)。旧模型实际运行确认后再推进新版，
 不以构建结果代替 GPU 验证。
+
+## M1 合流基线
+
+NR + DLSS SR + HUDless FSR FG x2 已功能性成功并合入 `nrbridge`。
+公开实验入口为 `tools/nr_dev/play-m1.sh PROFILE.json`，追加 `--fg` 显式启用 FG，
+追加 `--sr-only` 关闭 NR；完整启动器增加独立、默认关闭的 Experimental FSR FG 开关。
+310.9.16 Preset A/B 和旧模型回退继续使用独立封存配置。
+FG 生成帧的植被空间漂移仍存在，画质尚未验收；急转抑制方案已舍弃。
+下一阶段方向为 NVIDIA DLSS FG，FSR 保留为可选后端，本轮不自动继续开发。
+
+FG/integration 开发引用已收敛，原始历史和最小实验恢复标签保留。
+FG worktree 目录因会话需要保留为 detached checkout；不要自动重建旧分支或删除其证据。
+[合流、实际回归与清理记录](NR_SR_FG_INTEGRATION.zh-CN.md)。

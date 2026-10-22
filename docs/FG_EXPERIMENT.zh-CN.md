@@ -1,3 +1,7 @@
+> M1：本文保留独立 FG 开发过程。完整成果现已合入 `nrbridge`，旧开发分支引用已删除；
+> FSR FG 仍为可选 Experimental 后端，植被漂移尚未修复。
+> 当前入口与实际回归见 [M1 集成说明](NR_SR_FG_INTEGRATION.zh-CN.md)。
+
 # Linux Vulkan FG 实验线
 
 NR + DLSS SR + HUDless FG 的当前可玩集成位于独立分支 `integration/nr-sr-fg`，
