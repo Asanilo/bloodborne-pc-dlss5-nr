@@ -10,7 +10,7 @@ from build_wine_probe import identity, source_identity
 from wine_probe_result import evaluate_status
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('session');p.add_argument('--local-inputs',required=True);p.add_argument('--snippet',action='store_true');p.add_argument('--cuda-interop',action='store_true');p.add_argument('--evaluate-fixture',action='store_true');p.add_argument('--game-inputs');p.add_argument('--reuse-inputs',action='store_true');p.add_argument('--stream-fixture',action='store_true');p.add_argument('--model',default='/usr/lib/nvidia/wine/nvngx_dlssg.dll');p.add_argument('--prefix-session',default='m2-sm-1080q-r1');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('session');p.add_argument('--local-inputs',required=True);p.add_argument('--snippet',action='store_true');p.add_argument('--cuda-interop',action='store_true');p.add_argument('--evaluate-fixture',action='store_true');p.add_argument('--game-inputs');p.add_argument('--reuse-inputs',action='store_true');p.add_argument('--stream-fixture',action='store_true');p.add_argument('--transport',choices=['files-v1','mapped-v1'],default='files-v1');p.add_argument('--model',default='/usr/lib/nvidia/wine/nvngx_dlssg.dll');p.add_argument('--prefix-session',default='m2-sm-1080q-r1');a=p.parse_args()
  r=runner.checked_run(a.session);assert not r.exists()
  binding=runner.runtime_inputs.load(a.local_inputs,runner.ROOT);config=binding['config'];ge=Path(config['ge_files'])
  previous=runner.checked_run(a.prefix_session);old=json.loads((previous/'result.json').read_text());assert old['status']=='PASS_NORMAL_TEARDOWN';peer_retirement.audit_session(previous)
@@ -35,7 +35,10 @@ def main():
   if a.stream_fixture:
    assert a.game_inputs and a.evaluate_fixture
    env['FG_POC_STREAM']='1'
-   runner.atomic(ipc/'stream-config.json',{'schema':'dlssg-cpu-stream-v1','session':a.session})
+   if a.transport=='mapped-v1':
+    import cpu_slot
+    with cpu_slot.mapping(ipc,create=True):pass
+   runner.atomic(ipc/'stream-config.json',{'schema':'dlssg-cpu-stream-v1','session':a.session,'transport':a.transport})
   artifacts={'executable':identity(exe),'core':identity('/usr/lib/nvidia/wine/_nvngx.dll'),'wine':identity(ge/'lib/wine/x86_64-unix/wine')}
   if a.game_inputs:
    assert a.evaluate_fixture
@@ -59,7 +62,7 @@ def main():
    responses=None;stream_terminal=None
    if a.stream_fixture:
     import stream_fixture
-    try:responses=stream_fixture.drive(ipc,game_record,a.session,child)
+    try:responses=stream_fixture.drive(ipc,game_record,a.session,child,a.transport)
     except BaseException as error:
      guard.hold(receipt)
      runner.atomic(r/'control-hold.json',{'error':str(error),'forced_GPU_retirement':False,'child_pid':child.pid})

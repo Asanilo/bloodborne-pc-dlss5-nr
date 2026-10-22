@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // CPU single-slot transport. GPU images are private to this process, never shared.
+#include "../../gpu/upscale/dlssg_cpu_slot.h"
 void Probe::stream(const char* root) {
   require(snippet&&feature&&create_result==1,"created FG feature for stream");
   using J=nlohmann::json;
@@ -16,6 +17,10 @@ void Probe::stream(const char* root) {
   auto write_bytes=[&](const char* name,const void* data,size_t bytes){FILE* f=fopen((std::string(root)+"/"+name).c_str(),"wb");require(f,"stream output open");bool ok=fwrite(data,1,bytes,f)==bytes;ok=fclose(f)==0&&ok;require(ok,"stream output complete write");};
   auto read_bytes=[&](const char* name,void* data,size_t bytes){FILE* f=fopen((std::string(root)+"/"+name).c_str(),"rb");require(f,"stream input open");bool ok=fread(data,1,bytes,f)==bytes;ok=fgetc(f)==EOF&&ok;ok=fclose(f)==0&&ok;require(ok,"stream input exact length");};
   const auto config=read_json("stream-config.json");require(config.at("schema")=="dlssg-cpu-stream-v1","stream config schema");
+  const std::string transport=config.value("transport",std::string("files-v1"));
+  require(transport=="files-v1"||transport=="mapped-v1","known CPU stream transport");
+  const bool mapped=transport=="mapped-v1";DlssgCpu::MappedSlot payload;
+  if(mapped)payload.Open(std::string(root)+"/slot.bin");
   const std::string session=config.at("session");require(!session.empty(),"stream session");
   fixture=std::make_unique<FgFixture>(device,physical,command,gdpa,i<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties"));auto& g=*fixture;
   constexpr unsigned W=1920,H=1080,RW=1280,RH=720;
@@ -33,7 +38,7 @@ void Probe::stream(const char* root) {
   for(auto k:{"DLSSG.HUDLess","DLSSG.UI","DLSSG.UIAlpha","DLSSG.OutputReal","DLSSG.BidirectionalDistortionField"})ptr(k,nullptr);
   std::array<float,16> identity{};for(unsigned k=0;k<4;++k)identity[k*5]=1;ptr("DLSSG.ClipToLensClip",identity.data());
   api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),"stream initialization idle");
-  atomic_text(std::string(root)+"/stream-ready.json",J{{"schema","dlssg-cpu-stream-v1"},{"session",session},{"actual_GPU_complete",true},{"private_image_sets",2},{"native_gpu_readers",0}}.dump()+"\n");
+  atomic_text(std::string(root)+"/stream-ready.json",J{{"schema","dlssg-cpu-stream-v1"},{"session",session},{"transport",transport},{"actual_GPU_complete",true},{"private_image_sets",2},{"native_gpu_readers",0}}.dump()+"\n");
   uint64_t sequence=0,last_source=0,epoch=0;bool initialized[2]{};
   while(true){
     if(exists("stream-stop.json")){auto stop=read_json("stream-stop.json");require(stop.at("session")==session&&stop.at("sequence")==sequence,"stop exact consumed sequence");break;}
@@ -43,8 +48,14 @@ void Probe::stream(const char* root) {
     require(next==sequence+1&&request.at("schema")=="dlssg-cpu-stream-v1"&&request.at("session")==session,"request exact session/sequence");
     uint64_t source=request.at("source_game_frame"),previous=request.at("previous_source_game_frame"),generation=request.at("epoch");bool reset=request.at("reset");
     require(source>last_source&&previous==last_source&&generation>0&&((generation==epoch&&source==last_source+1&&!reset)||(generation>epoch&&reset)),"real source pair/epoch/reset contract");
+    require(request.value("transport",std::string("files-v1"))==transport,"exact CPU transport request");
     const double started=cpu_ms();auto& s=slots[sequence%2];
-    read_bytes("input-color.raw",s.color_upload.mapped,size_t(W)*H*4);read_bytes("input-depth.raw",s.depth_upload.mapped,size_t(RW)*RH*4);read_bytes("input-motion.raw",s.motion_upload.mapped,size_t(RW)*RH*4);
+    if(mapped){
+      payload.Acquire();
+      memcpy(s.color_upload.mapped,payload.At(DlssgCpu::ColorOffset,DlssgCpu::ColorBytes),DlssgCpu::ColorBytes);
+      memcpy(s.depth_upload.mapped,payload.At(DlssgCpu::DepthOffset,DlssgCpu::GuideBytes),DlssgCpu::GuideBytes);
+      memcpy(s.motion_upload.mapped,payload.At(DlssgCpu::MotionOffset,DlssgCpu::GuideBytes),DlssgCpu::GuideBytes);
+    }else{read_bytes("input-color.raw",s.color_upload.mapped,size_t(W)*H*4);read_bytes("input-depth.raw",s.depth_upload.mapped,size_t(RW)*RH*4);read_bytes("input-motion.raw",s.motion_upload.mapped,size_t(RW)*RH*4);}
     const auto input_copied=cpu_ms();
     std::array<std::array<float,16>,4> matrices{};const auto& m=request.at("camera");
     const char* source_keys[]={"camera_view_to_clip","clip_to_camera_view","clip_to_previous_clip","previous_clip_to_clip"};const char* target_keys[]={"DLSSG.CameraViewToClip","DLSSG.ClipToCameraView","DLSSG.ClipToPrevClip","DLSSG.PrevClipToClip"};
@@ -64,7 +75,7 @@ void Probe::stream(const char* root) {
     inflight=true;g.safe=false;api(d<PFN_vkQueueSubmit>("vkQueueSubmit")(queue,1,&submit,fence),"stream submit");api(d<PFN_vkWaitForFences>("vkWaitForFences")(device,1,&fence,VK_TRUE,10000000000ull),"stream actual GPU fence");inflight=false;g.safe=true;api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),"stream actual device idle");initialized[sequence%2]=true;
     unsigned disabled=0;memcpy(&disabled,s.disabled.mapped,4);bool eligible=result==1&&(disabled&255)==0;
     const auto gpu_completed=cpu_ms();
-    if(eligible)write_bytes("output-color.raw",s.readback.mapped,size_t(W)*H*4);
+    if(eligible){if(mapped){memcpy(payload.At(DlssgCpu::OutputOffset,DlssgCpu::ColorBytes),s.readback.mapped,DlssgCpu::ColorBytes);payload.Publish();}else write_bytes("output-color.raw",s.readback.mapped,size_t(W)*H*4);}
     J response=request;response.erase("camera");response.update(J{{"result",unsigned(result)},{"disable_word",disabled},{"eligible",eligible},{"actual_GPU_complete",true},{"output_bytes",eligible?size_t(W)*H*4:0},{"input_copy_ms",input_copied-started},{"record_fence_idle_ms",gpu_completed-input_copied},{"output_copy_ms",cpu_ms()-gpu_completed},{"helper_service_ms",cpu_ms()-started},{"native_gpu_readers",0}});
     atomic_text(std::string(root)+"/response.json",response.dump()+"\n");
     // Do not overwrite the CPU response until its exact consumer ACK (copied or discarded).

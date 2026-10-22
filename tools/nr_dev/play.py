@@ -18,6 +18,7 @@ def parse_args(argv=None):
  p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>')
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG CPU x2, or finite input capture')
  p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental CPU bridge')
+ p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1'],default='mapped-v1',help='Experimental CPU payload transport; no shared GPU images')
  p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + NR + FG route')
  p.add_argument('--smooth-motion',action='store_true',help='driver-level NVIDIA interpolation; excludes application FG')
@@ -90,7 +91,7 @@ def launch_command(a):
  if getattr(a,'fg_native',False):command+=['--fg-native']
  if getattr(a,'fg_validation',False):command+=['--fg-validation']
  if getattr(a,'smooth_motion',False):command+=['--smooth-motion']
- if getattr(a,'dlssg_model',None):command+=['--dlssg-model',a.dlssg_model,'--dlssg-prefix-session',a.dlssg_prefix_session]
+ if getattr(a,'dlssg_model',None):command+=['--dlssg-model',a.dlssg_model,'--dlssg-prefix-session',a.dlssg_prefix_session,'--dlssg-transport',a.dlssg_transport]
  for flag in ('daily','joystick_mouse','pm4_cold_trace','pm4_producer_context','native_mouse'):
   if getattr(a,flag):command+=['--'+flag.replace('_','-')]
  return run,command

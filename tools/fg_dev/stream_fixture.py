@@ -3,6 +3,8 @@ import json
 from pathlib import Path
 import shutil
 import time
+from contextlib import nullcontext
+import cpu_slot
 
 
 def atomic(path, record):
@@ -25,7 +27,12 @@ def wait_record(run, name, process, predicate, timeout=30):
     raise RuntimeError(f'CPU control timeout waiting for {name}; no forced GPU retirement')
 
 
-def drive(run, record, session, process):
+def drive(run, record, session, process, transport="files-v1"):
+    with cpu_slot.mapping(run) if transport=="mapped-v1" else nullcontext(None) as payload:
+        return _drive(run,record,session,process,transport,payload)
+
+
+def _drive(run, record, session, process, transport, payload):
     wait_record(run,'stream-ready.json',process,
                 lambda r:r.get('session')==session and r.get('actual_GPU_complete') is True)
     previous, epoch, responses = 0, 0, []
@@ -35,10 +42,15 @@ def drive(run, record, session, process):
         if reset:
             epoch+=1
         for role in ['color','depth','motion']:
-            shutil.copyfile(frame['files'][role]['path'],run/f'input-{role}.raw')
+            if payload is None:
+                shutil.copyfile(frame['files'][role]['path'],run/f'input-{role}.raw')
+            else:
+                offset,size=cpu_slot.OFFSETS[role];data=Path(frame['files'][role]['path']).read_bytes()
+                if len(data)!=size:raise ValueError("exact mapped input length required")
+                payload[offset:offset+size]=data
         request={'schema':'dlssg-cpu-stream-v1','session':session,'sequence':sequence,'epoch':epoch,
                  'source_game_frame':frame['source_game_frame'],'previous_source_game_frame':previous,
-                 'reset':reset,'display':0,'wire_order':'game-scene-bytes','camera':frame}
+                 'reset':reset,'display':0,'transport':transport,'wire_order':'game-scene-bytes','camera':frame}
         atomic(run/'request.json',request)
         response=wait_record(run,'response.json',process,lambda r:r.get('sequence')==sequence)
         for key,value in request.items():
@@ -50,11 +62,14 @@ def drive(run, record, session, process):
             if response['result']!=1 or response['disable_word']&255 or response['output_bytes']!=1920*1080*4:
                 raise ValueError('GPU disable/output contract mismatch')
             output=run/'output-color.raw'
-            if output.stat().st_size!=1920*1080*4:
+            if payload is None and output.stat().st_size!=1920*1080*4:
                 raise ValueError('bounded output length required')
             # Preserve just the same first three eligible images for the format/transport comparison.
             if n<4:
-                shutil.copyfile(output,run/f'stream-{n}-interp-1920x1080.raw')
+                if payload is None:shutil.copyfile(output,run/f'stream-{n}-interp-1920x1080.raw')
+                else:
+                    offset,size=cpu_slot.OFFSETS['output']
+                    (run/f'stream-{n}-interp-1920x1080.raw').write_bytes(payload[offset:offset+size])
         atomic(run/'consumed.json',{'session':session,'sequence':sequence,'epoch':epoch,
                                    'source_game_frame':frame['source_game_frame'],
                                    'disposition':'offline inspected CPU output; no Native GPU reader'})

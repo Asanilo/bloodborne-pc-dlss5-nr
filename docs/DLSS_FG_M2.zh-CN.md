@@ -127,8 +127,29 @@ CPU 往返仍约 20 ms。随后尝试 NR 联动失败：M2 的 prefix 节省改�
 
 已撤回对 NR prefix 的覆盖；FG 自己仍可复用其已退休 prefix，NR 继续使用原有每会话
 隔离目录。启动 GPU 前新增该 scope 的验证和 CPU 回归，避免启动后才发现路径错误。
-当前 boot 不再进行 GPU 验证，不清除凭据、不重写失败结果。需要修复和 CPU 验证
-完成后新的 boot 才能恢复实机。NR owner 源码和路径规则均不作放宽。
+r18 所在 boot 停止 GPU 验证，未清除凭据、未重写失败结果。NR owner 源码和路径规则均未放宽。
+
+用户重启后的 `m2-native-dlssg-prefix-r19` 使用 `5970e99` 启动器修复、原 `085120f`
+Native 构建，已验证 NR 使用本轮规范 prefix，FG 使用 r17 的已退休 prefix。F8 正常启动
+310.9.16 SF B，实际 `cache_selected=1`，DLSSG 共 3275 条请求。FG OFF/ON、epoch
+恢复及有界转镜正常；最终 3268 次生成 Present。完整 NR/FG/Present 正常退休、无残留，
+全局凭据 retired，CPU 槽在完整审计后回收。窗口截图约 24 真实/47 Present FPS，仍有
+同步 CPU 桥性能限制，不作为最终性能交付。r19 逻辑新增约 734 MB，主要为独立 NR prefix。
+有界保留日志的 Present 配对验证保存在 `out/m2-r19-present-verification.json`。
+
+
+### CPU payload map 优化
+
+`mapped-v1` 仅把三个输入及一张输出放进约 24 MB 的私有 CPU 文件映射，不导出/共享
+GPU 图像。Native 创建 0600 固定长度槽，Wine `MapViewOfFile` 打开同一文件；双方在
+原子请求/响应和精确消费 ACK 之间复制。Helper 的两组私有 Vulkan 输入、cached 读回、
+实际 fence/idle、Release/Shutdown、Native 自有上传和 Present 退休保持原约束。
+
+`m2-wine-stream-mapped-r20` 六条实际 GPU 请求、五张有效输出、完整正常退休；保存的
+三张生成图与 r16 文件传输逐字节一致。暖请求服务约 6.3–6.5 ms，先前约 10–12 ms，
+尚不是 Native 实机性能结论。正常退役后约 24 MB 临时槽回收，持久新增约 25 MB。
+34 项 FG CPU 检查及 Native 增量构建/CPU checks 通过。Native 默认使用 mapped-v1，
+可显式 `--dlssg-transport files-v1` 回退；Native 实机验证另记。
 
 ## Wine 离屏入口
 

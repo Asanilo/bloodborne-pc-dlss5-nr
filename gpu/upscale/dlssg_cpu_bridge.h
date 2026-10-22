@@ -10,6 +10,7 @@
 #include <unistd.h>
 #include "render/native_pre_sr_spawn_log.h"
 #include "upscale/dlssg_camera.h"
+#include "upscale/dlssg_cpu_slot.h"
 #include "upscale/frame_generation_lifecycle.h"
 
 namespace Vulkan {
@@ -18,6 +19,8 @@ class DlssgCpuBridge {
     using Clock=std::chrono::steady_clock;
     std::string root,run,session,log;
     J config;
+    DlssgCpu::MappedSlot payload;
+    bool mapped=false;
     pid_t child=-1;
     int wait_status=0;
     bool reaped=false,retired=false,failed=false;
@@ -34,7 +37,9 @@ class DlssgCpuBridge {
         Need(child<0,"one DLSSG helper instance");
         struct stat st{};Need(lstat(root.c_str(),&st)==0&&S_ISDIR(st.st_mode)&&st.st_uid==getuid()&&(st.st_mode&0777)==0700,"private DLSSG CPU slot");
         Need(!std::filesystem::exists(root+"/request.json")&&!std::filesystem::exists(root+"/response.json"),"fresh DLSSG slot");
-        Atomic(root+"/stream-config.json",J{{"schema","dlssg-cpu-stream-v1"},{"session",session}});
+        mapped=config.value("transport",std::string("files-v1"))=="mapped-v1";
+        if(mapped)payload.Open(root+"/slot.bin",true);
+        Atomic(root+"/stream-config.json",J{{"schema","dlssg-cpu-stream-v1"},{"session",session},{"transport",mapped?"mapped-v1":"files-v1"}});
         const std::string ge=config.at("ge_files"),prefix=config.at("prefix"),preloader=ge+"/lib/wine/x86_64-unix/wine-preloader",wine=ge+"/lib/wine/x86_64-unix/wine";
         auto windows=[](const std::string& path){return "Z:"+path;};
         std::vector<std::string> argv{preloader,wine,config.at("executable").get<std::string>(),windows(root),ge,config.at("adapter").get<std::string>()};
@@ -45,6 +50,7 @@ class DlssgCpuBridge {
         Need(NativePreSrSpawnLog::Spawn(&child,preloader.c_str(),av.data(),ep.data(),log)==0,"DLSSG helper spawn");
         Atomic(run+"/dlssg-launch.json",J{{"schema","dlssg-cpu-stream-v1"},{"session",session},{"game_pid",getpid()},{"launcher_pid",child},{"argv",argv}});
         auto ready=Wait("stream-ready.json",[&](const J& j){return j.at("session")==session;});
+        Need(ready.value("transport",std::string("files-v1"))==(mapped?"mapped-v1":"files-v1"),"DLSSG exact CPU transport");
         Need(ready.at("schema")=="dlssg-cpu-stream-v1"&&ready.at("actual_GPU_complete")==true&&ready.at("private_image_sets")==2&&ready.at("native_gpu_readers")==0,"DLSSG real initialized private images");
         std::printf("DLSSG_CPU_BRIDGE_READY session=%s launcher_pid=%d private_image_sets=2 shared_GPU_images=0\n",session.c_str(),child);
     }
@@ -60,16 +66,23 @@ public:
             const auto started=Clock::now();reset=reset||!last_source||scene.source_game_frame!=last_source+1||(last_completed!=Clock::time_point{}&&started-last_completed>std::chrono::milliseconds(250));
             if(reset)++epoch;
             auto camera=DlssgCamera::Prepare(scene,last_source?&previous_camera:nullptr,reset);
-            WriteBytes(root+"/input-color.raw",input.ColorBytes());WriteBytes(root+"/input-depth.raw",input.DepthBytes());WriteBytes(root+"/input-motion.raw",input.MotionBytes());
+            if(mapped){
+                Need(input.ColorBytes().size()==DlssgCpu::ColorBytes&&input.DepthBytes().size()==DlssgCpu::GuideBytes&&input.MotionBytes().size()==DlssgCpu::GuideBytes,"DLSSG mapped input extents");
+                std::memcpy(payload.At(DlssgCpu::ColorOffset,DlssgCpu::ColorBytes),input.ColorBytes().data(),DlssgCpu::ColorBytes);
+                std::memcpy(payload.At(DlssgCpu::DepthOffset,DlssgCpu::GuideBytes),input.DepthBytes().data(),DlssgCpu::GuideBytes);
+                std::memcpy(payload.At(DlssgCpu::MotionOffset,DlssgCpu::GuideBytes),input.MotionBytes().data(),DlssgCpu::GuideBytes);
+                payload.Publish();
+            }else{WriteBytes(root+"/input-color.raw",input.ColorBytes());WriteBytes(root+"/input-depth.raw",input.DepthBytes());WriteBytes(root+"/input-motion.raw",input.MotionBytes());}
             const u64 next=sequence+1;
-            J request{{"schema","dlssg-cpu-stream-v1"},{"session",session},{"sequence",next},{"epoch",epoch},{"source_game_frame",scene.source_game_frame},{"previous_source_game_frame",last_source},{"reset",reset},{"display",display},{"wire_order","game-scene-bytes"},{"camera",camera.constants}};
+            J request{{"schema","dlssg-cpu-stream-v1"},{"session",session},{"sequence",next},{"epoch",epoch},{"source_game_frame",scene.source_game_frame},{"previous_source_game_frame",last_source},{"reset",reset},{"display",display},{"wire_order","game-scene-bytes"},{"transport",mapped?"mapped-v1":"files-v1"},{"camera",camera.constants}};
             Atomic(root+"/request.json",request);
             const auto response=Wait("response.json",[&](const J& j){return j.at("sequence")==next;});
             for(auto& [key,value]:request.items())if(key!="camera")Need(response.at(key)==value,"exact DLSSG response session/epoch/source-pair/display/sequence");
             Need(response.at("actual_GPU_complete")==true&&response.at("native_gpu_readers")==0,"DLSSG output actual private GPU completion");
             const bool eligible=response.at("eligible");
             if(eligible){Need(response.at("result")==1&&(response.at("disable_word").get<unsigned>()&255)==0&&response.at("output_bytes")==upload.SizeBytes(),"DLSSG GPU eligibility");
-                const auto path=root+"/output-color.raw";Need(!std::filesystem::is_symlink(path)&&std::filesystem::file_size(path)==upload.SizeBytes(),"DLSSG exact CPU output length");FILE* f=std::fopen(path.c_str(),"rb");Need(f,"DLSSG CPU output open");bool ok=std::fread(upload.mapped_data.data(),1,upload.SizeBytes(),f)==upload.SizeBytes();ok=std::fclose(f)==0&&ok;Need(ok,"DLSSG CPU output complete read");upload.Flush(0,upload.SizeBytes());}
+                if(mapped){payload.Acquire();Need(upload.SizeBytes()==DlssgCpu::ColorBytes,"DLSSG mapped output extent");std::memcpy(upload.mapped_data.data(),payload.At(DlssgCpu::OutputOffset,DlssgCpu::ColorBytes),DlssgCpu::ColorBytes);}
+                else{const auto path=root+"/output-color.raw";Need(!std::filesystem::is_symlink(path)&&std::filesystem::file_size(path)==upload.SizeBytes(),"DLSSG exact CPU output length");FILE* f=std::fopen(path.c_str(),"rb");Need(f,"DLSSG CPU output open");bool ok=std::fread(upload.mapped_data.data(),1,upload.SizeBytes(),f)==upload.SizeBytes();ok=std::fclose(f)==0&&ok;Need(ok,"DLSSG CPU output complete read");}upload.Flush(0,upload.SizeBytes());}
             Atomic(root+"/consumed.json",J{{"session",session},{"sequence",next},{"epoch",epoch},{"source_game_frame",scene.source_game_frame},{"disposition",eligible?"copied_to_Native_owned_staging":"disabled_output_discarded"}});
             sequence=next;last_source=scene.source_game_frame;previous_camera=std::move(camera);last_completed=Clock::now();
             if(sequence<=3||sequence%60==0)std::printf("DLSSG_NATIVE_OUTPUT sequence=%llu source=%llu previous=%llu epoch=%llu eligible=%u helper_ms=%.3f CPU_roundtrip_ms=%.3f display=0x%llx\n",(unsigned long long)sequence,(unsigned long long)last_source,(unsigned long long)request.at("previous_source_game_frame").get<u64>(),(unsigned long long)epoch,eligible,response.at("helper_service_ms").get<double>(),std::chrono::duration<double,std::milli>(last_completed-started).count(),(unsigned long long)display);
@@ -92,7 +105,7 @@ public:
             const std::string proof="FG_POC_RETIRED actual_GPU_complete=1 feature_released=1 core_shutdown=1 device_destroyed=1 native_readers=0";
             const auto pos=text.find(proof);Need(pos!=std::string::npos&&text.find(proof,pos+proof.size())==std::string::npos&&text.find("FG_POC_HOLD")==std::string::npos,"DLSSG actual unique Helper retirement proof");
             Atomic(run+"/dlssg-retired.json",J{{"terminal",terminal},{"launcher_pid",child},{"wait_status",wait_status},{"Native_staging_GPU_complete",true},{"shared_GPU_resources",0}});
-            retired=true;std::printf("DLSSG_CPU_BRIDGE_RETIRED helper_GPU_complete=1 feature_released=1 child_reaped=1 Native_staging_GPU_complete=1 sequence=%llu\n",(unsigned long long)sequence);
+            payload.Close();retired=true;std::printf("DLSSG_CPU_BRIDGE_RETIRED helper_GPU_complete=1 feature_released=1 child_reaped=1 Native_staging_GPU_complete=1 sequence=%llu\n",(unsigned long long)sequence);
             return true;
         }catch(const std::exception& error){failed=true;FgLifecycle::held.store(true);std::fprintf(stderr,"DLSSG_NATIVE_HOLD functional=FAIL retirement=%s\n",error.what());return false;}
     }

@@ -54,7 +54,7 @@ def prepare(args,build,run,binding,runner):
             'executable':str(source/'out/wine-dlssg-probe.exe'),'adapter':str(source/'out/nvngx.dll_dlssg.dll'),
             'model':state['model']['path'],'cuda':str(source/'out/nvcuda.dll'),
             'identities':{k:state[k] for k in ['model','cuda','core']},'helper_build':state['build'],
-            'reused_retired_prefix':args.dlssg_prefix_session,'scope':'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
+            'transport':args.dlssg_transport,'reused_retired_prefix':args.dlssg_prefix_session,'scope':'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
     path=run/'dlssg-config.json';runner['atomic'](path,config)
     return {'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),
             'BB_DLSSG_CONFIG_SHA256':hashlib.sha256(path.read_bytes()).hexdigest()}

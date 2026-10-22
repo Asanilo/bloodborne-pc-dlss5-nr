@@ -919,6 +919,7 @@ def parse_args(argv=None):
  daily_online.add_arguments(p)
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG CPU x2, or finite DLSSG input capture')
  p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental CPU bridge')
+ p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1'],default='mapped-v1',help='Experimental CPU payload transport; no shared GPU images')
  p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse one normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
  p.add_argument('--smooth-motion',action='store_true',help='exclusive driver-level NVIDIA Smooth Motion experiment')
