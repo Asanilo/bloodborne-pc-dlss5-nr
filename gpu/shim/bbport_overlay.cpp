@@ -599,7 +599,8 @@ void Menu() {
                 frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg);
     ToyPadSection();
 
-    if (BbNativeAsyncPreSr::Enabled())
+    const char* native_fg = std::getenv("BB_FRAME_GEN_NATIVE");
+    if (BbNativeAsyncPreSr::Enabled() && !(native_fg && std::strcmp(native_fg, "1") == 0))
         ImGui::TextDisabled("NR requires frame generation off; this combination is not validated.");
     ImGui::SeparatorText(BbSettings::MenuText("Temporal upscaler", "Временной апскейлер"));
     const char* upscalers[] = {

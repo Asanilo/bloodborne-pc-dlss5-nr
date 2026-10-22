@@ -47,6 +47,10 @@ DLSSG Release/Shutdown/device destroy/正常 reap、Native staging/目标与 Pre
 遮挡边缘；正常落叶/粒子不应计为错误。非致命局部伪影可保留 Experimental。
 既有 r17 Vulkan validation 类别仍未全部解决；r21 性能采样关闭 validation，不作全净结论。
 
+入口提交 `b9e9eea` 的干净构建通过 `m2-dlssg-launcher-r22` 实机启动检查，菜单显示
+DLSS x2，实际生成帧，未开启 NR。完整正常退休，CPU 槽回收；此轮只保留轻量运行记录，
+无新增完整 Wine prefix。随后仅将原“NR requires frame generation off”旧菜单提示限制于
+非 Native FG 路径，匹配现有 `BB_FRAME_GEN_NATIVE=1` 的兼容条件；不改变渲染/NR协议。
 测量及终态：`out/m2-native-dlssg-mapped-r21-samples.json`、
 `out/m2-r21-present-verification.json`、NRROOT 对应 run。r18 历史 HOLD 保留，未改写为通过。
 
