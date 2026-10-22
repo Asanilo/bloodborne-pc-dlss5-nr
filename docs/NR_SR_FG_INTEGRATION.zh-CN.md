@@ -218,3 +218,19 @@ hold的receipt补写为retired，因此继续GPU仍需新boot；不增加放行�
 
 本轮两份私有会话合计逻辑新增约2.29GiB（含HOLD保留的生成输入与raw），未另外
 复制Native/SDK/模型或打包。猎人梦境源检查点在测试后再次逐文件SHA核验未变。
+
+## 新 boot 后草片空间错误复现与可选急转保护（2026-10-22）
+
+上述旧 boot 的 HOLD 记录保持不变。新 boot `c2371c64` 的 r3～r8 均正常退休，
+跨轮转审核在实际多次轮转后通过；当前无 HOLD，也不需要再次重启。
+
+现在已在 NR 关闭时确实复现生成帧的悬空草片，前后真实帧天空干净；整帧 FSR 3.1
+及现有 FSR 3.1.6 均有此错位，不能只归因于 NR 或 HUDless 合成。实现 `734d05e`
+新增默认关闭的 `--fg-fast-turn-guard`，以现有 FG reset/输出资格逻辑在急转期间
+只 Present 真实帧，保持 GPU 任务与正常退休，稳定后恢复 x2，不修改 NR 时域历史。
+
+SR-only r7 和 Preset B 联动 r8 均实测慢转 8+8、急转 16 real、停止后 8+8。
+联动真实 SR 输入持续选用 NR 缓存，无额外 SR reset；FG 独立 off/on 正常，
+Helper/Native/FG 完整实际退休通过。详情、原始图证位置、CPU/GPU 边界与玩家验收
+命令见 [FG_GRASS_ARTIFACT.zh-CN.md](FG_GRASS_ARTIFACT.zh-CN.md)。这是可选缓解，
+尚未修复草丛运动矢量/光流根因，急转流畅度仍需人工验收。
