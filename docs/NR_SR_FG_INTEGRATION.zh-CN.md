@@ -1,6 +1,7 @@
 # NR + DLSS SR + FSR FG 集成实验
 
-状态：**第一阶段可玩 Experimental 已通过实机；GPU 构建为 `0dff031`。模糊对照已完成，见 [调查结果](FG_BLUR_INVESTIGATION.zh-CN.md)。**
+状态：**受控 GPU 测试通过；玩家人工验收待完成。当前修复构建为 `2a31955`，
+原三者联动基线为 `0dff031`。模糊对照见 [调查结果](FG_BLUR_INVESTIGATION.zh-CN.md)。**
 集成分支 `integration/nr-sr-fg` 从 FG `05aecdf` 合入 NR `47665ac`；两条已验收分支保留。
 目标配置为 1080p Quality、Old memory、NR 310.9.16 SF Preset B、HUDless FSR 3.1 x2。
 
@@ -90,7 +91,7 @@ dynamicRenderingUnusedAttachments、部分 draw layout 问题；同类别曾在�
 ## 极窄窗口故障与修复候选
 
 玩家会话 `play-20261022-134653` 在 niri 将窗口缩至极窄后，Presenter 创建帧图像
-报 `ErrorInitializationFailed`，断言退出 rc23；无 GPU 退休证明，当前 boot 进入真实
+报 `ErrorInitializationFailed`，断言退出 rc23；无 GPU 退休证明，该 boot 进入真实
 HOLD。第二次启动拒绝来自退休守卫，不是配置/存档损坏。该轮未启动 Helper。
 
 根因是非零表面（如1×894）经16:9 fit后得到1×0；原先只检查fit前的零尺寸。
@@ -98,5 +99,28 @@ HOLD。第二次启动拒绝来自退休守卫，不是配置/存档损坏。该
 同时保护旧帧resize时的letterbox目标，避免零区域blit，并一次原子发布宽高。
 
 CPU回归覆盖薄/矮/零/恢复、常规1080p/1440p、无效比例和浮点转换边界，UBSan通过。
-修复候选尚需新boot的GPU resize/恢复/正常退出实测；不能借CPU通过清除当前HOLD。
+新boot会话 `thin-window-gpu-r1` 已对修复构建 `2a31955` 实测：标题及NR+FG运行中
+将niri宽度设0（实际1×894），并将高度设0（实际829×1）；均捕获有效1×1帧，
+恢复到829×894后真实NR缓存/SR与生成Present继续运行。正常退出rc0、无残留，
+NR与FG两组实际退休证明齐全。保留日志的3758对生成/真实配对无顺序错误。
+这是受控GPU回归，不是玩家人工画质/手感验收；旧HOLD证据未清除。
 原GPU基线 `0dff031` 的常规尺寸联动验收仍保留，但它包含此极窄窗口问题。
+
+## 玩家人工验收（待完成，约5–10分钟）
+
+使用默认B、1080p Quality、Old memory，不加 `--fg-validation`。进入可操作场景后
+按F8，等待终端出现“NR已开启”。本轮仍是私有测试存档。
+
+1. 正常载入并走动，确认无黑屏、闪退或持续冻结。
+2. Delete设置里的 `Frame generation (FSR 3)` 关闭/恢复，各观察同一静态位置、
+   缓慢转镜和快速转镜。稳定游玩时FG约等于Real、Present约为两者之和，同时凭眼睛
+   判断顺滑度；菜单、读档、历史重置时FG暂时归零允许。
+3. 保持FG开启，用F8关闭/恢复NR，确认状态切换、画面继续、FG仍能工作。
+4. 实际走跑、闪避或战斗约1–2分钟，观察输入拖滞、人物/武器/遮挡边缘、HUD文字
+   与血条的重影、闪烁；记录最明显的一处问题。
+5. 游戏菜单进出、普通窗口/全屏切换、正常关闭窗口；终端应正常结束，再启动应
+   不被当前boot的pending/HOLD阻止。
+
+反馈保留：启动/NR/FG/菜单退出是否正常；FG对顺滑度的改善；静态与运动的模糊分别
+如何；输入延迟是否可接受；问题出现时的模式和本轮run路径。轻微局部伪影可记录为
+Experimental已知问题，黑屏/冻结/崩溃或退出HOLD则本轮不能通过。
