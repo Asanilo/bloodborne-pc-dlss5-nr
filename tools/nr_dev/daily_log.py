@@ -1,5 +1,6 @@
 """Bounded stdout capture for daily play; resource failures survive log rotation."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -8,6 +9,55 @@ import threading
 import time
 
 FAILURE = re.compile(rb'\b(?:HOLD|QUARANTINE)\b|NATIVE_\S*(?:HOLD|QUARANTINE|ASSOCIATION_REJECTED)|functional=FAIL|VK_ERROR_DEVICE_LOST|STOP: GPU')
+
+
+def read_completed(run):
+    """Read both retained files in stream order; never clear a failure latch.
+
+    The returned hashes identify the exact bytes parsed, not a complete historical
+    stdout trace. Earlier rotations are covered only by the persistent failure latch.
+    """
+    run = Path(run)
+
+    def regular_bytes(name):
+        path = run / name
+        if path.is_symlink() or not path.is_file():
+            raise ValueError('daily log requires regular retained input: ' + name)
+        return path.read_bytes()
+
+    state_raw = regular_bytes('game-log-state.json')
+    state = json.loads(state_raw)
+    if (not isinstance(state, dict) or state.get('schema') != 'nr-daily-game-log-v1'
+            or state.get('failure_latched') is not False or state.get('error') is not None
+            or state.get('complete') is not True):
+        raise ValueError('daily bounded log never lost a recorded failure')
+    rotations, limit, seen = (state.get(k) for k in ('rotations', 'limit_bytes', 'bytes_seen'))
+    if (type(rotations) is not int or rotations < 0 or type(limit) is not int or limit < 1024
+            or type(seen) is not int or seen < 0
+            or type(state.get('retained_files')) is not int or state['retained_files'] != 2):
+        raise ValueError('daily bounded log capture metadata required')
+    previous = run / 'game.log.1'
+    if rotations == 0 and (previous.exists() or previous.is_symlink()):
+        raise ValueError('unexpected previous daily log without a recorded rotation')
+    names = ['game.log.1', 'game.log'] if rotations else ['game.log']
+    data = {name: regular_bytes(name) for name in names}
+    if any(len(raw) > limit for raw in data.values()) or sum(map(len, data.values())) > seen:
+        raise ValueError('daily retained log exceeds recorded capture bounds')
+    # Do not add separators or deduplicate proofs: the files are consecutive
+    # stdout bytes, including any long line spanning a rotation boundary.
+    raw = b''.join(data.values())
+    if FAILURE.search(raw):
+        raise ValueError('daily retained log contains a recorded resource failure')
+    return raw.decode(errors='replace'), {
+        'schema': 'nr-daily-game-log-audit-v1',
+        'order': names,
+        'file_sha256': {name: hashlib.sha256(part).hexdigest() for name, part in data.items()},
+        'file_bytes': {name: len(part) for name, part in data.items()},
+        'state_sha256': hashlib.sha256(state_raw).hexdigest(),
+        'rotations': rotations,
+        'bytes_seen': seen,
+        'scope': 'retained stdout tail only; earlier failures remain guarded by the capture latch',
+    }
 
 
 class GameLog:
