@@ -59,3 +59,8 @@ ROI 边缘强度是灰度横纵相邻差的均值之和，用于这个固定场�
 `out/integration-source-and-blur-audit.json`；对照图为 `out/fg-blur-static-comparison.png`
 和 `out/fg-blur-hud-comparison.png`。原始顺序、身份与无损SHA位于各私有run的
 `dump/*/capture.json`、`dump/sequence-png-manifest.json`。
+
+
+2026-10-22 玩家补充：在修复构建 `2a31955` 的联动游玩中，“这次没有变模糊了”，
+手感可接受、HUD 正常。仍有植被闪烁/贴图瞬移，单列为时域局部问题继续定位，
+不因这一反馈宣称所有运动伪影均已解决。来源为 `play-20261022-141640` 与玩家录屏。
