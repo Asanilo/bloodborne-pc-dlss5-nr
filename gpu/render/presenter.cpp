@@ -24,6 +24,7 @@
 #include "textures/texture_cache.h"
 #include "upscale/vk_frame_generation.h"
 #include "upscale/frame_generation_lifecycle.h"
+#include "upscale/frame_generation_contract.h"
 #include "upscale/vk_temporal_upscaler.h"
 #include "render/rasterizer.h"
 #include "vulkan/platform.h"
@@ -384,9 +385,13 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     frame->interp_recorded.reset();
     frame->fg_frame = 0;
     FrameGeneration::Output interp{};
-    if (upscaled && upscaler.GetFrameGeneration() &&
+    if (upscaler.GetFrameGeneration() &&
         upscaler.GetFrameGeneration()->TakeOutput(cpu_address, interp) &&
-        interp.width == display.width && interp.height == display.height) {
+        interp.width == source_size.width && interp.height == source_size.height &&
+        // Native NR ledger already checks source+1, actual VideoOut address and merge tick.
+        // Only that real source may own the generated image encoded beside it.
+        (upscaled || FgContract::SameRealSource(interp.source_game_frame,
+                                               frame->c1_source_game_frame))) {
         EncodeInterpolated(frame, interp.image, interp.format, interp.width, interp.height,
                            view_info.format, encode);
         frame->interp_recorded = interp.recorded;
@@ -867,13 +872,14 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
         if (fg_audit) {
             const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count();
-            std::printf("FG_PRESENT kind=%s source_frame=%llu fg_frame=%llu ready_tick=%llu submit_tick=%llu success=%u real=%llu generated=%llu other=%llu failed=%llu cpu_monotonic_ns=%lld scope=present_return_not_scanout\n",
+            std::printf("FG_PRESENT kind=%s source_frame=%llu fg_frame=%llu ready_tick=%llu submit_tick=%llu success=%u real=%llu generated=%llu other=%llu failed=%llu cpu_monotonic_ns=%lld source_game_frame=%llu scope=present_return_not_scanout\n",
                 source ? "generated" : (!blank && is_game_frame && !is_reusing_frame ? "real" : "other"),
                 (unsigned long long)frame->c1_present_frame_number,
                 (unsigned long long)frame->fg_frame, (unsigned long long)frame->ready_tick,
                 (unsigned long long)present_submit_tick, presented,
                 (unsigned long long)present_real, (unsigned long long)present_generated,
-                (unsigned long long)present_other, (unsigned long long)present_failed, (long long)ns);
+                (unsigned long long)present_other, (unsigned long long)present_failed, (long long)ns,
+                (unsigned long long)frame->c1_source_game_frame);
         }
         if(is_game_frame&&!is_reusing_frame&&frame->runtime_capture)RuntimeCapturePresented(*frame->runtime_capture,presented);
         q0_owner.Stage(16);

@@ -287,6 +287,8 @@ extern "C" int bbgpu_init(const BbGpuConfig* config) {
             SDL_Delay(2);
         }
         LOG_INFO(Frontend, "Window closed by user");
+        // Freeze NR admission before the shared draw owner drains FG; both retain real proofs.
+        if (BbNativeAsync::OptIn() || BbNativeAsyncPreSr::Enabled()) BbNativeAsync::RequestExit();
         if (Vulkan::FgLifecycle::enabled.load()) {
             Vulkan::FgLifecycle::exit_requested.store(true);
             while (!Vulkan::FgLifecycle::Complete() && !Vulkan::FgLifecycle::held.load()) {

@@ -22,6 +22,15 @@ class FgRunnerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'daily SR-only'):
             runner.validate_daily_args(args)
 
+    def test_native_integration_is_explicit(self):
+        args = runner.parse_args(['start', 'cpu-native-fg', '--daily', '--fg-native',
+                                  '--local-inputs', '/inputs', '--experimental-fg', 'fsr31-hudless'])
+        self.assertFalse(args.sr_only)
+        self.assertTrue(args.fg_native)
+        args.experimental_fg = None
+        with self.assertRaisesRegex(ValueError, 'requires daily experimental FG'):
+            runner.validate_daily_args(args)
+
     def test_nr_no_peer_proof_is_insufficient_for_fg(self):
         with tempfile.TemporaryDirectory() as directory:
             run = Path(directory)

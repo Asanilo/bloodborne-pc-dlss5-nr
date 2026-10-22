@@ -631,8 +631,10 @@ def validate_daily_manifest(run,manifest):
 def validate_daily_args(args):
  daily_online.validate_args(args)
  daily=getattr(args,'daily',False)
- if getattr(args,'experimental_fg',None) and not (daily and getattr(args,'sr_only',False)):
-  raise ValueError('experimental FG requires daily SR-only; NR integration is not validated')
+ if getattr(args,'experimental_fg',None) and not (daily and (getattr(args,'sr_only',False) or getattr(args,'fg_native',False))):
+  raise ValueError('experimental FG requires daily SR-only or explicit --fg-native integration')
+ if getattr(args,'fg_native',False) and not (daily and getattr(args,'experimental_fg',None)):
+  raise ValueError('--fg-native requires daily experimental FG')
  if getattr(args,'fg_validation',False) and not getattr(args,'experimental_fg',None):
   raise ValueError('FG validation requires an explicit FG experiment')
  if getattr(args,'sr_only',False) and not daily:raise ValueError('SR-only selection requires daily mode')
@@ -776,10 +778,11 @@ def launch_supervised(args,signals):
    env.pop('BB_FRAME_LOG',None)
   env.update(nr);env.update(online_env);command=['bash',str(WT/'run.sh')]
   if getattr(args,'experimental_fg',None):
-   # Keep the no-peer PreSR owner/normal-exit audit intact; no arm or Helper launch.
+   # SR-only and explicit Native HDR integration retain the managed PreSR retirement audit.
    env.update(BB_FRAME_GEN='1',BB_FRAME_GEN_AUDIT='1',BB_PRESENT_MODE='Immediate',
               BB_FRAME_GEN_CONTROL=str(run/'fg-control'),
               BB_SEQUENCE_DUMP_TRIGGER=str(run/'fg-sequence-trigger'),BB_FPS_LIMIT='60')
+   if getattr(args,'fg_native',False):env['BB_FRAME_GEN_NATIVE']='1'
    env['BB_FRAME_GEN_HUDLESS']='1' if args.experimental_fg=='fsr31-hudless' else '0'
    env['BB_FRAME_GEN_BACKEND']='fsr316' if args.experimental_fg=='fsr316' else 'fsr31'
    env['BB_PRESET_FILE']=str(run/'sr-control')
@@ -883,7 +886,8 @@ def launch_supervised(args,signals):
 def parse_args(argv=None):
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--daily',action='store_true');p.add_argument('--joystick-mouse',action='store_true');p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3)
  daily_online.add_arguments(p)
- p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316'],help='native FSR FG x2; daily SR-only only')
+ p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316'],help='native FSR FG x2; daily SR-only or explicit Native HDR integration')
+ p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
  p.add_argument('--fg-validation',action='store_true',help='explicit FG core/sync validation')
  player_settings.add_arguments(p)
  a=p.parse_args(argv)

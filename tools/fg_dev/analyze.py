@@ -35,7 +35,8 @@ def analyze(text):
             if not r['fg_frame']:
                 errors.append('generated present without FG identity')
         elif r['kind'] == 'real' and previous and previous['kind'] == 'generated':
-            if r['source_frame'] != previous['source_frame'] or r['fg_frame'] != previous['fg_frame']:
+            if (r['source_frame'] != previous['source_frame'] or r['fg_frame'] != previous['fg_frame']
+                    or r.get('source_game_frame') != previous.get('source_game_frame')):
                 errors.append('generated/real identity mismatch')
             else:
                 pairs += 1

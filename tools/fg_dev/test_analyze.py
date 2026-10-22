@@ -21,6 +21,11 @@ class PresentAuditTests(unittest.TestCase):
         self.assertEqual(result['successful_presents'], {'real': 1})
         self.assertEqual(result['generated_per_real'], 0)
 
+    def test_native_real_source_must_match_inside_present_pair(self):
+        text = (row('generated', 7, 3, 1).rstrip() + ' source_game_frame=21\n' +
+                row('real', 7, 3, 2).rstrip() + ' source_game_frame=22\n')
+        self.assertEqual(analyze(text)['order_errors'], ['generated/real identity mismatch'])
+
     def test_mismatched_sources_and_duplicate_generated_are_rejected(self):
         result = analyze(row('generated', 1, 1, 1) + row('generated', 2, 2, 2) + row('real', 3, 3, 3))
         self.assertEqual(len(result['order_errors']), 2)
