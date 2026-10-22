@@ -27,6 +27,14 @@ key bindings, Chinese settings and save management—all accessible from the ful
 
 <a id="features"></a>
 
+**M1: NR + DLSS SR + FSR FG x2 is functionally playable.** FSR FG remains
+Experimental and opt-in (HUDless); HUD behavior is normal and the previous blur
+has improved. Generated frames can still show spatially drifting vegetation,
+also with NR off; visual quality is not accepted. Fast-turn FG suppression was
+rejected and removed. Next direction: NVIDIA DLSS FG, keeping FSR optional.
+See [rebuildable M1 entry and mode selection](docs/NR_SR_FG_INTEGRATION.zh-CN.md).
+No public binary release is included; existing installations stay unchanged.
+
 ## A new rendering path for Yharnam
 
 | 🟢 NR + DLSS SR | 🌙 Persistent visual history |

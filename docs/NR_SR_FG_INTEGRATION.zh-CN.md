@@ -1,25 +1,49 @@
 # NR + DLSS SR + FSR FG 集成实验
 
-状态：**受控 GPU 测试通过；玩家确认模糊消失、手感可接受、HUD 正常；NR关闭时仍有植被贴片位置错误，FG关联待验证。玩家验收构建为 `2a31955`，
-原三者联动基线为 `0dff031`。模糊对照见 [调查结果](FG_BLUR_INVESTIGATION.zh-CN.md)。**
-集成分支 `integration/nr-sr-fg` 从 FG `05aecdf` 合入 NR `47665ac`；两条已验收分支保留。
-目标配置为 1080p Quality、Old memory、NR 310.9.16 SF Preset B、HUDless FSR 3.1 x2。
+状态：**M1：NR + DLSS SR + FSR FG x2 功能性成功。三者联动可玩，
+FG 已实际生成并 Present，HUD 正常，原有模糊问题已改善；画质尚未验收。**
+
+`integration/nr-sr-fg` 的完整历史（截至 `abf1b61`）已合回主开发分支 `nrbridge`，
+保留独立 Helper、310.9.16 SF Preset A/B、旧模型回退和 FSR 3.1.6 实验后端。
+M1 配置为 1080p Quality、Old memory、NR Preset B、HUDless FSR 3.1 x2。
+FG 仍为 Experimental，需玩家显式开启；不切换已安装的 `runtime/current`。
+
+已知问题：快速大幅转镜时，FSR FG 生成帧存在植被空间漂移，NR 关闭时亦可复现。
+急转抑制 FG 没有玩家收益，已撤销 `734d05e` 代码及参数，不作为默认或可选修复。
+[植被复现记录](FG_GRASS_ARTIFACT.zh-CN.md)保留，画质尚未验收。
+下一阶段方向为 NVIDIA DLSS FG，FSR FG 保留为可选后端；本轮不启动其开发。
 
 ## 独立入口
 
-复用现有已封存的 Preset B 本地配置、Helper 和模型，不复制依赖或修改玩家安装：
+从公开源码增量构建 Native 和独立 Helper，再用用户自行准备、封存的运行时依赖启动。
+构建及私有配置准备见 [开发指南](../tools/nr_dev/README.md)和
+[Helper 构建](../nrbridge/README.md)。不提交 DLL/SDK/游戏/存档，不需要开发机路径。
 
 ```bash
+bash scripts/dev-build.sh --test
 export NRBRIDGE_HOME=/absolute/private/runtime-root
-python3 tools/nr_dev/play.py --daily --fg-native --experimental-fg fsr31-hudless \
-  --native-build "$PWD/out" --local-inputs "$NRBRIDGE_HOME/localinputs/preset-B.json"
+# NR + SR，FG 默认关闭
+bash tools/nr_dev/play-m1.sh "$NRBRIDGE_HOME/localinputs/preset-B.json"
+# 三者联动：显式开启 Experimental HUDless x2
+bash tools/nr_dev/play-m1.sh "$NRBRIDGE_HOME/localinputs/preset-B.json" --fg
+# SR-only；追加 --fg 可选择 SR + FG
+bash tools/nr_dev/play-m1.sh "$NRBRIDGE_HOME/localinputs/preset-B.json" --sr-only
 ```
 
-`--fg-native` 是显式集成选择；缺少它时 FG 仍只允许原有 SR-only 实验。
-`--sr-only` 可关闭 Helper/NR，`--fg-validation` 启用 Vulkan core/sync validation。
-Preset A/B 与旧模型沿用各自封存 local-inputs；不在会话中替换模型文件。
-F8 沿用 NR 的真实窗口开关。FG 沿用菜单及本轮私有 `fg-control` 的一次性 0/1 请求。
-只有通过现有独占锁、boot/HOLD 守卫、输入身份校验才会启动游戏。
+A/B/旧模型分别选择对应封存 JSON；不要在运行中替换 DLL。`--continue-session NAME`
+只续用正常退休的私有进度，不暗中绑定任何开发机检查点。正式选档仍由完整启动器
+走原有锁定、备份、私有副本和正常退休后同步。
+
+完整启动器新增默认关闭的 **Experimental FSR FG x2 (HUDless)** 开关；NR 独立开关
+继续存在。旧安装保持原配置，选择 FG 时需匹配重建的 M1 Native。
+游戏内 F8 开关 NR，Delete 菜单可独立切换 Experimental FSR FG。
+`--fg-validation` 可启用已有 Vulkan core/sync 检查；FSR 3.1.6 整帧 PoC 保留在底层
+`play.py --daily --sr-only --experimental-fg fsr316`，不是植被修复或 HUDless 默认。
+游戏关闭使用正常窗口关闭或 `runner.py stop SESSION`，等待监督进程及退休审核结束。
+独占 GPU 锁、boot/HOLD 守卫、身份校验和真实 GPU 末用保护继续生效。
+
+`out/play-integration.sh` 是被 `.gitignore` 的私人实验脚本，含机器路径及特定检查点，
+不作为公开入口。M1 公开入口为 `tools/nr_dev/play-m1.sh`，无需复制它或依赖其路径。
 
 ## 接口与不变量
 
@@ -132,7 +156,7 @@ Experimental已知问题，黑屏/冻结/崩溃或退出HOLD则本轮不能通�
 手感“还行”、HUD 正常；仍有植被闪烁，表现为贴图瞬移。未明确反馈的逐项开关、菜单等
 检查不自动补记为人工通过；Experimental 保留此局部画质问题。
 
-玩家提供视频 `/home/arinp/2026-10-22 14-22-35.mp4`（34.75秒，1920×1080/60fps）。
+玩家提供桌面录屏（私人原始文件保留）（34.75秒，1920×1080/60fps）。
 这是桌面录屏，游戏窗口另有缩放，且录屏不能完整保留约90次/秒的实际 Present 序列；
 不能仅靠相邻视频帧判断跳变源于 NR、SR 或 FG，须对照实际标识的真实/生成帧。
 
@@ -219,18 +243,10 @@ hold的receipt补写为retired，因此继续GPU仍需新boot；不增加放行�
 本轮两份私有会话合计逻辑新增约2.29GiB（含HOLD保留的生成输入与raw），未另外
 复制Native/SDK/模型或打包。猎人梦境源检查点在测试后再次逐文件SHA核验未变。
 
-## 新 boot 后草片空间错误复现与可选急转保护（2026-10-22）
+## 植被复现与舍弃的急转方案
 
-上述旧 boot 的 HOLD 记录保持不变。新 boot `c2371c64` 的 r3～r8 均正常退休，
-跨轮转审核在实际多次轮转后通过；当前无 HOLD，也不需要再次重启。
-
-现在已在 NR 关闭时确实复现生成帧的悬空草片，前后真实帧天空干净；整帧 FSR 3.1
-及现有 FSR 3.1.6 均有此错位，不能只归因于 NR 或 HUDless 合成。实现 `734d05e`
-新增默认关闭的 `--fg-fast-turn-guard`，以现有 FG reset/输出资格逻辑在急转期间
-只 Present 真实帧，保持 GPU 任务与正常退休，稳定后恢复 x2，不修改 NR 时域历史。
-
-SR-only r7 和 Preset B 联动 r8 均实测慢转 8+8、急转 16 real、停止后 8+8。
-联动真实 SR 输入持续选用 NR 缓存，无额外 SR reset；FG 独立 off/on 正常，
-Helper/Native/FG 完整实际退休通过。详情、原始图证位置、CPU/GPU 边界与玩家验收
-命令见 [FG_GRASS_ARTIFACT.zh-CN.md](FG_GRASS_ARTIFACT.zh-CN.md)。这是可选缓解，
-尚未修复草丛运动矢量/光流根因，急转流畅度仍需人工验收。
+NR 关闭时，整帧 FSR 3.1 和 3.1.6 均已复现：前后真实帧天空干净，
+中间生成帧有悬空草片。不能仅归因于 NR 或 HUDless。
+`734d05e` 曾试验急转时只显示真实帧，r7/r8 的生命周期联动测试通过，
+但玩家确认没有收益，M1 已撤销该实现与入口，不将其描述为修复。
+原始实验历史和必要故障证据保留，见 [植被记录](FG_GRASS_ARTIFACT.zh-CN.md)。

@@ -27,6 +27,13 @@
 
 <a id="features"></a>
 
+**M1：NR + DLSS SR + FSR FG x2 功能性成功，三者联动可玩。**
+FSR FG 仍为 Experimental，HUDless x2 需玩家显式开启；HUD 正常，原有模糊问题已改善。
+已知缺陷是生成帧植被空间漂移，关闭 NR 亦可复现，画质尚未验收。
+急转抑制 FG 没有玩家收益，已舍弃。下一阶段方向为 NVIDIA DLSS FG，FSR 保留为可选后端。
+见[可重建 M1 入口与模式选择](docs/NR_SR_FG_INTEGRATION.zh-CN.md)。
+本轮不发布正式二进制，不切换现有安装；许可证兼容问题仍需在发布前解决。
+
 ## 为亚楠加上 NR
 
 | 🟢 NR + DLSS SR | 🌙 持久视觉历史 |

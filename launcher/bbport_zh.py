@@ -1,5 +1,7 @@
 """Simplified Chinese UI text, keyed by the English fallback."""
 ZH = {
+    "Experimental FSR FG x2 (HUDless)": "实验性 FSR 插帧 x2（HUDless）",
+    "Optional; vegetation may drift in generated frames. Requires a rebuilt M1 runtime.": "可选开启；生成帧中的植被可能漂移。需要重新构建的 M1 运行时。",
     "FSR 4.1.1 DLL conversion unavailable": "暂不支持转换 FSR 4.1.1 DLL",
     "Unavailable in Preview": "预览版暂不支持",
     "FSR 4.1.1 DLL conversion is unavailable in NRBridge Preview because it uses a separate GPU workflow. With NR off, you can select FSR 3, TAA or FSR 4.1.1 with prepared resources.": "NRBridge 预览版暂不支持转换 FSR 4.1.1 DLL，该功能使用独立的 GPU 流程。关闭 NR 后，可以选择 FSR 3、TAA 或使用已准备好资源的 FSR 4.1.1。",

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Prepare the two independent development worktrees (NR and FG) without copying dependencies.
+# Prepare the active NR worktree; an extra FG worktree is opt-in after M1.
 #
 #   bash scripts/workspace-init.sh
-#   bash scripts/workspace-init.sh --nr .worktree/nrbridge --fg .worktree/fg --base nrbridge
+#   bash scripts/workspace-init.sh --with-fg --fg .worktree/fg --base nrbridge
 #
 # Each worktree gets out/deps -> main workspace out/deps (read-only shared SDK/headers), its
 # submodules checked out locally, and an ignored out/WORKSPACE.md with the build commands.
@@ -20,10 +20,12 @@ cd "$root"
 nr=.worktree/nrbridge
 fg=.worktree/fg
 base=nrbridge
+with_fg=0
 while (($#)); do
     case $1 in
         --nr) nr=$2; shift 2 ;;
-        --fg) fg=$2; shift 2 ;;
+        --with-fg) with_fg=1; shift ;;
+        --fg) fg=$2; with_fg=1; shift 2 ;;
         --base) base=$2; shift 2 ;;
         -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
         *) echo "Unknown argument: $1" >&2; exit 2 ;;
@@ -35,7 +37,7 @@ deps=$(cd out/deps && pwd -P)
 # NR is the existing nrbridge worktree; FG branches from it by default so it starts from the
 # latest playable source. Neither branch is rewritten here.
 if [[ -d $nr && ! -e $nr/.git && -z $(ls -A "$nr" 2>/dev/null) ]]; then rmdir "$nr"; fi
-if [[ -d $fg && ! -e $fg/.git && -z $(ls -A "$fg" 2>/dev/null) ]]; then rmdir "$fg"; fi
+if ((with_fg)) && [[ -d $fg && ! -e $fg/.git && -z $(ls -A "$fg" 2>/dev/null) ]]; then rmdir "$fg"; fi
 if [[ ! -d $nr/.git && ! -f $nr/.git ]]; then
     if git show-ref --verify --quiet refs/heads/nrbridge; then
         git worktree add "$nr" nrbridge
@@ -44,7 +46,7 @@ if [[ ! -d $nr/.git && ! -f $nr/.git ]]; then
         exit 1
     fi
 fi
-if [[ ! -d $fg/.git && ! -f $fg/.git ]]; then
+if ((with_fg)) && [[ ! -d $fg/.git && ! -f $fg/.git ]]; then
     if git show-ref --verify --quiet refs/heads/fg; then
         git worktree add "$fg" fg
     else
@@ -52,7 +54,9 @@ if [[ ! -d $fg/.git && ! -f $fg/.git ]]; then
     fi
 fi
 
-for wt in "$nr" "$fg"; do
+targets=("$nr")
+if ((with_fg)); then targets+=("$fg"); fi
+for wt in "${targets[@]}"; do
     wt=$(cd "$wt" && pwd -P)
     mkdir -p "$wt/out"
     if [[ ! -e $wt/out/deps ]]; then
@@ -104,6 +108,6 @@ echo 'worktrees:'
 git worktree list
 echo
 echo "NR: $nr  ($(git -C "$nr" rev-parse --short HEAD) $(git -C "$nr" branch --show-current))"
-echo "FG: $fg  ($(git -C "$fg" rev-parse --short HEAD) $(git -C "$fg" branch --show-current))"
+if ((with_fg)); then echo "FG: $fg  ($(git -C "$fg" rev-parse --short HEAD) $(git -C "$fg" branch --show-current))"; fi
 echo "build: bash $root/scripts/dev-build.sh --worktree $nr --test"
-echo "       bash $root/scripts/dev-build.sh --worktree $fg --test"
+if ((with_fg)); then echo "       bash $root/scripts/dev-build.sh --worktree $fg --test"; fi

@@ -1,3 +1,8 @@
+> M1 更新：FG/integration 完整历史已合入 `nrbridge`。下文为工作区分离时的历史记录；
+> 当前 `scripts/workspace-init.sh` 默认只检查 NR，`--with-fg` 才准备额外 FG worktree。
+> FG 会话要求保留其目录，清理不移除该 checkout。当前入口及状态见
+> [M1 集成说明](NR_SR_FG_INTEGRATION.zh-CN.md)。
+
 # 工作区与构建系统：日常增量、Release 分离和产物回收
 
 2026-10-22。本文记录本次实际清理、构建改造和 NR/FG 工作区安排；不改变任何 NR、FG

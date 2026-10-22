@@ -228,6 +228,7 @@ def daily_command(
     data_dir=None,
     nr_enabled: bool = True,
     native_mouse: bool = True,
+    experimental_fg: bool = False,
     online_pool: str = "offline",
     account_config=None,
     bbsc: bool = False,
@@ -257,6 +258,8 @@ def daily_command(
     ]
     if not nr_enabled:
         command.append("--sr-only")
+    if experimental_fg:
+        command += ["--experimental-fg", "fsr31-hudless", "--fg-native"]
     if not native_mouse:
         command.append("--joystick-mouse")
     if online_pool and online_pool != "offline":
@@ -379,5 +382,6 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
         session=session or session_name(), settings_path=settings_path, ini_path=ini_path,
         data_dir=data_dir, home_path=home_path, nr_enabled=nr_enabled,
         native_mouse=bool(settings.get("nrbridge_native_mouse", True)),
+        experimental_fg=bool(settings.get("nrbridge_fsr_fg", False)),
         online_pool=pool, account_config=account, bbsc=bbsc,
     )

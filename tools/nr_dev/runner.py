@@ -628,6 +628,13 @@ def validate_daily_manifest(run,manifest):
  daily_online.validate_manifest(run,manifest)
  if ui_start.ENVIRONMENT in environment:ui_start.validate(run,manifest)
 
+def check_fg_capability(args, build):
+ # Fail before creating a session when a launcher selects FG on an older installed runtime.
+ if not getattr(args, 'experimental_fg', None):return
+ data=(Path(build)/'gpu/libbbgpu.so').read_bytes()
+ if b'FG_EXIT_PROOF' not in data or (getattr(args,'fg_native',False) and b'BB_FRAME_GEN_NATIVE' not in data):
+  raise ValueError('Experimental FG requires a rebuilt M1 Native runtime; selected build is unsupported')
+
 def validate_daily_args(args):
  daily_online.validate_args(args)
  daily=getattr(args,'daily',False)
@@ -717,6 +724,7 @@ def launch_supervised(args,signals):
  native_mouse_scope.requested(args)
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
+ check_fg_capability(args,build)
  binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None
  ge_files=GE/'files';sysroot_lib=WT/'out/deps/root/usr/lib'
  if binding is not None:

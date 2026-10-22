@@ -11,6 +11,22 @@ import peer_retirement
 
 
 class FgRunnerTests(unittest.TestCase):
+    def test_old_installed_runtime_rejects_fg_before_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            build = Path(directory)
+            (build / 'gpu').mkdir()
+            library = build / 'gpu/libbbgpu.so'
+            library.write_bytes(b'legacy Native')
+            args = runner.parse_args(['start', 'cpu-fg', '--daily', '--fg-native',
+                                      '--local-inputs', '/inputs', '--experimental-fg', 'fsr31-hudless'])
+            with self.assertRaisesRegex(ValueError, 'rebuilt M1'):
+                runner.check_fg_capability(args, build)
+            library.write_bytes(b'FG_EXIT_PROOF BB_FRAME_GEN_NATIVE')
+            runner.check_fg_capability(args, build)
+            args.experimental_fg = None
+            library.unlink()
+            runner.check_fg_capability(args, build)
+
     def test_fg_requires_explicit_sr_only(self):
         args = runner.parse_args(['start', 'cpu-fg', '--daily', '--sr-only',
                                   '--local-inputs', '/inputs', '--experimental-fg', 'fsr31'])

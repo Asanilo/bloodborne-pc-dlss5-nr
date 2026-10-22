@@ -695,6 +695,10 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.nr_enabled_row = Adw.SwitchRow(title=tr("Enable neural rendering (NR)"),
             active=self.settings.get("nrbridge_enabled", True))
         group.add(self.nr_enabled_row)
+        self.nr_fg_row = Adw.SwitchRow(title=tr("Experimental FSR FG x2 (HUDless)"),
+            subtitle=tr("Optional; vegetation may drift in generated frames. Requires a rebuilt M1 runtime."),
+            active=self.settings.get("nrbridge_fsr_fg", False))
+        group.add(self.nr_fg_row)
         self.nr_mouse_row = Adw.SwitchRow(title=tr("Native mouse camera"),
             subtitle=tr("Turn off to use the joystick mouse compatibility path"),
             active=self.settings.get("nrbridge_native_mouse", True))
@@ -1511,6 +1515,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         if NRBRIDGE:
             s["nrbridge_gpu_id"] = self.nr_gpu_indices.get(s["gpu"]) if s["gpu"] else None
             s["nrbridge_enabled"] = self.nr_enabled_row.get_active()
+            s["nrbridge_fsr_fg"] = self.nr_fg_row.get_active()
             s["nrbridge_native_mouse"] = self.nr_mouse_row.get_active()
         s["skip_network_choice"] = self.skip_network_row.get_active()
         s["language"] = combo_value(self.language_row)

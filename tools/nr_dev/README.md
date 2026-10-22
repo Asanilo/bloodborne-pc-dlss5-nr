@@ -93,3 +93,24 @@ CONSUMED, clear HOLD or relax checks to make another run start.
 Legacy probe paths remain isolated from daily runtime roots. Source-only path
 privacy changes do not update an installed binary; a future rebuild needs its own
 identity and appropriate validation. No new GPU validation is implied here.
+
+## M1 source-built experiment
+
+After the Native and standalone Helper builds, fill and seal
+`runtime-inputs.template.json` with your own game, GE/Wine, model, forwarder,
+Helper build manifest and NGX driver/library paths. For preset A/B use schema
+`nr-local-runtime-inputs-v2` and `nr_preset: "A"` or `"B"`; select the stable model
+in a separate sealed config for rollback. The template contains no dependencies.
+
+```bash
+export NRBRIDGE_HOME=/absolute/private/runtime-root
+python3 tools/nr_dev/prepare_runtime_inputs.py --draft /absolute/private/draft.json \
+  --output "$NRBRIDGE_HOME/localinputs/preset-B.json"
+bash tools/nr_dev/play-m1.sh "$NRBRIDGE_HOME/localinputs/preset-B.json" --fg
+```
+
+Omit `--fg` for NR + SR; add `--sr-only` for SR + FG. FG defaults off and remains
+Experimental. F8 controls NR; Delete exposes the FG switch for an explicit FG
+launch. The full launcher has a separate default-off HUDless FG switch, requiring
+a matching rebuilt M1 runtime. No script updates `runtime/current`.
+[Mode selection, known vegetation drift and validation](../../docs/NR_SR_FG_INTEGRATION.zh-CN.md).

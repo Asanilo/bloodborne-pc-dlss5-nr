@@ -961,6 +961,8 @@ def daily(args) -> int:
         command += ["--player-data-dir", str(player_data)]
     if getattr(args, "sr_only", False):
         command.append("--sr-only")
+    if getattr(args, "experimental_fg", None):
+        command += ["--experimental-fg", args.experimental_fg, "--fg-native"]
     if continuation:
         command += ["--continue-session", continuation]
     if getattr(args, "joystick_mouse", False):
@@ -1048,6 +1050,10 @@ def main(argv=None) -> int:
                         help="canonical bbport.ini forwarded to play.py")
     parser.add_argument("--player-data-dir",
                         help="canonical player data directory forwarded to play.py")
+    parser.add_argument("--experimental-fg", choices=("fsr31-hudless",),
+                        help="opt-in Experimental HUDless FSR FG x2; requires a rebuilt M1 runtime")
+    parser.add_argument("--fg-native", action="store_true",
+                        help="explicit Native HDR integration (implied by --experimental-fg)")
     parser.add_argument("--sr-only", action="store_true",
                         help="do not start the Helper; the runner owns the SR-only path")
     parser.add_argument("--no-terminal", action="store_true")

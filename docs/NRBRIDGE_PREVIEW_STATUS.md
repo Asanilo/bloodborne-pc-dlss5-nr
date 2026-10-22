@@ -4,6 +4,26 @@ This is a sanitized summary. Raw logs, machine identifiers, private paths and
 saves stay in ignored development data. No historical failure is retroactively
 converted into a pass.
 
+## M1: NR + DLSS SR + FSR FG x2 functional success (2026-10-22)
+
+The verified integration history is merged into `nrbridge`. RTX 4060 Laptop gameplay
+has exercised NR 310.9.16 SF Preset B, native DLSS SR and actual generated FSR x2
+Present together at 1080p Quality / Old memory. HUD behavior is normal and the
+previous blur has improved. This is functional success; visual quality is not accepted.
+
+FG remains **Experimental and opt-in**, using the HUDless FSR 3.1 path. The launcher
+and in-game menu expose independent NR/FG switches; existing player settings and
+installed current/previous runtimes are unchanged. A/B, old-model fallback, SR-only,
+and SR + FG remain selectable. [Rebuild and launch M1](NR_SR_FG_INTEGRATION.zh-CN.md).
+
+Known issue: generated frames can place vegetation in the wrong spatial position
+during large camera turns, including with NR off. FSR 3.1.6 also reproduced it.
+The fast-turn real-only suppression experiment was rejected for lack of player
+benefit and removed. [Reproduction](FG_GRASS_ARTIFACT.zh-CN.md).
+The next direction is NVIDIA DLSS FG, retaining FSR FG as an optional backend.
+No public binary release is made; the [license issue](../nrbridge/LICENSE-NOTES.md)
+must be resolved before release.
+
 ## Standalone source migration and 310.9.16 experiment (2026-10-22)
 
 The Helper/forwarder/shader source closure is now maintained in this repository's
@@ -147,7 +167,8 @@ metadata; older accepted c91bf94 and 5635804 runtimes remain rollback references
 
 NR shading flicker, occasional valid-history drops and bright trails remain.
 Current private AppImage dependencies include GLIBC 2.44 requirements; compatibility
-with older distributions is unverified. No FG or model update is included.
+with older distributions is unverified. These installed-runtime limits are distinct
+from the source-built M1 integration above.
 
 A historical long-session failure still has unknown Native final use and remains
 HOLD in its original evidence. Reboot starts a fresh context; it does not prove

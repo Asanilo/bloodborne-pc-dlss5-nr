@@ -69,6 +69,18 @@ class AdapterTests(unittest.TestCase):
         self.assertNotIn('--bbsc', command)
         self.assertFalse(any('run.sh' in x for x in command))
 
+    def test_fg_is_opt_in_and_independent_of_nr(self):
+        for nr in (False, True):
+            settings = {'nrbridge_enabled': nr}
+            original = dict(settings)
+            plain = bridge.player_command(settings, dict(bridge.NR_INI))
+            self.assertNotIn('--experimental-fg', plain)
+            self.assertEqual(settings, original)
+            selected = bridge.player_command(dict(settings, nrbridge_fsr_fg=True), dict(bridge.NR_INI))
+            self.assertIn('--fg-native', selected)
+            self.assertEqual(selected[selected.index('--experimental-fg')+1], 'fsr31-hudless')
+            self.assertEqual('--sr-only' in selected, not nr)
+
     def test_nr_constraints_reject_without_replacing_player_choices(self):
         ini = dict(bridge.NR_INI, preset='3')
         before = dict(ini)
@@ -368,7 +380,7 @@ class EntryAndReadbackTests(unittest.TestCase):
     def test_entry_forwards_paths_without_automatic_test_continuation(self):
         home = Path('/tmp/fixture-home')
         args = argparse.Namespace(home=home, session='fixture', launcher_settings='/tmp/config/settings.json',
-            launcher_ini='/tmp/data/bbport.ini', player_data_dir='/tmp/data', sr_only=True,
+            launcher_ini='/tmp/data/bbport.ini', player_data_dir='/tmp/data', sr_only=True, experimental_fg='fsr31-hudless',
             continue_session=None, new_game=False, online_pool='offline', offline=False,
             online_account_config=None, bbsc=False, joystick_mouse=False, no_terminal=True, print_command=True)
         with mock.patch.object(Path, 'is_file', return_value=True), mock.patch.object(entry, 'ensure_runs'), \
@@ -381,6 +393,7 @@ class EntryAndReadbackTests(unittest.TestCase):
         self.assertIn('--launcher-ini /tmp/data/bbport.ini', output.getvalue())
         self.assertIn('--player-data-dir /tmp/data', output.getvalue())
         self.assertIn('--sr-only', output.getvalue())
+        self.assertIn('--experimental-fg fsr31-hudless --fg-native', output.getvalue())
 
 
 if __name__ == '__main__':

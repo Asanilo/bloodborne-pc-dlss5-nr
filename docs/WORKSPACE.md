@@ -10,7 +10,13 @@
 | `nrbridge/` | Standalone Helper/forwarder and canonical protocol source, frozen import from OptiScaler |
 | `upstream` remote | Original bbport history; retained for future normal merges |
 
-There are three retained local/Fork Native branches. Upstream 8185b88 and
+M1 merges the full FG and integration histories into `nrbridge`; their development
+branch names can be retired without losing FSR 3.1.6 or original authors.
+The FG checkout directory is retained for the existing agent session, detached at
+the pre-convergence integration snapshot, rather than recreated.
+`workspace-init.sh` now defaults to NR only; `--with-fg` is explicit.
+
+There are three long-lived local/Fork Native branches. Upstream 8185b88 and
 gameplay 7265d3b are ancestors of the NRBridge branch. No force push or history
 rewrite is part of workspace cleanup. The default branch is `nrbridge`; the earlier development branch name has been retired.
 
