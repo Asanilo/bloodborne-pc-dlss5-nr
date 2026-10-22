@@ -10,7 +10,7 @@ from build_wine_probe import identity, source_identity
 from wine_probe_result import evaluate_status
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('session');p.add_argument('--local-inputs',required=True);p.add_argument('--snippet',action='store_true');p.add_argument('--cuda-interop',action='store_true');p.add_argument('--evaluate-fixture',action='store_true');p.add_argument('--model',default='/usr/lib/nvidia/wine/nvngx_dlssg.dll');p.add_argument('--prefix-session',default='m2-sm-1080q-r1');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('session');p.add_argument('--local-inputs',required=True);p.add_argument('--snippet',action='store_true');p.add_argument('--cuda-interop',action='store_true');p.add_argument('--evaluate-fixture',action='store_true');p.add_argument('--game-inputs');p.add_argument('--reuse-inputs',action='store_true');p.add_argument('--model',default='/usr/lib/nvidia/wine/nvngx_dlssg.dll');p.add_argument('--prefix-session',default='m2-sm-1080q-r1');a=p.parse_args()
  r=runner.checked_run(a.session);assert not r.exists()
  binding=runner.runtime_inputs.load(a.local_inputs,runner.ROOT);config=binding['config'];ge=Path(config['ge_files'])
  previous=runner.checked_run(a.prefix_session);old=json.loads((previous/'result.json').read_text());assert old['status']=='PASS_NORMAL_TEARDOWN';peer_retirement.audit_session(previous)
@@ -28,7 +28,16 @@ def main():
   if a.evaluate_fixture:
    assert a.snippet and a.cuda_interop
    env['FG_POC_EVALUATE']='1'
+  if a.reuse_inputs:
+   assert a.evaluate_fixture
+   env['FG_POC_REUSE_INPUTS']='1'
   artifacts={'executable':identity(exe),'core':identity('/usr/lib/nvidia/wine/_nvngx.dll'),'wine':identity(ge/'lib/wine/x86_64-unix/wine')}
+  if a.game_inputs:
+   assert a.evaluate_fixture
+   from prepare_game_inputs import prepare
+   path=Path(a.game_inputs).resolve(strict=True);record=json.loads(path.read_text())
+   assert record==prepare(record['capture_directory']),'captured inputs changed'
+   artifacts['game_inputs']=identity(path);env['FG_POC_INPUT_MANIFEST']=str(path)
   if a.snippet:
    model=Path(a.model).resolve(strict=True);env['FG_POC_MODEL']=str(model)
    command.append(str(SOURCE/'out/nvngx.dll_dlssg.dll'))

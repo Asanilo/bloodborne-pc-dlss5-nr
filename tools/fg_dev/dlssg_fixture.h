@@ -45,13 +45,13 @@ struct FgFixture {
       : device(d), physical(p), command(c), gdpa(g) {
     m(p, &properties);
   }
-  Image image(VkFormat format, bool write) {
+  Image image(VkFormat format, bool write, uint32_t width=W, uint32_t height=H) {
     images.emplace_back();
     Image& r = images.back(); // Own partial allocation too, if a later API fails.
     VkImageCreateInfo c{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
     c.imageType = VK_IMAGE_TYPE_2D;
     c.format = format;
-    c.extent = {W, H, 1};
+    c.extent = {width, height, 1};
     c.mipLevels = c.arrayLayers = 1;
     c.samples = VK_SAMPLE_COUNT_1_BIT;
     c.tiling = VK_IMAGE_TILING_OPTIMAL;
@@ -83,7 +83,7 @@ struct FgFixture {
     r.ngx.Type = NVSDK_NGX_RESOURCE_VK_TYPE_VK_IMAGEVIEW;
     r.ngx.ReadWrite = write;
     r.ngx.Resource.ImageViewInfo = {r.view, r.image, v.subresourceRange,
-                                    format, W,       H};
+                                    format, width, height};
     return r;
   }
   Buffer buffer(uint64_t bytes) {
@@ -157,7 +157,7 @@ struct FgFixture {
     barrier(r, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     VkBufferImageCopy c{};
     c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    c.imageExtent = {W, H, 1};
+    c.imageExtent = {r.ngx.Resource.ImageViewInfo.Width,r.ngx.Resource.ImageViewInfo.Height,1};
     fn<PFN_vkCmdCopyBufferToImage>("vkCmdCopyBufferToImage")(
         command, b.buffer, r.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
         &c);
@@ -168,7 +168,7 @@ struct FgFixture {
     barrier(r, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     VkBufferImageCopy c{};
     c.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    c.imageExtent = {W, H, 1};
+    c.imageExtent = {r.ngx.Resource.ImageViewInfo.Width,r.ngx.Resource.ImageViewInfo.Height,1};
     fn<PFN_vkCmdCopyImageToBuffer>("vkCmdCopyImageToBuffer")(
         command, r.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, b.buffer, 1,
         &c);

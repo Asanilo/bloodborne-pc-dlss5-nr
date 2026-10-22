@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <nvsdk_ngx_defs_dlssg.h>
 #include <nvsdk_ngx_vk.h>
+#include <nlohmann/json.hpp>
+#include <fstream>
 
 template <class T> static T sym(HMODULE m, const char *n) {
   auto f = reinterpret_cast<T>(GetProcAddress(m, n));
@@ -22,6 +24,7 @@ static void __cdecl model_log(const char *message, int level, int source) {
   printf("FG_MODEL_LOG level=%d source=%d %s\n", level, source,
          message ? message : "<null>");
 }
+static double cpu_ms(){LARGE_INTEGER ticks,frequency;require(QueryPerformanceCounter(&ticks)&&QueryPerformanceFrequency(&frequency),"high-resolution CPU clock");return double(ticks.QuadPart)*1000./double(frequency.QuadPart);}
 struct Probe {
   HMODULE cuda{}, bridge{}, loader{}, core{}, nvapi{}, dxgi{};
   bool snippet = false, model_attempted = false;
@@ -318,6 +321,11 @@ struct Probe {
                    "DLSSG.MVecsSubrectHeight", "DLSSG.DepthSubrectHeight"})
       set(params, k, 1080);
     set(params, "DLSSG.DynamicResolution", 0);
+    if (getenv("FG_POC_INPUT_MANIFEST")) {
+      set(params,"DLSSG.InternalWidth",1280); set(params,"DLSSG.InternalHeight",720);
+      set(params,"DLSSG.MVecsSubrectWidth",1280); set(params,"DLSSG.MVecsSubrectHeight",720);
+      set(params,"DLSSG.DepthSubrectWidth",1280); set(params,"DLSSG.DepthSubrectHeight",720);
+    }
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     api(d<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(command, &bi),
         "begin create");
@@ -365,6 +373,8 @@ struct Probe {
       printf("FG_SNIPPET_SHUTDOWN result=0x%08x\n", unsigned(r));
       require(r == 1, "FG model shutdown");
     }
+    if (device) api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),
+                    "device idle after model shutdown before private images");
     if (bridge) {
       require(sym<int (*)()>(bridge, "fg_unload")() == 1, "model unload");
       require(FreeLibrary(bridge), "bridge unload");

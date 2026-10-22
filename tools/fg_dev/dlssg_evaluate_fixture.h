@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Synthetic moving-object fixture only; not a Bloodborne or Present acceptance
-// test.
+// Finite synthetic or recorded Bloodborne fixture. Never a live Present test.
 void Probe::evaluate(const char *run) {
   require(snippet && bridge && feature,
           "Evaluate needs a created direct FG feature");
@@ -48,6 +47,12 @@ void Probe::evaluate(const char *run) {
   for (unsigned j = 0; j < 64; ++j)
     require((j >= 16 && j < 24) || storage[j] == 0xa5, "pointer ABI canary");
   require(pr == 1 && pv == 0x1234567812345678ull, "pointer ABI roundtrip");
+  nlohmann::json game;
+  const char* input_path=getenv("FG_POC_INPUT_MANIFEST");
+  if(input_path){std::ifstream file(win(input_path));require(bool(file),"game input manifest open");file>>game;
+    require(game.at("schema")=="dlssg-game-input-fixture-v1"&&game.at("frames").size()==6,"finite game fixture schema");
+    puts("FG_INPUT_SCOPE captured_bloodborne=1 native_presents=0");}
+  const unsigned RW=input_path?1280:1920,RH=input_path?720:1080;
   fixture =
       std::make_unique<FgFixture>(device, physical, command, gdpa,
                                   i<PFN_vkGetPhysicalDeviceMemoryProperties>(
@@ -62,19 +67,28 @@ void Probe::evaluate(const char *run) {
   };
   std::vector<Frame> frames;
   frames.reserve(6);
+  const bool reuse_inputs=getenv("FG_POC_REUSE_INPUTS")!=nullptr;
   for (unsigned n = 0; n < 6; ++n) {
-    Frame f{g.image(VK_FORMAT_R8G8B8A8_UNORM, false),
-            g.image(VK_FORMAT_R32_SFLOAT, false),
-            g.image(VK_FORMAT_R32G32_SFLOAT, false),
+    Frame f{reuse_inputs&&n>=2?frames[n%2].color:g.image(VK_FORMAT_R8G8B8A8_UNORM, false),
+            reuse_inputs&&n>=2?frames[n%2].depth:g.image(VK_FORMAT_R32_SFLOAT, false,RW,RH),
+            reuse_inputs&&n>=2?frames[n%2].motion:g.image(VK_FORMAT_R32G32_SFLOAT, false,RW,RH),
             g.image(VK_FORMAT_R8G8B8A8_UNORM, true),
             g.buffer(pixels * 4),
-            g.buffer(pixels * 4),
-            g.buffer(pixels * 8),
+            g.buffer(size_t(RW)*RH * 4),
+            g.buffer(size_t(RW)*RH * 8),
             g.buffer(pixels * 4),
             g.buffer(4)};
     auto *color = static_cast<unsigned char *>(f.color_upload.mapped);
     auto *depth = static_cast<float *>(f.depth_upload.mapped);
     auto *motion = static_cast<float *>(f.motion_upload.mapped);
+    if(input_path){const auto& metadata=game.at("frames").at(n);
+      auto read=[&](const char* role,void* target,size_t bytes){std::string path=metadata.at("files").at(role).at("path");FILE* file=fopen(win(path).c_str(),"rb");require(file,"game raw open");bool ok=fread(target,1,bytes,file)==bytes;ok=fgetc(file)==EOF&&ok;ok=fclose(file)==0&&ok;require(ok,"game bounded raw read");};
+      read("color",color,pixels*4);read("depth",depth,size_t(RW)*RH*4);
+      std::vector<uint16_t> half(size_t(RW)*RH*2);read("motion",half.data(),half.size()*2);
+      for(size_t j=0;j<half.size();++j){unsigned h=half[j],e=(h>>10)&31,m=h&1023;require(e!=31,"finite half motion");float v=e?std::ldexp(1.f+float(m)/1024,int(e)-15):std::ldexp(float(m),-24);motion[j]=(h&32768)?-v:v;}
+      if(metadata.at("color_format")==44)for(size_t j=0;j<pixels;++j)std::swap(color[j*4],color[j*4+2]);
+      frames.push_back(f);continue;
+    }
     const unsigned left = 300 + n * 32;
     for (unsigned y = 0; y < H; ++y)
       for (unsigned x = 0; x < W; ++x) {
@@ -156,8 +170,12 @@ void Probe::evaluate(const char *run) {
     ui(k, 0);
   fp("DLSSG.MvecInvalidValue", 3.402823466e38f);
   fp("DLSSG.MinRelativeLinearDepthObjectSeparation", 40.f);
+  if(input_path){for(auto k:{"DLSSG.MVecsSubrectWidth","DLSSG.DepthSubrectWidth","DLSSG.InternalWidth"})ui(k,RW);
+    for(auto k:{"DLSSG.MVecsSubrectHeight","DLSSG.DepthSubrectHeight","DLSSG.InternalHeight"})ui(k,RH);
+    fp("DLSSG.MvecScaleX",1.f/RW);fp("DLSSG.MvecScaleY",1.f/RH);}
   unsigned valid = 0;
   for (unsigned n = 0; n < frames.size(); ++n) {
+    const auto started=cpu_ms();
     auto &f = frames[n];
     api(d<PFN_vkResetCommandBuffer>("vkResetCommandBuffer")(command, 0),
         "reset Eval command");
@@ -190,12 +208,24 @@ void Probe::evaluate(const char *run) {
     for (auto k : {"DLSSG.HUDLess", "DLSSG.UI", "DLSSG.UIAlpha",
                    "DLSSG.OutputReal", "DLSSG.BidirectionalDistortionField"})
       ptr(k, nullptr);
-    ull("DLSSG.BackbufferFrameID", n + 1);
-    ui("DLSSG.Reset", n == 0);
+    std::array<std::array<float,16>,4> camera_matrices{};
+    unsigned reset=n==0;
+    if(input_path){const auto& m=game.at("frames").at(n);
+      const char* source_keys[]={"camera_view_to_clip","clip_to_camera_view","clip_to_previous_clip","previous_clip_to_clip"};
+      const char* target_keys[]={"DLSSG.CameraViewToClip","DLSSG.ClipToCameraView","DLSSG.ClipToPrevClip","DLSSG.PrevClipToClip"};
+      for(unsigned k=0;k<4;++k){camera_matrices[k]=m.at(source_keys[k]).get<std::array<float,16>>();ptr(target_keys[k],camera_matrices[k].data());}
+      const char* vector_keys[]={"camera_position","camera_up","camera_right","camera_forward"};
+      const char* bases[]={"DLSSG.CameraPos","DLSSG.CameraUp","DLSSG.CameraRight","DLSSG.CameraFwd"};
+      for(unsigned k=0;k<4;++k)for(unsigned j=0;j<3;++j){std::string key=std::string(bases[k])+"XYZ"[j];fp(key.c_str(),m.at(vector_keys[k]).at(j).get<float>());}
+      fp("DLSSG.CameraNear",m.at("near").get<float>());fp("DLSSG.CameraFar",m.at("far").get<float>());fp("DLSSG.CameraFOV",m.at("vertical_fov").get<float>());
+      fp("DLSSG.JitterOffsetX",m.at("jitter").at(0).get<float>());fp("DLSSG.JitterOffsetY",m.at("jitter").at(1).get<float>());
+      reset=m.at("reset").get<bool>()||n==0;ull("DLSSG.BackbufferFrameID",m.at("source_game_frame").get<unsigned long long>());
+    }else ull("DLSSG.BackbufferFrameID", n + 1);
+    ui("DLSSG.Reset", reset);
     int r = sym<int (*)(void *, const void *, const void *)>(
         bridge, "fg_evaluate")(command, feature, params);
     printf("FG_EVALUATE frame=%u result=0x%08x reset=%u recorded_only=1\n", n,
-           unsigned(r), n == 0);
+           unsigned(r), reset);
     g.readback(f.output, f.readback);
     g.host(f.disabled, false);
     api(d<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(command), "end Eval");
@@ -215,6 +245,7 @@ void Probe::evaluate(const char *run) {
     g.safe = true;
     api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),
         "Eval device idle");
+    printf("FG_EVAL_TIME frame=%u CPU_record_submit_fence_idle_ms=%.3f input_image_sets=%u\n",n,cpu_ms()-started,reuse_inputs?2u:6u);
     unsigned disabled = 0;
     memcpy(&disabled, f.disabled.mapped, 4);
     if (r == 1 && (disabled & 255) == 0)
@@ -243,7 +274,6 @@ void Probe::evaluate(const char *run) {
     if (r != 1 && unsigned(r) != 0xbad00005u)
       break;
   }
-  printf("FG_FIXTURE_RESULT eligible_outputs=%u "
-         "scope=synthetic_offscreen_not_Bloodborne_or_Present\n",
-         valid);
+  printf("FG_FIXTURE_RESULT eligible_outputs=%u scope=%s\n",valid,
+         input_path?"captured_Bloodborne_offscreen_not_Present":"synthetic_offscreen_not_Bloodborne_or_Present");
 }

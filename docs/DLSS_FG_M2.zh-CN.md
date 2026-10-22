@@ -20,10 +20,38 @@ RTX 4060 Laptop，CachyOS，NVIDIA 615.78.08。
 的红色区域重心与中点之差分别为 0.0725、0.0294、0.1104 px；与相邻真实帧均不相同，
 没有残留的洋红清屏像素。条纹内部存在插值扭曲，不作画质通过结论。
 
+### 真实游戏输入与资源复用
+
+`m2-game-input-capture-r11` 从指定猎人梦境私有存档读取连续源帧 `8398–8403`：
+SR 后 1920×1080 颜色、同源 1280×720 D32 深度及 RG16F 像素运动向量、相机和 jitter。
+专门的 `dlssg-capture` 模式不创建 FSR context，也不生成帧；GPU 完成后才写出至多六组
+文件。无 NR Helper/Evaluate；Native 游戏正常退休。该次 Native 源码差分中未收录当时
+尚未跟踪的新采集头文件；本提交保存该文件，实际运行二进制 SHA 仍由原清单绑定。
+
+`prepare_game_inputs.py` 只绑定已退休采集、连续真实编号和完整文件，不复制图像。
+离屏 `m2-wine-game-inputs-r12` 实际执行六次 DLSSG Evaluate，首张 disable=true，
+后五张 false，生成图有实际运动变化，正常 Release/Shutdown/device destroy。
+近景遮挡物可见拖影，尚未进行可玩画质验收。
+
+`m2-wine-game-reuse-r13` 将同一组输入改为两组交替使用的常驻 Vulkan 图像，始终保留
+上一帧，等待本次真实 fence/idle 后才覆写较旧的一组。保存的三张有效生成图与六组
+图像版本逐字节一致，五张有效标志相同，正常退休。此有限对照支持后续单槽 CPU 桥
+PoC，不宣称所有场景的资源复用均已验证。原 r13 `GetTickCount64` 计时粒度不足、
+多项为 0，不能用于性能结论；代码后续改用高精度 CPU 时钟。
+
+Native/Present 尚未运行 DLSS FG。拟先以 CPU 数据桥接入现有 `TakeOutput` 边界：
+固定前后真实编号、session/epoch/请求序号，响应被 Native 复制前不得复用槽位；
+Native 自有 staging 和目标仍需实际 GPU 最后读完成。两组常驻输入 descriptor 地址
+保持稳定；helper 的私有图像只在 Release/Shutdown 和后续 idle 后释放。
+接口还需核对游戏 scene 原始字节与 display BGRA/sRGB encode，避免红蓝交换。
+
 GPU 会话分别为 `m2-sm-1080q-r1` 和 `m2-wine-*-r1` 至 `r10`。
 截至 `m2-wine-evaluate-streamline214-r10`，全部正常退休，没有新 HOLD。
 原始日志和绑定清单位于现有 NRROOT 的 `runs/`；离屏 PoC 的零 Native reader 退休
 不能替代未来共享输出的 Native GPU 最后读取证明。
+
+后续 r11–r13 也均正常退休，没有新 HOLD。r11 逻辑大小约 168 MB（其中输入图像
+约 94 MB），r12、r13 各约 67 MB；仍只复用原 Wine prefix，没有新增完整游戏环境。
 
 ## Wine 离屏入口
 

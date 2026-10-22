@@ -14,4 +14,4 @@ def evaluate_status(text):
     eligible = sum(row['eligible'] for row in rows)
     return {'status': 'OUTPUT_REQUIRES_PIXEL_VALIDATION' if eligible else 'NO_ELIGIBLE_OUTPUT' if rows else 'NOT_EVALUATED',
             'gpu_complete_frames': rows, 'eligible_outputs': eligible, 'native_presents': 0,
-            'scope': 'synthetic offscreen fixture only; fence and eligibility do not prove interpolation content'}
+            'scope': ('captured Bloodborne offscreen fixture' if 'FG_INPUT_SCOPE captured_bloodborne=1 native_presents=0' in text else 'synthetic offscreen fixture') + '; fence and eligibility do not prove interpolation content'}

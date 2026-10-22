@@ -16,7 +16,7 @@ def parse_args(argv=None):
  p.add_argument('--daily',action='store_true',help='日常游玩，无固定时长；默认原生鼠标')
  p.add_argument('--joystick-mouse',action='store_true',help='兼容摇杆模拟鼠标')
  p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>')
- p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316'],help='experimental native x2; daily SR-only or --fg-native integration')
+ p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture'],help='FSR x2 or finite DLSSG input capture (no interpolation); daily SR-only or --fg-native')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + NR + FG route')
  p.add_argument('--smooth-motion',action='store_true',help='driver-level NVIDIA interpolation; excludes application FG')
  p.add_argument('--fg-validation',action='store_true',help='Vulkan core/sync validation for the FG experiment')

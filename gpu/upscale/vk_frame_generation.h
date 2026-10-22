@@ -32,6 +32,7 @@ namespace Vulkan {
 
 class Instance;
 class Scheduler;
+class DlssgInputCapture;
 
 class FrameGeneration {
 public:
@@ -100,6 +101,7 @@ private:
     FfxVkPortableFrameGenerationContext* context = nullptr;
     FfxVkFsr3_3_1_6FrameGenerationContext* context316 = nullptr;
     bool use316 = false;
+    std::unique_ptr<DlssgInputCapture> dlssg_capture;
     std::mutex context316_mutex; ///< Record/retire may run on different scheduler owners.
     u32 context_render_w = 0, context_render_h = 0, context_w = 0, context_h = 0;
     vk::Format context_format{};

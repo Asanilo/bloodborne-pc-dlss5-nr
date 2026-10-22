@@ -17,6 +17,7 @@
 #include <cstring>
 #include "render/scheduler.h"
 #include "vulkan/instance.h"
+#include "upscale/dlssg_input_capture.h"
 
 namespace Vulkan {
 
@@ -137,6 +138,8 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     settings.frame_generation_supported = supported;
     const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
     use316 = backend && std::strcmp(backend, "fsr316") == 0;
+    if (backend && std::strcmp(backend, "dlssg-capture") == 0)
+        dlssg_capture = std::make_unique<DlssgInputCapture>(instance, scheduler);
     const char* sm = std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION");
     const bool smooth_motion = sm && std::strcmp(sm, "1") == 0;
     FgLifecycle::driver_smooth_motion.store(smooth_motion);
@@ -196,6 +199,10 @@ void FrameGeneration::OnFrameStart() {
 }
 
 void FrameGeneration::Destroy() {
+    if (dlssg_capture) {
+        scheduler.Finish();
+        dlssg_capture.reset();
+    }
     if (context316) {
         scheduler.Finish(); // Runs actual-completion RetireFrame callbacks before destruction.
         std::scoped_lock lock{context316_mutex};
@@ -277,6 +284,12 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 
 void FrameGeneration::CaptureScene(const Scene& in) {
     scene_captured = false;
+    if (dlssg_capture) {
+        scene = in;
+        scene_captured = Wanted() && dlssg_capture->Guides(in);
+        scene_id = in.source_game_frame;
+        return;
+    }
     if (!Wanted() || !in.depth || !in.motion || !in.width || !in.height ||
         !in.render_width || !in.render_height ||
         !EnsureContext(in.render_width, in.render_height, in.width, in.height,
@@ -403,6 +416,7 @@ bool FrameGeneration::BindSceneColor(vk::Image color, vk::Format format, u32 wid
 }
 
 void FrameGeneration::CaptureHudless(vk::Image color) {
+    if (dlssg_capture) return;
     static const bool enabled = [] {
         const char* value = std::getenv("BB_FRAME_GEN_HUDLESS");
         return value && value[0] == '1';
@@ -451,6 +465,12 @@ void FrameGeneration::CaptureHudless(vk::Image color) {
 }
 
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
+    if (dlssg_capture) {
+        if (Wanted() && scene_captured && color && color == scene.color)
+            dlssg_capture->Color(scene, color);
+        scene_captured = false;
+        return;
+    }
     Stats();
     if (!FgContract::CanInterpolate(Wanted(), scene_captured, color, scene.color,
                                     context || context316)) {

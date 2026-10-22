@@ -15,6 +15,7 @@ INPUTS = [
     'tools/fg_dev/dlssg_fixture.h',
     'tools/fg_dev/dlssg_evaluate_fixture.h',
     'nrbridge/runtime/fixture_util.h',
+    'gpu/third_party/nlohmann/include/nlohmann/json.hpp',
 ]
 
 
@@ -39,7 +40,7 @@ def main():
     compiler = Path(a.compiler).absolute()
     if not compiler.is_file():
         raise ValueError(f'compiler required: {compiler}')
-    includes = [ROOT / 'out/deps/root/usr/include', ROOT / 'out/deps/dlss-sdk/include', ROOT / 'nrbridge/runtime']
+    includes = [ROOT / 'out/deps/root/usr/include', ROOT / 'out/deps/dlss-sdk/include', ROOT / 'nrbridge/runtime', ROOT / 'gpu/third_party/nlohmann/include']
     for path in includes:
         if not path.is_dir():
             raise ValueError(f'existing dependency required: {path}')

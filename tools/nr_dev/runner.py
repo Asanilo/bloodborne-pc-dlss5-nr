@@ -638,6 +638,8 @@ def check_fg_capability(args, build):
  data=(Path(build)/'gpu/libbbgpu.so').read_bytes()
  if b'FG_EXIT_PROOF' not in data or (getattr(args,'fg_native',False) and b'BB_FRAME_GEN_NATIVE' not in data):
   raise ValueError('Experimental FG requires a rebuilt M1 Native runtime; selected build is unsupported')
+ if args.experimental_fg=='dlssg-capture' and b'DLSSG_INPUT_CAPTURE' not in data:
+  raise ValueError('DLSSG input capture requires its rebuilt Native diagnostic')
 
 def validate_daily_args(args):
  smooth_motion.validate_args(args)
@@ -798,6 +800,9 @@ def launch_supervised(args,signals):
    if getattr(args,'fg_native',False):env['BB_FRAME_GEN_NATIVE']='1'
    env['BB_FRAME_GEN_HUDLESS']='1' if args.experimental_fg=='fsr31-hudless' else '0'
    env['BB_FRAME_GEN_BACKEND']='fsr316' if args.experimental_fg=='fsr316' else 'fsr31'
+   if args.experimental_fg=='dlssg-capture':
+    env.update(BB_FRAME_GEN_BACKEND='dlssg-capture',BB_DLSSG_CAPTURE_DIR=str(run/'dlssg-input'),
+               BB_DLSSG_CAPTURE_TRIGGER=str(run/'dlssg-capture-trigger'))
    env['BB_PRESET_FILE']=str(run/'sr-control')
    (run/'dump').mkdir()
    if getattr(args,'fg_validation',False):
@@ -900,7 +905,7 @@ def launch_supervised(args,signals):
 def parse_args(argv=None):
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--daily',action='store_true');p.add_argument('--joystick-mouse',action='store_true');p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3)
  daily_online.add_arguments(p)
- p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316'],help='native FSR FG x2; daily SR-only or explicit Native HDR integration')
+ p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture'],help='FSR x2 or finite DLSSG input capture (no interpolation); daily SR-only or Native HDR integration')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
  p.add_argument('--smooth-motion',action='store_true',help='exclusive driver-level NVIDIA Smooth Motion experiment')
  p.add_argument('--fg-validation',action='store_true',help='explicit FG core/sync validation')
