@@ -608,6 +608,10 @@ def control(args):
   subprocess.run(['niri','msg','action','close-window','--id',str(own[0]['id'])],check=True,timeout=5)
   atomic(run/'stop-request.json',{'game':game,'monotonic_ns':time.monotonic_ns(),'scope':'normal window close request; not retirement proof'})
 
+def check_fg_turn_guard_capability(enabled,build):
+ if enabled and b'FG_FAST_TURN_GUARD enabled=1' not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
+  raise ValueError('selected Native build lacks FG fast-turn fallback capability')
+
 def validate_daily_manifest(run,manifest):
  environment=manifest.get('environment',{})
  for directory in (run/'profile',run/'profile/user'):
@@ -627,6 +631,10 @@ def validate_daily_manifest(run,manifest):
  elif environment.get('BB_FRAME_STATS')!='0':raise ValueError('diagnostic daily frame statistics drift')
  daily_online.validate_manifest(run,manifest)
  if ui_start.ENVIRONMENT in environment:ui_start.validate(run,manifest)
+ guard=manifest.get('fg_fast_turn_guard',False)
+ if type(guard) is not bool or (guard and (environment.get('BB_FRAME_GEN')!='1' or environment.get('BB_FRAME_GEN_FAST_TURN_GUARD')!='1')) or (not guard and environment.get('BB_FRAME_GEN_FAST_TURN_GUARD') not in (None,'0')):
+  raise ValueError('FG fast-turn fallback manifest/environment drift')
+ check_fg_turn_guard_capability(guard,manifest.get('native_build',''))
 
 def validate_daily_args(args):
  daily_online.validate_args(args)
@@ -637,6 +645,8 @@ def validate_daily_args(args):
   raise ValueError('--fg-native requires daily experimental FG')
  if getattr(args,'fg_validation',False) and not getattr(args,'experimental_fg',None):
   raise ValueError('FG validation requires an explicit FG experiment')
+ if getattr(args,'fg_fast_turn_guard',False) and not getattr(args,'experimental_fg',None):
+  raise ValueError('FG fast-turn fallback requires an explicit FG experiment')
  if getattr(args,'sr_only',False) and not daily:raise ValueError('SR-only selection requires daily mode')
  if type(daily) is not bool:raise ValueError('daily mode requires strict boolean')
  if not daily:return
@@ -717,6 +727,7 @@ def launch_supervised(args,signals):
  native_mouse_scope.requested(args)
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
+ check_fg_turn_guard_capability(getattr(args,'fg_fast_turn_guard',False),build)
  binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None
  ge_files=GE/'files';sysroot_lib=WT/'out/deps/root/usr/lib'
  if binding is not None:
@@ -785,6 +796,7 @@ def launch_supervised(args,signals):
    if getattr(args,'fg_native',False):env['BB_FRAME_GEN_NATIVE']='1'
    env['BB_FRAME_GEN_HUDLESS']='1' if args.experimental_fg=='fsr31-hudless' else '0'
    env['BB_FRAME_GEN_BACKEND']='fsr316' if args.experimental_fg=='fsr316' else 'fsr31'
+   env['BB_FRAME_GEN_FAST_TURN_GUARD']='1' if getattr(args,'fg_fast_turn_guard',False) else '0'
    env['BB_PRESET_FILE']=str(run/'sr-control')
    (run/'dump').mkdir()
    if getattr(args,'fg_validation',False):
@@ -794,6 +806,7 @@ def launch_supervised(args,signals):
                LD_LIBRARY_PATH=str(validation/'lib')+':'+str(sysroot_lib))
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
   manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False)
+  manifest['fg_fast_turn_guard']=getattr(args,'fg_fast_turn_guard',False)
   if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)
   atomic(run/'manifest.json',manifest)
   with (run/'game.log').open('w') as log:
@@ -889,6 +902,7 @@ def parse_args(argv=None):
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316'],help='native FSR FG x2; daily SR-only or explicit Native HDR integration')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
  p.add_argument('--fg-validation',action='store_true',help='explicit FG core/sync validation')
+ p.add_argument('--fg-fast-turn-guard',action='store_true',help='opt-in real-frame fallback during rapid camera turns')
  player_settings.add_arguments(p)
  a=p.parse_args(argv)
  try:
