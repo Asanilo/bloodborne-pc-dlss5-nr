@@ -8,6 +8,7 @@ namespace fs=std::filesystem;
 using BbNRUiStart::Result;
 static int calls=0;
 static std::string final_path;
+static bool check_enabled_intent=false;
 static std::string Read(const std::string& path) {
     std::ifstream stream(path);std::ostringstream text;text<<stream.rdbuf();return text.str();
 }
@@ -21,6 +22,10 @@ static int ObservedClose(int fd){NoFinal();return ::close(fd);}
 static int ObservedRename(int dir,const char* name) {
     NoFinal();assert(fcntl(observed_fd,F_GETFD)==-1&&errno==EBADF);
     assert(Read(fs::path(final_path).parent_path()/name)=="ui-test\n");
+    if(check_enabled_intent) {
+        assert(!BbNR::ReadRequest().config.display_bypass);
+        assert(BbNR::ReadSnapshot().status==BbNR::Status::Unavailable);
+    }
     return BbNRUiStart::RenameNoReplace(dir,name);
 }
 static int FailedSync(int){errno=EIO;return -1;}
@@ -91,5 +96,27 @@ int main(int argc,char** argv) {
     assert(partial_evidence);
     fs::create_directory_symlink(s.run,root+"/runs/alias");bad=s;bad.run=root+"/runs/alias";bad.session="alias";bad.request=bad.run+"/nr-ui-start-request";
     assert(BbNRUiStart::Publish(bad)==Result::Rejected);
+    // Continue a saved bypassed display, then exercise the actual Enable publisher.
+    // Observe the mailbox before atomic publication, rather than inventing a GPU ACK.
+    BbNR::Config saved;saved.display_bypass=true;saved.display_strength=.375f;
+    saved.ttl_frames=6;saved.model_style=2;saved.model_intensity=.75f;
+    assert(BbNR::Submit(saved));const auto before_start=BbNR::ReadRequest();
+    check_enabled_intent=true;
+    assert(BbNRUiStart::PublishEnabled(s,{.write=ObservedWrite,.sync=ObservedSync,
+        .close=ObservedClose,.rename=ObservedRename})==Result::Published);
+    check_enabled_intent=false;
+    const auto started=BbNR::ReadRequest();auto expected=saved;expected.display_bypass=false;
+    assert(started.config==expected&&started.revision==before_start.revision+1);
+    assert(started.reset_seq==before_start.reset_seq&&started.capture_seq==before_start.capture_seq);
+    assert(started.model_apply_seq==before_start.model_apply_seq&&started.model_config==before_start.model_config);
+    assert(BbNRUiStart::PublishEnabled(s)==Result::AlreadyRequested);
+    assert(BbNR::ReadRequest().revision==started.revision);
+    assert(BbNR::ReadSnapshot().status==BbNR::Status::Unavailable);
+    fs::remove(s.request);
+    assert(BbNR::Submit(saved));const auto rejected=BbNR::ReadRequest();
+    bad=s;bad.session="other";
+    assert(BbNRUiStart::PublishEnabled(bad)==Result::Rejected);
+    assert(BbNR::ReadRequest().revision==rejected.revision&&BbNR::ReadRequest().config==saved);
+    NoFinal();
     std::cout<<"NR UI intent scope, permissions, duplicate, malformed, symlink, atomic publication, faults, partial and EINTR checks passed\n";
 }

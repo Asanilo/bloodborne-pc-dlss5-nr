@@ -12,8 +12,11 @@ class NRUiStartRequest(unittest.TestCase):
             scratch = Path(directory)
             executable = scratch / "cpu-test"
             subprocess.run(
-                ["c++", "-std=c++20", "-Wall", "-Wextra", "-Werror", "-I", str(root),
+                ["c++", "-std=c++20", "-Wall", "-Wextra", "-Werror",
+                 "-Wno-misleading-indentation", "-pthread", "-I", str(root),
+                 "-I", str(root / "gpu/third_party/nlohmann/include"),
                  str(root / "tools/nr_dev/tests/test_nr_ui_start_request.cpp"),
+                 str(root / "gpu/render/nr_runtime_control.cpp"),
                  "-o", str(executable)], check=True, timeout=60)
             subprocess.run([str(executable), str(scratch)], check=True, timeout=20)
 

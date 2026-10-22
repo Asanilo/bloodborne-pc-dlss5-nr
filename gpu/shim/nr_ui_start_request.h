@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
 #include "../render/native_dev_paths.h"
+#include "../render/nr_runtime_control.h"
 #include <atomic>
 #include <cerrno>
 #include <fcntl.h>
@@ -101,4 +102,15 @@ inline Result Publish(const Scope& s,Operations ops={}) {
     return result;
 }
 inline Result Publish() {return Publish(Environment());}
+// An explicit Enable action stages display intent before the runner can observe
+// the scene marker. A continued save may have persisted display bypass. This is
+// only a mailbox request: no model apply, history reset or readiness acknowledgment.
+inline Result PublishEnabled(const Scope& s,Operations ops={}) {
+    if(!Valid(s))return Result::Rejected;
+    auto config=BbNR::ReadRequest().config;
+    config.display_bypass=false;
+    if(!BbNR::Submit(config))return Result::Rejected;
+    return Publish(s,ops);
+}
+inline Result PublishEnabled() {return PublishEnabled(Environment());}
 }
