@@ -4,6 +4,10 @@
 #include <utility>
 inline const char* BbChinese(const char* text) {
     static constexpr std::pair<std::string_view, const char*> entries[] = {
+        {"Experimental frame generation (DLSS x2)", "实验性帧生成（DLSS x2）"},
+        {"Displays one DLSS-generated frame between consecutive real frames. Experimental: "
+         "1920x1080 Quality, Old memory model. NR is controlled separately with F8.",
+         "在连续真实帧之间显示一张 DLSS 生成帧。实验配置：1920×1080、Quality、Old 内存模型。F8 单独控制 NR。"},
         {"Enable NR", "启用 NR"},
         {"NR request failed; see menu", "NR 请求失败；请查看菜单"},
         {"Detailed NR diagnostics", "NR 详细诊断"},

@@ -4,7 +4,53 @@
 `nrbridge@7489493` 分出。M1 恢复标签 `archive/m1-fsr-experiments` 保留；
 玩家安装、正式存档和 NR 分支未被改写。FSR 高速转镜植被错位仍是已知缺陷。
 
-## 已验证的边界（2026-10-22）
+## 当前可玩 Experimental 入口
+
+已实现：**Native Bloodborne Vulkan → NR 310.9.16 SF B → DLSS SR → Wine Vulkan
+DLSSG x2 → Native Vulkan Present**。DLSSG 使用 Wine 托管的 NVIDIA DLL，不能称为 Linux
+ELF 原生 FG 插件；游戏与最终 Present 保持原生 Linux Vulkan。FSR、SM、DLSSG 互斥。
+
+```bash
+bash out/play-dlssg.sh B
+# 等价的版本化入口：bash tools/fg_dev/play_dlssg.sh B
+```
+
+默认 1080p Quality、Old memory，复制指定猎人梦境私有存档。进入可操作场景按 F8 启动
+NR；之后 F8 单独切换 NR，Delete 中的 **实验性帧生成（DLSS x2）** 单独切换 FG。
+A/B/old 的 NR 配置选择保留；本 M2 组合实测为 B，未重新声称 A/old 均已实机验收。
+`--dlssg-transport files-v1` 可回退到原 CPU 文件传输；原 `out/play-integration.sh` 仍为
+FSR 模式，未覆盖。玩家安装、正式存档和 `runtime/current` 未修改。
+
+性能实现提交 `ce3c191`，干净 Native 构建在 `m2-native-dlssg-mapped-r21` 实测。
+同位置静态场景、无 validation，各采样 10 秒：
+
+| 配置 | 真实 FPS | 生成 FPS | 成功 Present FPS | 真实帧间隔中位 / p95 |
+|---|---:|---:|---:|---:|
+| SR，FG 关闭 | 60.0 | 0 | 60.0 | 16.73 / 18.17 ms |
+| SR + DLSSG | 38.4 | 38.3 | 76.7 | 25.90 / 28.56 ms |
+| NR B + SR + DLSSG | 35.3 | 35.4 | 70.7 | 27.76 / 32.15 ms |
+
+这证明插帧通道实际进入 Present，不代表 FG 相对于关闭状态提升两倍性能，也不代表
+物理 scanout 或输入延迟测量。CPU 往返约 11–13 ms，仍限制基础真实帧率；旧文件桥
+r19 窗口约 24 真实 / 47 Present FPS，且非严格同轮配对性能对照。
+
+r21 完成 12298 条 FG 请求，最终 12292 次生成 Present；有界保留日志中的 3434 张生成
+帧全部满足 `R(n-1) → I(n-1,n) → R(n)`，无源帧配对拒绝。三者联动采样中 353 次真实
+Present 均选择 NR cache。FG OFF/ON、F8 OFF/ON、快速有界转镜持续运行。完整 NR GPU/FD、
+DLSSG Release/Shutdown/device destroy/正常 reap、Native staging/目标与 Present 最后读取
+均通过，`PASS_NORMAL_TEARDOWN`、无残留、全局凭据 retired。约 24 MB 临时 CPU 槽
+在完整退休后回收。r21 持久逻辑新增约 763 MB，主要为独立 NR prefix 和有界日志；
+不新增游戏/依赖/构建环境。CPU 34 项及增量 Native 检查通过。
+
+画质验收仍开放：HUD 静态可辨，未证明高速转镜植被错位已全部消除，也未取得玩家
+对 DLSSG 手感的确认。请在草丛场景只切换 FG 对照快速左右转镜、移动/闪避、HUD 和
+遮挡边缘；正常落叶/粒子不应计为错误。非致命局部伪影可保留 Experimental。
+既有 r17 Vulkan validation 类别仍未全部解决；r21 性能采样关闭 validation，不作全净结论。
+
+测量及终态：`out/m2-native-dlssg-mapped-r21-samples.json`、
+`out/m2-r21-present-verification.json`、NRROOT 对应 run。r18 历史 HOLD 保留，未改写为通过。
+
+## 早期入口验证记录（2026-10-22，后续集成见上文）
 
 RTX 4060 Laptop，CachyOS，NVIDIA 615.78.08。
 

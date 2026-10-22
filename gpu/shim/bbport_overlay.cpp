@@ -769,12 +769,21 @@ void Menu() {
     ImGui::EndDisabled();
     // Experimental FG is exposed only by an explicit managed launch selection.
     if (std::getenv("BB_FRAME_GEN")) {
+        const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
+        const bool dlssg = backend && std::strcmp(backend, "dlssg") == 0;
         ImGui::BeginDisabled(!s.frame_generation_supported.load(std::memory_order_relaxed));
-        Checkbox(BbSettings::MenuText("Experimental frame generation (FSR 3 x2)", "Экспериментальная генерация кадров (FSR 3 x2)"),
+        Checkbox(dlssg ? BbSettings::MenuText("Experimental frame generation (DLSS x2)", "Экспериментальная генерация кадров (DLSS x2)")
+                       : BbSettings::MenuText("Experimental frame generation (FSR 3 x2)", "Экспериментальная генерация кадров (FSR 3 x2)"),
                  s.frame_generation);
         ImGui::EndDisabled();
         if (const char* problem = s.frame_generation_problem.load(std::memory_order_relaxed)) {
             Hint(problem);
+        } else if (dlssg) {
+            Hint(BbSettings::MenuText(
+                "Displays one DLSS-generated frame between consecutive real frames. Experimental: "
+                "1920x1080 Quality, Old memory model. NR is controlled separately with F8.",
+                "Между последовательными реальными кадрами показывается кадр DLSS. Эксперимент: "
+                "1920x1080 Quality, модель памяти Old. NR переключается отдельно клавишей F8."));
         } else {
             Hint(BbSettings::MenuText(
                 "Shows a frame interpolated by FSR 3 between each two of the game's: twice the frames "
