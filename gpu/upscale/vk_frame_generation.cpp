@@ -137,10 +137,6 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     settings.frame_generation_supported = supported;
     const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
     use316 = backend && std::strcmp(backend, "fsr316") == 0;
-    const char* guard = std::getenv("BB_FRAME_GEN_FAST_TURN_GUARD");
-    fast_turn_guard = guard && std::strcmp(guard, "1") == 0;
-    if (fast_turn_guard)
-        std::printf("FG_FAST_TURN_GUARD enabled=1 enter_degrees=2 release_degrees=1 quiet_real_frames=2 scope=FG_only\n");
     FgLifecycle::enabled.store(std::getenv("BB_FRAME_GEN") != nullptr);
     std::printf("Frame generation: FSR 3.1 %s%s%s\n", supported ? "available" : "unavailable",
                 supported ? "" : ": ", supported ? "" : settings.frame_generation_problem.load());
@@ -282,8 +278,6 @@ void FrameGeneration::CaptureScene(const Scene& in) {
         !EnsureContext(in.render_width, in.render_height, in.width, in.height,
                                     in.color_format)) {
         reset_next = true;
-        turn_guard.Reset();
-        turn_was_suppressed = false;
         return;
     }
     scene = in;
@@ -291,21 +285,6 @@ void FrameGeneration::CaptureScene(const Scene& in) {
     scene_id = ++frame_id;
     hudless_ready = false;
     scene_reset = reset_next || in.reset;
-    if (fast_turn_guard) {
-        const auto decision = turn_guard.Observe(
-            {in.camera_forward[0], in.camera_forward[1], in.camera_forward[2]}, scene_reset);
-        if (decision.suppress) ++turn_suppressed_frames;
-        if (decision.suppress != turn_was_suppressed)
-            std::printf("FG_TURN_FALLBACK suppress=%u source_game_frame=%llu fg_frame=%llu step_degrees=%.5f suppressed_real_scenes=%llu scope=FG_history_only\n",
-                decision.suppress, (unsigned long long)in.source_game_frame,
-                (unsigned long long)scene_id, decision.degrees,
-                (unsigned long long)turn_suppressed_frames);
-        turn_was_suppressed = decision.suppress;
-        // Keep recording Prepare/Dispatch and all retirement obligations. A reset
-        // output is already ineligible for TakeOutput/Present. Only FG history is
-        // reset; the real frame, SR and NR continue through their normal path.
-        scene_reset = scene_reset || decision.suppress;
-    }
     reset_next = false;
     ++stat_captured;
     // The frame is interpolated as shown, UI and all (no HUD-less image: what the game draws over

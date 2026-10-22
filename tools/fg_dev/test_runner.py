@@ -11,25 +11,6 @@ import peer_retirement
 
 
 class FgRunnerTests(unittest.TestCase):
-    def test_turn_fallback_requires_experiment_and_capable_binary(self):
-        args = runner.parse_args(['start', 'cpu-turn', '--daily', '--sr-only',
-                                  '--local-inputs', '/inputs', '--experimental-fg',
-                                  'fsr31-hudless', '--fg-fast-turn-guard'])
-        self.assertTrue(args.fg_fast_turn_guard)
-        args.experimental_fg = None
-        with self.assertRaisesRegex(ValueError, 'requires an explicit FG experiment'):
-            runner.validate_daily_args(args)
-        with tempfile.TemporaryDirectory() as directory:
-            build = Path(directory)
-            (build / 'gpu').mkdir()
-            library = build / 'gpu/libbbgpu.so'
-            library.write_bytes(b'old native')
-            runner.check_fg_turn_guard_capability(False, build)
-            with self.assertRaisesRegex(ValueError, 'lacks FG fast-turn'):
-                runner.check_fg_turn_guard_capability(True, build)
-            library.write_bytes(b'FG_FAST_TURN_GUARD enabled=1')
-            runner.check_fg_turn_guard_capability(True, build)
-
     def test_fg_requires_explicit_sr_only(self):
         args = runner.parse_args(['start', 'cpu-fg', '--daily', '--sr-only',
                                   '--local-inputs', '/inputs', '--experimental-fg', 'fsr31'])

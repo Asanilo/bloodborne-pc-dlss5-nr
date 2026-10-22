@@ -21,7 +21,6 @@
 #include <unordered_map>
 
 #include "common/types.h"
-#include "upscale/frame_generation_turn_guard.h"
 #include "textures/image.h"
 #include "vulkan/vk_common.h"
 
@@ -97,10 +96,6 @@ private:
     Scheduler& scheduler;
     bool supported = false;
     bool failed = false;
-    bool fast_turn_guard = false;
-    bool turn_was_suppressed = false;
-    u64 turn_suppressed_frames = 0;
-    FgQuality::TurnGuard turn_guard;
 
     FfxVkPortableFrameGenerationContext* context = nullptr;
     FfxVkFsr3_3_1_6FrameGenerationContext* context316 = nullptr;

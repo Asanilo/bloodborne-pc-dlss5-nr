@@ -19,7 +19,6 @@ def parse_args(argv=None):
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316'],help='experimental native x2; daily SR-only or --fg-native integration')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + NR + FG route')
  p.add_argument('--fg-validation',action='store_true',help='Vulkan core/sync validation for the FG experiment')
- p.add_argument('--fg-fast-turn-guard',action='store_true',help='experimental: real-frame fallback during rapid camera turns; normal motion remains x2')
  p.add_argument('--session',default='play-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
  p.add_argument('--seconds',type=int,default=480,help='计划正常关闭时间（含准备时间）')
  p.add_argument('--watchdog-seconds',type=int,default=600)
@@ -55,7 +54,6 @@ def launch_command(a):
   recovery.validate_scope(record,recovery.request(a),Path('/proc/sys/kernel/random/boot_id').read_text().strip(),runner.held_run_snapshot())
   recovery._trace_launch(record,a)
  build,_,_=runner.checked_native_build(a.native_build or runner.ROOT/'build/native')
- runner.check_fg_turn_guard_capability(getattr(a,'fg_fast_turn_guard',False),build)
  a.ingame_nr_start=runner.ui_start.enabled(a,build)
  binding=None
  if a.local_inputs:
@@ -87,7 +85,6 @@ def launch_command(a):
  if getattr(a,'experimental_fg',None):command+=['--experimental-fg',a.experimental_fg]
  if getattr(a,'fg_native',False):command+=['--fg-native']
  if getattr(a,'fg_validation',False):command+=['--fg-validation']
- if getattr(a,'fg_fast_turn_guard',False):command+=['--fg-fast-turn-guard']
  for flag in ('daily','joystick_mouse','pm4_cold_trace','pm4_producer_context','native_mouse'):
   if getattr(a,flag):command+=['--'+flag.replace('_','-')]
  return run,command
