@@ -16,10 +16,13 @@ def parse_args(argv=None):
  p.add_argument('--daily',action='store_true',help='日常游玩，无固定时长；默认原生鼠标')
  p.add_argument('--joystick-mouse',action='store_true',help='兼容摇杆模拟鼠标')
  p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>')
+ runner.fg_config.add_argument(p)
+ p.add_argument('--reuse-nr-prefix')
+ p.add_argument('--dlssg-runtime',help='existing FG Helper runtime directory')
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG x2, or finite input capture')
  p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental DLSSG bridge')
- p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1','gpu-dmabuf-v1'],default='mapped-v1',help='Experimental payload transport; GPU mailbox is opt-in')
- p.add_argument('--dlssg-pipeline',choices=['sync-v1','submit-ready-v1','late-ready-v1','consumer-ready-v1','consumer-queue-v1'],default='sync-v1',help='Async submission prerequisite; sync-v1 preserves the verified bridge')
+ p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1','gpu-dmabuf-v1'],default=None,help='Experimental payload transport; GPU mailbox is opt-in')
+ p.add_argument('--dlssg-pipeline',choices=['sync-v1','submit-ready-v1','late-ready-v1','consumer-ready-v1','consumer-queue-v1'],default=None,help='Async submission prerequisite; sync-v1 preserves the verified bridge')
  p.add_argument('--dlssg-helper-wake',choices=['poll-v1','notify-v1'],default='poll-v1',help='GPU Helper control wake; poll-v1 retains the validated baseline')
  p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + NR + FG route')
@@ -82,6 +85,7 @@ def launch_command(a):
  command=[sys.executable,str(Path(__file__).with_name('runner.py')),'start',a.session,'--mode',a.mode,'--sky',a.sky,'--seconds',str(a.seconds),'--watchdog-seconds',str(a.watchdog_seconds),'--source-limit',str(a.source_limit)]
  if a.local_inputs:command+=['--local-inputs',a.local_inputs]
  else:command+=['--runtime-model-helper',str(DEFAULT_HELPER),'--runtime-model-build-sha256',DEFAULT_HELPER_BUILD_SHA]
+ if getattr(a,'reuse_nr_prefix',None):command+=['--reuse-nr-prefix',a.reuse_nr_prefix]
  if a.native_build:command+=['--native-build',a.native_build]
  if a.continue_session:command+=['--continue-session',a.continue_session]
  if a.context_recovery:command+=['--context-recovery',a.context_recovery]
@@ -91,6 +95,8 @@ def launch_command(a):
   value=getattr(a,name,None)
   if value:command+=['--'+name.replace('_','-'),value]
  if getattr(a,'sr_only',False):command+=['--sr-only']
+ if getattr(a,'fg_backend',None) is not None:command+=['--fg-backend',a.fg_backend]
+ if getattr(a,'dlssg_runtime',None):command+=['--dlssg-runtime',a.dlssg_runtime]
  if getattr(a,'experimental_fg',None):command+=['--experimental-fg',a.experimental_fg]
  if getattr(a,'fg_native',False):command+=['--fg-native']
  if getattr(a,'fg_validation',False):command+=['--fg-validation']

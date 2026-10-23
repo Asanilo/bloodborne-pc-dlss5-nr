@@ -77,9 +77,21 @@ class AdapterTests(unittest.TestCase):
             self.assertNotIn('--experimental-fg', plain)
             self.assertEqual(settings, original)
             selected = bridge.player_command(dict(settings, nrbridge_fsr_fg=True), dict(bridge.NR_INI))
-            self.assertIn('--fg-native', selected)
-            self.assertEqual(selected[selected.index('--experimental-fg')+1], 'fsr31-hudless')
+            self.assertEqual(selected[selected.index('--fg-backend')+1], 'fsr31')
             self.assertEqual('--sr-only' in selected, not nr)
+
+    def test_unified_backends_and_both_dlss_pipelines_keep_nr(self):
+        for nr in (False,True):
+            for backend in bridge.fg_config.BACKENDS:
+                for pipeline in bridge.fg_config.PIPELINES:
+                    settings=dict(nrbridge_enabled=nr,fg_backend=backend,fg_dlss_pipeline=pipeline)
+                    with mock.patch.object(bridge.fg_config,'availability',return_value='fixture'):
+                        c=bridge.player_command(settings,dict(bridge.NR_INI))
+                    self.assertEqual(c[c.index('--fg-backend')+1],backend)
+                    self.assertEqual('--sr-only' in c,not nr)
+                    if backend=='dlssg':self.assertEqual(c[c.index('--dlssg-pipeline')+1],pipeline)
+        with self.assertRaisesRegex(ValueError,'NVPRESENT'):
+            bridge.player_command({'extra_env':'NVPRESENT_ENABLE_SMOOTH_MOTION=1'},dict(bridge.NR_INI))
 
     def test_nr_constraints_reject_without_replacing_player_choices(self):
         ini = dict(bridge.NR_INI, preset='3')

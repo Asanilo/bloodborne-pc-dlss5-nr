@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "upscale/vk_frame_generation.h"
 #include "upscale/frame_generation_lifecycle.h"
+#include "upscale/fg_backend_status.h"
 #include "upscale/frame_generation_contract.h"
 #include "bbport_toggles.h"
 
@@ -137,6 +138,11 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     } else {
         supported = true;
     }
+    const auto* selected=FgBackendStatus::Selected();
+    if (!FgBackendStatus::Application()) supported=false;
+    if (FgBackendStatus::Is(selected,"dlssg") && instance.GetVendorID()!=0x10de) {
+        supported=false;settings.frame_generation_problem="DLSS FG requires a supported NVIDIA GPU";
+    }
     settings.frame_generation_supported = supported;
     const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
     use316 = backend && std::strcmp(backend, "fsr316") == 0;
@@ -154,9 +160,9 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     const char* sm = std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION");
     const bool smooth_motion = sm && std::strcmp(sm, "1") == 0;
     FgLifecycle::driver_smooth_motion.store(smooth_motion);
-    FgLifecycle::enabled.store(std::getenv("BB_FRAME_GEN") != nullptr || smooth_motion);
-    std::printf("Frame generation: FSR 3.1 %s%s%s\n", supported ? "available" : "unavailable",
-                supported ? "" : ": ", supported ? "" : settings.frame_generation_problem.load());
+    FgLifecycle::enabled.store(FgBackendStatus::Application() || smooth_motion);
+    std::printf("FG_BACKEND selected=%s application_enabled=%u driver_requested=%u supported=%u\n",
+                selected,unsigned(settings.frame_generation.load()),unsigned(smooth_motion),unsigned(supported));
 }
 
 FrameGeneration::~FrameGeneration() {

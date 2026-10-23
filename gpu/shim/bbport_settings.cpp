@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_settings.h"
+#include "../upscale/fg_backend_status.h"
 #include "bbport_zh.h"
 #include <cmath>
 
@@ -283,6 +284,8 @@ void Load() {
             Set(v, key, value);
         }
     }
+    if (!Vulkan::FgBackendStatus::Application() || Vulkan::FgBackendStatus::Is(std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION"),"1"))
+        v.frame_generation=false;
     v.startup_preset = v.preset;
     v.startup_upscaler = v.upscaler;
     v.startup_object_motion = v.object_motion;

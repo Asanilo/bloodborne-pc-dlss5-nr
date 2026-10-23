@@ -18,6 +18,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/nr_dev'))
+import fg_config
+
 # The checked NRBridge values.  They are applied only while NR is enabled;
 # the ordinary launcher settings stay available when NR is switched off.
 NR_INI = {
@@ -35,6 +38,9 @@ NR_MEMORY = "old"
 # the launcher refuses to pretend these are ordinary settings.
 DANGEROUS_ENV_PREFIXES = (
     "BB_NR_",
+    "BB_FRAME_GEN",
+    "BB_DLSSG_",
+    "NVPRESENT_",
     "BB_HOOK",
     "BB_SYNC",
     "BB_MEMORY",
@@ -106,7 +112,8 @@ def entry_path() -> Path:
 
 
 def runtime_config(home_path=None) -> Path:
-    return Path(home_path or home()) / "localinputs/runtime.json"
+    override=os.environ.get("NRBRIDGE_RUNTIME_INPUTS")
+    return Path(override) if override else Path(home_path or home()) / "localinputs/runtime.json"
 
 
 def read_runtime(home_path=None) -> dict:
@@ -229,6 +236,7 @@ def daily_command(
     nr_enabled: bool = True,
     native_mouse: bool = True,
     experimental_fg: bool = False,
+    fg_selection: dict | None = None,
     online_pool: str = "offline",
     account_config=None,
     bbsc: bool = False,
@@ -258,7 +266,9 @@ def daily_command(
     ]
     if not nr_enabled:
         command.append("--sr-only")
-    if experimental_fg:
+    if fg_selection is not None:
+        command += fg_config.command_options(fg_selection)
+    elif experimental_fg:
         command += ["--experimental-fg", "fsr31-hudless", "--fg-native"]
     if not native_mouse:
         command.append("--joystick-mouse")
@@ -367,6 +377,11 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
                    data_dir=None, home_path=None, session=None):
     """Validate the saved selection, then build the shared GUI/--play entry."""
     nr_enabled = bool(settings.get("nrbridge_enabled", True))
+    fg=fg_config.selection(dict(fg_config.discover(home_path or home()), **settings))
+    if fg["backend"] in ("dlssg","smooth-motion"):fg_config.availability(fg,home_path or home())
+    if fg["backend"]=="dlssg":
+        conflicts=nr_conflicts(settings,ini)
+        if conflicts:raise ValueError("DLSS FG requires 1080p DLSS Quality, Old memory: " + "; ".join(conflicts))
     if nr_enabled:
         conflicts = nr_conflicts(settings, ini)
         if conflicts:
@@ -382,6 +397,6 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
         session=session or session_name(), settings_path=settings_path, ini_path=ini_path,
         data_dir=data_dir, home_path=home_path, nr_enabled=nr_enabled,
         native_mouse=bool(settings.get("nrbridge_native_mouse", True)),
-        experimental_fg=bool(settings.get("nrbridge_fsr_fg", False)),
+        fg_selection=fg,
         online_pool=pool, account_config=account, bbsc=bbsc,
     )

@@ -5,6 +5,7 @@
 #endif
 #include "bbport_overlay.h"
 #include "upscale/frame_generation_lifecycle.h"
+#include "upscale/fg_backend_status.h"
 #include "nr_ui_start_request.h"
 #include "render/nr_runtime_control.h"
 #include "render/native_async_pre_sr_policy.h"
@@ -104,7 +105,10 @@ bool FgCounter() {
         previous_real = real; previous_generated = generated; previous_other = other;
         start = now;
     }
-    ImGui::Text("Real %.0f | FG %.0f | Present %.0f", real_fps, generated_fps, present_fps);
+    if (Vulkan::FgLifecycle::driver_smooth_motion.load())
+        ImGui::Text(BbSettings::MenuText("Real %.0f | Smooth Motion: display FPS unverified",
+                                       "Real %.0f | Smooth Motion: display FPS unverified"),real_fps);
+    else ImGui::Text("Real %.0f | FG %.0f | Present %.0f", real_fps, generated_fps, present_fps);
     return true;
 }
 
@@ -600,7 +604,8 @@ void Menu() {
     ToyPadSection();
 
     const char* native_fg = std::getenv("BB_FRAME_GEN_NATIVE");
-    if (BbNativeAsyncPreSr::Enabled() && !(native_fg && std::strcmp(native_fg, "1") == 0))
+    if (BbNativeAsyncPreSr::Enabled() && s.frame_generation && Vulkan::FgBackendStatus::Application() &&
+        !(native_fg && std::strcmp(native_fg, "1") == 0))
         ImGui::TextDisabled("NR requires frame generation off; this combination is not validated.");
     ImGui::SeparatorText(BbSettings::MenuText("Temporal upscaler", "Временной апскейлер"));
     const char* upscalers[] = {
@@ -769,7 +774,15 @@ void Menu() {
         "Ctrl+клик по ползунку — ввести точное значение."));
     ImGui::EndDisabled();
     // Experimental FG is exposed only by an explicit managed launch selection.
-    if (std::getenv("BB_FRAME_GEN")) {
+    ImGui::Text("FG: %s", Vulkan::FgBackendStatus::Name());
+    if (Vulkan::FgBackendStatus::Is(Vulkan::FgBackendStatus::Selected(),"smooth-motion")) {
+        const auto* status=Vulkan::FgBackendStatus::SmoothMotionStatus();
+        ImGui::TextWrapped("%s",BbSettings::MenuText(status,status));
+    } else if (!Vulkan::FgBackendStatus::Application()) {
+        Hint(BbSettings::MenuText("Choose an FG backend in the launcher and restart. NR remains independent.",
+                                 "Выберите FG в лаунчере и перезапустите. NR независим."));
+    }
+    if (Vulkan::FgBackendStatus::Application()) {
         const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
         const bool dlssg = backend && std::strcmp(backend, "dlssg") == 0;
         ImGui::BeginDisabled(!s.frame_generation_supported.load(std::memory_order_relaxed));

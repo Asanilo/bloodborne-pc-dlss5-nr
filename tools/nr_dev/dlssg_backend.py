@@ -46,15 +46,19 @@ def check(args,build):
     source=Path(__file__).resolve().parents[2]
     spec=importlib.util.spec_from_file_location('dlssg_wine_build_inputs',source/'tools/fg_dev/build_wine_probe.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-    record=json.loads((source/'out/m2-wine-probe-build.json').read_text())
-    if record.get('schema')!='dlssg-wine-probe-build-v1' or record['inputs']!=module.source_identity():
+    runtime=Path(getattr(args,'dlssg_runtime',None) or source/'out').expanduser().resolve(strict=True)
+    record=json.loads((runtime/'m2-wine-probe-build.json').read_text())
+    def content_identity(items):return {k:{f:v[f] for f in ('bytes','sha256')} for k,v in items.items()}
+    if record.get('schema')!='dlssg-wine-probe-build-v1' or content_identity(record['inputs'])!=content_identity(module.source_identity()):
         raise ValueError('rebuild changed DLSSG Helper sources')
     for name,identity in record['artifacts'].items():
-        if module.identity(source/'out'/name)!=identity:
+        if name!=Path(name).name:raise ValueError('invalid Helper artifact name')
+        actual=module.identity(runtime/name)
+        if any(actual[k]!=identity[k] for k in ('bytes','sha256')):
             raise ValueError('changed DLSSG Helper artifact')
     model=Path(args.dlssg_model).resolve(strict=True)
-    return {'source':source,'build':record,'model':module.identity(model),
-            'cuda':module.identity(source/'out/nvcuda.dll'),'core':module.identity('/usr/lib/nvidia/wine/_nvngx.dll')}
+    return {'source':source,'runtime':runtime,'build':record,'model':module.identity(model),
+            'cuda':module.identity(runtime/'nvcuda.dll'),'core':module.identity('/usr/lib/nvidia/wine/_nvngx.dll')}
 
 
 def prepare(args,build,run,binding,runner):
@@ -67,12 +71,12 @@ def prepare(args,build,run,binding,runner):
     peer_retirement.audit_session(previous)
     prefix=previous/'profile/wine-prefix'
     if not prefix.is_dir() or prefix.resolve()!=prefix:raise ValueError('existing private DLSSG prefix required')
-    source=state['source'];ipc=Path(tempfile.mkdtemp(prefix='bb-dlssg-',dir='/tmp'))
+    source=state['source'];runtime=state['runtime'];ipc=Path(tempfile.mkdtemp(prefix='bb-dlssg-',dir='/tmp'))
     gpu=args.dlssg_transport=='gpu-dmabuf-v1'
     config={'schema':'dlssg-native-gpu-v1' if gpu else 'dlssg-native-cpu-v1','session':args.session,'run':str(run),'ipc':str(ipc),
             'prefix':str(prefix),'ge_files':binding['config']['ge_files'],'ngx_dir':binding['config']['ngx_dir'],
-            'executable':str(source/'out/wine-dlssg-probe.exe'),'adapter':str(source/'out/nvngx.dll_dlssg.dll'),
-            'model':state['model']['path'],'cuda':str(source/'out/nvcuda.dll'),
+            'executable':str(runtime/'wine-dlssg-probe.exe'),'adapter':str(runtime/'nvngx.dll_dlssg.dll'),
+            'model':state['model']['path'],'cuda':str(runtime/'nvcuda.dll'),
             'identities':{k:state[k] for k in ['model','cuda','core']},'helper_build':state['build'],
             'pipeline':getattr(args,'dlssg_pipeline','sync-v1'),'transport':args.dlssg_transport,'helper_wake':getattr(args,'dlssg_helper_wake','poll-v1') if gpu else 'poll-v1','reused_retired_prefix':args.dlssg_prefix_session,'scope':'DMA-BUF GPU mailbox; private persistent FG history; actual GPU last-use ACK' if gpu else 'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
     path=run/'dlssg-config.json';runner['atomic'](path,config)

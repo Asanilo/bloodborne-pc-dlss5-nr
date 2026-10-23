@@ -30,7 +30,10 @@ def validate_manifest(run, manifest):
     if enabled:
         if env.get('BB_FRAME_GEN') not in (None, '0') or env.get('BB_FRAME_GEN_NATIVE') is not None:
             raise ValueError('Smooth Motion and application FG are mutually exclusive')
-        if env.get('VK_LOADER_LAYERS_DISABLE') != '~implicit~' or any(env.get(k) != v for k, v in environment(run).items()):
+        expected=environment(run)
+        if 'fg_backend' in manifest:
+            expected.pop('BB_FPS_LIMIT');expected.pop('BB_PRESENT_MODE')
+        if env.get('VK_LOADER_LAYERS_DISABLE') != '~implicit~' or any(env.get(k) != v for k, v in expected.items()):
             raise ValueError('Smooth Motion private layer environment drift')
     elif any(k in env for k in ('NVPRESENT_ENABLE_SMOOTH_MOTION', 'VK_LOADER_LAYERS_ALLOW')):
         raise ValueError('Unselected Smooth Motion layer environment')

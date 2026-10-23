@@ -1013,3 +1013,39 @@ def tr(text):
         return PT_BR.get(text, EN.get(text, text))
     return text
 
+
+# Unified FG selection (M3).
+ZH.update({
+    "Smooth Motion temporarily unavailable: M3 exit produced ErrorDeviceLost; normal GPU retirement is unverified. Use Off, FSR or DLSS FG.": "Smooth Motion 暂不可用：M3 测试退出时发生 ErrorDeviceLost，未能完成正常 GPU 退休。请选择关闭、FSR 或 DLSS FG。",
+    "Frame generation backend": "帧生成后端",
+    "Backend changes apply on the next launch; NR remains independent.": "更换后端在下次启动生效；NR 独立控制。",
+    "Advanced FG settings": "高级帧生成设置",
+    "DLSS GPU pipeline": "DLSS GPU 流水线",
+    "DLSS transport": "DLSS 传输方式",
+    "CPU fallback uses synchronous processing.": "CPU 回退使用同步处理；GPU 流水线选项在此模式不生效。",
+    "FG availability": "帧生成可用状态",
+    "Off": "关闭",
+    "FSR 3.1 x2 (HUDless)": "FSR 3.1 x2（HUD 分离）",
+    "NVIDIA DLSS FG x2": "NVIDIA DLSS 帧生成 x2",
+    "NVIDIA Smooth Motion": "NVIDIA Smooth Motion（驱动插帧）",
+    "FSR 3.1.6 x2 (Experimental)": "FSR 3.1.6 x2（实验）",
+    "Stable (submit-ready-v1)": "稳定回退（submit-ready-v1）",
+    "Experimental Q1 (consumer-queue-v1)": "Q1 实验优化（consumer-queue-v1）",
+    "GPU DMA-BUF": "GPU 共享内存（DMA-BUF）",
+    "CPU shared memory fallback": "CPU 共享内存回退",
+    "CPU file fallback": "CPU 文件回退",
+    "DLSS FG model DLL": "DLSS FG 模型 DLL",
+    "Existing FG Helper runtime directory": "已有 FG Helper 运行目录",
+    "Retired FG prefix session": "已正常退休的 FG prefix 会话",
+    "Backend changes require restart. FSR/DLSS can be enabled or disabled in the game.": "更换后端需要重启。FSR／DLSS 可在游戏内开关。",
+    "Driver layer found; activation is checked at launch. Restart required; display-frame count unverified.": "已找到驱动 Layer；启动时核对激活。需要重启；最终显示帧数尚未独立验证。",
+    "DLSS FG x2; 1080p DLSS Quality, Old memory. NR is independent. Backend changes require restart.": "DLSS FG x2：1080p DLSS Quality、Old 内存模型。NR 独立控制，更换后端需要重启。",
+})
+
+ZH.update({
+    "Smooth Motion unavailable: VK_LAYER_NV_present is not installed": "Smooth Motion 不可用：未安装 VK_LAYER_NV_present 驱动 Layer。",
+    "DLSS FG unavailable: choose the existing nvngx_dlssg.dll model": "DLSS FG 不可用：请选择已有的 nvngx_dlssg.dll 模型。",
+    "DLSS FG unavailable: choose a built FG Helper runtime directory": "DLSS FG 不可用：请选择已构建的 FG Helper 运行目录。",
+    "DLSS FG unavailable: choose a normally retired FG prefix session": "DLSS FG 不可用：请选择已正常退休的 FG prefix 会话。",
+    "DLSS FG unavailable: the selected prefix is missing or not normally retired": "DLSS FG 不可用：所选 prefix 缺失或未正常退休。",
+})

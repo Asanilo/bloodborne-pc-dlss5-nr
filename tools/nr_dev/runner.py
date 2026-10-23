@@ -7,6 +7,8 @@ def workspace_root():
  if not value or any(c in value for c in ('\x00','\n',':')) or not path.is_absolute() or str(path)!=value or path.resolve()!=path or path in (Path('/'),Path.home()):raise ValueError('NRBRIDGE_HOME requires a dedicated canonical absolute directory')
  return path
 ROOT=workspace_root();WT=Path(__file__).resolve().parents[2];ASSETS=ROOT/'assets/CUSA03173';SEED=ROOT/'seed/private-NRTest-seed'
+_fg_spec=importlib.util.spec_from_file_location('nr_dev_fg_config',Path(__file__).with_name('fg_config.py'))
+fg_config=importlib.util.module_from_spec(_fg_spec);_fg_spec.loader.exec_module(fg_config)
 _sm_spec=importlib.util.spec_from_file_location('nr_dev_smooth_motion',Path(__file__).with_name('smooth_motion.py'))
 smooth_motion=importlib.util.module_from_spec(_sm_spec);_sm_spec.loader.exec_module(smooth_motion)
 _dlssg_spec=importlib.util.spec_from_file_location('nr_dev_dlssg_backend',Path(__file__).with_name('dlssg_backend.py'))
@@ -613,6 +615,7 @@ def control(args):
   atomic(run/'stop-request.json',{'game':game,'monotonic_ns':time.monotonic_ns(),'scope':'normal window close request; not retirement proof'})
 
 def validate_daily_manifest(run,manifest):
+ if 'fg_backend' in manifest:fg_config.validate_environment(manifest['fg_backend'],manifest.get('environment',{}))
  smooth_motion.validate_manifest(run,manifest)
  dlssg_backend.validate_manifest(run,manifest)
  environment=manifest.get('environment',{})
@@ -635,6 +638,8 @@ def validate_daily_manifest(run,manifest):
  if ui_start.ENVIRONMENT in environment:ui_start.validate(run,manifest)
 
 def check_fg_capability(args, build):
+ if getattr(args,"fg_backend",None) is not None and b"FG_BACKEND selected=" not in (Path(build)/"gpu/libbbgpu.so").read_bytes():
+  raise ValueError("Unified FG selection requires a rebuilt M3 Native runtime")
  smooth_motion.check_capability(args,build)
  dlssg_backend.check(args,build)
  # Fail before creating a session when a launcher selects FG on an older installed runtime.
@@ -646,6 +651,7 @@ def check_fg_capability(args, build):
   raise ValueError('DLSSG input capture requires its rebuilt Native diagnostic')
 
 def validate_daily_args(args):
+ fg_config.normalize(args)
  smooth_motion.validate_args(args)
  dlssg_backend.validate_args(args)
  daily_online.validate_args(args)
@@ -771,6 +777,16 @@ def launch_supervised(args,signals):
     p=profile/'user/savedata'/item['relative']
     if p.is_symlink() or sha(p)!=item['sha256']:raise ValueError('private seed SHA mismatch')
   for name in ('logs','wine-prefix','cache','config','data','state'):(profile/name).mkdir()
+  prefix_lease=None
+  if getattr(args,'reuse_nr_prefix',None):
+   previous=checked_run(args.reuse_nr_prefix)
+   from peer_retirement import audit_session as audit_prefix
+   audit_prefix(previous)
+   prior=json.loads((previous/'manifest.json').read_text()).get('runtime_inputs',{}).get('config',{})
+   if not binding or any(prior.get(k)!=binding['config'].get(k) for k in ('ge_files','ngx_dir')):raise ValueError('prefix reuse requires the same Wine/NGX runtime')
+   spec=importlib.util.spec_from_file_location('nr_prefix_lease',WT/'tools/nr_dev/prefix_lease.py')
+   module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+   prefix_lease=managed.enter_context(module.PrefixLease(previous/'profile/wine-prefix',profile/'wine-prefix',run/'nr-prefix-lease.json'))
   online_env,online_record,online_module=daily_online.prepare(args,build,profile)
   if online_module is not None:native_artifacts=[*native_artifacts,online_module]
   (profile/'bbport.ini').write_text('upscaler=dlss\npreset=1\naspect_ratio=16:9\noutput_res=1920x1080\njitter=1\nobject_motion=1\nsharpen=0\nshow_fps=1\n');(run/'pad.txt').write_text('')
@@ -824,7 +840,16 @@ def launch_supervised(args,signals):
   if getattr(args,'experimental_fg',None)=='dlssg':
    env.update(BB_FRAME_GEN_BACKEND='dlssg',BB_DLSSG_STREAM_DIR='pending')
    env.update(dlssg_backend.prepare(args,build,run,binding,globals()))
-  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
+  if player is not None:
+   # FG backend selection does not replace saved pacing/FPS choices.
+   for key in ('BB_FPS_LIMIT','BB_PRESENT_MODE'):
+    if key in player['environment']:env[key]=player['environment'][key]
+   if getattr(args,'fg_fps_limit',None) is not None:raise ValueError('use saved player FPS settings, not --fg-fps-limit')
+  backend=fg_config.requested(args)
+  env['BB_FRAME_GEN_BACKEND']=backend
+  if backend in ('off','smooth-motion'):env['BB_FRAME_GEN']='0'
+  fg_config.validate_environment(backend,env)
+  atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','fg_backend':backend,'daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
   manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False);manifest['smooth_motion']=getattr(args,'smooth_motion',False)
   if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)
   atomic(run/'manifest.json',manifest)
@@ -840,6 +865,7 @@ def launch_supervised(args,signals):
     boot_guard=daily_session_guard.SessionGuard()
     boot_receipt=boot_guard.begin(ROOT,args.session)
    process=subprocess.Popen(command,cwd=WT,env=env,stdout=subprocess.PIPE if daily else log,stderr=subprocess.STDOUT,start_new_session=True)
+   if prefix_lease:prefix_lease.started=True
    if daily:
     capture.pipe=process.stdout;capture.start()
    atomic(run/'runner.json',{'runner':live(os.getpid()),'launcher':live(process.pid)});schedule=SessionSchedule(time.monotonic(),args.seconds,args.watchdog_seconds,args.close_grace,getattr(args,'daily',False));held=False;sample_at=0;planned_retry_at=0
@@ -903,6 +929,9 @@ def launch_supervised(args,signals):
     atomic(run/'result.json',result)
     if result['player_save_sync']['status']=='error':print('Save sync failed; private progress retained: '+str(run/'profile/user/savedata'),flush=True)
    if result['status']=='PASS_NORMAL_TEARDOWN':
+    if prefix_lease:
+     subprocess.run([str(ge_files/'bin/wineserver'),'-w'],env=dict(os.environ,WINEPREFIX=str(profile/'wine-prefix')),check=True,timeout=30)
+     prefix_lease.complete(result)
     if getattr(args,'experimental_fg',None)=='dlssg':
      try:result['dlssg_cpu_slot_cleanup']=dlssg_backend.cleanup_cpu_slot(run,json.loads((run/'manifest.json').read_text()),result)
      except (OSError,ValueError) as error:result['dlssg_cpu_slot_cleanup']={'status':'RETAINED_CPU_FILES','reason':str(error)}
@@ -922,10 +951,13 @@ def launch_supervised(args,signals):
 def parse_args(argv=None):
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--daily',action='store_true');p.add_argument('--joystick-mouse',action='store_true');p.add_argument('command',choices=['preflight','start','scene-ready','start-helper','arm','stop','focus','input','dump']);p.add_argument('session',nargs='?');p.add_argument('--mode',choices=['resident','skipEvaluate'],default='skipEvaluate');p.add_argument('--sky',choices=['off','persistent'],default='off');p.add_argument('--seconds',type=int,default=480,help='planned normal-close time, including preparation');p.add_argument('--watchdog-seconds',type=int,default=600);p.add_argument('--close-grace',type=int,default=120);p.add_argument('--continue-session');p.add_argument('--source-limit',type=int,default=36000);p.add_argument('--buttons',nargs='*',default=[]);p.add_argument('--hold',type=float,default=.2);[p.add_argument('--'+axis,type=int,default=128) for axis in ('lx','ly','rx','ry')];p.add_argument('--native-build',help='build/native or verified build/baselines/<full commit>');p.add_argument('--local-inputs',help='opt-in versioned ROOT/localinputs config; default remains legacy');p.add_argument('--runtime-model-helper');p.add_argument('--runtime-model-build-sha256');p.add_argument('--context-recovery',help='explicit isolated current-context diagnostics; historical failures remain open');p.add_argument('--reboot-diagnostic',help='one-session post-reboot SR-only observation; never resolves old HOLD');p.add_argument('--native-mouse',action='store_true',help='default-off camera candidate; exact isolated scope and cold trace required');p.add_argument('--pm4-cold-trace',action='store_true',help='bounded CPU producer tracing; exclude run from hot performance');p.add_argument('--pm4-producer-context',action='store_true',help='bounded caller/template context; isolated cold diagnostic only');p.add_argument('--history-diagnostic',action='store_true');p.add_argument('--diagnostic-after',type=int,default=3)
  daily_online.add_arguments(p)
+ fg_config.add_argument(p)
+ p.add_argument('--reuse-nr-prefix',help='move an already retired NR prefix for this run; restore only after actual retirement')
+ p.add_argument('--dlssg-runtime',help='existing FG Helper build directory; no runtime copy')
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG x2, or finite DLSSG input capture')
  p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental DLSSG bridge')
- p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1','gpu-dmabuf-v1'],default='mapped-v1',help='Experimental payload transport; GPU mailbox is opt-in')
- p.add_argument('--dlssg-pipeline',choices=['sync-v1','submit-ready-v1','late-ready-v1','consumer-ready-v1','consumer-queue-v1'],default='sync-v1',help='Async submission prerequisite; sync-v1 preserves the verified bridge')
+ p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1','gpu-dmabuf-v1'],default=None,help='Experimental payload transport; GPU mailbox is opt-in')
+ p.add_argument('--dlssg-pipeline',choices=['sync-v1','submit-ready-v1','late-ready-v1','consumer-ready-v1','consumer-queue-v1'],default=None,help='Async submission prerequisite; sync-v1 preserves the verified bridge')
  p.add_argument('--dlssg-helper-wake',choices=['poll-v1','notify-v1'],default='poll-v1',help='GPU Helper control wake; poll-v1 retains the validated baseline')
  p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse one normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
