@@ -215,8 +215,6 @@ private:
     void Run();
     void RecordNrHdrPrepass();
     std::shared_ptr<class NrDimensionAdapter> nr_dimension_adapter;
-    VideoCore::HostImage nr_dimension_motion;
-    vk::UniqueImageView nr_dimension_motion_view;
     u64 nr_dimension_source=0;
     std::array<u32,4> nr_source_layout{};
     void RunScaled();

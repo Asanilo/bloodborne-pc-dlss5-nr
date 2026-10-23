@@ -14,12 +14,15 @@ public:
  std::array<vk::Image,3> Prepare(Scheduler&,const std::array<vk::Image,3>&,
                  const std::array<vk::ImageCreateInfo,3>&,unsigned,unsigned);
  const std::array<vk::ImageCreateInfo,3>& Infos()const{return infos;}
+ std::pair<vk::Image,vk::ImageView> RenderMotion(Scheduler&,unsigned,unsigned);
+ const vk::ImageCreateInfo& RenderMotionInfo()const{return render_motion.image_ci;}
  void Apply(Scheduler&,vk::ImageView edited,vk::Image target,vk::ImageView target_view,unsigned,unsigned);
  vk::Image Motion()const{return vk::Image(images[2]);}
  vk::ImageView MotionView()const{return *views[2];}
  uint64_t ImageBytes()const;
 private:
- vk::Device device;unsigned width,height;
+ vk::Device device;const Instance& instance;unsigned width,height;
+ VideoCore::HostImage render_motion;vk::UniqueImageView render_motion_view;
  std::array<VideoCore::HostImage,3> images;
  std::array<vk::UniqueImageView,3> views;
  std::array<vk::ImageCreateInfo,3> infos;

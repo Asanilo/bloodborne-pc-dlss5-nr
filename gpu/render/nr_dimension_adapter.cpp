@@ -14,7 +14,7 @@ void Barrier(vk::CommandBuffer cmd,vk::Image image,vk::ImageAspectFlags aspect,v
 }
 void Memory(vk::CommandBuffer cmd){vk::MemoryBarrier2 b{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eAllCommands,.dstAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite};cmd.pipelineBarrier2({.memoryBarrierCount=1,.pMemoryBarriers=&b});}
 }
-NrDimensionAdapter::NrDimensionAdapter(const Instance&i):device(i.GetDevice()),width(BbNRDimensions::Width()),height(BbNRDimensions::Height()){
+NrDimensionAdapter::NrDimensionAdapter(const Instance&i):device(i.GetDevice()),instance(i),width(BbNRDimensions::Width()),height(BbNRDimensions::Height()){
  const auto dp=i.GetPhysicalDevice().getFormatProperties(vk::Format::eD32SfloatS8Uint).optimalTilingFeatures;
  if((dp&(vk::FormatFeatureFlagBits::eBlitSrc|vk::FormatFeatureFlagBits::eBlitDst))!=(vk::FormatFeatureFlagBits::eBlitSrc|vk::FormatFeatureFlagBits::eBlitDst))throw std::runtime_error("NR dimension adapter requires supported D32S8 nearest blits");
  for(unsigned k=0;k<3;++k){images[k]=VideoCore::HostImage(device,i.GetAllocator());auto& ci=infos[k];ci={.imageType=vk::ImageType::e2D,.format=k==0?vk::Format::eR16G16B16A16Sfloat:k==1?vk::Format::eD32SfloatS8Uint:vk::Format::eR16G16Sfloat,.extent={width,height,1},.mipLevels=1,.arrayLayers=1,.samples=vk::SampleCountFlagBits::e1,.tiling=vk::ImageTiling::eOptimal,.usage=vk::ImageUsageFlagBits::eSampled|vk::ImageUsageFlagBits::eStorage|vk::ImageUsageFlagBits::eTransferSrc|vk::ImageUsageFlagBits::eTransferDst,.initialLayout=vk::ImageLayout::eUndefined};
@@ -29,6 +29,16 @@ NrDimensionAdapter::NrDimensionAdapter(const Instance&i):device(i.GetDevice()),w
  const vk::PushConstantRange mr{vk::ShaderStageFlagBits::eCompute,0,8},ar{vk::ShaderStageFlagBits::eCompute,0,12};
  motion_layout=device.createPipelineLayoutUnique({.setLayoutCount=1,.pSetLayouts=&*motion_set,.pushConstantRangeCount=1,.pPushConstantRanges=&mr}).value;apply_layout=device.createPipelineLayoutUnique({.setLayoutCount=1,.pSetLayouts=&*apply_set,.pushConstantRangeCount=1,.pPushConstantRanges=&ar}).value;
  const auto pipeline=[&](std::span<const u32> code,vk::PipelineLayout layout){auto module=CompileSPV(code,device);auto result=device.createComputePipelineUnique({}, {.stage={.stage=vk::ShaderStageFlagBits::eCompute,.module=module,.pName="main"},.layout=layout}).value;device.destroyShaderModule(module);return result;};motion_pipeline=pipeline(NR_DIMENSIONS_MOTION_COMP,*motion_layout);apply_pipeline=pipeline(NR_DIMENSIONS_APPLY_COMP,*apply_layout);
+}
+std::pair<vk::Image,vk::ImageView> NrDimensionAdapter::RenderMotion(Scheduler& scheduler,unsigned rw,unsigned rh){
+ if(!render_motion||render_motion.image_ci.extent.width!=rw||render_motion.image_ci.extent.height!=rh){
+  // The old allocation is no longer retained after a real Native completion.
+  scheduler.Finish();render_motion_view.reset();render_motion=VideoCore::HostImage(device,instance.GetAllocator());
+  render_motion.Create({.imageType=vk::ImageType::e2D,.format=vk::Format::eR16G16Sfloat,.extent={rw,rh,1},.mipLevels=1,.arrayLayers=1,.samples=vk::SampleCountFlagBits::e1,.tiling=vk::ImageTiling::eOptimal,.usage=vk::ImageUsageFlagBits::eStorage|vk::ImageUsageFlagBits::eSampled|vk::ImageUsageFlagBits::eTransferSrc,.initialLayout=vk::ImageLayout::eUndefined});
+  render_motion_view=device.createImageViewUnique({.image=vk::Image(render_motion),.viewType=vk::ImageViewType::e2D,.format=vk::Format::eR16G16Sfloat,.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}}).value;
+ }
+ auto cmd=scheduler.CommandBuffer();vk::ImageMemoryBarrier2 b{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eComputeShader,.dstAccessMask=vk::AccessFlagBits2::eShaderWrite,.oldLayout=vk::ImageLayout::eUndefined,.newLayout=vk::ImageLayout::eGeneral,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=vk::Image(render_motion),.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}};cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&b});
+ return {vk::Image(render_motion),*render_motion_view};
 }
 std::array<vk::Image,3> NrDimensionAdapter::Prepare(Scheduler&s,const std::array<vk::Image,3>& source,const std::array<vk::ImageCreateInfo,3>& ci,unsigned rw,unsigned rh){
  if(!rw||!rh)throw std::invalid_argument("NR source render subrect empty");

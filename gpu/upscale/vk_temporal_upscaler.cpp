@@ -703,14 +703,10 @@ void TemporalUpscaler::RecordNrHdrPrepass(){
   const bool proxy=ReducedScene(color)&&scene_targets.EligibleScene(depth);
   if(proxy){VideoCore::ImageViewInfo vi;vi.format=color.info.pixel_format;auto c=scene_targets.Read(scene_color,vi);vi.format=depth.info.pixel_format;auto d=scene_targets.Read(camera_motion.Depth(),vi);ci=c.image;cv=c.view;di=d.image;dv=d.view;cinfo=*scene_targets.CaptureCreateInfo(ci);dinfo=*scene_targets.CaptureCreateInfo(di);}
   else {runtime.Transit(&color,vk::ImageLayout::eGeneral,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite);runtime.Transit(&depth,vk::ImageLayout::eGeneral,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead);runtime.FlushBarriers();}
-  if(!nr_dimension_motion||nr_dimension_motion.image_ci.extent.width!=rw||nr_dimension_motion.image_ci.extent.height!=rh){
-   scheduler.Finish();nr_dimension_motion_view.reset();nr_dimension_motion=VideoCore::HostImage(instance.GetDevice(),instance.GetAllocator());nr_dimension_motion.Create({.imageType=vk::ImageType::e2D,.format=vk::Format::eR16G16Sfloat,.extent={rw,rh,1},.mipLevels=1,.arrayLayers=1,.samples=vk::SampleCountFlagBits::e1,.tiling=vk::ImageTiling::eOptimal,.usage=vk::ImageUsageFlagBits::eStorage|vk::ImageUsageFlagBits::eSampled|vk::ImageUsageFlagBits::eTransferSrc,.initialLayout=vk::ImageLayout::eUndefined});nr_dimension_motion_view=instance.GetDevice().createImageViewUnique({.image=vk::Image(nr_dimension_motion),.viewType=vk::ImageViewType::e2D,.format=vk::Format::eR16G16Sfloat,.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}}).value;
-  }
-  // Finish can replace the current command buffer; obtain it only after allocation/retirement.
-  auto cmd=scheduler.CommandBuffer();vk::ImageMemoryBarrier2 mb{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eComputeShader,.dstAccessMask=vk::AccessFlagBits2::eShaderWrite,.oldLayout=vk::ImageLayout::eUndefined,.newLayout=vk::ImageLayout::eGeneral,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=vk::Image(nr_dimension_motion),.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}};cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&mb});
-  camera_motion.RecordMotion(dv,*nr_dimension_motion_view,rw,rh);
   if(!nr_dimension_adapter){nr_dimension_adapter=std::make_shared<NrDimensionAdapter>(instance);native_async_pre_sr.SetDimensionAdapter(nr_dimension_adapter);}
-  auto raw=nr_dimension_adapter->Prepare(scheduler,{ci,di,vk::Image(nr_dimension_motion)},{cinfo,dinfo,nr_dimension_motion.image_ci},rw,rh);
+  const auto [motion, motion_view]=nr_dimension_adapter->RenderMotion(scheduler,rw,rh);
+  camera_motion.RecordMotion(dv,motion_view,rw,rh);
+  auto raw=nr_dimension_adapter->Prepare(scheduler,{ci,di,motion},{cinfo,dinfo,nr_dimension_adapter->RenderMotionInfo()},rw,rh);
   const float sx=float(BbNRDimensions::Width())/rw,sy=float(BbNRDimensions::Height())/rh;
   const auto vp=camera_motion.CurrentJitter(),prev=camera_motion.PreviousJitter();const auto proj=camera_motion.TaaDepthParameters();const float sign=BbToggle::Disabled(1u<<26)?-1.f:1.f;
   const bool recorded=native_async_pre_sr.TryCaptureOrigin(instance,scheduler,raw,nr_dimension_adapter->Infos(),{.source=source,.sr_reset=reset||layout_changed,.viewport={vp[0]*sx,vp[1]*sy},.previous_viewport={prev[0]*sx,prev[1]*sy},.sr_jitter={sign*jitter[0],sign*jitter[1]},.previous_sr_jitter={previous_dlss_jitter_x,previous_dlss_jitter_y},.current_projection=proj[0],.previous_projection=proj[1],.previous_view_z=proj[2],.source_render={rw,rh},.sr_output={target_width,target_height}});
@@ -2981,7 +2977,8 @@ void TemporalUpscaler::RunScaled() {
         native_async_pre_sr.MergeRecorded(scheduler,nr_dimension_source);
         std::scoped_lock lock{c1_audit_mutex};
         if(native_async_pre_sr_pending_audit)throw std::runtime_error("NR dimensions cannot overwrite source Present ledger");
-        native_async_pre_sr_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC_PRE_SR",.mode="HDR-NR-before-tonemap-SR",.session=native_async_pre_sr.Session(),.execution_mode="hot",.selected_output=native_async_pre_sr.EffectSelected(),.audit_full=false,.nr_frame=native_async_pre_sr.EffectJob(),.source_game_frame=nr_dimension_source,.merge_tick=scheduler.CurrentTick()};
+        auto output_capture=native_async_pre_sr.RuntimeCaptureFrame(nr_dimension_source);if(output_capture&&!output_capture->seq)output_capture.reset();
+        native_async_pre_sr_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC_PRE_SR",.mode="HDR-NR-before-tonemap-SR",.session=native_async_pre_sr.Session(),.execution_mode="hot",.selected_output=native_async_pre_sr.EffectSelected(),.audit_full=false,.nr_frame=native_async_pre_sr.EffectJob(),.source_game_frame=nr_dimension_source,.merge_tick=scheduler.CurrentTick(),.runtime_capture=output_capture};
     }
         if (ok4) {
             CaptureFrameGenScene(depth_image, depth_format, w, h, ow, oh, frame_ms, frame_reset);
@@ -3341,9 +3338,11 @@ bool TemporalUpscaler::DisplayOverride(VAddr address, Display& display) {
                it->second.height, it->second.c1_audit};
     if (display.c1_audit.source_game_frame != 0) {
         display.c1_audit.buffer_address = address;
-        DumpPresented(display.image, display.width, display.height, display.format,
-                      display.c1_audit);
-        std::printf("C1_PRESENT_DUMP_SCHEDULED source_game_frame=%llu merge_tick=%llu "
+        // Hot NR association is metadata only. Keep whole-frame readback explicit.
+        if(display.c1_audit.audit_full || PresentDumpDue())
+            DumpPresented(display.image, display.width, display.height, display.format,
+                          display.c1_audit);
+        if(display.c1_audit.audit_full)std::printf("C1_PRESENT_DUMP_SCHEDULED source_game_frame=%llu merge_tick=%llu "
                     "buffer_address=0x%llx prepare_gpu_frame=%llu prepare_tick=%llu\n",
                     static_cast<unsigned long long>(display.c1_audit.source_game_frame),
                     static_cast<unsigned long long>(display.c1_audit.merge_tick),
