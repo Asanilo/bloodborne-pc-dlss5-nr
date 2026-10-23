@@ -158,6 +158,10 @@ def audit_daily(run,session):
  verifies actual terminal ownership evidence, not a reconstructed per-job trace.
  """
  config=load(run/'async-config.json');meta=load(run/'async-meta-g0.json')
+ dimension_contract=(load(run/'manifest.json') if (run/'manifest.json').is_file() else {}).get('nr_dimensions')
+ expected_protocol=3 if dimension_contract else 2
+ if dimension_contract:
+  need(config.get('quality_profile',{}).get('model_width')==dimension_contract['model_width'] and config.get('quality_profile',{}).get('model_height')==dimension_contract['model_height'],'M5 configured model extent identity')
  helper=load(run/'async-wine-result.json');reaped=load(run/'async-native-helper-exit.json')
  release=load(run/f'async-native-released-{session}-g0.json')
  retired=load(run/f'async-retired-{session}-g0.json');audited=load(run/f'async-native-audited-{session}-g0.json')
@@ -165,7 +169,7 @@ def audit_daily(run,session):
  for message in messages:
   need(message.get('session')==session and message.get('generation')==0
        and message.get('resource_set')==session+'-g0'
-       and type(message.get('protocol_version')) is int and message['protocol_version']==2
+       and type(message.get('protocol_version')) is int and message['protocol_version']==expected_protocol
        and message.get('transport_layout')=='frame-ring-64-daily-v2','daily terminal protocol/session/resource identity')
  counts=('finalized_jobs','captured_jobs','obsolete_jobs','skip_jobs')
  total=helper['finalized_jobs']

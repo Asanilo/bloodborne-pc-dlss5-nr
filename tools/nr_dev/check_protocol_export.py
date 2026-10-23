@@ -39,7 +39,7 @@ def checked(native_root):
     raw = provenance.read_bytes()
     meta = json.loads(raw, object_pairs_hook=unique)
     exact(meta, ('schema', 'source', 'consumed', 'export_manifest', 'export_manifest_sha256', 'update'))
-    if meta['schema'] != 'nrbridge-native-protocol-copy-v1' or meta['consumed'] != [HEADER]:
+    if meta['schema'] != 'nrbridge-native-protocol-copy-v1' or meta['consumed'] not in ([HEADER], [HEADER, 'nr_dimensions.h']):
         raise ValueError('Native protocol copy schema/consumed mismatch')
     source = meta['source']
     exact(source, ('repository', 'commit', 'header', 'exporter'))
@@ -56,7 +56,9 @@ def checked(native_root):
             or export['runtime_model_schema'] != 'nr-runtime-model-v1'
             or export['job_model_schema'] != 'nr-runtime-job-model-v1'):
         raise ValueError('unsupported Helper protocol version/schema')
-    exact(export['exports'], (HEADER, 'pre_sr_wire.h', 'pre_sr_spec.h', 'effective-spec.json'))
+    exact(export['exports'], (HEADER, 'pre_sr_wire.h', 'pre_sr_spec.h', 'effective-spec.json', *(['nr_dimensions.h'] if 'nr_dimensions.h' in meta['consumed'] else [])))
+    if 'nr_dimensions.h' in meta['consumed'] and sha((directory / 'nr_dimensions.h').read_bytes()) != export['exports']['nr_dimensions.h']:
+        raise ValueError('dimensions protocol export drift')
     for digest in export['exports'].values():
         if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
             raise ValueError('invalid Helper protocol export SHA')

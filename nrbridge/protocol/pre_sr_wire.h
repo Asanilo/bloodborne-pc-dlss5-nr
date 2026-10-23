@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Root's sole pre-SR interface delta; lifecycle inherited from async-origin-v3. No P0 schema changes or alternate canonical.
 #include <json.hpp>
+#include "nr_dimensions.h"
 #include <set>
 #include <string>
 #include <cmath>
@@ -12,7 +13,7 @@ namespace origin_wire {
 using J=nlohmann::json;
 inline void need(bool v,const char*m){if(!v)throw std::invalid_argument(m);}
 inline J parse(const std::string&t){std::vector<std::set<std::string>>s;auto cb=[&](int,J::parse_event_t e,J&v){if(e==J::parse_event_t::object_start)s.emplace_back();else if(e==J::parse_event_t::key)need(!s.empty()&&s.back().insert(v.get<std::string>()).second,"duplicate key");else if(e==J::parse_event_t::object_end)s.pop_back();if(e==J::parse_event_t::value&&v.is_number_float())need(std::isfinite(v.get<double>()),"nonfinite");return true;};auto j=J::parse(t,cb);need(j.is_object(),"JSON object");return j;}
-inline const J&spec(){static J legacy=parse(pre_sr_spec_json);if(!NativeRuntimeModel::Daily())return legacy;static J daily=[](){auto j=legacy;j["transport_layout"]=NativeRuntimeModel::DailyLayout;auto&e=j["bootstrap_exact"]["async-config.json"]["exact_sample"];e["protocol_version"]=2u;e["transport_layout"]=NativeRuntimeModel::DailyLayout;e["max_jobs"]=NativeRuntimeModel::JobLimit();e["service_wall_seconds"]=0u;return j;}();return daily;}
+inline const J&spec(){static J legacy=parse(pre_sr_spec_json);if(!NativeRuntimeModel::Daily())return legacy;static J daily=[](){auto j=BbNRDimensions::Spec(legacy);j["transport_layout"]=NativeRuntimeModel::DailyLayout;auto&e=j["bootstrap_exact"]["async-config.json"]["exact_sample"];e["protocol_version"]=BbNRDimensions::Protocol(true);e["transport_layout"]=NativeRuntimeModel::DailyLayout;e["max_jobs"]=NativeRuntimeModel::JobLimit();e["service_wall_seconds"]=0u;return j;}();return daily;}
 inline uint64_t u(const J&j,const char*k){need(j.contains(k)&&j.at(k).is_number_unsigned(),k);auto v=j.at(k).get<uint64_t>();need(v<=9007199254740991ull,"uint53 bound");return v;}
 inline bool b(const J&j,const char*k){need(j.contains(k)&&j.at(k).is_boolean(),k);return j.at(k).get<bool>();}
 inline std::string s(const J&j,const char*k){need(j.contains(k)&&j.at(k).is_string(),k);return j.at(k).get<std::string>();}
@@ -22,7 +23,7 @@ inline bool same_typed(const J&j,const J&e){if(j.is_object()&&e.is_object()){if(
 inline bool hex32(const std::string&s){return s.size()==32&&std::all_of(s.begin(),s.end(),[](char c){return(c>='0'&&c<='9')||(c>='a'&&c<='f');});}
 inline J config_expected(const std::string&session,const std::string&mode,const std::string&device,const std::string&driver){auto e=spec()["bootstrap_exact"]["async-config.json"]["exact_sample"];e["session"]=session;e["mode"]=mode;e["resource_set"]=session+"-g0";e["device_uuid"]=device;e["driver_uuid"]=driver;return e;}
 inline void config(const J&j,const std::string&session,const std::string&mode){need(mode=="resident"||mode=="skipEvaluate","mode");auto device=s(j,"device_uuid"),driver=s(j,"driver_uuid");need(hex32(device)&&hex32(driver),"actual UUID syntax");need(same_typed(j,config_expected(session,mode,device,driver)),"exact config types/literals");}
-inline J common(const std::string&session,const std::string&mode){return J{{"protocol_version",NativeRuntimeModel::Daily()?2u:1u},{"transport_layout",spec()["transport_layout"]},{"execution_mode","hot"},{"mode",mode},{"session",session},{"generation",0u},{"resource_set",session+"-g0"},{"profile_id",spec()["profile_id"]},{"quality_profile",spec()["quality_profile"]},{"params_version",1u},{"parameter_application",spec()["parameter_application"]}};}
+inline J common(const std::string&session,const std::string&mode){return J{{"protocol_version",BbNRDimensions::Protocol(NativeRuntimeModel::Daily())},{"transport_layout",spec()["transport_layout"]},{"execution_mode","hot"},{"mode",mode},{"session",session},{"generation",0u},{"resource_set",session+"-g0"},{"profile_id",spec()["profile_id"]},{"quality_profile",spec()["quality_profile"]},{"params_version",1u},{"parameter_application",spec()["parameter_application"]}};}
 inline void common_check(const J&j,const J&c){for(auto i=c.begin();i!=c.end();++i)need(j.contains(i.key())&&same_typed(j.at(i.key()),i.value()),"common exact identity/profile");}
 inline std::set<std::string>stage_keys(const J&common,const J&fields){auto k=keys(common);for(auto i=fields.begin();i!=fields.end();++i)k.insert(i.key());return k;}
 inline void description_types(const J&j,const J&fields){for(auto i=fields.begin();i!=fields.end();++i){auto d=i.value().get<std::string>();const auto&v=j.at(i.key());if(d.rfind("uint",0)==0)u(j,i.key().c_str());else if(d.rfind("bool",0)==0)b(j,i.key().c_str());else if(d.rfind("string",0)==0)s(j,i.key().c_str());else if(d.rfind("array",0)==0)need(v.is_array(),"array field");else if(d.rfind("object",0)==0)need(v.is_object(),"object field");else if(d.rfind("number",0)==0)need(v.is_number()&&!v.is_boolean()&&std::isfinite(v.get<double>()),"finite number field");}}

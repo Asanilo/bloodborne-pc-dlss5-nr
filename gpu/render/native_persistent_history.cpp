@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_persistent_history.h"
+#include "nr_dimensions.h"
 #include "native_persistent_history_diagnostic.h"
 #include "native_async_pre_sr_return.h"
 #include "native_persistent_history_shader.h"
@@ -22,9 +23,10 @@
 #include <vector>
 namespace Vulkan {
 namespace {
-constexpr unsigned Width=1280,Height=720,Passes=10;
+const unsigned Width=BbNRDimensions::Width(),Height=BbNRDimensions::Height();
+constexpr unsigned Passes=10;
 static_assert(RequiredTransitionPasses(true,BbNativeAsync::NodeCount,true)<=Passes);
-constexpr uint64_t GroupCount=(Width/8)*(Height/8),GroupBytes=GroupCount*6*4;
+const uint64_t GroupCount=((Width+7)/8)*((Height+7)/8),GroupBytes=GroupCount*6*4;
 constexpr unsigned QueriesPerSlot=Passes*2;
 struct HistoryImage {
  VideoCore::HostImage image; vk::UniqueImageView view;
@@ -171,7 +173,7 @@ void NativePersistentHistory::Impl::Convert(Scheduler& scheduler,const std::arra
  for(unsigned k=0;k<3;k++)s.source[k]=device.createImageViewUnique({.image=raw[k],.viewType=vk::ImageViewType::e2D,.format=k==0?vk::Format::eR16G16B16A16Sfloat:k==1?vk::Format::eD32SfloatS8Uint:vk::Format::eR16G16Sfloat,.subresourceRange={k==1?vk::ImageAspectFlagBits::eDepth:vk::ImageAspectFlagBits::eColor,0,1,0,1}}).value;
  std::array<vk::DescriptorImageInfo,6> ii{};std::array<vk::WriteDescriptorSet,6> writes{};
  for(unsigned k=0;k<6;k++){ii[k]={.sampler=k<3?*nearest:vk::Sampler{},.imageView=k<3?*s.source[k]:s.converted[k-3].View(),.imageLayout=vk::ImageLayout::eGeneral};writes[k]={.dstSet=s.conversion,.dstBinding=k,.descriptorCount=1,.descriptorType=k<3?vk::DescriptorType::eCombinedImageSampler:vk::DescriptorType::eStorageImage,.pImageInfo=&ii[k]};}
- Barrier(cmd);device.updateDescriptorSets(writes,{});cmd.bindPipeline(vk::PipelineBindPoint::eCompute,*conversion_pipeline);cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,*conversion_pipeline_layout,0,s.conversion,{});cmd.dispatch(160,90,1);Barrier(cmd);Mark(scheduler);
+ Barrier(cmd);device.updateDescriptorSets(writes,{});cmd.bindPipeline(vk::PipelineBindPoint::eCompute,*conversion_pipeline);cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,*conversion_pipeline_layout,0,s.conversion,{});cmd.dispatch((Width+7)/8,(Height+7)/8,1);Barrier(cmd);Mark(scheduler);
 }
 void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsigned from,unsigned to,
  const std::array<vk::ImageView,3>& current_views,vk::ImageView extra0,vk::ImageView extra1,
@@ -224,7 +226,7 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  cmd.bindPipeline(vk::PipelineBindPoint::eCompute,mode==PHAdvance&&control.reprojection==BbNR::Reprojection::ClampedCubic?*cubic_pipeline:*pipeline);
  cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,*pipeline_layout,0,s.sets[n],{});
  s.modes[n]=mode;if(s.sampled&&queries)cmd.writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe,*queries,slot*QueriesPerSlot+n*2);
- cmd.dispatch(160,90,1);
+ cmd.dispatch((Width+7)/8,(Height+7)/8,1);
  if(s.sampled&&queries)cmd.writeTimestamp(vk::PipelineStageFlagBits::eBottomOfPipe,*queries,slot*QueriesPerSlot+n*2+1);
  Barrier(cmd);Mark(scheduler);
 }

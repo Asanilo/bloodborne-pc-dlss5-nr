@@ -1,3 +1,4 @@
+#include "nr_dimensions.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_async_pre_sr_fixed_input.h"
 #include "native_async_pre_sr_origin_gpu.h"
@@ -8,7 +9,7 @@
 namespace Vulkan {
 NativeAsyncPreSrFixedInput::NativeAsyncPreSrFixedInput(const Instance& i,std::shared_ptr<NativeAsyncPreSrOriginQuiescence> q):quiescence(std::move(q)),image(i.GetDevice(),i.GetAllocator()){
  if(!quiescence)throw std::runtime_error("fixed SR requires managed peer lifecycle");
- image.Create({.imageType=vk::ImageType::e2D,.format=vk::Format::eR16G16B16A16Sfloat,.extent={1280,720,1},
+ image.Create({.imageType=vk::ImageType::e2D,.format=vk::Format::eR16G16B16A16Sfloat,.extent={BbNRDimensions::Width(),BbNRDimensions::Height(),1},
   .mipLevels=1,.arrayLayers=1,.samples=vk::SampleCountFlagBits::e1,.tiling=vk::ImageTiling::eOptimal,
   .usage=vk::ImageUsageFlagBits::eSampled|vk::ImageUsageFlagBits::eTransferSrc|vk::ImageUsageFlagBits::eTransferDst,
   .initialLayout=vk::ImageLayout::eUndefined});
@@ -27,7 +28,7 @@ void NativeAsyncPreSrFixedInput::Observe(Scheduler& s){
 }
 vk::ImageView NativeAsyncPreSrFixedInput::RecordCopy(Scheduler& s,uint64_t source,vk::Image input,const vk::ImageCreateInfo& ci){
  if(unknown||!input||input==vk::Image(image)||!source||source<=current_source||
-  ci.format!=vk::Format::eR16G16B16A16Sfloat||ci.extent.width!=1280||ci.extent.height!=720||ci.extent.depth!=1||
+  ci.format!=vk::Format::eR16G16B16A16Sfloat||ci.extent.width!=BbNRDimensions::Width()||ci.extent.height!=BbNRDimensions::Height()||ci.extent.depth!=1||
   ci.mipLevels!=1||ci.arrayLayers!=1||ci.samples!=vk::SampleCountFlagBits::e1||!(ci.usage&vk::ImageUsageFlagBits::eTransferSrc))throw std::runtime_error("fixed SR input exact current97 CI/source mismatch");
  const auto identity=reinterpret_cast<uintptr_t>(&s);
  if(scheduler_id&&scheduler_id!=identity)throw std::runtime_error("fixed input cannot cross Native Scheduler domains");
@@ -41,7 +42,7 @@ vk::ImageView NativeAsyncPreSrFixedInput::RecordCopy(Scheduler& s,uint64_t sourc
  dst.oldLayout=initialized?vk::ImageLayout::eGeneral:vk::ImageLayout::eUndefined;
  const std::array before{src,dst};cmd.pipelineBarrier2({.imageMemoryBarrierCount=2,.pImageMemoryBarriers=before.data()});
  cmd.copyImage(input,vk::ImageLayout::eGeneral,vk::Image(image),vk::ImageLayout::eGeneral,
-  vk::ImageCopy{.srcSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.dstSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.extent={1280,720,1}});
+  vk::ImageCopy{.srcSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.dstSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.extent={BbNRDimensions::Width(),BbNRDimensions::Height(),1}});
  auto out=dst;out.oldLayout=vk::ImageLayout::eGeneral;out.srcStageMask=vk::PipelineStageFlagBits2::eTransfer;out.srcAccessMask=vk::AccessFlagBits2::eTransferWrite;
  out.dstStageMask=vk::PipelineStageFlagBits2::eAllCommands;out.dstAccessMask=vk::AccessFlagBits2::eMemoryRead;
  auto restore=src;restore.srcStageMask=vk::PipelineStageFlagBits2::eTransfer;restore.srcAccessMask=vk::AccessFlagBits2::eTransferRead;restore.dstStageMask=vk::PipelineStageFlagBits2::eAllCommands;restore.dstAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite;

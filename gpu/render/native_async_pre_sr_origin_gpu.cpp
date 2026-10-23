@@ -1,3 +1,4 @@
+#include "nr_dimensions.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_async_pre_sr_origin_gpu.h"
 #include "render/scheduler.h"
@@ -14,7 +15,7 @@ bool NativeAsyncPreSrOriginResources::Valid(const NativeAsyncPreSrOriginIdentity
  for(unsigned k=0;k<4;k++){
   const auto& c=infos[k];
   if(!images[k]||!views[k]||c.format!=(k==1?vk::Format::eR32Sfloat:k==2?vk::Format::eR32G32Sfloat:vk::Format::eR32G32B32A32Sfloat)||
-   c.extent.width!=1280u||c.extent.height!=720u||c.extent.depth!=1||c.samples!=vk::SampleCountFlagBits::e1||c.mipLevels!=1||c.arrayLayers!=1||c.flags||
+   c.extent.width!=BbNRDimensions::Width()||c.extent.height!=BbNRDimensions::Height()||c.extent.depth!=1||c.samples!=vk::SampleCountFlagBits::e1||c.mipLevels!=1||c.arrayLayers!=1||c.flags||
    c.tiling!=vk::ImageTiling::eOptimal||c.sharingMode!=vk::SharingMode::eExclusive||c.imageType!=vk::ImageType::e2D||
    c.usage!=(vk::ImageUsageFlagBits::eTransferSrc|vk::ImageUsageFlagBits::eTransferDst|vk::ImageUsageFlagBits::eSampled|vk::ImageUsageFlagBits::eStorage))return false;
   for(unsigned j=0;j<k;j++)if(images[k]==images[j])return false;

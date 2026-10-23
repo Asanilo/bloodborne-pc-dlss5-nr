@@ -7,7 +7,8 @@
     "exporter": "nrbridge/protocol/export.py"
   },
   "consumed": [
-    "native_runtime_model.h"
+    "native_runtime_model.h",
+    "nr_dimensions.h"
   ],
   "export_manifest": {
     "schema": "nrbridge-protocol-export-v1",
@@ -16,12 +17,13 @@
     "runtime_model_schema": "nr-runtime-model-v1",
     "job_model_schema": "nr-runtime-job-model-v1",
     "exports": {
+      "nr_dimensions.h": "a6a75b121682a084e249c8bc1313f44f89f6430318e922e5c2e19fb60692990b",
       "native_runtime_model.h": "92c16609685a651a405842126b6160fd02376c2be034d2142f365bda119a0205",
-      "pre_sr_wire.h": "50c9ed37cdfbf948d07ce153b7b146a966c616ddef864cdab709c792f8395d4f",
+      "pre_sr_wire.h": "ae5b360ab3dee56b7631a3bfabbfabcab1720f556a10eff76aade56e427e4d86",
       "effective-spec.json": "671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b",
       "pre_sr_spec.h": "1e57fbf32d827bf0cb60876e23fbe9ecb52ac0b6160887778c04e13073eaab09"
     }
   },
-  "export_manifest_sha256": "011f63fc1de339717a461045395ab3f8d89693185f8f181ff00adf1d42a02f48",
-  "update": "Daily ring64 v2 interface revision4, reviewed cleanup and bounded uint53 counters; finite v1 retained"
+  "export_manifest_sha256": "5d5c354fbea1fda7c2978ebd1a2a726b7c7060c5f4d8cde6692f1717d69d93c5",
+  "update": "M5 explicit dimensions wire v3; stable runtime model header unchanged; canonical local nrbridge/protocol export"
 }

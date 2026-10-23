@@ -3,6 +3,7 @@
 import argparse,datetime,json,signal,subprocess,sys,time,select
 from pathlib import Path
 import runner
+dimension_profile=runner.dimension_profile
 import native_mouse_scope
 DEFAULT_HELPER=runner.ROOT/'build/helper-runtime-model/06ac7e6b7260172d/wine_runtime_model.exe'
 DEFAULT_HELPER_BUILD_SHA='e7ab371cfb5d4f2fd799336065bdb69953106c3c731498a09f7609947aaa1680'
@@ -19,6 +20,7 @@ def parse_args(argv=None):
  runner.fg_config.add_argument(p)
  p.add_argument('--reuse-nr-prefix')
  p.add_argument('--dlssg-runtime',help='existing FG Helper runtime directory')
+ dimension_profile.add_arguments(p)
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG x2, or finite input capture')
  p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental DLSSG bridge')
  p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1','gpu-dmabuf-v1'],default=None,help='Experimental payload transport; GPU mailbox is opt-in')
@@ -87,6 +89,8 @@ def launch_command(a):
  else:command+=['--runtime-model-helper',str(DEFAULT_HELPER),'--runtime-model-build-sha256',DEFAULT_HELPER_BUILD_SHA]
  if getattr(a,'reuse_nr_prefix',None):command+=['--reuse-nr-prefix',a.reuse_nr_prefix]
  if a.native_build:command+=['--native-build',a.native_build]
+ if a.nr_sr_preset:command+=['--nr-sr-preset',a.nr_sr_preset]
+ if a.nr_output:command+=['--nr-output',a.nr_output]
  if a.continue_session:command+=['--continue-session',a.continue_session]
  if a.context_recovery:command+=['--context-recovery',a.context_recovery]
  if a.online_pool!='offline':command+=['--online-pool',a.online_pool,'--online-account-config',a.online_account_config]

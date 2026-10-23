@@ -7,7 +7,7 @@ layout(binding=2,rgba16f) writeonly uniform image2D currentSrInput97;
 layout(binding=3,std430) buffer Guard {uint failed;};
 layout(binding=4,std430) buffer NextShownMask {uint nextMask;};
 layout(push_constant) uniform Mode {uint pass;uint wholeEligible;uint currentContextWritten;} mode;
-void main(){ivec2 q=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(q,ivec2(1280,720))))return;
+void main(){ivec2 q=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(q,imageSize(currentSrInput97))))return;
  vec4 raw=texelFetch(actualOriginalRaw97,q,0);vec4 edited=texelFetch(composite32,q,0);
  if(mode.pass==0u){
   if(any(isnan(edited.rgb))||any(isinf(edited.rgb))||any(greaterThan(abs(edited.rgb),vec3(65504.0)))||isnan(raw.a)||isinf(raw.a))atomicOr(failed,1u);

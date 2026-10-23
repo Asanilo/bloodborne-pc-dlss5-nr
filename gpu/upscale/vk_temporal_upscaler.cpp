@@ -523,7 +523,7 @@ void TemporalUpscaler::PollNativeFrameBoundary() noexcept {
     native_pre_sr_source_visited = false;
     const auto& p0_settings=BbSettings::Get();
     try {
-        native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter&&(!p0_settings.frame_generation||NativeFrameGeneration()));
+        native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&(p0_settings.preset==1||BbNRDimensions::Get().enabled)&&p0_settings.jitter&&(!p0_settings.frame_generation||NativeFrameGeneration()));
         if (!source_visited) native_async_pre_sr.DrainUnavailable(scheduler);
     }
     catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_POLL_HOLD reason=%s unknown_partial_use_retained=1\n",e.what());}
@@ -538,8 +538,8 @@ bool TemporalUpscaler::OnFrameStart() {
     PollNativeFrameBoundary();
 #if NRBRIDGE_LEGACY_EXPERIMENTS
     const auto& p0_settings=BbSettings::Get();
-    native_async_snapshot.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter&&!p0_settings.frame_generation);
-    p0_controller.Tick(instance,scheduler,!Scaled()&&UseDlss()&&p0_settings.preset==1&&p0_settings.jitter,BbOverlay::MenuOpen());
+    native_async_snapshot.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&(p0_settings.preset==1||BbNRDimensions::Get().enabled)&&p0_settings.jitter&&!p0_settings.frame_generation);
+    p0_controller.Tick(instance,scheduler,!Scaled()&&UseDlss()&&(p0_settings.preset==1||BbNRDimensions::Get().enabled)&&p0_settings.jitter,BbOverlay::MenuOpen());
 #endif
     // bbport: BB_PRESET_FILE=<file> holding "preset [output [upscaler [aspect]]]" numbers, read about
     // once a second: switches them like the menu does (scripted tests of live changes).
@@ -3647,7 +3647,8 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         if(native_async_pre_sr.Enabled()) {
             native_pre_sr_source_visited = true;
             bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pre_sr_pending_audit.has_value();}
-            const bool supported=hdr&&!Scaled()&&w==1280&&h==720&&ow==1920&&oh==1080&&settings.preset==1&&settings.jitter&&(!settings.frame_generation||NativeFrameGeneration())&&!pending;
+            const bool dimensions_match=BbNRDimensions::Get().enabled?(w==BbNRDimensions::Width()&&h==BbNRDimensions::Height()&&ow==BbNRDimensions::Get().output_width&&oh==BbNRDimensions::Get().output_height):(w==1280&&h==720&&ow==1920&&oh==1080&&settings.preset==1);
+            const bool supported=hdr&&!Scaled()&&dimensions_match&&settings.jitter&&(!settings.frame_generation||NativeFrameGeneration())&&!pending;
             native_async_pre_sr.BeginSource(pre_source,supported);
             native_async_pre_sr.PrepareCurrentMasks(scheduler,pre_source,supported);
             bool pre_source_recorded=false;

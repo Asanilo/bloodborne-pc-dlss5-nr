@@ -1,3 +1,4 @@
+#include "nr_dimensions.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_async_pre_sr.h"
 #include "nr_runtime_capture.h"
@@ -27,7 +28,7 @@ void NativeAsyncPreSr::Create(const Instance& instance) {
   auto& image=next->images[i];image=VideoCore::HostImage(instance.GetDevice(),instance.GetAllocator());
   image.Create(vk::ImageCreateInfo{.imageType=vk::ImageType::e2D,
    .format=color?vk::Format::eR16G16B16A16Sfloat:depth?vk::Format::eD32SfloatS8Uint:vk::Format::eR16G16Sfloat,
-   .extent={1280u,720u,1},.mipLevels=1,.arrayLayers=1,
+   .extent={BbNRDimensions::Width(),BbNRDimensions::Height(),1},.mipLevels=1,.arrayLayers=1,
    .samples=vk::SampleCountFlagBits::e1,.tiling=vk::ImageTiling::eOptimal,
    .usage=vk::ImageUsageFlagBits::eTransferDst|vk::ImageUsageFlagBits::eTransferSrc|vk::ImageUsageFlagBits::eSampled,
    .initialLayout=vk::ImageLayout::eUndefined});
@@ -473,7 +474,7 @@ bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& sche
  if(!instance.IsSeparateDepthStencilLayoutsEnabled())return false;
  for(unsigned i=0;i<3;++i){const auto& c=ci[i];
   const auto format=i==0?vk::Format::eR16G16B16A16Sfloat:i==1?vk::Format::eD32SfloatS8Uint:vk::Format::eR16G16Sfloat;
-  if(!source[i]||c.format!=format||c.extent.width!=(1280u)||c.extent.height!=(720u)||c.extent.depth!=1||
+  if(!source[i]||c.format!=format||c.extent.width!=(BbNRDimensions::Width())||c.extent.height!=(BbNRDimensions::Height())||c.extent.depth!=1||
      c.samples!=vk::SampleCountFlagBits::e1||c.mipLevels!=1||c.arrayLayers!=1||!(c.usage&vk::ImageUsageFlagBits::eTransferSrc))return false;
  }
  if(!retained)Create(instance);
@@ -535,7 +536,7 @@ bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& sche
    .srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,
    .image=dest,.subresourceRange={aspect,0,1,0,1}};
   const std::array barriers{src,dst};cmd.pipelineBarrier2({.imageMemoryBarrierCount=2,.pImageMemoryBarriers=barriers.data()});
-  const vk::ImageCopy copy{.srcSubresource={aspect,0,0,1},.dstSubresource={aspect,0,0,1},.extent={1280u,720u,1}};
+  const vk::ImageCopy copy{.srcSubresource={aspect,0,0,1},.dstSubresource={aspect,0,0,1},.extent={BbNRDimensions::Width(),BbNRDimensions::Height(),1}};
   cmd.copyImage(source[role],vk::ImageLayout::eGeneral,dest,vk::ImageLayout::eGeneral,copy);
   const vk::ImageMemoryBarrier2 ready{.srcStageMask=vk::PipelineStageFlagBits2::eTransfer,.srcAccessMask=vk::AccessFlagBits2::eTransferWrite,
    .dstStageMask=vk::PipelineStageFlagBits2::eComputeShader|vk::PipelineStageFlagBits2::eTransfer,

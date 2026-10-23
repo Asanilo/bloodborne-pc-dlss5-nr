@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include "nr_dimensions.h"
 #include "native_async_state.h"
 #include "native_pre_sr_sky_policy.h"
 #include "buffers/buffer.h"
@@ -27,7 +28,7 @@ public:
  vk::ImageView View(unsigned i)const noexcept{return *views[i];}
  const vk::ImageCreateInfo& Info(unsigned i)const noexcept{return images[i].image_ci;}
  vk::Buffer Guard(unsigned i)const noexcept{return flags[i]->Handle();}
- static constexpr uint64_t PackedBytes=uint64_t(1280)*720*8*5;
+ static inline const uint64_t PackedBytes=uint64_t(BbNRDimensions::Width())*BbNRDimensions::Height()*8*5;
 private:
  vk::Device device;std::array<VideoCore::HostImage,5> images;
  std::array<vk::UniqueImageView,5> views;
