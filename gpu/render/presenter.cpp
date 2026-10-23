@@ -93,7 +93,7 @@ Presenter::Presenter(Frontend::WindowSDL& window_, BbCp::CommandProcessor* cp_)
     : window{window_},
       instance{window, EmulatorSettings.GetGpuId(), EmulatorSettings.IsVkValidationEnabled(),
                EmulatorSettings.IsVkCrashDiagnosticEnabled()},
-      cp{cp_}, draw_scheduler{instance, true}, present_scheduler{instance},
+      cp{cp_}, draw_scheduler{instance, true}, present_scheduler{instance, false, instance.GetPresentQueue()},
       swapchain{instance, window}, runtime{instance, draw_scheduler},
       rasterizer{std::make_unique<Rasterizer>(instance, draw_scheduler, runtime, cp)},
       texture_cache{rasterizer->GetTextureCache()},
@@ -196,6 +196,7 @@ void Presenter::RecreateFrame(Frame& frame, u32 width, u32 height) {
 }
 
 Frame* Presenter::GetRenderFrame() {
+    const auto begin = std::chrono::steady_clock::now();
     Frame* frame;
     {
         std::unique_lock lock{free_mutex};
@@ -203,8 +204,10 @@ Frame* Presenter::GetRenderFrame() {
         frame = free_frames.front();
         free_frames.pop_front();
     }
+    const auto acquired = std::chrono::steady_clock::now();
     // Its last present has finished: the image, its FSR slot and the fence are free.
     WaitFence(instance.GetDevice(), frame->present_done);
+    const auto fenced = std::chrono::steady_clock::now();
     if (frame->present_tick) {
         const vk::Semaphore semaphore = present_scheduler.GetWorkSemaphore()->Handle();
         const vk::SemaphoreWaitInfo wait{
@@ -212,6 +215,12 @@ Frame* Presenter::GetRenderFrame() {
         };
         Check<"wait for all frame readers">(
             instance.GetDevice().waitSemaphores(wait, std::numeric_limits<u64>::max()));
+    }
+    const auto source = BbStats::gpu_frames.load(std::memory_order_relaxed);
+    if (std::getenv("BB_FG_PROFILE") && source && source % 31 == 0) {
+        auto ms=[](auto a,auto b){return std::chrono::duration<double,std::milli>(b-a).count();};
+        std::printf("FG_FRAME_ACQUIRE_PROFILE source=%llu free_pool_cpu_ms=%.3f old_fence_cpu_ms=%.3f old_present_tick_cpu_ms=%.3f\n",
+            (unsigned long long)source,ms(begin,acquired),ms(acquired,fenced),ms(fenced,std::chrono::steady_clock::now()));
     }
     const auto [width, height] =
         PresentSizing::Unpack(expected_extent.load(std::memory_order_relaxed));
@@ -382,9 +391,24 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     frame->interp_recorded.reset();
     frame->interp_eligible.reset();
     frame->fg_capture_cpu_ns = 0;
+    frame->fg_guide_record_cpu_ns = frame->fg_producer_submit_cpu_ns = frame->flip_queue_cpu_ns = 0;
     frame->fg_frame = 0;
     frame->fg_strict_source = false;
     frame->fg_previous_source = 0;
+    frame->fg_ticket.reset();
+    if (auto* fg = upscaler.GetFrameGeneration()) {
+        auto ticket = fg->TakeAsyncOutput(cpu_address);
+        if (ticket && ticket->raw->width == source_size.width && ticket->raw->height == source_size.height &&
+            FgContract::SameRealSource(ticket->source, frame->c1_source_game_frame)) {
+            frame->fg_ticket = std::move(ticket);
+            frame->fg_encode = encode; frame->fg_view_format = view_info.format;
+            frame->fg_strict_source = true; frame->fg_previous_source = frame->fg_ticket->previous_source;
+            frame->fg_capture_cpu_ns = frame->fg_ticket->capture_cpu_ns;
+            frame->fg_frame = frame->fg_ticket->source;
+            frame->fg_guide_record_cpu_ns = frame->fg_ticket->guide_record_cpu_ns;
+            frame->fg_producer_submit_cpu_ns = frame->fg_ticket->producer_submit_cpu_ns;
+        }
+    }
     FrameGeneration::Output interp{};
     if (upscaler.GetFrameGeneration() &&
         upscaler.GetFrameGeneration()->TakeOutput(cpu_address, interp) &&
@@ -394,7 +418,7 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
         ((!interp.strict_source && upscaled) || FgContract::SameRealSource(interp.source_game_frame,
                                                frame->c1_source_game_frame))) {
         EncodeInterpolated(frame, interp.image, interp.format, interp.width, interp.height,
-                           view_info.format, encode);
+                           view_info.format, encode, draw_scheduler);
         frame->interp_recorded = interp.recorded;
         frame->interp_eligible = interp.eligible;
         frame->fg_capture_cpu_ns = interp.capture_cpu_ns;
@@ -486,7 +510,12 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
             const u64 tick = recent_frame_ticks.front();
             recent_frame_ticks.pop_front();
             BbStats::WaitTimer timer{BbStats::present_wait_ns};
+            const auto begin = std::chrono::steady_clock::now();
             draw_scheduler.Wait(tick);
+            if (std::getenv("BB_FG_PROFILE") && frame->c1_source_game_frame % 31 == 0)
+                std::printf("FG_FRAMES_AHEAD_PROFILE source=%llu wait_cpu_ms=%.3f bound=%u\n",
+                    (unsigned long long)frame->c1_source_game_frame,
+                    std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count(),ahead);
         }
     }
     return frame;
@@ -526,7 +555,7 @@ void Presenter::SetExpectedSize(u32 width, u32 height) {
 
 void Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format format, u32 width,
                                    u32 height, vk::Format display_view_format,
-                                   const EncodePass::Settings& encode) {
+                                   const EncodePass::Settings& encode, Scheduler& scheduler) {
     std::scoped_lock fg_lock{fg_images_mutex};
     const vk::Device device = instance.GetDevice();
     if (!frame->interp_image) {
@@ -575,8 +604,8 @@ void Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format for
         .components = mapping,
         .subresourceRange = ColorRange,
     }));
-    draw_scheduler.DeferOperation([device, source] { device.destroyImageView(source); });
-    draw_scheduler.Record([this, frame, image, source, encode](vk::CommandBuffer cmdbuf) {
+    scheduler.DeferOperation([device, source] { device.destroyImageView(source); });
+    scheduler.Record([this, frame, image, source, encode](vk::CommandBuffer cmdbuf) {
         const std::array<vk::ImageMemoryBarrier2, 2> before{{
             {
                 .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
@@ -707,14 +736,24 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     };
     const bool blank = frame == &blank_frame;
     if (FgLifecycle::exit_requested.load()) {
+        frame->fg_ticket.reset(); // Worker owns the copy/ACK; no unsubmitted reader is retained.
         frame->has_interp = false;
         if (FgLifecycle::draw_retired.load() && !FgLifecycle::present_retired.load()) {
             // All old FG copies were submitted before draw_retired; this owning thread has
             // submitted its last generated present and will admit no more.
+            auto leases_drained = std::make_shared<std::promise<void>>();
+            auto drained = leases_drained->get_future();
+            present_scheduler.DeferPriorityOperation([leases_drained] { leases_drained->set_value(); });
             present_scheduler.Finish();
+            if (drained.wait_for(std::chrono::seconds(30)) != std::future_status::ready) {
+                FgLifecycle::held.store(true);
+                std::fprintf(stderr,"DLSSG_PRESENT_HOLD raw output lease retirement timeout\n");
+                std::abort();
+            }
             std::scoped_lock fg_lock{fg_images_mutex};
             const auto device = instance.GetDevice();
             for (auto& owned : frames) {
+                owned.fg_ticket.reset();
                 device.destroyImageView(owned.interp_view);
                 if (owned.interp_image)
                     vmaDestroyImage(instance.GetAllocator(), owned.interp_image, owned.interp_allocation);
@@ -746,7 +785,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                         frame->c1_source_game_frame && frame->c1_source_game_frame % 31 == 0;
     const auto profile_start = Clock::now();
     auto profile_ready = profile_start;
-    double generated_present_ms=0, pace_sleep_ms=0;
+    double generated_present_ms=0, pace_sleep_ms=0, ticket_wait_ms=0, encode_wait_ms=0;
     auto profile_ms=[](auto a,auto b){return std::chrono::duration<double,std::milli>(b-a).count();};
     if (!blank && is_game_frame && !is_reusing_frame) {
         const double ms = double(frame->prepare_ns - last_prepare_ns) / 1e6;
@@ -754,6 +793,34 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
             fg_interval_ms = fg_interval_ms * 0.9 + ms * 0.1;
         else fg_interval_ms = 16.667;
         last_prepare_ns = frame->prepare_ns;
+    }
+    if (!blank && frame->fg_ticket) {
+        auto ticket = std::exchange(frame->fg_ticket, {});
+        if (is_game_frame && !is_reusing_frame && ticket->previous_source &&
+            last_real_game_source == ticket->previous_source) {
+            const auto ticket_begin = Clock::now();
+            if (ticket->ready.wait_for(std::chrono::seconds(30)) != std::future_status::ready) {
+                FgLifecycle::held.store(true);
+                std::fprintf(stderr,"DLSSG_PRESENT_HOLD independent consumer timeout\n");
+                std::abort();
+            }
+            (void)ticket->ready.get(); // Actual copy/release and ACK, not merely recording.
+            ticket_wait_ms=profile_ms(ticket_begin,Clock::now());
+            const auto encode_begin=Clock::now();
+            if (ticket->eligible->load(std::memory_order_acquire)) {
+                EncodeInterpolated(frame, vk::Image(ticket->raw->image), ticket->raw->format,
+                    ticket->raw->width, ticket->raw->height, frame->fg_view_format,
+                    frame->fg_encode, present_scheduler);
+                frame->interp_recorded = ticket->recorded;
+                frame->interp_eligible = ticket->eligible;
+                // Keep the raw image alive until its actual final encoder GPU read.
+                present_scheduler.DeferPriorityOperation([lease=ticket]() mutable { lease.reset(); });
+                frame->present_tick = present_scheduler.CurrentTick();
+                present_scheduler.Flush(); // Required even if WSI acquisition is skipped.
+                present_scheduler.Wait(frame->present_tick);
+                encode_wait_ms=profile_ms(encode_begin,Clock::now());
+            }
+        }
     }
     if (!blank && frame->has_interp) {
         if (frame->fg_strict_source &&
@@ -773,6 +840,9 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
                             (!frame->interp_eligible ||
                              frame->interp_eligible->load(std::memory_order_acquire));
     }
+    if (sample && (ticket_wait_ms || encode_wait_ms))
+        std::printf("DLSSG_PRESENT_READY_PROFILE source=%llu ticket_wait_cpu_ms=%.3f encode_record_and_wait_cpu_ms=%.3f\n",
+            (unsigned long long)frame->c1_source_game_frame,ticket_wait_ms,encode_wait_ms);
     // BB_FRAME_GEN_ONLY=1 (diagnostics): only the interpolated frames are shown.
     static const bool only_interp = [] {
         const char* value = std::getenv("BB_FRAME_GEN_ONLY");
@@ -801,6 +871,17 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         std::printf("FG_CAPTURE_PRESENT_PROFILE source=%llu capture_to_real_present_cpu_ms=%.3f scope=guide_capture_to_Present_return_not_input_or_scanout\n",
                     (unsigned long long)frame->c1_source_game_frame,
                     profile_ms(Clock::time_point(std::chrono::nanoseconds(frame->fg_capture_cpu_ns)), Clock::now()));
+    if (sample && frame->fg_guide_record_cpu_ns && frame->flip_queue_cpu_ns) {
+        auto at=[](u64 ns){return Clock::time_point(std::chrono::nanoseconds(ns));};
+        const auto now=Clock::now();
+        std::printf("DLSSG_SOURCE_AGE_PROFILE source=%llu admission_wait_cpu_ms=%.3f guide_record_to_submit_cpu_ms=%.3f submit_to_flip_queue_cpu_ms=%.3f actual_present_queue_cpu_ms=%.3f present_service_cpu_ms=%.3f guide_record_to_real_present_cpu_ms=%.3f not_input_latency=1\n",
+            (unsigned long long)frame->c1_source_game_frame,
+            profile_ms(at(frame->fg_capture_cpu_ns),at(frame->fg_guide_record_cpu_ns)),
+            profile_ms(at(frame->fg_guide_record_cpu_ns),at(frame->fg_producer_submit_cpu_ns)),
+            profile_ms(at(frame->fg_producer_submit_cpu_ns),at(frame->flip_queue_cpu_ns)),
+            profile_ms(at(frame->flip_queue_cpu_ns),profile_start),profile_ms(profile_start,now),
+            profile_ms(at(frame->fg_guide_record_cpu_ns),now));
+    }
     if(sample)std::printf("FG_PACING_PROFILE source=%llu queue_age_cpu_ms=%.3f wait_render_cpu_ms=%.3f generated_present_cpu_ms=%.3f pacing_sleep_cpu_ms=%.3f real_present_cpu_ms=%.3f total_cpu_ms=%.3f interval_estimate_ms=%.3f\n",(unsigned long long)frame->c1_source_game_frame,profile_ms(Clock::time_point(std::chrono::nanoseconds(frame->prepare_ns)),profile_start),profile_ms(profile_start,profile_ready),generated_present_ms,pace_sleep_ms,profile_ms(real_start,Clock::now()),profile_ms(profile_start,Clock::now()),fg_interval_ms);
     release();
 }

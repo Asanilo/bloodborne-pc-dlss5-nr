@@ -19,11 +19,12 @@ def parse_args(argv=None):
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG x2, or finite input capture')
  p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental DLSSG bridge')
  p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1','gpu-dmabuf-v1'],default='mapped-v1',help='Experimental payload transport; GPU mailbox is opt-in')
- p.add_argument('--dlssg-pipeline',choices=['sync-v1','submit-ready-v1','late-ready-v1'],default='sync-v1',help='Async submission prerequisite; sync-v1 preserves the verified bridge')
+ p.add_argument('--dlssg-pipeline',choices=['sync-v1','submit-ready-v1','late-ready-v1','consumer-ready-v1','consumer-queue-v1'],default='sync-v1',help='Async submission prerequisite; sync-v1 preserves the verified bridge')
  p.add_argument('--dlssg-helper-wake',choices=['poll-v1','notify-v1'],default='poll-v1',help='GPU Helper control wake; poll-v1 retains the validated baseline')
  p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + NR + FG route')
  p.add_argument('--smooth-motion',action='store_true',help='driver-level NVIDIA interpolation; excludes application FG')
+ p.add_argument('--fg-fps-limit',type=int,default=None,help='explicit experiment real-frame cap: 0 uncapped; default 60')
  p.add_argument('--fg-profile',action='store_true',help='bounded FG CPU and GPU stage timing')
  p.add_argument('--fg-validation',action='store_true',help='Vulkan core/sync validation for the FG experiment')
  p.add_argument('--session',default='play-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
@@ -94,6 +95,7 @@ def launch_command(a):
  if getattr(a,'fg_native',False):command+=['--fg-native']
  if getattr(a,'fg_validation',False):command+=['--fg-validation']
  if getattr(a,'fg_profile',False):command+=['--fg-profile']
+ if getattr(a,'fg_fps_limit',None) is not None:command+=['--fg-fps-limit',str(a.fg_fps_limit)]
  if getattr(a,'smooth_motion',False):command+=['--smooth-motion']
  if getattr(a,'dlssg_model',None):command+=['--dlssg-model',a.dlssg_model,'--dlssg-prefix-session',a.dlssg_prefix_session,'--dlssg-transport',a.dlssg_transport,'--dlssg-helper-wake',a.dlssg_helper_wake,'--dlssg-pipeline',a.dlssg_pipeline]
  for flag in ('daily','joystick_mouse','pm4_cold_trace','pm4_producer_context','native_mouse'):

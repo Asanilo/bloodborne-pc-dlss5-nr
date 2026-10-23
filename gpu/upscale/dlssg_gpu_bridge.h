@@ -7,6 +7,7 @@
 #include "upscale/dlssg_native_timing.h"
 #include "upscale/frame_generation_lifecycle.h"
 #include <future>
+#include "upscale/dlssg_output_ticket.h"
 #include "upscale/dlssg_serial_worker.h"
 namespace Vulkan {
 class DlssgGpuBridge {
@@ -25,6 +26,12 @@ class DlssgGpuBridge {
   uint64_t consumed_tick = 0;
   J last_request, response;
   bool async_exchange = false, late_exchange = false;
+  bool independent_consumer = false;
+  std::unique_ptr<Scheduler> consumer_scheduler; // Construct/record/destroy on service thread only.
+  std::atomic<u64> consumer_completed_tick{0};
+  std::array<std::shared_ptr<DlssgRawOutput>, 2> raw_outputs;
+  std::shared_ptr<DlssgOutputTicket> output_ticket;
+  u64 slot_misses = 0;
   std::packaged_task<void()> deferred_job;
   std::unique_ptr<DlssgSerialWorker> worker;
   std::shared_future<J> flight;
@@ -98,9 +105,10 @@ class DlssgGpuBridge {
     auto ready = peer->Start(*mailbox);
     helper_serial = DlssgGpu::U(ready, "helper_serial");
     const auto pipeline = config.value("pipeline", std::string("sync-v1"));
-    Need(pipeline == "sync-v1" || pipeline == "submit-ready-v1" || pipeline == "late-ready-v1", "supported GPU pipeline");
+    Need(pipeline == "sync-v1" || pipeline == "submit-ready-v1" || pipeline == "late-ready-v1" || pipeline == "consumer-ready-v1" || pipeline == "consumer-queue-v1", "supported GPU pipeline");
     async_exchange = pipeline != "sync-v1";
     late_exchange = pipeline == "late-ready-v1";
+    independent_consumer = pipeline == "consumer-ready-v1" || pipeline == "consumer-queue-v1";
     if (async_exchange) {
       worker = std::make_unique<DlssgSerialWorker>();
     }
@@ -114,6 +122,10 @@ class DlssgGpuBridge {
                      {"previous_source_game_frame", 0},
                      {"display", 0},
                      {"native_input_tick", 0}};
+    if (independent_consumer) {
+      last_request["native_completion_mode"] = "split-v1";
+      last_request["native_input_domain"] = "draw";
+    }
     depth_transfer = std::make_unique<VideoCore::Buffer>(
         instance, 0, 1280u * 720 * 4, VideoCore::MemoryType::DeviceLocal,
         "DLSSG depth GPU transfer");
@@ -166,6 +178,27 @@ public:
   }
   uint64_t LastSource() const { return last_source; }
   bool Late() const { return late_exchange; }
+  bool Independent() const { return independent_consumer; }
+  std::shared_ptr<DlssgOutputTicket> TakeTicket() { return std::exchange(output_ticket, {}); }
+  std::shared_ptr<DlssgRawOutput> ClaimOutput(vk::Format format) {
+    for (auto& slot : raw_outputs) {
+      if (!slot) {
+        slot = std::make_shared<DlssgRawOutput>();
+        slot->format = format;
+        slot->image = VideoCore::HostImage(instance.GetDevice(), instance.GetAllocator());
+        slot->image.Create({.flags = vk::ImageCreateFlagBits::eMutableFormat | vk::ImageCreateFlagBits::eExtendedUsage,
+          .imageType = vk::ImageType::e2D, .format = format, .extent = {1920,1080,1},
+          .mipLevels = 1, .arrayLayers = 1, .samples = vk::SampleCountFlagBits::e1,
+          .tiling = vk::ImageTiling::eOptimal,
+          .usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled});
+      }
+      if (slot.use_count() == 1) { Need(slot->format == format,"fixed raw output format"); return slot; }
+    }
+    if (++slot_misses <= 3 || slot_misses % 120 == 0)
+      std::printf("DLSSG_RAW_SLOT_BUSY skipped=%llu GPU_reader_lease_retained=1\n",(unsigned long long)slot_misses);
+    return {};
+  }
+
   std::shared_ptr<std::atomic<bool>> Eligibility() const { return flight_eligible; }
   bool Guides(const FrameGeneration::Scene &scene) {
     if (scene.width != 1920 || scene.height != 1080 ||
@@ -179,7 +212,12 @@ public:
     try {
       Start();
       Need(!deferred_job.valid(), "GPU dormant request resolved before guide reuse");
-      JoinFlight(); // Before query reuse or a new request; Peer has one CPU owner at a time.
+      if (independent_consumer && flight.valid()) {
+        // Send the next real frame's already recorded work before waiting for
+        // the single mailbox. No consumer dependency is placed on this stream.
+        scheduler.Flush();
+      }
+      JoinFlight(); // Complete the previous output copy/ACK before single-mailbox reuse.
       Need(!pending, "GPU previous response consumed");
       if (guides) {
         scheduler.Finish();
@@ -242,6 +280,11 @@ public:
     try {
       Need(guides && !pending && guide_source == scene.source_game_frame,
            "GPU same real guides/color");
+      std::shared_ptr<DlssgRawOutput> raw;
+      if (independent_consumer) {
+        raw = ClaimOutput(scene.color_format);
+        if (!raw) return false; // Preserve guides=true for actual completion before reuse.
+      }
       const auto started = Clock::now();
       scheduler.EndRendering();
       last_recorded_tick = scheduler.CurrentTick();
@@ -294,6 +337,10 @@ public:
                        {"native_input_tick", last_recorded_tick},
                        {"native_input_GPU_complete", true},
                        {"camera", current_camera.constants}};
+      if (independent_consumer) {
+        last_request["native_completion_mode"] = "split-v1";
+        last_request["native_input_domain"] = "draw";
+      }
       if (async_exchange) {
         // The request is sent only after the exact submitted producer tick.
         // Native consumption is submitted only after validated Helper fence/release.
@@ -303,15 +350,25 @@ public:
         auto promise = std::make_shared<std::promise<J>>();
         flight = promise->get_future().share();
         auto prior_ack = std::move(consumed_ack);
+        std::shared_ptr<DlssgOutputTicket> ticket;
+        if (independent_consumer) {
+          ticket = std::make_shared<DlssgOutputTicket>();
+          ticket->raw = raw; ticket->ready = flight; ticket->eligible = flight_eligible;
+          ticket->source = scene.source_game_frame; ticket->previous_source = last_source;
+          ticket->display = display;
+          ticket->guide_record_cpu_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(timing.guides.time_since_epoch()).count();
+          ticket->producer_submit_cpu_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(flushed.time_since_epoch()).count();
+          output_ticket = ticket;
+        }
         auto job = [this, request = last_request, serial = helper_serial,
                         input_tick = last_recorded_tick,
                         producer = scheduler.GetWorkSemaphore(),
-                        eligible = flight_eligible, promise,
+                        eligible = flight_eligible, promise, ticket,
                         prior_ack = std::move(prior_ack),
                         record_ms, flush_ms,
                         submitted = flushed,
                         previous_output = last_source,
-                        pipeline = late_exchange ? "late-ready-v1" : "submit-ready-v1"]() mutable {
+                        pipeline = independent_consumer ? (instance.GetPresentQueue()!=instance.GetGraphicsQueue()?"consumer-queue-v1":"consumer-ready-v1") : late_exchange ? "late-ready-v1" : "submit-ready-v1"]() mutable {
           try {
             const auto wait_begin = Clock::now();
             producer->Wait(input_tick); // Never Scheduler::Wait/Flush on this worker.
@@ -322,7 +379,7 @@ public:
               prior_ack.get();
             }
             const auto source = DlssgGpu::U(request, "source_game_frame");
-            timing.ReadAsyncInput(source, previous_output, record_ms, flush_ms,
+            timing.ReadAsyncInput(source, independent_consumer ? 0 : previous_output, record_ms, flush_ms,
                                  DlssgNativeTiming::Ms(wait_begin, input_complete), pipeline);
             const auto exchange_begin = Clock::now();
             auto result = peer->Exchange(request, serial);
@@ -341,7 +398,15 @@ public:
               profile["pipeline"] = pipeline;
               std::printf("DLSSG_GPU_BRIDGE_PROFILE %s\n", profile.dump().c_str());
             }
-            // Both queue submission and the eventual ACK acquire this publication.
+            if (ticket) {
+              const auto tick = ConsumeIndependent(*ticket);
+              DlssgGpu::Peer::PublishConsumed(peer->root, request,
+                                             DlssgGpu::U(result,"helper_serial"), tick);
+              result["native_consumer_tick"] = tick;
+              result["native_consumer_GPU_complete"] = true;
+            }
+            // Independent tickets become ready only after the real consumer
+            // completion and ACK, even if never attached to a Present frame.
             promise->set_value(std::move(result));
           } catch (const std::exception &e) {
             // A submitted-tick prerequisite cannot be faked on error: fail-stop
@@ -356,7 +421,13 @@ public:
           deferred_job = std::packaged_task<void()>(std::move(job));
         } else worker->Submit(std::move(job));
         guides = false;
-        pending = true;
+        pending = !independent_consumer;
+        if (independent_consumer) {
+          sequence = DlssgGpu::U(last_request,"sequence");
+          last_source = scene.source_game_frame;
+          previous_camera = std::move(current_camera);
+          last_completed = Clock::now();
+        }
         return true; // Provisional output; actual eligibility gates Present separately.
       }
       const auto wait_start = Clock::now();
@@ -384,23 +455,9 @@ public:
       Fail(e);
     }
   }
-  void Consume(vk::Image target,
-               const std::shared_ptr<std::atomic<bool>> &recorded = {}) {
-    try {
-      Need(pending, "GPU response before Native consume");
-      // A late request starts only together with its guaranteed consume/discard.
-      // A missing flip can leave this dormant indefinitely without stranding
-      // a Helper output or starting the consumed-ACK deadline.
-      if (deferred_job.valid()) worker->Submit(std::move(deferred_job));
-      scheduler.EndRendering();
-      last_recorded_tick = scheduler.CurrentTick();
-      mailbox->MarkUse();
-      const auto tick = last_recorded_tick;
-      if (!async_exchange) {
-        timing.upload_source = DlssgGpu::U(last_request, "source_game_frame");
-        timing.upload_pending = bool(timing.pool);
-      }
-      scheduler.Record([this, target, recorded](vk::CommandBuffer cmd) {
+  void RecordOutput(Scheduler& stream, vk::Image target,
+                    const std::shared_ptr<std::atomic<bool>>& recorded) {
+      stream.Record([this, target, recorded](vk::CommandBuffer cmd) {
         timing.Mark(cmd, 4);
         mailbox->Ownership(VkCommandBuffer(cmd), 3, true, false);
         if (target) {
@@ -440,6 +497,24 @@ public:
         if (recorded)
           recorded->store(true, std::memory_order_release);
       });
+  }
+  void Consume(vk::Image target,
+               const std::shared_ptr<std::atomic<bool>> &recorded = {}) {
+    try {
+      Need(pending, "GPU response before Native consume");
+      // A late request starts only together with its guaranteed consume/discard.
+      // A missing flip can leave this dormant indefinitely without stranding
+      // a Helper output or starting the consumed-ACK deadline.
+      if (deferred_job.valid()) worker->Submit(std::move(deferred_job));
+      scheduler.EndRendering();
+      last_recorded_tick = scheduler.CurrentTick();
+      mailbox->MarkUse();
+      const auto tick = last_recorded_tick;
+      if (!async_exchange) {
+        timing.upload_source = DlssgGpu::U(last_request, "source_game_frame");
+        timing.upload_pending = bool(timing.pool);
+      }
+      RecordOutput(scheduler, target, recorded);
       Need(!consumed_ack.valid(), "one asynchronous consumer ACK");
       auto completed = std::make_shared<std::promise<double>>();
       consumed_ack = completed->get_future();
@@ -508,6 +583,26 @@ public:
       Fail(e);
     }
   }
+  u64 ConsumeIndependent(DlssgOutputTicket& ticket) {
+    if (!consumer_scheduler) consumer_scheduler = std::make_unique<Scheduler>(instance, false, instance.GetPresentQueue());
+    auto& stream = *consumer_scheduler;
+    const auto target = vk::Image(ticket.raw->image);
+    const auto recorded = ticket.recorded;
+    const auto tick = stream.CurrentTick();
+    const auto copy_begin = Clock::now();
+    RecordOutput(stream, target, recorded);
+    stream.Flush();
+    const auto copy_submitted = Clock::now();
+    stream.Wait(tick); // Service thread, never the draw recording owner.
+    consumer_completed_tick.store(tick, std::memory_order_release);
+    if (timing.pool && ticket.source % 31 == 0) {
+      u64 values[2]{};
+      Check(instance.GetDevice().getQueryPoolResults(*timing.pool,4,2,sizeof values,values,sizeof(u64),vk::QueryResultFlagBits::e64));
+      std::printf("DLSSG_INDEPENDENT_COPY source=%llu consumer_tick=%llu GPU_ms=%.3f record_submit_cpu_ms=%.3f completion_wait_cpu_ms=%.3f actual_GPU_complete=1\n",
+          (unsigned long long)ticket.source,(unsigned long long)tick,timing.Delta(values[0],values[1]),DlssgNativeTiming::Ms(copy_begin,copy_submitted),DlssgNativeTiming::Ms(copy_submitted,Clock::now()));
+    }
+    return tick;
+  }
   bool Retire() {
     if (retired)
       return true;
@@ -522,8 +617,18 @@ public:
       Observe();
       JoinFlight();
       WaitConsumedAck();
+      if (independent_consumer) {
+        auto done = std::make_shared<std::promise<void>>(); auto waited = done->get_future();
+        worker->Submit([this,done] {
+          try { if (consumer_scheduler) { consumer_scheduler->Finish(); consumer_scheduler.reset(); } done->set_value(); }
+          catch (const std::exception& e) { Fail(e); }
+        });
+        Need(waited.wait_for(std::chrono::seconds(30)) == std::future_status::ready,"consumer drain deadline");
+        waited.get();
+      }
       worker.reset();
-      peer->Retire(*mailbox, last_request, helper_serial);
+      peer->Retire(*mailbox, last_request, helper_serial,
+                   independent_consumer ? consumer_completed_tick.load(std::memory_order_acquire) : 0);
       depth_transfer.reset();
       retired = true;
       std::printf(

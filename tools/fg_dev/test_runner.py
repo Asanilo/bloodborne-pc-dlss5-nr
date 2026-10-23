@@ -11,6 +11,13 @@ import peer_retirement
 
 
 class FgRunnerTests(unittest.TestCase):
+    def test_explicit_uncapped_experiment_and_invalid_limits(self):
+        base=['start','cpu-cap','--daily','--fg-native','--local-inputs','/inputs',
+              '--experimental-fg','fsr31-hudless']
+        self.assertIsNone(runner.parse_args(base).fg_fps_limit)
+        self.assertEqual(runner.parse_args(base+['--fg-fps-limit','0']).fg_fps_limit,0)
+        for value in ('-1','241'):
+            with self.assertRaises(SystemExit):runner.parse_args(base+['--fg-fps-limit',value])
     def test_capture_requires_its_native_marker(self):
         with tempfile.TemporaryDirectory() as directory:
             build=Path(directory);(build/'gpu').mkdir()

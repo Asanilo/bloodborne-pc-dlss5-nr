@@ -46,9 +46,9 @@ class GpuRetirementTests(unittest.TestCase):
                    'dlssg-retired.json':dict(terminal=terminal,launcher_pid=1234,wait_status=0,Native_shared_GPU_complete=True,
                         Native_imports_destroyed=True,native_shared_used=True,native_last_use_tick=20,last_native_input_tick=19,last_request_pair=pair),
                    'dlssg-gpu-import.json':base|dict(metadata=meta,FD_retired=closed,raw_payloads_absent=True)}
-    def check(self,docs=None,proof=PROOF):
+    def check(self,docs=None,proof=PROOF,split=False):
         for name,data in (docs or self.docs).items():(self.root/name).write_text(json.dumps(data))
-        audit.audit_dlssg_gpu(self.root,'test',proof)
+        audit.audit_dlssg_gpu(self.root,'test',proof,split)
     def test_normal_tuple_and_zero_requests(self):
         self.check()
         d=copy.deepcopy(self.docs);r=d['dlssg-retired.json']
@@ -59,6 +59,26 @@ class GpuRetirementTests(unittest.TestCase):
         self.check(d,PROOF.replace('sequence=6','sequence=0'))
         r['native_shared_used']=False;r['native_last_use_tick']=r['terminal']['native_last_use_tick']=0
         self.check(d,PROOF.replace('sequence=6','sequence=0'))
+    def test_split_domains_and_partial_producer_retirement(self):
+        d=copy.deepcopy(self.docs);r=d['dlssg-retired.json'];t=r['terminal'];pair=r['last_request_pair']
+        for obj in (pair,t):obj.update(native_completion_mode='split-v1',native_input_domain='draw')
+        for obj in (r,t):obj.update(native_completion_mode='split-v1',native_last_use_domain='consumer',native_last_use_tick=2,
+                                   native_draw_last_use_tick=19,native_draw_GPU_complete=True,native_consumer_GPU_complete=True)
+        self.check(d,split=True) # Draw 19 and consumer 2 are independent counters.
+        with self.assertRaises(ValueError):self.check(d) # Sealed legacy mode cannot admit split evidence.
+        bad=copy.deepcopy(d);bad['dlssg-retired.json']['native_completion_mode']='unknown-v9'
+        with self.assertRaises(ValueError):self.check(bad,split=True)
+        for key,value in [('native_draw_last_use_tick',18),('native_consumer_GPU_complete',False),('native_last_use_domain','draw')]:
+            bad=copy.deepcopy(d);bad['dlssg-retired.json'][key]=value
+            with self.assertRaises(ValueError):self.check(bad,split=True)
+        for obj in (pair,t):
+            for key in ('sequence','epoch','source_game_frame','previous_source_game_frame','display'):obj[key]=0
+        t['helper_serial']=1;r['last_native_input_tick']=0
+        r['native_last_use_tick']=t['native_last_use_tick']=0
+        self.check(d,PROOF.replace('sequence=6','sequence=0'),split=True) # Partial guides, no consumer use.
+        r['native_last_use_tick']=t['native_last_use_tick']=1
+        with self.assertRaises(ValueError):self.check(d,PROOF.replace('sequence=6','sequence=0'),split=True)
+
     def test_missing_or_mismatched_gpu_retirement_facts_reject(self):
         mutations=[('dlssg-retired.json',('Native_shared_GPU_complete',),False),
                    ('dlssg-retired.json',('Native_imports_destroyed',),False),

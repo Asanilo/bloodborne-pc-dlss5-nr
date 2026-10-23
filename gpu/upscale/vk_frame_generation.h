@@ -30,6 +30,7 @@ namespace VideoCore { struct Buffer; }
 
 namespace Vulkan {
 
+struct DlssgOutputTicket;
 class Instance;
 class Scheduler;
 class DlssgInputCapture;
@@ -94,6 +95,7 @@ public:
         u64 capture_cpu_ns = 0; ///< CPU guide-capture boundary; not input polling time.
     };
     bool TakeOutput(VAddr display, Output& out);
+    std::shared_ptr<DlssgOutputTicket> TakeAsyncOutput(VAddr display);
 
 private:
     bool EnsureContext(u32 render_width, u32 render_height, u32 width, u32 height, vk::Format format);
@@ -111,6 +113,7 @@ private:
     std::unique_ptr<DlssgInputCapture> dlssg_capture;
     std::unique_ptr<DlssgCpuBridge> dlssg_bridge;
     std::unique_ptr<DlssgGpuBridge> dlssg_gpu;
+    std::shared_ptr<DlssgOutputTicket> async_output;
     vk::Image deferred_gpu_image;
     VAddr deferred_gpu_display = 0;
     std::shared_ptr<std::atomic<bool>> deferred_gpu_recorded;

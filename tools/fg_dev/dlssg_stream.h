@@ -70,13 +70,17 @@ void Probe::stream(const char* root) {
   for(auto k:{"DLSSG.HUDLess","DLSSG.UI","DLSSG.UIAlpha","DLSSG.OutputReal","DLSSG.BidirectionalDistortionField"})ptr(k,nullptr);
   std::array<float,16> identity{};for(unsigned k=0;k<4;++k)identity[k*5]=1;ptr("DLSSG.ClipToLensClip",identity.data());
   api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),"stream initialization idle");
-  atomic_text(std::string(root)+"/stream-ready.json",J{{"schema",schema},{"session",session},{"transport",transport},{"actual_GPU_complete",true},{"private_image_sets",2},{"native_gpu_readers",0},{"helper_serial",gpu?mailbox->serial:0}}.dump()+"\n");
+  if(gpu)(void)DlssgGpu::Split(config);
+  atomic_text(std::string(root)+"/stream-ready.json",J{{"schema",schema},{"session",session},{"transport",transport},{"actual_GPU_complete",true},{"private_image_sets",2},{"native_completion_mode",config.value("native_completion_mode",std::string("draw-v1"))},{"native_gpu_readers",0},{"helper_serial",gpu?mailbox->serial:0}}.dump()+"\n");
+  const bool split=gpu&&DlssgGpu::Split(config);
+  uint64_t last_draw_tick=0,last_input_tick=0;
   uint64_t sequence=0,last_source=0,epoch=0,last_native_tick=0;bool initialized[2]{};J last_request{{"schema",schema},{"session",session},{"sequence",0},{"epoch",0},{"source_game_frame",0},{"previous_source_game_frame",0},{"display",0}};
+  if(split)last_request.update(J{{"native_completion_mode","split-v1"},{"native_input_domain","draw"}});
   while(true){
     check_peer();
     if(exists("stream-stop.json")){auto stop=read_json("stream-stop.json");require(stop.at("session")==session&&stop.at("sequence")==sequence,"stop exact consumed sequence");
       if(gpu){require(DlssgGpu::Pair(stop)==DlssgGpu::Pair(last_request)&&DlssgGpu::U(stop,"helper_serial_echo")==mailbox->serial,"GPU exact stop tuple");auto ready=DlssgGpu::Pair(stop);ready.update(J{{"helper_serial",mailbox->serial},{"helper_GPU_complete",true}});atomic_text(std::string(root)+"/gpu-stop-ready.json",ready.dump()+"\n");
-        auto released=wait_gpu("gpu-native-released.json",[](const J&){return true;});require(DlssgGpu::Pair(released)==DlssgGpu::Pair(stop)&&DlssgGpu::B(released,"native_GPU_complete")&&DlssgGpu::U(released,"native_last_use_tick")>=last_native_tick&&DlssgGpu::U(released,"native_imported_images_owned")==0&&DlssgGpu::U(released,"native_duplicate_fd_owned")==0,"GPU Native imported images actually released");require(DlssgGpu::B(released,"native_shared_used")==bool(DlssgGpu::U(released,"native_last_use_tick")),"GPU zero-use or actual last-use proof");last_native_tick=DlssgGpu::U(released,"native_last_use_tick");mailbox->native_released=true;mailbox->destroy_released();shared_active=false;
+        auto released=wait_gpu("gpu-native-released.json",[](const J&){return true;});require(DlssgGpu::Pair(released)==DlssgGpu::Pair(stop)&&DlssgGpu::B(released,"native_GPU_complete")&&DlssgGpu::U(released,"native_last_use_tick")>=last_native_tick&&DlssgGpu::U(released,"native_imported_images_owned")==0&&DlssgGpu::U(released,"native_duplicate_fd_owned")==0,"GPU Native imported images actually released");require(DlssgGpu::B(released,"native_shared_used")==bool(DlssgGpu::U(released,"native_last_use_tick")||(split?DlssgGpu::U(released,"native_draw_last_use_tick"):0)),"GPU zero-use or actual last-use proof");if(split){require(sequence||DlssgGpu::U(released,"native_last_use_tick")==0,"GPU no consumer without Evaluate");require(released.at("native_last_use_domain")=="consumer"&&DlssgGpu::B(released,"native_draw_GPU_complete")&&DlssgGpu::B(released,"native_consumer_GPU_complete")&&DlssgGpu::U(released,"native_draw_last_use_tick")>=last_input_tick,"GPU exact split retirement domains");last_draw_tick=DlssgGpu::U(released,"native_draw_last_use_tick");}last_native_tick=DlssgGpu::U(released,"native_last_use_tick");mailbox->native_released=true;mailbox->destroy_released();shared_active=false;
       }break;}
 
     if(!exists("request.json")){pause_control();continue;}
@@ -87,7 +91,7 @@ void Probe::stream(const char* root) {
     uint64_t source=request.at("source_game_frame"),previous=request.at("previous_source_game_frame"),generation=request.at("epoch");bool reset=request.at("reset");
     require(source>last_source&&previous==last_source&&generation>0&&((generation==epoch&&source==last_source+1&&!reset)||(generation>epoch&&reset)),"real source pair/epoch/reset contract");
     require(request.value("transport",std::string("files-v1"))==transport,"exact CPU transport request");
-    if(gpu)DlssgGpu::Request(request,session,sequence,epoch,last_source,last_native_tick);
+    if(gpu){require(DlssgGpu::Split(request)==split,"GPU negotiated completion mode");DlssgGpu::Request(request,session,sequence,epoch,last_source,split?last_input_tick:last_native_tick);last_input_tick=DlssgGpu::U(request,"native_input_tick");}
     const double started=cpu_ms();auto& s=slots[sequence%2];
     if(gpu){}else if(mapped){
       payload.Acquire();
@@ -123,12 +127,13 @@ void Probe::stream(const char* root) {
     atomic_text(std::string(root)+"/response.json",response.dump()+"\n");
     // Do not overwrite the CPU response until its exact consumer ACK (copied or discarded).
     const auto consume_deadline=cpu_ms()+30000;
-    while(true){check_peer();if(gpu)require(cpu_ms()<consume_deadline,"GPU consumed timeout; HOLD");if(exists("consumed.json")){auto ack=read_json("consumed.json");if(gpu)DlssgGpu::Session(ack,session);if(ack.at("sequence")==next){if(gpu){DlssgGpu::Consumed(ack,request,mailbox->serial);last_native_tick=DlssgGpu::U(ack,"native_last_use_tick");}require(ack.at("session")==session&&ack.at("epoch")==generation&&ack.at("source_game_frame")==source,"exact CPU consumer ACK");break;}}pause_control();}
+    while(true){check_peer();if(gpu)require(cpu_ms()<consume_deadline,"GPU consumed timeout; HOLD");if(exists("consumed.json")){auto ack=read_json("consumed.json");if(gpu)DlssgGpu::Session(ack,session);if(ack.at("sequence")==next){if(gpu){DlssgGpu::Consumed(ack,request,mailbox->serial);require(DlssgGpu::U(ack,"native_last_use_tick")>last_native_tick,"GPU monotonic consumer completion domain");last_native_tick=DlssgGpu::U(ack,"native_last_use_tick");}require(ack.at("session")==session&&ack.at("epoch")==generation&&ack.at("source_game_frame")==source,"exact CPU consumer ACK");break;}}pause_control();}
     sequence=next;last_source=source;epoch=generation;last_request=request;
     if(sequence<=3||sequence%60==0)printf("DLSSG_STREAM_EVALUATED sequence=%llu source=%llu previous=%llu epoch=%llu result=0x%08x disable=%u service_ms=%.3f GPU_complete=1 native_presents=0\n",sequence,source,previous,epoch,unsigned(result),disabled,cpu_ms()-started);
   }
   printf("DLSSG_STREAM_DRAINED session=%s sequence=%llu source=%llu cpu_slot_consumed=1 submitted_queue_GPU_complete=1 native_gpu_readers=0\n",session.c_str(),sequence,last_source);
   if(gpu){stream_terminal=DlssgGpu::Pair(last_request);stream_terminal.update(J{{"helper_serial",mailbox->serial},{"native_last_use_tick",last_native_tick},{"native_imports_released",true},{"shared_images_owned",0},{"export_raw_fd_owned",0}});}
-  else stream_terminal=J{{"schema","dlssg-cpu-stream-v1"},{"session",session},{"sequence",sequence},{"epoch",epoch},{"source_game_frame",last_source},{"cpu_slot_consumed",true}};
+  if(split)stream_terminal.update(J{{"native_last_use_domain","consumer"},{"native_draw_last_use_tick",last_draw_tick},{"native_draw_GPU_complete",true},{"native_consumer_GPU_complete",true}});
+  else if(!gpu) stream_terminal=J{{"schema","dlssg-cpu-stream-v1"},{"session",session},{"sequence",sequence},{"epoch",epoch},{"source_game_frame",last_source},{"cpu_slot_consumed",true}};
   // Main performs real Release/Shutdown/device destruction before writing the terminal record.
 }

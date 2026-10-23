@@ -26,6 +26,15 @@ int main(){
  bad=ack;bad["session"]="old";rejects([&]{Consumed(bad,request,2);});
  bad=ack;bad["display"]=124;rejects([&]{Consumed(bad,request,2);});
  rejects([&]{Consumed(ack,request,3);});
+ auto split=request;split["native_completion_mode"]="split-v1";split["native_input_domain"]="draw";
+ Request(split,"cpu",0,0,0,0);
+ auto sa=Pair(split);sa.update(J{{"helper_serial_echo",2},{"native_last_use_tick",1},{"native_last_use_domain","consumer"},{"native_GPU_complete",true},{"output_released",true}});
+ Consumed(sa,split,2); // Independent timeline tick may be smaller than draw tick.
+ bad=sa;bad["native_last_use_domain"]="draw";rejects([&]{Consumed(bad,split,2);});
+ bad=sa;bad["native_last_use_tick"]=0;rejects([&]{Consumed(bad,split,2);});
+ bad=sa;bad["native_GPU_complete"]=false;rejects([&]{Consumed(bad,split,2);});
+ rejects([&]{Consumed(ack,split,2);});
+ bad=split;bad["native_input_domain"]="consumer";rejects([&]{Request(bad,"cpu",0,0,0,0);});
  request["sequence"]=2;request["previous_source_game_frame"]=42;request["source_game_frame"]=44;
  request["native_input_tick"]=12;request["reset"]=false;
  rejects([&]{Request(request,"cpu",1,1,42,11);});

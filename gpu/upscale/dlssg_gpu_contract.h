@@ -21,15 +21,16 @@ inline void Resource(const J& j,unsigned index){
     Need(U(j,"fd")>0&&U(j,"fd")<=INT32_MAX&&(U(j,"external_features")&6)==6&&(U(j,"compatible_handle_types")&512),"GPU mailbox DMA-BUF contract");
     Need(U(j,"prefers_dedicated")<=1&&U(j,"requires_dedicated")<=1,"GPU dedicated VkBool32");
 }
-inline J Pair(const J& j){J result;for(auto k:{"schema","session","sequence","epoch","source_game_frame","previous_source_game_frame","display"})result[k]=j.at(k);return result;}
+inline bool Split(const J& j){const auto mode=j.value("native_completion_mode",std::string("draw-v1"));Need(mode=="draw-v1"||mode=="split-v1","GPU known completion domain mode");return mode=="split-v1";}
+inline J Pair(const J& j){J result;for(auto k:{"schema","session","sequence","epoch","source_game_frame","previous_source_game_frame","display"})result[k]=j.at(k);if(Split(j)){Need(j.at("native_input_domain")=="draw","GPU input draw domain");result["native_completion_mode"]="split-v1";result["native_input_domain"]="draw";}return result;}
 inline void Request(const J& j,const std::string& session,uint64_t sequence,uint64_t epoch,uint64_t source,uint64_t previous_tick){
-    Session(j,session);const auto next=U(j,"source_game_frame"),generation=U(j,"epoch");const bool reset=B(j,"reset");
+    (void)Pair(j);Session(j,session);const auto next=U(j,"source_game_frame"),generation=U(j,"epoch");const bool reset=B(j,"reset");
     Need(U(j,"sequence")==sequence+1&&next>source&&U(j,"previous_source_game_frame")==source&&generation>0&&
          ((generation==epoch&&next==source+1&&!reset)||(generation>epoch&&reset)),"GPU real source pair/epoch");
     Need(B(j,"native_input_GPU_complete")&&U(j,"native_input_tick")>previous_tick,"GPU producer actual completion tick");
     Need(j.at("wire_order")=="game-scene-bytes","GPU raw scene byte contract");
 }
 inline void Consumed(const J& ack,const J& request,uint64_t helper_serial){
-    Need(Pair(ack)==Pair(request)&&U(ack,"helper_serial_echo")==helper_serial&&B(ack,"native_GPU_complete")&&B(ack,"output_released")&&U(ack,"native_last_use_tick")>U(request,"native_input_tick"),"GPU exact consumed/fence/output release");
+    Need(Pair(ack)==Pair(request)&&U(ack,"helper_serial_echo")==helper_serial&&B(ack,"native_GPU_complete")&&B(ack,"output_released")&&(Split(request)?(ack.at("native_last_use_domain")=="consumer"&&U(ack,"native_last_use_tick")>0):U(ack,"native_last_use_tick")>U(request,"native_input_tick")),"GPU exact consumed/fence/output release");
 }
 } // namespace DlssgGpu

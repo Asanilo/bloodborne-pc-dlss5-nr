@@ -654,6 +654,9 @@ def validate_daily_args(args):
   raise ValueError('experimental FG requires daily SR-only or explicit --fg-native integration')
  if getattr(args,'fg_native',False) and not (daily and getattr(args,'experimental_fg',None)):
   raise ValueError('--fg-native requires daily experimental FG')
+ limit=getattr(args,'fg_fps_limit',None)
+ if limit is not None and (not getattr(args,'experimental_fg',None) or type(limit) is not int or not 0<=limit<=240):
+  raise ValueError('FG FPS limit requires an experiment and integer 0..240')
  if getattr(args,'fg_validation',False) and not getattr(args,'experimental_fg',None):
   raise ValueError('FG validation requires an explicit FG experiment')
  if getattr(args,'sr_only',False) and not daily:raise ValueError('SR-only selection requires daily mode')
@@ -801,7 +804,8 @@ def launch_supervised(args,signals):
    # SR-only and explicit Native HDR integration retain the managed PreSR retirement audit.
    env.update(BB_FRAME_GEN='1',BB_FRAME_GEN_AUDIT='1',BB_PRESENT_MODE='Immediate',
               BB_FRAME_GEN_CONTROL=str(run/'fg-control'),
-              BB_SEQUENCE_DUMP_TRIGGER=str(run/'fg-sequence-trigger'),BB_FPS_LIMIT='60')
+              BB_SEQUENCE_DUMP_TRIGGER=str(run/'fg-sequence-trigger'),
+              BB_FPS_LIMIT=str(60 if getattr(args,'fg_fps_limit',None) is None else args.fg_fps_limit))
    if getattr(args,'fg_profile',False):env['BB_FG_PROFILE']='1'
    if getattr(args,'fg_native',False):env['BB_FRAME_GEN_NATIVE']='1'
    env['BB_FRAME_GEN_HUDLESS']='1' if args.experimental_fg=='fsr31-hudless' else '0'
@@ -921,11 +925,12 @@ def parse_args(argv=None):
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG x2, or finite DLSSG input capture')
  p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental DLSSG bridge')
  p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1','gpu-dmabuf-v1'],default='mapped-v1',help='Experimental payload transport; GPU mailbox is opt-in')
- p.add_argument('--dlssg-pipeline',choices=['sync-v1','submit-ready-v1','late-ready-v1'],default='sync-v1',help='Async submission prerequisite; sync-v1 preserves the verified bridge')
+ p.add_argument('--dlssg-pipeline',choices=['sync-v1','submit-ready-v1','late-ready-v1','consumer-ready-v1','consumer-queue-v1'],default='sync-v1',help='Async submission prerequisite; sync-v1 preserves the verified bridge')
  p.add_argument('--dlssg-helper-wake',choices=['poll-v1','notify-v1'],default='poll-v1',help='GPU Helper control wake; poll-v1 retains the validated baseline')
  p.add_argument('--dlssg-prefix-session',default='m2-sm-1080q-r1',help='reuse one normally retired private Wine prefix')
  p.add_argument('--fg-native',action='store_true',help='experimental 1080p Native HDR SR + FG; allows NR integration')
  p.add_argument('--smooth-motion',action='store_true',help='exclusive driver-level NVIDIA Smooth Motion experiment')
+ p.add_argument('--fg-fps-limit',type=int,default=None,help='explicit experiment real-frame cap: 0 uncapped; default 60')
  p.add_argument('--fg-profile',action='store_true',help='bounded FG CPU and GPU stage timing')
  p.add_argument('--fg-validation',action='store_true',help='explicit FG core/sync validation')
  player_settings.add_arguments(p)

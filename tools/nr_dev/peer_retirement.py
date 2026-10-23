@@ -209,7 +209,7 @@ def audit_daily(run,session):
 
 def rows(text,event):
  return [dict(re.findall(r'(\w+)=([^\s]+)',line)) for line in text.splitlines() if line.startswith(event+' ')]
-def audit_dlssg_gpu(run,session,text):
+def audit_dlssg_gpu(run,session,text,expected_split=False):
  # This audits recorded completion facts; it never admits GPU work or repairs HOLD.
  proof=rows(text,'DLSSG_GPU_BRIDGE_RETIRED')
  need(len(proof)==1 and all(proof[0].get(k)=='1' for k in
@@ -228,15 +228,24 @@ def audit_dlssg_gpu(run,session,text):
  keys=('sequence','epoch','source_game_frame','previous_source_game_frame','display')
  need(all(uint(terminal,k)==uint(pair,k) for k in keys),'GPU mailbox final exact source pair')
  sequence=uint(terminal,'sequence');tick=uint(report,'native_last_use_tick');input_tick=uint(report,'last_native_input_tick')
+ split=pair.get('native_completion_mode')=='split-v1'
+ need(split==expected_split and all(r.get('native_completion_mode','draw-v1')==('split-v1' if split else 'draw-v1') for r in (pair,terminal,report)), 'GPU sealed completion mode')
+ if not split:
+  need(all(not any(k in r for k in ('native_input_domain','native_last_use_domain','native_draw_last_use_tick','native_consumer_GPU_complete')) for r in (pair,terminal,report)), 'GPU legacy completion domain fields')
+ draw_tick=uint(report,'native_draw_last_use_tick') if split else tick
+ if split:
+  need(all(r.get('native_completion_mode')=='split-v1' and r.get('native_input_domain')=='draw' for r in (pair,terminal))
+       and all(r.get('native_last_use_domain')=='consumer' and r.get('native_draw_GPU_complete') is True and r.get('native_consumer_GPU_complete') is True for r in (report,terminal))
+       and uint(terminal,'native_draw_last_use_tick')==draw_tick,'GPU split completion domains')
  need(proof[0].get('sequence')==str(sequence) and uint(terminal,'native_last_use_tick')==tick
-      and type(report.get('native_shared_used')) is bool and report['native_shared_used']==bool(tick),
+      and type(report.get('native_shared_used')) is bool and report['native_shared_used']==bool(tick or draw_tick),
       'GPU mailbox actual maximum Native use and no-use scope')
  if sequence:
-  need(tick>input_tick>0 and uint(terminal,'epoch')>0 and
+  need((draw_tick>=input_tick>0 and tick>0 if split else tick>input_tick>0) and uint(terminal,'epoch')>0 and
        uint(terminal,'source_game_frame')>uint(terminal,'previous_source_game_frame'),
        'GPU mailbox output completed after producer input')
  else:
-  need(input_tick==0 and all(uint(pair,k)==0 for k in keys),'GPU mailbox explicit zero-request pair')
+  need(input_tick==0 and (not split or tick==0) and all(uint(pair,k)==0 for k in keys),'GPU mailbox explicit zero-request pair')
  need(all(terminal.get(k) is True for k in ('actual_GPU_complete','feature_released','device_destroyed','native_imports_released'))
       and all(uint(terminal,k)==0 for k in ('shared_images_owned','export_raw_fd_owned','native_gpu_readers')),
       'GPU mailbox both owners fully retired')
@@ -272,7 +281,7 @@ def audit_session(run,termination=None):
   if (run/'dlssg-launch.json').exists():
    gpu=manifest['environment'].get('BB_DLSSG_TRANSPORT')=='gpu-dmabuf-v1'
    if gpu:
-    audit_dlssg_gpu(run,session,text)
+    audit_dlssg_gpu(run,session,text,manifest['environment'].get('BB_DLSSG_PIPELINE') in ('consumer-ready-v1','consumer-input-ready-v1','consumer-queue-v1'))
    else:
     proof_dlssg=rows(text,'DLSSG_CPU_BRIDGE_RETIRED')
     need(len(proof_dlssg)==1 and all(proof_dlssg[0].get(k)=='1' for k in ('helper_GPU_complete','feature_released','child_reaped','Native_staging_GPU_complete')),'DLSSG actual Helper and Native upload owner retirement')

@@ -171,6 +171,7 @@ bool FrameGeneration::Wanted() const {
 
 void FrameGeneration::Retire() {
     if (!FgLifecycle::Pending()) return;
+    async_output.reset();
     ResolveDeferredGpuOutput();
     // Includes every encode from our output into a per-Frame image, not only FG dispatches.
     scheduler.Finish();
@@ -213,6 +214,7 @@ void FrameGeneration::OnFrameStart() {
 }
 
 void FrameGeneration::Destroy() {
+    async_output.reset();
     if (dlssg_gpu) {
         ResolveDeferredGpuOutput();
         scheduler.Finish();
@@ -313,6 +315,7 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 }
 
 void FrameGeneration::CaptureScene(const Scene& in) {
+    if (async_output) { async_output.reset(); reset_next = true; }
     ResolveDeferredGpuOutput(); // Before scene fields, guide queries or mailbox inputs can change.
     scene_capture_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -559,7 +562,10 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
             const u64 previous_source = dlssg_gpu->LastSource();
             const bool eligible = dlssg_gpu->Evaluate(scene, color, display, scene_reset);
             dispatched_last_frame = true;
-            if (eligible && !FgLifecycle::held.load()) {
+            if (dlssg_gpu->Independent()) {
+                async_output = eligible ? dlssg_gpu->TakeTicket() : nullptr;
+                if (async_output) async_output->capture_cpu_ns = scene_capture_ns;
+            } else if (eligible && !FgLifecycle::held.load()) {
                 auto& target = PrepareTarget(display, scene_id, false);
                 target.strict_source = true;
                 target.previous_source_game_frame = previous_source;
@@ -800,6 +806,13 @@ void FrameGeneration::ResolveDeferredGpuOutput(VAddr display) {
         if (const auto it = targets.find(0); it != targets.end()) it->second.ready = false;
         reset_next = true;
     }
+}
+
+std::shared_ptr<DlssgOutputTicket> FrameGeneration::TakeAsyncOutput(VAddr display) {
+    auto ticket = std::exchange(async_output, {});
+    if (!ticket) return {};
+    if (!Wanted() || ticket->display != display) { reset_next = true; return {}; }
+    return ticket;
 }
 
 bool FrameGeneration::TakeOutput(VAddr display, Output& out) {

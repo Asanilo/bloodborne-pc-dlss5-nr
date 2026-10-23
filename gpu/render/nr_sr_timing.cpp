@@ -12,6 +12,7 @@ namespace {
 constexpr const char* Scope="native_Dlss_Evaluate_emitted_commands_and_dependencies_only";
 }
 bool SrCommandTiming::Enabled() noexcept {
+    if (std::getenv("BB_FG_PROFILE")) return true;
     const char* mode=std::getenv("BB_NR_P0_MODE");
     return mode && (!std::strcmp(mode,"resident") || !std::strcmp(mode,"skipEvaluate") ||
                     !std::strcmp(mode,"srOnly"));
@@ -31,6 +32,7 @@ void SrCommandTiming::NotMeasured(u64 source,const char* reason) {
         (unsigned long long)source,reason,Scope);
 }
 std::optional<unsigned> SrCommandTiming::Begin(vk::CommandBuffer cmd,u64 source) {
+    if (std::getenv("BB_FG_PROFILE") && source % 31 != 0) return {};
     if (!pool) {NotMeasured(source,"timestamps_unsupported_or_pool_unavailable");return {};}
     const auto slot=slots.Claim();
     if (!slot) {NotMeasured(source,"all_four_slots_pending_real_GPU_completion");return {};}
