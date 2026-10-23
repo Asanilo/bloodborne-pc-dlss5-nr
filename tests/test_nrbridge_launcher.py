@@ -117,6 +117,10 @@ class AdapterTests(unittest.TestCase):
         legacy=bridge.player_command({},dict(bridge.NR_INI))
         self.assertNotIn('--nr-sr-preset',legacy)
 
+    def test_m5_native_only_uses_off_without_disabling_nr(self):
+        c=bridge.player_command(dict(nrbridge_dimensions=True,fg_backend='off'),dict(bridge.NR_INI,upscaler='off',preset='3'))
+        self.assertEqual(c[c.index('--nr-sr-preset')+1],'native');self.assertNotIn('--sr-only',c)
+
     def test_nr_off_keeps_upstream_options_but_still_managed(self):
         command = bridge.player_command({'nrbridge_enabled': False, 'memory_model': 'new'},
                                         {'upscaler': 'taa', 'preset': '0'})

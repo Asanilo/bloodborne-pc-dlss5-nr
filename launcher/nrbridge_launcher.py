@@ -327,6 +327,7 @@ def nr_conflicts(settings: dict, ini: dict, *, dimensions=False) -> list[str]:
     )
     for key, actual, required in checks:
         if dimensions and key in ("preset","aspect_ratio","output_res"):continue
+        if dimensions and key=="upscaler" and actual=="off":continue
         if str(actual) != required and not (key == "aspect_ratio" and actual == "auto"):
             conflicts.append(f"{key}={actual} (NRBridge: {required})")
     memory = str(settings.get("memory_model", "auto"))
@@ -395,6 +396,7 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
         try:name=tuple(dimension_profile.PRESETS)[int(ini.get("preset","1"))]
         except (ValueError,IndexError):raise ValueError("M5 requires a supported DLSS SR preset")
         if str(ini.get("preset","1")) not in ("0","1","2","3","4"):raise ValueError("M5 requires a supported DLSS SR preset")
+        if ini.get("upscaler")=="off":name="native"
         dimensions=dimension_profile.select(argparse.Namespace(nr_sr_preset=name,nr_output=ini.get("output_res","1920x1080"),nr_execution=settings.get("nrbridge_execution","1280x720") or None))
         if ini.get("aspect_ratio","auto") not in ("auto",dimensions["aspect_ratio"]):raise ValueError("M5 output and aspect ratio must match")
     if nr_enabled:

@@ -47,6 +47,14 @@ class PlayerSettingsTest(unittest.TestCase):
         self.args.nr_sr_preset='quality'
         with self.assertRaisesRegex(ValueError,'matching SR profile'):p.load_request(self.args)
 
+    def test_native_only_keeps_hidden_sr_preset_and_player_binding(self):
+        self.args.nr_sr_preset='native';self.args.nr_output='1920x1080';self.args.nr_execution='1280x720'
+        self.text=self.text.replace('upscaler=dlss','upscaler=off').replace('preset=1','preset=3');self.write()
+        request=p.load_request(self.args)
+        self.assertEqual(request['environment']['BB_UPSCALER'],'off');self.assertEqual(request['environment']['BB_DLSS'],'1')
+        self.assertEqual(request['environment']['BB_UPSCALE_PRESET'],'3')
+        self.assertIn('key.cross=Left Ctrl+F',request['ini_text'])
+
     def test_snapshot_omits_accounts_and_detects_selected_option_drift(self):
         r = p.load_request(self.args); run = self.root / 'run'; run.mkdir()
         binding = p.write_snapshot(run, r)

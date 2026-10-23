@@ -214,6 +214,8 @@ private:
     std::shared_ptr<SrCommandTiming> sr_command_timing; // pool kept alive by actual-GPU completion callbacks
     void Run();
     void RecordNrHdrPrepass();
+    void RecordNrDimensionPresent(bool without_sr);
+    bool nr_dimension_settings_reset=false;
     std::shared_ptr<class NrDimensionAdapter> nr_dimension_adapter;
     u64 nr_dimension_source=0;
     std::array<u32,4> nr_source_layout{};

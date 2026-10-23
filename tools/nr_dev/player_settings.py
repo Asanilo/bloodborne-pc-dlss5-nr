@@ -85,6 +85,7 @@ def load_request(args):
             module=importlib.util.module_from_spec(dimension_spec);dimension_spec.loader.exec_module(module)
             profile=module.select(args)
             required.update(preset=str(profile['preset']),output_res=f"{profile['output_width']}x{profile['output_height']}")
+            if not profile['sr_enabled']:required['upscaler']='off';required.pop('preset')
         mismatched = [k for k, v in required.items() if ini.get(k, v) != v]
         if ini.get('aspect_ratio', '16:9') not in ((profile['aspect_ratio'], 'auto') if dimensions else ('16:9', 'auto')):
             mismatched.append('aspect_ratio')
@@ -98,7 +99,7 @@ def load_request(args):
     if upscaler not in ('dlss', 'fsr3', 'fsr4', 'fsr411', 'taa', 'off'):
         raise ValueError('player settings: unsupported upscaler')
     env = {'BB_GAME_DIR': str(game), 'BB_PC_MODEL': '1' if source.get('memory_model') == 'new' else '0',
-           'BB_UPSCALER': upscaler, 'BB_DLSS': '1' if upscaler == 'dlss' else '0',
+           'BB_UPSCALER': upscaler, 'BB_DLSS': '1' if upscaler == 'dlss' or nr and getattr(args,'nr_sr_preset',None)=='native' else '0',
            'BB_UPSCALE_PRESET': ini.get('preset', '1'), 'BB_JITTER': ini.get('jitter', '1'),
            'BB_OBJECT_MOTION': ini.get('object_motion', '1')}
     selected = {}

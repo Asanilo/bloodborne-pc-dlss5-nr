@@ -26,3 +26,10 @@ class Dimensions(unittest.TestCase):
   self.assertIn('key.cross=Space',ini);self.assertIn('sharpen=0.3',ini)
   self.assertIn('aspect_ratio=16:10',ini);self.assertIn('live_resolution=1',ini);self.assertEqual(dims.environment(p)['BB_LIVE_RES'],'1');self.assertEqual(ini.count('preset='),1)
   with self.assertRaisesRegex(ValueError,'output menu'):dims.select(self.args('--nr-sr-preset','quality','--nr-output','1900x1000'))
+
+ def test_native_only_has_no_sr_and_preserves_unused_player_preset(self):
+  profile=dims.select(self.args('--nr-sr-preset','native','--nr-output','2560x1440','--nr-execution','1280x720'))
+  self.assertFalse(profile['sr_enabled']);self.assertEqual((profile['render_width'],profile['render_height']),(2560,1440))
+  env=dims.environment(profile);self.assertEqual(env['BB_UPSCALER'],'off');self.assertNotIn('BB_UPSCALE_PRESET',env)
+  ini=dims.ini(profile,'preset=3\nkey.cross=Space\n')
+  self.assertIn('preset=3',ini);self.assertIn('upscaler=off',ini);self.assertIn('key.cross=Space',ini)

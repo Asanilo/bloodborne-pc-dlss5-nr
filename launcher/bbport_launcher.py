@@ -693,7 +693,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def build_nrbridge_group(self):
         group = Adw.PreferencesGroup(title="NRBridge", description=tr(
-            "Stable NR uses 1080p DLSS Quality. Experimental M5 dimensions use the selected DLSS preset, output and aspect ratio with FG Off. Object motion, jitter and Old/Auto memory are required."))
+            "Stable NR uses 1080p DLSS Quality. Experimental M5 dimensions use the selected DLSS preset, output and aspect ratio with FG Off; choose Upscaler Off for NR-only. Object motion, jitter and Old/Auto memory are required."))
         self.nr_enabled_row = Adw.SwitchRow(title=tr("Enable neural rendering (NR)"),
             active=self.settings.get("nrbridge_enabled", True))
         group.add(self.nr_enabled_row)

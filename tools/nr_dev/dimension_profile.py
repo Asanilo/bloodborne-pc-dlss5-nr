@@ -1,6 +1,6 @@
 """Explicit M5 extent contract. No GPU access, runtime copying or legacy-default changes."""
 import math,re
-PRESETS={'dlaa':0,'quality':1,'balanced':2,'performance':3,'ultra-performance':4}
+PRESETS={'dlaa':0,'quality':1,'balanced':2,'performance':3,'ultra-performance':4,'native':0}
 SCALES=(1.,1.5,1.7,2.,3.)
 # Match the game's supported output groups. Reject unknown modes rather than let
 # CurrentOutput silently choose a different render/output contract.
@@ -36,13 +36,16 @@ def select(args):
  elif mw*mh>1920*1080:
   scale=math.sqrt((1920*1080)/(mw*mh));mw,mh=math.floor(mw*scale/2)*2,math.floor(mh*scale/2)*2
  if mw<320 or mh<180 or mw>4096 or mh>4096 or mw%2 or mh%2 or mw*mh>1920*1080:raise ValueError('NR execution exceeds 8GiB working-set policy')
- return {'schema':'nr-dimensions-v3','aspect_ratio':ratio,'preset':preset,'preset_name':name,'render_width':w,'render_height':h,'model_width':mw,'model_height':mh,'output_width':ow,'output_height':oh,'estimated_nr_image_bytes':mw*mh*768,'color_domain':'scene_hdr'}
+ return {'schema':'nr-dimensions-v3','aspect_ratio':ratio,'preset':preset,'preset_name':name,'sr_enabled':name!='native','render_width':w,'render_height':h,'model_width':mw,'model_height':mh,'output_width':ow,'output_height':oh,'estimated_nr_image_bytes':mw*mh*768,'color_domain':'scene_hdr'}
 def environment(profile):
  if profile is None:return {}
- return {'BB_LIVE_RES':'1','BB_NR_DIMENSIONS_V3':'1','BB_NR_MODEL_WIDTH':str(profile['model_width']),'BB_NR_MODEL_HEIGHT':str(profile['model_height']),'BB_NR_SR_OUTPUT_WIDTH':str(profile['output_width']),'BB_NR_SR_OUTPUT_HEIGHT':str(profile['output_height']),'BB_UPSCALE_PRESET':str(profile['preset'])}
+ env={'BB_LIVE_RES':'1','BB_NR_DIMENSIONS_V3':'1','BB_NR_MODEL_WIDTH':str(profile['model_width']),'BB_NR_MODEL_HEIGHT':str(profile['model_height']),'BB_NR_SR_OUTPUT_WIDTH':str(profile['output_width']),'BB_NR_SR_OUTPUT_HEIGHT':str(profile['output_height']),'BB_UPSCALER':'dlss' if profile['sr_enabled'] else 'off','BB_DLSS':'1'}
+ if profile['sr_enabled']:env['BB_UPSCALE_PRESET']=str(profile['preset'])
+ return env
 def validate_capabilities(profile,build,binding):
  if profile is None:return
  if binding and b'NRBRIDGE_DIMENSIONS_V3R2' not in __import__('pathlib').Path(binding['config']['helper']['path']).read_bytes():raise ValueError('M5 variable dimensions require the matching v3 revision-2 Helper')
+ if not profile['sr_enabled'] and b'NRBRIDGE_NATIVE_WITHOUT_SR_V1' not in (build/'gpu/libbbgpu.so').read_bytes():raise ValueError('NR-only requires a Native build with explicit SR bypass support')
  if b'NRBRIDGE_DIMENSIONS_V3R2' not in (build/'gpu/libbbgpu.so').read_bytes():raise ValueError('M5 dimensions require a rebuilt dimensions-v3 Native')
  if binding is None or 'nr_dimensions.h' not in binding['helper_build'].get('protocol',{}).get('exports',{}):
   # Binding manifests retain their path+SHA; verify the actual build record.
@@ -51,8 +54,9 @@ def validate_capabilities(profile,build,binding):
   if 'nr_dimensions.h' not in protocol.get('exports',{}):raise ValueError('M5 dimensions require a rebuilt dimensions-v3 Helper')
 def ini(profile,original=''):
  if profile is None:return None
- updates={'upscaler':'dlss','preset':str(profile['preset']),'aspect_ratio':profile['aspect_ratio'],
+ updates={'upscaler':'dlss' if profile['sr_enabled'] else 'off','preset':str(profile['preset']),'aspect_ratio':profile['aspect_ratio'],
           'output_res':f"{profile['output_width']}x{profile['output_height']}", 'jitter':'1','object_motion':'1','live_resolution':'1'}
+ if not profile['sr_enabled']:updates.pop('preset') # hidden SR preset has no effect; preserve the player's choice
  # Keep controls, language and other saved choices in the isolated run profile.
  lines=[]
  for line in original.splitlines():
