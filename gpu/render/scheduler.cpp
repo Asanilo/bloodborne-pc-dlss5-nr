@@ -1354,6 +1354,7 @@ void Scheduler::SubmitExecution(SubmitInfo& info) {
         SubmitAsync(info);
         return;
     }
+    if (info.await_ready) info.await_ready();
     std::scoped_lock lk{submit_mutex};
     Q0SubmitOwnerScope q0_owner{this, 5};
     const u64 tick = work_semaphore.NextTick();
@@ -1467,6 +1468,10 @@ void Scheduler::SubmitAsync(SubmitInfo& info) {
             }
         }
         PublishQ0Phase(diagnostic.get(), 3, 5);
+        // CPU control readiness (e.g. cross-process FG output) must not hold
+        // the shared queue lock or place an unresolved host timeline wait in
+        // front of WSI present signals. Earlier producer batches are submitted.
+        if (info.await_ready) info.await_ready();
         {
             std::scoped_lock lk{submit_mutex};
             Q0SubmitOwnerScope q0_owner{this, 3};

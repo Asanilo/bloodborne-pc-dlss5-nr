@@ -80,6 +80,10 @@ struct SubmitInfo {
     /// Queue operations that go out right before the submission, in queue order (sparse
     /// binds): with BB_ASYNC_SUBMIT the submission itself goes out later, on a recording thread.
     std::vector<std::function<void()>> before_submit;
+    /// CPU prerequisite for this batch, on its submission worker when async.
+    /// Must run OUTSIDE submit_mutex: a producer or another queue can still
+    /// need to submit while this waits. Never represents GPU completion itself.
+    std::function<void()> await_ready;
 
     /// `tick` of a timeline semaphore (1 for a binary one).
     void AddWait(vk::Semaphore semaphore, u64 tick = 1) {
