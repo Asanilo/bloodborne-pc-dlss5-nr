@@ -1,3 +1,6 @@
+> M4/M5 已完整合入 `nrbridge`。当前统一入口、准入矩阵和合流回归见
+> [主线集成说明](M4_M5_MAINLINE_INTEGRATION.zh-CN.md)。以下保留独立开发阶段记录。
+
 # M5：可配置 NR 执行尺寸与 SR 输出
 
 本开发线从 `nrbridge@464f4b6` 分出，保留未指定 M5 参数时的 1080p Quality / Old

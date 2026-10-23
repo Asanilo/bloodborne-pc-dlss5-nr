@@ -27,12 +27,12 @@ key bindings, Chinese settings and save management—all accessible from the ful
 
 <a id="features"></a>
 
-**M1: NR + DLSS SR + FSR FG x2 is functionally playable.** FSR FG remains
-Experimental and opt-in (HUDless); HUD behavior is normal and the previous blur
-has improved. Generated frames can still show spatially drifting vegetation,
-also with NR off; visual quality is not accepted. Fast-turn FG suppression was
-rejected and removed. Next direction: NVIDIA DLSS FG, keeping FSR optional.
-See [rebuildable M1 entry and mode selection](docs/NR_SR_FG_INTEGRATION.zh-CN.md).
+**M4 + M5 are integrated on `nrbridge`: NR-only and multiple NR/SR dimensions,
+plus optional NVIDIA DLSS FG/MFG 2X–6X, share one launcher and runtime.**
+MFG currently uses the verified 1080p Quality / Old profile; new NR sizes use FG Off.
+FSR FG remains an optional HUDless x2 backend. FG is Experimental and opt-in;
+vegetation drift and other temporal artifacts remain outside visual acceptance.
+See the [unified build, mode matrix and launch guide](docs/M4_M5_MAINLINE_INTEGRATION.zh-CN.md).
 No public binary release is included; existing installations stay unchanged.
 
 ## A new rendering path for Yharnam
@@ -169,6 +169,7 @@ cd bbport-nrbridge
 | Dependencies, Native and Helper builds | [Developer guide](tools/nr_dev/README.md) |
 | AppImage packaging | [Package guide](packaging/nrbridge/README.md) |
 | Bindings, Chinese UI and saves | [Player guide](docs/PC_FEATURES.zh-CN.md) (Chinese) |
+| Unified NR / SR / FG / MFG selection | [Mainline integration guide](docs/M4_M5_MAINLINE_INTEGRATION.zh-CN.md) |
 | Progress and known issues | [Preview status](docs/NRBRIDGE_PREVIEW_STATUS.md) |
 | Configurable NR execution and SR output | [M5 guide and tested configurations](docs/M5_NR_DIMENSIONS.zh-CN.md) |
 | Workspace and branch layout | [Repository maintenance](docs/WORKSPACE.md) |

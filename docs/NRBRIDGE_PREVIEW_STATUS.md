@@ -4,7 +4,17 @@ This is a sanitized summary. Raw logs, machine identifiers, private paths and
 saves stay in ignored development data. No historical failure is retroactively
 converted into a pass.
 
-## M5: configurable NR dimensions (development branch)
+## M4 + M5: one integrated mainline
+
+Local `nrbridge` includes complete M4 and M5 histories through merge commits
+`ca8b891` and `f300267`. NR-only, multi-preset/output NR→SR, DLSS MFG 2X–6X,
+and FSR fallback share the same Native binary and launcher. New dimensions and
+NR-only still require FG Off; MFG retains the verified 1080p Quality / Old input
+contract. Smooth Motion remains disabled for its existing M3 retirement failure.
+[Unified entry, capabilities and integration regression](M4_M5_MAINLINE_INTEGRATION.zh-CN.md).
+No installed runtime or public binary release was switched by this integration.
+
+## M5: earlier independent dimensions validation
 
 The opt-in source-built M5 profile has exercised DLAA, Quality, Balanced,
 Performance and Ultra Performance across 1080p, 1440p, 1920×1200 and 2560×1080.

@@ -1,3 +1,6 @@
+> M4/M5 已完整合入 `nrbridge`。当前统一入口、准入矩阵和合流回归见
+> [主线集成说明](M4_M5_MAINLINE_INTEGRATION.zh-CN.md)。以下保留独立开发阶段记录。
+
 # M4：RTX 4060 Laptop DLSS MFG 游戏集成
 
 开发分支 `m4/dlss-mfg`，起点 `464f4b6`，恢复标签 `recovery/m3-464f4b6`。

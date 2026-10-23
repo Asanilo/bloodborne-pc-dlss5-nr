@@ -10,6 +10,7 @@ import numpy as np
 from PIL import Image,ImageDraw
 parser=argparse.ArgumentParser(description=__doc__)
 parser.add_argument('capture',type=Path);parser.add_argument('--output',type=Path,required=True)
+parser.add_argument('--mapping-log',type=Path,help='explicit retained Native log when daily stdout has rotated past the capture')
 args=parser.parse_args();r=args.capture;out=args.output;out.mkdir(parents=True,exist_ok=True)
 meta=json.loads((r/'capture.json').read_text());rows=[];arrays=[]
 for p in sorted(r.glob('f*.raw')):
@@ -43,7 +44,10 @@ for first,last in zip(real,real[1:]):
  groups.append(dict(previous=first,current=last,generated=list(range(first+1,last)),adjacent_world_mae=mae,patch_shifts=shifts,all_frames_unique=len({rows[i]['raw_sha256'] for i in range(first,last+1)})==last-first+1))
 # Preserve exact source/index mapping printed by the Presenter during the bounded readback.
 run=r.parent.parent;mapping=[];pending=None
-log='\n'.join(q.read_text(errors='replace') for q in (run/'game.log.1',run/'game.log') if q.exists())
+log_paths=[args.mapping_log] if args.mapping_log else [q for q in (run/'game.log.1',run/'game.log') if q.exists()]
+assert all(q.is_file() and not q.is_symlink() for q in log_paths),'regular recorded mapping log required'
+log='\n'.join(q.read_text(errors='replace') for q in log_paths)
+log_inputs=[dict(path=str(q.resolve()),sha256=hashlib.sha256(q.read_bytes()).hexdigest()) for q in log_paths]
 trigger=meta.get('trigger_monotonic_ns',0)
 for line in log.splitlines():
  if 'FG_SEQUENCE_CAPTURE ' in line:
@@ -52,9 +56,9 @@ for line in log.splitlines():
   fields=dict(re.findall(r'(\w+)=([^ ]+)',line.split('FG_PRESENT ',1)[1]));ns=int(fields.get('cpu_monotonic_ns','0'))
   if ns>=trigger and len(mapping)<16:pending['cpu_monotonic_ns']=str(ns);mapping.append(pending)
   pending=None
-assert len(mapping)==16,'capture mapping absent from bounded retained logs'
+assert len(mapping)==16,'capture mapping absent from recorded Native logs'
 for i,m in enumerate(mapping):assert int(m['index'])==i and (int(m['generated_index'])==0)==(rows[i]['kind']=='real')
-result=dict(capture=str(r),frames=rows,groups=groups,present_mapping=mapping,scope='lossless encoded Present inputs; rigid patch displacement is diagnostic, not optical input latency or scanout')
+result=dict(capture=str(r),frames=rows,groups=groups,present_mapping=mapping,mapping_log_inputs=log_inputs,scope='lossless encoded Present inputs; rigid patch displacement is diagnostic, not optical input latency or scanout')
 (out/'analysis.json').write_text(json.dumps(result,indent=2)+'\n')
 if groups:
  inds=list(range(groups[0]['previous'],groups[0]['current']+1));thumbs=[]
