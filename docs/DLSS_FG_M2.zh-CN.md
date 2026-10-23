@@ -1,5 +1,8 @@
 # M2：NVIDIA DLSS FG x2 实验
 
+> 2026-10-23 更新：已完成 GPU Bridge 异步提交候选及同场景性能对照。当前交付见
+> [M2.2 异步提交流水线](#m22-异步提交流水线2026-10-23基于fc73856)，前文保留各阶段历史。
+
 工作树仍为 `.worktree/fg`，开发分支 `m2/dlss-fg`，从 M1
 `nrbridge@7489493` 分出。M1 恢复标签 `archive/m1-fsr-experiments` 保留；
 玩家安装、正式存档和 NR 分支未被改写。FSR 高速转镜植被错位仍是已知缺陷。
@@ -556,3 +559,139 @@ artifact-gc dry-run及其open_paths检查、独立GPU审计后回收，保留注
 日志和全部GPU/FD证明，回收1,976,936,694 bytes；清理后GPU审计仍通过。三个run合计
 保留288,699,239 bytes逻辑文件，不含编译缓存变化；无新分支、依赖树、AppImage或
 长期保留的新运行环境。预先存在的FSR子模块dirty instrumentation未提交。
+
+### M2.2 异步提交流水线（2026-10-23，基于fc73856）
+
+本轮实际实现并实测两种异步路径，推荐`submit-ready-v1`。`sync-v1`仍是默认回退，
+CPU mapped/files bridge、FSR FG和NR独立开关保持可用。实验入口：
+
+```bash
+bash out/play-dlssg.sh B --dlssg-transport gpu-dmabuf-v1 --dlssg-pipeline submit-ready-v1
+```
+
+仍使用1080p Quality、Old memory和`play-20261022-141640`猎人梦境私有副本。
+未修改玩家安装、正式存档、NR核心协议或`vk_temporal_upscaler.cpp`，未新增分支。
+
+实现分为`c95fe8a`（Scheduler提交前置条件及持久CPU服务线程）、`b58cac5`（异步
+producer/Helper等待、结果资格与计时）、`2e02586`（独立的late消费实验）。
+
+- producer只Flush并保存实际draw submission tick；服务线程等待该精确timeline完成，
+  再发送同源、同session/epoch/sequence/display的不可变请求。没有提前声称GPU完成。
+- Helper仍执行原私有两组时域历史，真实Fence完成且输出已释放后才发布响应。
+- Native消费批次的`SubmitInfo.await_ready`在异步提交线程等待该响应，**不持有
+  submit_mutex**，随后才QueueSubmit。输出拷贝、生成帧编码和真实帧仍在同一draw
+  timeline，不混用draw/present的数值tick，不依赖Wine外部Semaphore。
+- consumer ACK仍在真实Native GPU消费完成后发布；回调持有该次响应future并读取其
+  实际helper serial。下一请求还必须等待前次ACK。退出先完成draw，再join服务线程、
+  ACK和原两阶段Helper/FD退休；未知完成仍HOLD/fail-stop。
+- Presenter分别检查命令已录制和Helper实际eligible标志，实际GPU ready后才可生成
+  Present。首张/reset禁用的模型结果不会被当作生成帧。NR源编号/历史推进仍仅来自真实帧。
+- 没有增加mailbox、历史或游戏帧队列数量，原FramesAhead/FlipAhead与半间隔pacing未改。
+
+首版曾将Helper完成转为Native本地host-signaled timeline gate。r37实测发现
+`VUID-vkQueuePresentKHR-pWaitSemaphores-03268`：同队列后续未发出host信号的等待，
+会成为当前Present二进制信号的前序依赖，并产生non-acquired-swapchain连带诊断。
+该路径已移除，新CLI/Native均拒绝；只读审计保留旧sealed配置的识别，以保存真实退休
+证据。没有通过隐藏validation、假信号或清除HOLD放行。r37本身正常退休。
+
+`late-ready-v1`把消费提交移至TakeOutput，在下一次采集/缺失flip/FG关闭/退出时必须
+先丢弃排空。请求job只在消费提交配套启动时才交给Helper，故暂停不会遗留已生成输出
+等待ACK。r42验证正常，但r43没有明确进一步收益：53.7/107.5（NR OFF）、47.1/94.2
+（NR ON），旧120帧采样的guide采集→真实Present返回分别26.014/30.119ms，仅作实验记录，
+不与修正采样后的最终延迟表直接比较。job启动仅比producer
+Flush晚0.096/0.117ms，实测没有预想的EOP等待空隙，未显示值得额外状态复杂度的收益。
+该模式只保留为独立实验，不推荐替代`submit-ready-v1`。
+
+#### OptiScaler迁移与边界
+
+已通过Herdr查阅DSH B交接，并实际读取上游四份Vulkan源码，文件SHA记录在
+`out/m22-optiscaler-reference.json`。参考
+[DLSSG_Vk](https://github.com/optiscaler/OptiScaler/blob/master/OptiScaler/framegen/dlssg/DLSSG_Vk.cpp)、
+[IFGFeature_Vk](https://github.com/optiscaler/OptiScaler/blob/master/OptiScaler/framegen/IFGFeature_Vk.cpp)、
+[Upscaler_Inputs_Vk](https://github.com/optiscaler/OptiScaler/blob/master/OptiScaler/inputs/FG/Upscaler_Inputs_Vk.cpp)、
+[DLSSG_Common](https://github.com/optiscaler/OptiScaler/blob/master/OptiScaler/framegen/dlssg/DLSSG_Common.cpp)。
+
+采用其短寿命输入保留GPU副本、资源随帧身份持有到消费、FG提交与游戏CPU分离的边界，
+以不可变request/future和submit prerequisite作跨进程等价实现。没有移植整个框架，
+也没有把Windows Streamline的Win32 surface/WSI、内部专属队列和Reflex标记视为Linux
+已可直接使用的接口。模型历史两槽、mailbox资源槽与Present frame pool继续各自管理。
+
+#### 最终同构建对照与延迟范围
+
+主对照为r46 sync与r47 submit-ready，同一最终Native构建、驱动615.78.08、同一私有
+场景与静止相机。每窗口15秒，无编译任务，先测**尚未启动NR Helper**，再F8启用NR B。
+冷NR OFF的job范围均为[0,0]；NR ON分别从404推进至537、533至675，效果选择有效。
+
+旧profiler的每120帧采样会与NR周期任务产生相位偏差，本轮改为每31帧，阶段表每窗口
+22–26个样本。真实FPS/帧间隔使用所有实际成功Present记录，不受该采样频率影响。
+r45早期约33.5ms的少量阶段样本不能作为最终延迟结论；r39 NR ON又与短CPU单测重叠，
+故均不作为主比较。F8效果关闭后驻留Helper继续工作（persistent advance/reserve与
+visual display_bypass分离），r45“NR OFF”窗口已重标记为resident-effect-off，不能
+冒充未启动NR。`out/m22-pipeline-comparison.json`保留各窗口的原始范围与说明。
+
+| 模式 | NR未启动 真实/总Present FPS | NR ON 真实/总Present FPS |
+|---|---:|---:|
+| 同步GPU回退（r46） | 49.73 / 99.47 | 44.33 / 88.67 |
+| 异步submit-ready（r47） | 53.40 / 106.80 | 47.40 / 94.87 |
+| FSR HUDless回归（r44，10秒） | 59.90 / 119.90 | 60.00 / 120.00 |
+| FG OFF（Helper驻留，效果OFF/ON，r40） | 60.00 / 60.00 | 60.00 / 60.00 |
+
+异步真实FPS相对本次同步回退约+7.4%（NR未启动）、+6.9%（NR ON）。起点fc73856的
+直接r36窗口为47.9/95.8、45.8/91.7；长时间实验存在温度、时钟和后台负载变化，主结论
+采用紧邻且同采样构建的r46/r47，不能用最慢一次旧窗口夸大增益。
+
+| 真实帧间隔（ms） | 中位 | P95 | P99 |
+|---|---:|---:|---:|
+| sync NR未启动 | 19.851 | 22.354 | 24.428 |
+| async NR未启动 | 18.491 | 20.466 | 21.852 |
+| sync NR ON | 22.503 | 24.900 | 26.398 |
+| async NR ON | 20.790 | 23.920 | 24.947 |
+
+| guide采集→真实Present返回（ms） | 中位 | P95 |
+|---|---:|---:|
+| sync NR未启动 | 26.874 | 28.975 |
+| async NR未启动 | 26.146 | 27.098 |
+| sync NR ON | 29.902 | 31.302 |
+| async NR ON | 29.245 | 31.378 |
+
+这是CPU guide采集边界至Present调用返回的阶段代理，**不是输入到屏幕/scanout延迟**。
+中位略降，NR ON P95基本相同，不宣称端到端响应已降低。玩家需重点对比快速转镜、
+闪避/攻击响应；本轮静态与有界转镜未见新增HUD或空间错位，不能替代人工长时间验收。
+
+#### 剩余关键路径及合流条件
+
+r47中producer Flush CPU约0.003ms，下一guide处owner join约0.029/0.024ms；实际
+producer tick等待仍有9.61/10.88ms，但已移到服务线程，包含前序Native GPU/提交队列
+依赖而非单纯FG算法。Helper响应等待约5.96/5.80ms，服务约4.69/4.65ms，Evaluate的
+Vulkan queue interval约4.00/3.98ms，不能等同纯CUDA/OFA时间。guides到最终颜色约
+1.84/1.87ms，最终颜色GPU copy约0.033ms，Helper输入/输出copy约0.10/0.036ms。
+这些区间不同起止点且存在重叠，不能简单相加推算端到端延迟。
+
+仍未达到60/120。当前消费批次在同一draw队列等待Helper，后续Native GPU提交仍排在
+它之后；仅多建mailbox槽不能解除这一关系。下一步有依据的方向是独立消费队列及有界
+slot，使下一真实帧GPU工作与Helper重叠，并明确跨队列完成域和未呈现token的退休。
+不能混用draw/present tick、默认多排一完整游戏帧，或把GPU并行收益当作已证实。本轮
+已形成有可重复FPS/尾帧改善的可选基线，在此停止，不宣称其余优化空间已耗尽。
+
+可作为**默认关闭的Experimental选项**合回nrbridge。共有Scheduler接口独立提交，
+NR核心/共享temporal文件没有冲突性改写。默认路径仍sync，建议手感验收后再考虑
+推广；`late-ready-v1`只供对照，`notify-v1`本轮没有稳定额外收益，默认poll不变。
+
+#### 工程与退休
+
+43项FG CPU回归、14项退休审计与Native --test通过。r36–r47全部正常退出，独占锁、
+HOLD与GPU/FD/NR/FG/Present退休机制完整，未新增HOLD。r38/r42当前提交方案的validation
+仅见原五类：WRITE-AFTER-PRESENT、Location-06272、usage-02275、DrawIndexed-08912、
+Draw-09600；不是validation clean。被拒绝的r37已单独记录并正常退休。
+保留日志与热窗口中的生成/真实配对检查错误0；部分早期日志已按原策略轮转，不能用
+没有保留生成帧的尾段日志代替全程计数。r47两个热窗口实际检查801/711对，最终保留
+日志5188对，均无源身份错误。菜单首个real Present失败仍是已知的1次，生成帧无新增失败。
+
+主统计`out/m22-pipeline-comparison.json`；采样器/摘要脚本为现有out/下的小型只读工具，
+不保存逐帧图像目录。清理先运行artifact-gc dry-run，再检查实际退休、独占锁及官方
+open_paths；只回收本轮12个会话的NR私有prefix和缓存，保留注册表快照、私有存档/
+备份、日志、源码绑定及全部GPU/FD证据，FG复用r17 prefix保持不动。
+回收8,133,263,870 bytes临时数据；12个会话保留1,009,742,418 bytes逻辑文件。
+没有新增完整build、依赖树、Wine长期环境或AppImage；这些数值不含共享ccache的
+单独归因，也不等于Btrfs压缩/reflink后的物理占用。清理后再次独立审计全部通过。
+预先存在的FSR子模块dirty instrumentation保持原状，未提交。

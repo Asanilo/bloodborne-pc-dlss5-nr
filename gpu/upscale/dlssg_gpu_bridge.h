@@ -37,7 +37,7 @@ class DlssgGpuBridge {
          "GPU submission prerequisite response deadline");
     response = flight.get();
     helper_serial = DlssgGpu::U(response, "helper_serial");
-    if (std::getenv("BB_FG_PROFILE") && sequence % 120 == 0)
+    if (std::getenv("BB_FG_PROFILE") && sequence % 31 == 0)
       std::printf("DLSSG_GPU_SUBMIT_JOIN sequence=%llu source=%llu owner_join_cpu_ms=%.3f extra_game_frame_buffer=0\n",
                   (unsigned long long)sequence, (unsigned long long)last_source, DlssgNativeTiming::Ms(begin, Clock::now()));
     flight = {};
@@ -139,7 +139,7 @@ class DlssgGpuBridge {
         consumed_ack.get(); // Propagates callback failure to HOLD.
     Need(scheduler.IsFree(consumed_tick),
          "GPU asynchronous consumer actual completion");
-    if (std::getenv("BB_FG_PROFILE") && sequence % 120 == 0)
+    if (std::getenv("BB_FG_PROFILE") && sequence % 31 == 0)
       std::printf("DLSSG_GPU_ACK_PROFILE sequence=%llu source=%llu "
                   "Native_copy_tick=%llu join_cpu_ms=%.3f publish_cpu_ms=%.3f "
                   "actual_GPU_complete=1\n",
@@ -331,7 +331,7 @@ public:
                            (DlssgGpu::U(result, "disable_word") & 255) == 0),
                  "GPU submission prerequisite model output eligibility");
             eligible->store(valid, std::memory_order_release);
-            if (std::getenv("BB_FG_PROFILE") && DlssgGpu::U(request, "sequence") % 120 == 0) {
+            if (std::getenv("BB_FG_PROFILE") && DlssgGpu::U(request, "sequence") % 31 == 0) {
               auto profile = result; profile.erase("camera");
               profile["native_wait_cpu_ms"] = DlssgNativeTiming::Ms(exchange_begin, Clock::now());
               profile["producer_flush_cpu_ms"] = flush_ms;
@@ -363,7 +363,7 @@ public:
       response = peer->Exchange(last_request, helper_serial);
       helper_serial = DlssgGpu::U(response, "helper_serial");
       pending = true;
-      if (std::getenv("BB_FG_PROFILE") && (sequence + 1) % 120 == 0) {
+      if (std::getenv("BB_FG_PROFILE") && (sequence + 1) % 31 == 0) {
         auto profile = response;
         profile.erase("camera");
         profile["native_wait_cpu_ms"] =
@@ -468,7 +468,7 @@ public:
           Need(result.wait_for(std::chrono::seconds(30)) == std::future_status::ready,
                "GPU output submission prerequisite deadline");
           (void)result.get(); // Actual Helper fence/release validated by worker.
-          if (std::getenv("BB_FG_PROFILE") && DlssgGpu::U(request, "sequence") % 120 == 0)
+          if (std::getenv("BB_FG_PROFILE") && DlssgGpu::U(request, "sequence") % 31 == 0)
             std::printf("DLSSG_GPU_SUBMIT_READY_PROFILE source=%llu wait_cpu_ms=%.3f actual_Helper_GPU_complete=1 queue_lock_held=0\n",
                         (unsigned long long)DlssgGpu::U(request, "source_game_frame"),
                         DlssgNativeTiming::Ms(start, Clock::now()));
@@ -483,13 +483,13 @@ public:
       previous_camera = std::move(current_camera);
       last_completed = submitted;
       pending = false;
-      if (std::getenv("BB_FG_PROFILE") && sequence % 120 == 0)
+      if (std::getenv("BB_FG_PROFILE") && sequence % 31 == 0)
         std::printf("DLSSG_GPU_CONSUMER_SUBMIT_PROFILE sequence=%llu "
                     "source=%llu flush_cpu_ms=%.3f explicit_GPU_wait=0\n",
                     (unsigned long long)sequence,
                     (unsigned long long)last_source,
                     DlssgNativeTiming::Ms(submit_start, submitted));
-      if (sequence <= 3 || sequence % 120 == 0) {
+      if (sequence <= 3 || sequence % 31 == 0) {
         if (async_exchange)
           std::printf("DLSSG_GPU_NATIVE_QUEUED sequence=%llu source=%llu epoch=%llu "
                       "output_candidate=%u Native_copy_tick=%llu eligibility=pending "

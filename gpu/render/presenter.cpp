@@ -743,7 +743,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     using Clock = std::chrono::steady_clock;
     static const bool fg_profile = std::getenv("BB_FG_PROFILE") != nullptr;
     const bool sample = fg_profile && !blank && is_game_frame && !is_reusing_frame &&
-                        frame->c1_source_game_frame && frame->c1_source_game_frame % 120 == 0;
+                        frame->c1_source_game_frame && frame->c1_source_game_frame % 31 == 0;
     const auto profile_start = Clock::now();
     auto profile_ready = profile_start;
     double generated_present_ms=0, pace_sleep_ms=0;
