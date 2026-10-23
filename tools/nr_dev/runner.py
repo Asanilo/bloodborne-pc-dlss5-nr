@@ -654,7 +654,7 @@ def check_fg_capability(args, build):
 
 def validate_daily_args(args):
  profile=dimension_profile.select(args)
- if profile and getattr(args,"experimental_fg",None):raise ValueError("M5 new dimensions currently require FG off; FG mailbox dimensions are not adapted")
+ if profile and fg_config.requested(args)!="off":raise ValueError("M5 new dimensions currently require FG off; FG mailbox dimensions are not adapted")
  fg_config.normalize(args)
  smooth_motion.validate_args(args)
  dlssg_backend.validate_args(args)

@@ -182,6 +182,8 @@ PREUPLOAD = [("Обычная", "", "Без лишней видеопамяти"
 DEFAULTS = {
     "nrbridge_enabled": True,
     "nrbridge_native_mouse": True,
+    "nrbridge_dimensions": False,
+    "nrbridge_execution": "1280x720",
     "ui_language": "",
     "game_dir": "" if PACKAGED else str(PORT_DIR.parent / "CUSA03173"),
     "user_dir": "",
@@ -691,10 +693,18 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def build_nrbridge_group(self):
         group = Adw.PreferencesGroup(title="NRBridge", description=tr(
-            "NR requires DLSS Quality, 1920×1080, 16:9 or Auto, object motion and jitter on; memory Auto uses the validated old model."))
+            "Stable NR uses 1080p DLSS Quality. Experimental M5 dimensions use the selected DLSS preset, output and aspect ratio with FG Off. Object motion, jitter and Old/Auto memory are required."))
         self.nr_enabled_row = Adw.SwitchRow(title=tr("Enable neural rendering (NR)"),
             active=self.settings.get("nrbridge_enabled", True))
         group.add(self.nr_enabled_row)
+        self.nr_dimensions_row=Adw.SwitchRow(title=tr("Experimental NR dimensions (M5)"),
+            subtitle=tr("Use the graphics page preset, output and aspect. Requires a matching M5 Helper; FG must be Off."),
+            active=self.settings.get("nrbridge_dimensions",False))
+        group.add(self.nr_dimensions_row)
+        self.nr_execution_row=combo_row(tr("NR execution size"),tr("Changing this size requires a normal exit and a new session."),
+            [("1280×720 (8 GB)","1280x720"),("1920×1080 (higher VRAM)","1920x1080"),("Match SR render, capped at 1080p pixels","")],
+            self.settings.get("nrbridge_execution","1280x720"))
+        group.add(self.nr_execution_row)
         self.settings = dict(nrbridge.fg_config.discover(nrbridge.home()), **self.settings)
         fg=nrbridge.fg_config.selection(self.settings)
         choices=list(zip(nrbridge.fg_config.LABELS,nrbridge.fg_config.BACKENDS))
@@ -1550,6 +1560,8 @@ class LauncherWindow(Adw.ApplicationWindow):
         if NRBRIDGE:
             s["nrbridge_gpu_id"] = self.nr_gpu_indices.get(s["gpu"]) if s["gpu"] else None
             s["nrbridge_enabled"] = self.nr_enabled_row.get_active()
+            s["nrbridge_dimensions"] = self.nr_dimensions_row.get_active()
+            s["nrbridge_execution"] = combo_value(self.nr_execution_row)
             s.update(self.fg_preferences())
             s.pop("nrbridge_fsr_fg",None)
             s["nrbridge_native_mouse"] = self.nr_mouse_row.get_active()
