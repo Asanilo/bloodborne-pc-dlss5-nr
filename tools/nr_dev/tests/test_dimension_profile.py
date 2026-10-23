@@ -13,6 +13,16 @@ class Dimensions(unittest.TestCase):
  def test_dlaa_and_aspect(self):
   p=dims.select(self.args('--nr-sr-preset','dlaa'));self.assertEqual(p['model_width'],p['output_width'])
   p=dims.select(self.args('--nr-sr-preset','performance','--nr-output','2560x1080'));self.assertEqual((p['model_width'],p['model_height']),(1280,540))
+ def test_bounded_execution_is_independent_of_sr(self):
+  p=dims.select(self.args('--nr-sr-preset','dlaa','--nr-output','2560x1440'));self.assertEqual((p['render_width'],p['render_height']),(2560,1440));self.assertEqual((p['model_width'],p['model_height']),(1920,1080))
+  p=dims.select(self.args('--nr-sr-preset','performance','--nr-execution','1280x720'));self.assertEqual(p['render_width'],960);self.assertEqual(p['model_width'],1280)
  def test_8gb_limit_and_bad_input(self):
-  for opts in [('--nr-output','2560x1440'),('--nr-sr-preset','dlaa','--nr-output','3840x2160'),('--nr-sr-preset','quality','--nr-output','1921x1080'),('--nr-sr-preset','quality','--nr-output','0x0')]:
+  for opts in [('--nr-output','2560x1440'),('--nr-sr-preset','dlaa','--nr-output','7680x4320'),('--nr-sr-preset','quality','--nr-output','1921x1080'),('--nr-sr-preset','quality','--nr-output','0x0')]:
    with self.assertRaises(ValueError):dims.select(self.args(*opts))
+
+ def test_private_ini_keeps_controls_and_selects_real_aspect(self):
+  p=dims.select(self.args('--nr-sr-preset','quality','--nr-output','1920x1200'))
+  ini=dims.ini(p,'key.cross=Space\nsharpen=0.3\naspect_ratio=auto\npreset=3\n')
+  self.assertIn('key.cross=Space',ini);self.assertIn('sharpen=0.3',ini)
+  self.assertIn('aspect_ratio=16:10',ini);self.assertEqual(ini.count('preset='),1)
+  with self.assertRaisesRegex(ValueError,'output menu'):dims.select(self.args('--nr-sr-preset','quality','--nr-output','1900x1000'))

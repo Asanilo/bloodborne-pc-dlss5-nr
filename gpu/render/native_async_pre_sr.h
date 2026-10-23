@@ -25,6 +25,8 @@ public:
  bool TryCaptureOrigin(const Instance&,Scheduler&,const std::array<vk::Image,3>&,
              const std::array<vk::ImageCreateInfo,3>&,BbNativeAsync::Frame);
  void PollReady(const Instance&,Scheduler&,bool supported);
+ void SetDimensionAdapter(std::shared_ptr<void> owner){dimension_adapter=std::move(owner);if(retained)retained->dimension_adapter=dimension_adapter;}
+ void ApplicationRecorded(Scheduler&,uint64_t source);
  // Renderer owner only: never submit guessed/future ticks or an empty no-peer pump.
  bool NeedsExitSubmit(uint64_t current_tick)noexcept{
   if(maximum_native_use_tick>current_tick){Quarantine();return false;}
@@ -67,14 +69,17 @@ public:
  // Recorded producer ordering, not CPU copyReady or permission to publish INPUT.
  std::optional<BbNativeAsync::Frame> RecordedOrigin(const Scheduler&)const noexcept;
  void Shutdown(Scheduler&);
- void RejectAssociation()noexcept{rejected=true;}
+ void RejectAssociation()noexcept{if(!rejected&&dimension_adapter)HoldDimensionAdapter(dimension_adapter);rejected=true;}
  void QuarantineRecorded(Scheduler&)noexcept;
- void Quarantine()noexcept{BbNativeAsync::PublishExitHeld();rejected=true;stopping=true;if(fixed_input)fixed_input->HoldUnknown();if(retained&&retained->returns)retained->returns->HoldMasksUnknown();if(retained&&retained->persistent)retained->persistent->HoldUnknown();if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
+ void Quarantine()noexcept{BbNativeAsync::PublishExitHeld();if(!rejected&&dimension_adapter)HoldDimensionAdapter(dimension_adapter);rejected=true;stopping=true;if(fixed_input)fixed_input->HoldUnknown();if(retained&&retained->returns)retained->returns->HoldMasksUnknown();if(retained&&retained->persistent)retained->persistent->HoldUnknown();if(retained)for(const auto& p:retained->leases)if(p)p->native.unknown=true;}
  std::string Session()const;
  uint64_t Epoch()const noexcept{return last_epoch;}
  uint64_t OriginSource()const noexcept{return chain.Size()?chain.Origin().source:0;}
 private:
+ std::shared_ptr<void> dimension_adapter;
+ static void HoldDimensionAdapter(std::shared_ptr<void>);
  struct Retention {
+  std::shared_ptr<void> dimension_adapter;
   std::array<VideoCore::HostImage,3*BbNativeAsync::NodeCount> images;
   std::array<std::shared_ptr<BbNativeAsync::Node>,BbNativeAsync::NodeCount> records{};
   std::array<std::shared_ptr<BbNativeAsyncPreSr::SourceLease>,BbNativeAsync::NodeCount> leases{};

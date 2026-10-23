@@ -16,6 +16,9 @@ int main(){
  auto wrong=common;wrong["quality_profile"]["sr_output_width"]=2560u;
  rejected=false;try{origin_wire::common_check(wrong,common);}catch(...){rejected=true;}assert(rejected);
  assert(common["quality_profile"]["nr_mvec_scale_x"]==1.0); // stored MV remains render pixels
+ auto layout=SourceLayout<origin_wire::J>(1920,1080,2560,1440);CheckSourceLayout(layout);
+ layout["execution_width"]=1280u;rejected=false;try{CheckSourceLayout(layout);}catch(...){rejected=true;}assert(rejected);
+ const double render_vector=32.,execution_vector=render_vector*Width()/1920.;assert(std::abs(execution_vector/Width()-render_vector/1920.)<1e-12);
  auto bad=d;bad.width=4096;bad.height=2160;assert(!bad.Valid());bad=d;bad.width=1131;assert(!bad.Valid());
  rejected=false;try{Positive("1130junk");}catch(...){rejected=true;}assert(rejected);
 }

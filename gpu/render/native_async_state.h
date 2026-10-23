@@ -14,6 +14,7 @@ struct Frame {
  std::array<float,2> viewport{},previous_viewport{},sr_jitter{},previous_sr_jitter{};
  // Native-only camera metadata; immutable wire tuple is unchanged.
  std::array<float,4> current_projection{},previous_projection{},previous_view_z{};
+ std::array<uint32_t,2> source_render{},sr_output{}; // M5 actual active subrect, never allocation capacity
 };
 inline bool Finite(const Frame& f) noexcept {
  for(const auto& a:{f.viewport,f.previous_viewport,f.sr_jitter,f.previous_sr_jitter})

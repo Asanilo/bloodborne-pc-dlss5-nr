@@ -26,13 +26,27 @@ inline unsigned Width(){return Get().width;}
 inline unsigned Height(){return Get().height;}
 inline unsigned GroupsX(){return (Width()+7)/8;}
 inline unsigned GroupsY(){return (Height()+7)/8;}
+inline constexpr const char* RevisionMarker="NRBRIDGE_DIMENSIONS_V3R2";
+template<class J>inline J SourceLayout(uint32_t rw,uint32_t rh,uint32_t ow,uint32_t oh){
+ return J{{"render_subrect_width",rw},{"render_subrect_height",rh},{"execution_width",Width()},{"execution_height",Height()},{"sr_output_width",ow},{"sr_output_height",oh},{"mvec_domain","execution_pixels_previous_minus_current"}};
+}
+template<class J>inline void CheckSourceLayout(const J& j){
+ if(!j.is_object()||j.size()!=7)throw std::invalid_argument("NR exact source subrect layout");
+ for(const char*k:{"render_subrect_width","render_subrect_height","execution_width","execution_height","sr_output_width","sr_output_height"}){
+  if(!j.contains(k)||!j.at(k).is_number_unsigned()||j.at(k)==0u||j.at(k)>7680u)throw std::invalid_argument("NR source subrect bounds");
+ }
+ if(j.at("execution_width")!=Width()||j.at("execution_height")!=Height()||!j.contains("mvec_domain")||j.at("mvec_domain")!="execution_pixels_previous_minus_current")throw std::invalid_argument("NR execution/source pixel domain mismatch");
+}
 template<class Json>inline Json Spec(Json j){
  const auto& d=Get();if(!d.enabled)return j;
  if(!d.Valid())throw std::invalid_argument("invalid NR extent contract");
- j["profile_id"]="async-pre-sr-dimensions-v3-"+std::to_string(d.width)+"x"+std::to_string(d.height)+"-sr"+std::to_string(d.output_width)+"x"+std::to_string(d.output_height);
+ j["profile_id"]="async-pre-sr-dimensions-v3-"+std::to_string(d.width)+"x"+std::to_string(d.height)+"-sr-variable-r2-initial"+std::to_string(d.output_width)+"x"+std::to_string(d.output_height);
  auto& p=j["quality_profile"];
  for(const char*k:{"color_width","guide_width","model_width","output_width"})p[k]=d.width;
  for(const char*k:{"color_height","guide_height","model_height","output_height"})p[k]=d.height;
+ p["source_layout_policy"]="per-job actual render subrect and SR output; layout changes reset Native history";
+ p["stored_mv_units"]="execution_pixels_previous_minus_current";
+ p["source_scale_policy"]="resample render pixels to execution pixels once; NGX MVecScale remains 1/1";
  p["sr_output_width"]=d.output_width;p["sr_output_height"]=d.output_height;
  p["model_input"]="Encode actual immutable HDR NR execution extent";
  p["resolved_output"]="Resolve actual NR execution extent before Native DLSS SR";

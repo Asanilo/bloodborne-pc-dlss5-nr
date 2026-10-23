@@ -857,7 +857,9 @@ def launch_supervised(args,signals):
   fg_config.validate_environment(backend,env)
   if dimension_contract:
    env.update(dimension_profile.environment(dimension_contract))
-   (profile/'bbport.ini').write_text(dimension_profile.ini(dimension_contract))
+   env['BB_PRESET_FILE']=str(run/'sr-control')
+   ini_path=profile/'bbport.ini'
+   ini_path.write_text(dimension_profile.ini(dimension_contract,ini_path.read_text()))
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','fg_backend':backend,'daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
   manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False);manifest['nr_dimensions']=dimension_contract;manifest['smooth_motion']=getattr(args,'smooth_motion',False)
   if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)

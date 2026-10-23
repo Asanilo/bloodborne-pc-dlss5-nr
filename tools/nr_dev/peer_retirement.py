@@ -166,6 +166,9 @@ def audit_daily(run,session):
  release=load(run/f'async-native-released-{session}-g0.json')
  retired=load(run/f'async-retired-{session}-g0.json');audited=load(run/f'async-native-audited-{session}-g0.json')
  messages=(config,meta,helper,release,retired,audited)
+ if dimension_contract:
+  for message in messages:
+   need(message.get('profile_id')==config.get('profile_id') and message.get('quality_profile')==config.get('quality_profile'),'M5 terminal dimensions/profile drift')
  for message in messages:
   need(message.get('session')==session and message.get('generation')==0
        and message.get('resource_set')==session+'-g0'

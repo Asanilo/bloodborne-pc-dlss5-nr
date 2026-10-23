@@ -564,6 +564,11 @@ std::optional<vk::ImageCreateInfo> SceneTargets::CaptureCreateInfo(vk::Image ima
     }
     return std::nullopt;
 }
+void SceneTargets::MarkProxyWritten(VideoCore::ImageId id){
+ auto& original=*lookup(id,0);auto found=entries.find(Key(original.image_uid,0));
+ if(found==entries.end())throw std::runtime_error("NR HDR proxy write without an owned proxy");
+ found->second->state.ProxyWrite();
+}
 SceneTargets::Target SceneTargets::Read(VideoCore::ImageId id,
                                        const VideoCore::ImageViewInfo& info,
                                        vk::PipelineStageFlags2 stages, vk::AccessFlags2 access) {

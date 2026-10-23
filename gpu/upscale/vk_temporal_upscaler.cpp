@@ -1,3 +1,5 @@
+#include "render/nr_dimension_adapter.h"
+#include "render/nr_dimensions.h"
 #include "render/nr_runtime_capture.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_overlay.h"
@@ -523,7 +525,7 @@ void TemporalUpscaler::PollNativeFrameBoundary() noexcept {
     native_pre_sr_source_visited = false;
     const auto& p0_settings=BbSettings::Get();
     try {
-        native_async_pre_sr.PollReady(instance,scheduler,!Scaled()&&UseDlss()&&(p0_settings.preset==1||BbNRDimensions::Get().enabled)&&p0_settings.jitter&&(!p0_settings.frame_generation||NativeFrameGeneration()));
+        native_async_pre_sr.PollReady(instance,scheduler,(!Scaled()||BbNRDimensions::Get().enabled)&&UseDlss()&&(p0_settings.preset==1||BbNRDimensions::Get().enabled)&&p0_settings.jitter&&(!p0_settings.frame_generation||NativeFrameGeneration()));
         if (!source_visited) native_async_pre_sr.DrainUnavailable(scheduler);
     }
     catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_POLL_HOLD reason=%s unknown_partial_use_retained=1\n",e.what());}
@@ -590,6 +592,11 @@ bool TemporalUpscaler::OnFrameStart() {
         } else {
             output_size.height = int(std::lround(output_size.width * 9 / 16.0 / 2)) * 2;
         }
+    }
+    if(BbNRDimensions::Get().enabled&&uint64_t(output_size.width)*output_size.height>uint64_t(3840)*2160){
+        std::printf("NR_DIMENSIONS_OUTPUT_REJECTED requested=%dx%d budget=4K_pixels prior_output_preserved=1\n",output_size.width,output_size.height);
+        const auto fallback=BbSettings::UnpackSize(applied_output?applied_output:BbSettings::PackSize({1920,1080}));
+        output_size=fallback;BbSettings::Get().output_res.store(BbSettings::PackSize(fallback));
     }
     const u32 output = BbSettings::PackSize(output_size);
     const bool output_changed = !scaled_session && applied_output != output;
@@ -672,10 +679,50 @@ bool TemporalUpscaler::OnFrameStart() {
     return changed;
 }
 
+void TemporalUpscaler::RecordNrHdrPrepass(){
+ if(!BbNRDimensions::Get().enabled||!native_async_pre_sr.Enabled())return;
+ const auto source=BbStats::gpu_frames.load(std::memory_order_relaxed);
+ if(nr_dimension_source==source)return;
+ nr_dimension_source=source;native_pre_sr_source_visited=true;
+ const auto& settings=BbSettings::Get();
+ bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pre_sr_pending_audit.has_value();}
+ const bool supported=UseDlss()&&settings.jitter&&!settings.frame_generation&&!pending&&scene_color&&camera_motion.Ready();
+ native_async_pre_sr.BeginSource(source,supported);
+ if(!supported||!native_async_pre_sr.Armed()){native_async_pre_sr.DrainUnavailable(scheduler);return;}
+ try{
+  auto& color=texture_cache.GetImage(scene_color);auto& depth=texture_cache.GetImage(camera_motion.Depth());
+  if(color.info.pixel_format!=vk::Format::eR16G16B16A16Sfloat||depth.info.pixel_format!=vk::Format::eD32SfloatS8Uint)return;
+  const auto dims=scene_targets.Size();const u32 rw=dims.width,rh=dims.height;
+  const std::array<u32,4> layout{rw,rh,target_width,target_height};const bool layout_changed=layout!=nr_source_layout;
+  if(layout_changed){std::printf("NR_DIMENSIONS_SOURCE_LAYOUT source=%llu render=%ux%u model=%ux%u sr=%ux%u reset=1 immutable_resource_set=1\n",(unsigned long long)source,rw,rh,BbNRDimensions::Width(),BbNRDimensions::Height(),target_width,target_height);nr_source_layout=layout;}
+  scheduler.EndRendering();
+  vk::Image ci=color.GetImage(),di=depth.GetImage();vk::ImageView cv=CachedView(color,color.info.pixel_format,vk::ImageAspectFlagBits::eColor),dv=CachedView(depth,depth.info.pixel_format,vk::ImageAspectFlagBits::eDepth);
+  vk::ImageCreateInfo cinfo=color.backing->image.image_ci,dinfo=depth.backing->image.image_ci;
+  const bool proxy=ReducedScene(color)&&scene_targets.EligibleScene(depth);
+  if(proxy){VideoCore::ImageViewInfo vi;vi.format=color.info.pixel_format;auto c=scene_targets.Read(scene_color,vi);vi.format=depth.info.pixel_format;auto d=scene_targets.Read(camera_motion.Depth(),vi);ci=c.image;cv=c.view;di=d.image;dv=d.view;cinfo=*scene_targets.CaptureCreateInfo(ci);dinfo=*scene_targets.CaptureCreateInfo(di);}
+  else {runtime.Transit(&color,vk::ImageLayout::eGeneral,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite);runtime.Transit(&depth,vk::ImageLayout::eGeneral,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead);runtime.FlushBarriers();}
+  if(!nr_dimension_motion||nr_dimension_motion.image_ci.extent.width!=rw||nr_dimension_motion.image_ci.extent.height!=rh){
+   scheduler.Finish();nr_dimension_motion_view.reset();nr_dimension_motion=VideoCore::HostImage(instance.GetDevice(),instance.GetAllocator());nr_dimension_motion.Create({.imageType=vk::ImageType::e2D,.format=vk::Format::eR16G16Sfloat,.extent={rw,rh,1},.mipLevels=1,.arrayLayers=1,.samples=vk::SampleCountFlagBits::e1,.tiling=vk::ImageTiling::eOptimal,.usage=vk::ImageUsageFlagBits::eStorage|vk::ImageUsageFlagBits::eSampled|vk::ImageUsageFlagBits::eTransferSrc,.initialLayout=vk::ImageLayout::eUndefined});nr_dimension_motion_view=instance.GetDevice().createImageViewUnique({.image=vk::Image(nr_dimension_motion),.viewType=vk::ImageViewType::e2D,.format=vk::Format::eR16G16Sfloat,.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}}).value;
+  }
+  // Finish can replace the current command buffer; obtain it only after allocation/retirement.
+  auto cmd=scheduler.CommandBuffer();vk::ImageMemoryBarrier2 mb{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eComputeShader,.dstAccessMask=vk::AccessFlagBits2::eShaderWrite,.oldLayout=vk::ImageLayout::eUndefined,.newLayout=vk::ImageLayout::eGeneral,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=vk::Image(nr_dimension_motion),.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}};cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&mb});
+  camera_motion.RecordMotion(dv,*nr_dimension_motion_view,rw,rh);
+  if(!nr_dimension_adapter){nr_dimension_adapter=std::make_shared<NrDimensionAdapter>(instance);native_async_pre_sr.SetDimensionAdapter(nr_dimension_adapter);}
+  auto raw=nr_dimension_adapter->Prepare(scheduler,{ci,di,vk::Image(nr_dimension_motion)},{cinfo,dinfo,nr_dimension_motion.image_ci},rw,rh);
+  const float sx=float(BbNRDimensions::Width())/rw,sy=float(BbNRDimensions::Height())/rh;
+  const auto vp=camera_motion.CurrentJitter(),prev=camera_motion.PreviousJitter();const auto proj=camera_motion.TaaDepthParameters();const float sign=BbToggle::Disabled(1u<<26)?-1.f:1.f;
+  const bool recorded=native_async_pre_sr.TryCaptureOrigin(instance,scheduler,raw,nr_dimension_adapter->Infos(),{.source=source,.sr_reset=reset||layout_changed,.viewport={vp[0]*sx,vp[1]*sy},.previous_viewport={prev[0]*sx,prev[1]*sy},.sr_jitter={sign*jitter[0],sign*jitter[1]},.previous_sr_jitter={previous_dlss_jitter_x,previous_dlss_jitter_y},.current_projection=proj[0],.previous_projection=proj[1],.previous_view_z=proj[2],.source_render={rw,rh},.sr_output={target_width,target_height}});
+  vk::ImageView edited{};if(recorded||native_async_pre_sr.PersistentPrepared(source))edited=native_async_pre_sr.RecordAdvanceAndApply(scheduler,source);
+  if(edited&&native_async_pre_sr.EffectSelected()){nr_dimension_adapter->Apply(scheduler,edited,ci,cv,rw,rh);native_async_pre_sr.ApplicationRecorded(scheduler,source);if(proxy)scene_targets.MarkProxyWritten(scene_color);}
+  else native_async_pre_sr.DrainUnavailable(scheduler);
+ }catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NR_DIMENSIONS_PREPASS_HOLD reason=%s\n",e.what());}
+}
+
 void TemporalUpscaler::OnDispatch(u64 cs_hash) {
-    if (cs_hash != trigger_hash || done_this_frame || failed || Scaled()) {
+    if (cs_hash != trigger_hash || done_this_frame || failed || (Scaled()&&!BbNRDimensions::Get().enabled)) {
         return;
     }
+    if(BbNRDimensions::Get().enabled){RecordNrHdrPrepass();if(Scaled())return;}
     done_this_frame = true;
     if (!scene_color || !camera_motion.Ready() || !Active()) {
         reset = true;
@@ -2175,7 +2222,7 @@ void TemporalUpscaler::Run() {
             std::scoped_lock lock{c1_audit_mutex};
             if(native_async_pre_sr_pending_audit)throw std::runtime_error("Async preSR cannot overwrite current-source ledger");
             auto output_capture=native_async_pre_sr.RuntimeCaptureFrame(source_game_frame);if(output_capture&&!output_capture->seq)output_capture.reset();
-            native_async_pre_sr_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC_PRE_SR",.mode=native_async_pre_sr.EffectSelected()?"cache720-current-SR1080":"raw720-original-SR1080",
+            native_async_pre_sr_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC_PRE_SR",.mode=BbNRDimensions::Get().enabled?"HDR-NR-before-tonemap-SR":native_async_pre_sr.EffectSelected()?"cache720-current-SR1080":"raw720-original-SR1080",
                 .session=native_async_pre_sr.Session(),.execution_mode="hot",.selected_output=native_async_pre_sr.EffectSelected(),.audit_full=false,.nr_frame=native_async_pre_sr.EffectJob(),
                 .source_game_frame=source_game_frame,.merge_tick=scheduler.CurrentTick(),.runtime_capture=output_capture};
         }
@@ -2928,6 +2975,12 @@ void TemporalUpscaler::RunScaled() {
                 }
             }
         }
+    if(ok4&&BbNRDimensions::Get().enabled&&nr_dimension_source==BbStats::gpu_frames.load(std::memory_order_relaxed)&&native_async_pre_sr.Supported()){
+        native_async_pre_sr.MergeRecorded(scheduler,nr_dimension_source);
+        std::scoped_lock lock{c1_audit_mutex};
+        if(native_async_pre_sr_pending_audit)throw std::runtime_error("NR dimensions cannot overwrite source Present ledger");
+        native_async_pre_sr_pending_audit=C1PresentAudit{.stage="NATIVE_ASYNC_PRE_SR",.mode="HDR-NR-before-tonemap-SR",.session=native_async_pre_sr.Session(),.execution_mode="hot",.selected_output=native_async_pre_sr.EffectSelected(),.audit_full=false,.nr_frame=native_async_pre_sr.EffectJob(),.source_game_frame=nr_dimension_source,.merge_tick=scheduler.CurrentTick()};
+    }
         if (ok4) {
             CaptureFrameGenScene(depth_image, depth_format, w, h, ow, oh, frame_ms, frame_reset);
         }
@@ -3644,7 +3697,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         const bool pre_original_reset=reset;
         bool pre_domain_changed=false;
         Dlss::Resource sr_color=color;
-        if(native_async_pre_sr.Enabled()) {
+        if(native_async_pre_sr.Enabled()&&!BbNRDimensions::Get().enabled) {
             native_pre_sr_source_visited = true;
             bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pre_sr_pending_audit.has_value();}
             const bool dimensions_match=BbNRDimensions::Get().enabled?(w==BbNRDimensions::Width()&&h==BbNRDimensions::Height()&&ow==BbNRDimensions::Get().output_width&&oh==BbNRDimensions::Get().output_height):(w==1280&&h==720&&ow==1920&&oh==1080&&settings.preset==1);
@@ -3710,7 +3763,7 @@ bool TemporalUpscaler::RecordDlss(vk::CommandBuffer cmdbuf, const Dlss::Resource
         if (sr_timing_slot) sr_command_timing->End(cmdbuf,scheduler,*sr_timing_slot,sr_timing_source,ok);
         native_async_pre_sr.SrReadRecorded(scheduler,pre_source,sr_color.image,ok,pre_domain_changed,reset);
         if(ok)if(auto capture=native_async_pre_sr.RuntimeCaptureFrame(pre_source);capture&&capture->seq)
-            RecordRuntimeOutput(instance,scheduler,vk::Image(output_image),vk::Format::eR16G16B16A16Sfloat,ow,oh,*capture,"SR1080");
+            RecordRuntimeOutput(instance,scheduler,vk::Image(output_image),output_image.image_ci.format,ow,oh,*capture,"SR-output");
     }
 #if NRBRIDGE_LEGACY_EXPERIMENTS
     if (ok) {

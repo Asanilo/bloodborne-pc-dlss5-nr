@@ -27,3 +27,33 @@ Output dimensions and NR execution dimensions are different budget domains.
 Capability markers reject old Native/Helper builds rather than silently running
 raw SR. SR presets are independent of NR Preset A/B. New-dimension FG is not
 admitted until its owner adapts the fixed mailbox and validates it.
+
+## Revision 2: independent SR render domain
+
+The `NRBRIDGE_DIMENSIONS_V3R2` binary marker and `sr-variable-r2` profile identify
+an INPUT `source_layout` with actual render-subrect and SR output sizes. The
+immutable CONFIG/SHARED execution extents still match exactly. Old v3 peers
+cannot be used with this revision. Live SR preset/output/aspect changes keep
+this resource set and reset the visual history; a different NR execution size
+requires a normally retired session followed by a new session.
+
+Native records NR before the game's HDR-to-display conversion. Color and depth
+are resampled from the actual scene proxy to the bounded execution domain;
+motion vectors are converted once from render pixels to execution pixels.
+NGX MVecScale remains 1/1. Only the NR HDR residual is transferred back to the
+actual scene, preserving render-resolution detail and alpha. A two-pass finite
+and F16-range guard leaves the entire actual HDR frame unchanged on failure.
+The normal game tone conversion, Native SR and HUD path follow this prepass.
+
+Source viewport jitter metadata is expressed in execution pixels; actual SR
+jitter stays in render pixels. This records domains, not evidence of NR jitter
+correction: model phase remains UNVERIFIED. Layout changes set source_reset and
+invalidate history/candidates through the existing epoch gates. Replacing the
+render-size motion image waits on the actual Native scheduler; the fixed
+adapter images are retained with the Native shared-resource owner on HOLD.
+
+The 8 GiB policy caps default NR execution at 1080p pixels, output at 4K pixels.
+This is a conservative image budget, not a measured promise that every allowed
+combination fits every device. An explicit `--nr-execution` selects a smaller
+working set without changing the SR render/output preset. WorkingScale itself
+remains 1.0 inside the NR feature; this is a separate Native input adapter.

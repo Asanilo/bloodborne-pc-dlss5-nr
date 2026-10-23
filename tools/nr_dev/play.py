@@ -91,6 +91,7 @@ def launch_command(a):
  if a.native_build:command+=['--native-build',a.native_build]
  if a.nr_sr_preset:command+=['--nr-sr-preset',a.nr_sr_preset]
  if a.nr_output:command+=['--nr-output',a.nr_output]
+ if a.nr_execution:command+=['--nr-execution',a.nr_execution]
  if a.continue_session:command+=['--continue-session',a.continue_session]
  if a.context_recovery:command+=['--context-recovery',a.context_recovery]
  if a.online_pool!='offline':command+=['--online-pool',a.online_pool,'--online-account-config',a.online_account_config]
