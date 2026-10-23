@@ -311,6 +311,8 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 }
 
 void FrameGeneration::CaptureScene(const Scene& in) {
+    scene_capture_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     scene_captured = false;
     if (dlssg_capture || dlssg_gpu) {
         scene = in;
@@ -538,6 +540,8 @@ FrameGeneration::Target& FrameGeneration::PrepareTarget(VAddr display, u64 id, b
         target->frame = id;
         target->source_game_frame = scene.source_game_frame;
         target->display = display;
+        target->eligible.reset();
+        target->capture_cpu_ns = scene_capture_ns;
         target->recorded = std::make_shared<std::atomic<bool>>(false);
         if (target->ready) ++stat_ready;
     }
@@ -555,6 +559,7 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                 auto& target = PrepareTarget(display, scene_id, false);
                 target.strict_source = true;
                 target.previous_source_game_frame = previous_source;
+                target.eligible = dlssg_gpu->Eligibility();
                 dlssg_gpu->Consume(vk::Image(target.image), target.recorded);
             } else {
                 dlssg_gpu->Consume({}); // Disabled still returns output ownership after real GPU use.
@@ -793,7 +798,8 @@ bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
     }
     ++stat_taken;
     out = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame, t.recorded,
-           t.source_game_frame, t.strict_source, t.previous_source_game_frame};
+           t.source_game_frame, t.strict_source, t.previous_source_game_frame, t.eligible,
+           t.capture_cpu_ns};
     return true;
 }
 

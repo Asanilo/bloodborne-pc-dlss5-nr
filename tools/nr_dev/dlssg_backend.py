@@ -16,8 +16,12 @@ def validate_args(args):
         return
     if not (getattr(args,'daily',False) and getattr(args,'fg_native',False)):
         raise ValueError('DLSSG requires daily --fg-native real-source binding')
+    if getattr(args,'dlssg_pipeline','sync-v1') not in ('sync-v1','submit-ready-v1'):
+        raise ValueError('unsupported DLSSG pipeline')
     if getattr(args,'dlssg_helper_wake','poll-v1')=='notify-v1' and getattr(args,'dlssg_transport',None)!='gpu-dmabuf-v1':
         raise ValueError('notify-v1 requires gpu-dmabuf-v1')
+    if getattr(args,'dlssg_pipeline','sync-v1')!='sync-v1' and getattr(args,'dlssg_transport',None)!='gpu-dmabuf-v1':
+        raise ValueError('submit-ready-v1 requires gpu-dmabuf-v1')
     if not getattr(args,'dlssg_model',None):
         raise ValueError('DLSSG requires an explicit existing --dlssg-model path')
 
@@ -27,6 +31,9 @@ def check(args,build):
     marker=b'DLSSG_GPU_BRIDGE_READY' if getattr(args,'dlssg_transport',None)=='gpu-dmabuf-v1' else b'DLSSG_CPU_BRIDGE_READY'
     if marker not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
         raise ValueError('DLSSG requires rebuilt Native selected bridge')
+    if (getattr(args,'dlssg_pipeline','sync-v1')!='sync-v1' and
+        b'DLSSG_GPU_SUBMIT_READY_PROFILE' not in (Path(build)/'gpu/libbbgpu.so').read_bytes()):
+        raise ValueError('submit-ready-v1 requires rebuilt asynchronous Native bridge')
     source=Path(__file__).resolve().parents[2]
     spec=importlib.util.spec_from_file_location('dlssg_wine_build_inputs',source/'tools/fg_dev/build_wine_probe.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -58,9 +65,9 @@ def prepare(args,build,run,binding,runner):
             'executable':str(source/'out/wine-dlssg-probe.exe'),'adapter':str(source/'out/nvngx.dll_dlssg.dll'),
             'model':state['model']['path'],'cuda':str(source/'out/nvcuda.dll'),
             'identities':{k:state[k] for k in ['model','cuda','core']},'helper_build':state['build'],
-            'transport':args.dlssg_transport,'helper_wake':getattr(args,'dlssg_helper_wake','poll-v1') if gpu else 'poll-v1','reused_retired_prefix':args.dlssg_prefix_session,'scope':'DMA-BUF GPU mailbox; private persistent FG history; actual GPU last-use ACK' if gpu else 'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
+            'pipeline':getattr(args,'dlssg_pipeline','sync-v1'),'transport':args.dlssg_transport,'helper_wake':getattr(args,'dlssg_helper_wake','poll-v1') if gpu else 'poll-v1','reused_retired_prefix':args.dlssg_prefix_session,'scope':'DMA-BUF GPU mailbox; private persistent FG history; actual GPU last-use ACK' if gpu else 'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
     path=run/'dlssg-config.json';runner['atomic'](path,config)
-    return {'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),'BB_DLSSG_TRANSPORT':args.dlssg_transport,'BB_DLSSG_HELPER_WAKE':config['helper_wake'],
+    return {'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),'BB_DLSSG_TRANSPORT':args.dlssg_transport,'BB_DLSSG_HELPER_WAKE':config['helper_wake'],'BB_DLSSG_PIPELINE':config['pipeline'],
             'BB_DLSSG_CONFIG_SHA256':hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -81,6 +88,12 @@ def validate_manifest(run,manifest):
         raise ValueError('DLSSG sealed transport drift')
     if config.get('helper_wake','poll-v1') not in ('poll-v1','notify-v1') or env.get('BB_DLSSG_HELPER_WAKE','poll-v1')!=config.get('helper_wake','poll-v1'):
         raise ValueError('DLSSG sealed Helper wake drift')
+    # Read the sealed historical r37 experiment for independent retirement
+    # audit. New admission above/CLI never permits this rejected WSI mode.
+    if config.get('pipeline','sync-v1') not in ('sync-v1','submit-ready-v1','gpu-gate-v1') or env.get('BB_DLSSG_PIPELINE','sync-v1')!=config.get('pipeline','sync-v1'):
+        raise ValueError('DLSSG sealed pipeline drift')
+    if config.get('pipeline','sync-v1')!='sync-v1' and transport!='gpu-dmabuf-v1':
+        raise ValueError('DLSSG async prerequisite requires GPU transport')
     # NR's owner requires its canonical per-session prefix. FG prefix reuse
     # cannot override that independent process boundary.
     if env.get('BB_NR_NATIVE_ORIGIN_PREFIX')!=str(Path(run)/'profile/wine-prefix'):

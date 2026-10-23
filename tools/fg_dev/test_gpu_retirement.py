@@ -13,6 +13,25 @@ import dlssg_backend
 PROOF='DLSSG_GPU_BRIDGE_RETIRED helper_GPU_complete=1 feature_released=1 child_reaped=1 Native_shared_GPU_complete=1 imports_destroyed=1 sequence=6\n'
 
 class GpuRetirementTests(unittest.TestCase):
+    def test_pipeline_is_sealed_and_old_configs_keep_sync(self):
+        path=self.root/'dlssg-config.json'
+        cfg=dict(schema='dlssg-native-gpu-v1',session='test',run=str(self.root),
+                 ipc='/tmp/bb-dlssg-test',transport='gpu-dmabuf-v1')
+        def manifest(pipeline=None):
+            if pipeline is not None:cfg['pipeline']=pipeline
+            path.write_text(json.dumps(cfg))
+            return dict(session='test',environment=dict(BB_FRAME_GEN_BACKEND='dlssg',
+                BB_FRAME_GEN_NATIVE='1',BB_DLSSG_TRANSPORT='gpu-dmabuf-v1',
+                BB_DLSSG_STREAM_CONFIG=str(path),BB_DLSSG_STREAM_DIR=cfg['ipc'],
+                BB_DLSSG_CONFIG_SHA256=hashlib.sha256(path.read_bytes()).hexdigest(),
+                BB_NR_NATIVE_ORIGIN_PREFIX=str(self.root/'profile/wine-prefix')))
+        old=manifest();dlssg_backend.validate_manifest(self.root,old)
+        new=manifest('submit-ready-v1')
+        with self.assertRaisesRegex(ValueError,'pipeline drift'):
+            dlssg_backend.validate_manifest(self.root,new)
+        new['environment']['BB_DLSSG_PIPELINE']='submit-ready-v1'
+        dlssg_backend.validate_manifest(self.root,new)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
         base={'schema':'dlssg-gpu-mailbox-v1','session':'test'}

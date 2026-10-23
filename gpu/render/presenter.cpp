@@ -380,6 +380,8 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     // Frame generation: the frame interpolated before this one, encoded the same way.
     frame->has_interp = false;
     frame->interp_recorded.reset();
+    frame->interp_eligible.reset();
+    frame->fg_capture_cpu_ns = 0;
     frame->fg_frame = 0;
     frame->fg_strict_source = false;
     frame->fg_previous_source = 0;
@@ -394,6 +396,8 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
         EncodeInterpolated(frame, interp.image, interp.format, interp.width, interp.height,
                            view_info.format, encode);
         frame->interp_recorded = interp.recorded;
+        frame->interp_eligible = interp.eligible;
+        frame->fg_capture_cpu_ns = interp.capture_cpu_ns;
         frame->fg_frame = interp.frame;
         frame->fg_strict_source = interp.strict_source;
         frame->fg_previous_source = interp.previous_source_game_frame;
@@ -765,7 +769,9 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         // or presented as generated frames.
         WaitRendered(frame);profile_ready=Clock::now();
         frame->has_interp = frame->has_interp && frame->interp_recorded &&
-                            frame->interp_recorded->load(std::memory_order_acquire);
+                            frame->interp_recorded->load(std::memory_order_acquire) &&
+                            (!frame->interp_eligible ||
+                             frame->interp_eligible->load(std::memory_order_acquire));
     }
     // BB_FRAME_GEN_ONLY=1 (diagnostics): only the interpolated frames are shown.
     static const bool only_interp = [] {
@@ -791,6 +797,10 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     }
     const auto real_start=Clock::now();
     PresentImage(frame, {}, true, is_game_frame && !blank, is_reusing_frame);
+    if (sample && frame->fg_capture_cpu_ns)
+        std::printf("FG_CAPTURE_PRESENT_PROFILE source=%llu capture_to_real_present_cpu_ms=%.3f scope=guide_capture_to_Present_return_not_input_or_scanout\n",
+                    (unsigned long long)frame->c1_source_game_frame,
+                    profile_ms(Clock::time_point(std::chrono::nanoseconds(frame->fg_capture_cpu_ns)), Clock::now()));
     if(sample)std::printf("FG_PACING_PROFILE source=%llu queue_age_cpu_ms=%.3f wait_render_cpu_ms=%.3f generated_present_cpu_ms=%.3f pacing_sleep_cpu_ms=%.3f real_present_cpu_ms=%.3f total_cpu_ms=%.3f interval_estimate_ms=%.3f\n",(unsigned long long)frame->c1_source_game_frame,profile_ms(Clock::time_point(std::chrono::nanoseconds(frame->prepare_ns)),profile_start),profile_ms(profile_start,profile_ready),generated_present_ms,pace_sleep_ms,profile_ms(real_start,Clock::now()),profile_ms(profile_start,Clock::now()),fg_interval_ms);
     release();
 }

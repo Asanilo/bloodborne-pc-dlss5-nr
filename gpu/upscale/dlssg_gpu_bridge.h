@@ -7,6 +7,7 @@
 #include "upscale/dlssg_native_timing.h"
 #include "upscale/frame_generation_lifecycle.h"
 #include <future>
+#include "upscale/dlssg_serial_worker.h"
 namespace Vulkan {
 class DlssgGpuBridge {
   using J = DlssgGpu::J;
@@ -23,10 +24,27 @@ class DlssgGpuBridge {
   std::future<double> consumed_ack;
   uint64_t consumed_tick = 0;
   J last_request, response;
+  bool async_exchange = false;
+  std::unique_ptr<DlssgSerialWorker> worker;
+  std::shared_future<J> flight;
+  std::shared_ptr<std::atomic<bool>> flight_eligible;
+
+  void JoinFlight() {
+    if (!flight.valid()) return;
+    const auto begin = Clock::now();
+    Need(flight.wait_for(std::chrono::seconds(30)) == std::future_status::ready,
+         "GPU submission prerequisite response deadline");
+    response = flight.get();
+    helper_serial = DlssgGpu::U(response, "helper_serial");
+    if (std::getenv("BB_FG_PROFILE") && sequence % 120 == 0)
+      std::printf("DLSSG_GPU_SUBMIT_JOIN sequence=%llu source=%llu owner_join_cpu_ms=%.3f extra_game_frame_buffer=0\n",
+                  (unsigned long long)sequence, (unsigned long long)last_source, DlssgNativeTiming::Ms(begin, Clock::now()));
+    flight = {};
+  }
   DlssgCamera::Camera previous_camera, current_camera;
   Clock::time_point last_completed{};
   static void Need(bool v, const char *why) { DlssgGpu::Need(v, why); }
-  [[noreturn]] void Fail(const std::exception &e) {
+  [[noreturn]] static void Fail(const std::exception &e) {
     FgLifecycle::held.store(true);
     std::fprintf(
         stderr,
@@ -78,6 +96,14 @@ class DlssgGpuBridge {
     peer = std::make_unique<DlssgGpu::Peer>(config);
     auto ready = peer->Start(*mailbox);
     helper_serial = DlssgGpu::U(ready, "helper_serial");
+    const auto pipeline = config.value("pipeline", std::string("sync-v1"));
+    Need(pipeline == "sync-v1" || pipeline == "submit-ready-v1", "supported GPU pipeline");
+    async_exchange = pipeline == "submit-ready-v1";
+    if (async_exchange) {
+      worker = std::make_unique<DlssgSerialWorker>();
+    }
+    std::printf("DLSSG_GPU_PIPELINE mode=%s async_submit_prerequisite=%u external_semaphore=0 extra_game_frame_buffer=0\n",
+                async_exchange ? "submit-ready-v1" : "sync-v1", unsigned(async_exchange));
     last_request = J{{"schema", DlssgGpu::Schema},
                      {"session", peer->session},
                      {"sequence", 0},
@@ -125,6 +151,8 @@ public:
       : instance(i), scheduler(s), timing(i) {}
   ~DlssgGpuBridge() {
     if (peer && !retired) {
+      if (worker)
+        Fail(std::runtime_error("unretired GPU submission prerequisite owner destruction"));
       FgLifecycle::held.store(true);
       // Unknown Native last use: retain the backing GPU objects through process
       // teardown.
@@ -135,6 +163,7 @@ public:
     }
   }
   uint64_t LastSource() const { return last_source; }
+  std::shared_ptr<std::atomic<bool>> Eligibility() const { return flight_eligible; }
   bool Guides(const FrameGeneration::Scene &scene) {
     if (scene.width != 1920 || scene.height != 1080 ||
         scene.render_width != 1280 || scene.render_height != 720 ||
@@ -146,6 +175,7 @@ public:
       return false;
     try {
       Start();
+      JoinFlight(); // Before query reuse or a new request; Peer has one CPU owner at a time.
       Need(!pending, "GPU previous response consumed");
       if (guides) {
         scheduler.Finish();
@@ -228,11 +258,15 @@ public:
         timing.Mark(cmd, 3);
       });
       const auto recorded = Clock::now();
-      scheduler.Finish();
+      scheduler.Flush();
+      const auto flushed = Clock::now();
+      if (!async_exchange) scheduler.Wait(last_recorded_tick);
       const auto completed = Clock::now();
-      Observe();
-      WaitConsumedAck();
-      timing.ReadInput(DlssgNativeTiming::Ms(started, recorded),
+      if (!async_exchange) {
+        Observe();
+        WaitConsumedAck();
+      }
+      if (!async_exchange) timing.ReadInput(DlssgNativeTiming::Ms(started, recorded),
                        DlssgNativeTiming::Ms(recorded, completed), 0, true);
       guides = false;
       reset = reset || !last_source ||
@@ -253,9 +287,68 @@ public:
                        {"display", display},
                        {"wire_order", "game-scene-bytes"},
                        {"transport", "gpu-dmabuf-v1"},
-                       {"native_input_tick", mailbox->last_use},
+                       {"native_input_tick", last_recorded_tick},
                        {"native_input_GPU_complete", true},
                        {"camera", current_camera.constants}};
+      if (async_exchange) {
+        // The request is sent only after the exact submitted producer tick.
+        // Native consumption is submitted only after validated Helper fence/release.
+        const double record_ms = DlssgNativeTiming::Ms(started, recorded);
+        const double flush_ms = DlssgNativeTiming::Ms(recorded, flushed);
+        flight_eligible = std::make_shared<std::atomic<bool>>(false);
+        auto promise = std::make_shared<std::promise<J>>();
+        flight = promise->get_future().share();
+        auto prior_ack = std::move(consumed_ack);
+        worker->Submit([this, request = last_request, serial = helper_serial,
+                        input_tick = last_recorded_tick,
+                        producer = scheduler.GetWorkSemaphore(),
+                        eligible = flight_eligible, promise,
+                        prior_ack = std::move(prior_ack),
+                        record_ms, flush_ms,
+                        submitted = flushed,
+                        previous_output = last_source]() mutable {
+          try {
+            const auto wait_begin = Clock::now();
+            producer->Wait(input_tick); // Never Scheduler::Wait/Flush on this worker.
+            const auto input_complete = Clock::now();
+            if (prior_ack.valid()) {
+              Need(prior_ack.wait_for(std::chrono::seconds(30)) == std::future_status::ready,
+                   "GPU submission prerequisite prior consumer ACK deadline");
+              prior_ack.get();
+            }
+            const auto source = DlssgGpu::U(request, "source_game_frame");
+            timing.ReadAsyncInput(source, previous_output, record_ms, flush_ms,
+                                 DlssgNativeTiming::Ms(wait_begin, input_complete));
+            const auto exchange_begin = Clock::now();
+            auto result = peer->Exchange(request, serial);
+            const bool valid = DlssgGpu::B(result, "eligible");
+            Need(!valid || (DlssgGpu::U(result, "result") == 1 &&
+                           (DlssgGpu::U(result, "disable_word") & 255) == 0),
+                 "GPU submission prerequisite model output eligibility");
+            eligible->store(valid, std::memory_order_release);
+            if (std::getenv("BB_FG_PROFILE") && DlssgGpu::U(request, "sequence") % 120 == 0) {
+              auto profile = result; profile.erase("camera");
+              profile["native_wait_cpu_ms"] = DlssgNativeTiming::Ms(exchange_begin, Clock::now());
+              profile["producer_flush_cpu_ms"] = flush_ms;
+              profile["producer_completion_wait_cpu_ms"] = DlssgNativeTiming::Ms(wait_begin, input_complete);
+              profile["producer_to_helper_ready_cpu_ms"] = DlssgNativeTiming::Ms(submitted, Clock::now());
+              profile["pipeline"] = "submit-ready-v1";
+              std::printf("DLSSG_GPU_BRIDGE_PROFILE %s\n", profile.dump().c_str());
+            }
+            // Both queue submission and the eventual ACK acquire this publication.
+            promise->set_value(std::move(result));
+          } catch (const std::exception &e) {
+            // A submitted-tick prerequisite cannot be faked on error: fail-stop
+            // with HOLD, never an exception stranded behind Finish().
+            Fail(e);
+          } catch (...) {
+            Fail(std::runtime_error("GPU submission prerequisite worker unknown failure"));
+          }
+        });
+        guides = false;
+        pending = true;
+        return true; // Provisional output; actual eligibility gates Present separately.
+      }
       const auto wait_start = Clock::now();
       response = peer->Exchange(last_request, helper_serial);
       helper_serial = DlssgGpu::U(response, "helper_serial");
@@ -267,6 +360,8 @@ public:
             DlssgNativeTiming::Ms(wait_start, Clock::now());
         profile["producer_finish_cpu_ms"] =
             DlssgNativeTiming::Ms(recorded, completed);
+        profile["producer_flush_cpu_ms"] = DlssgNativeTiming::Ms(recorded, flushed);
+        profile["producer_completion_wait_cpu_ms"] = DlssgNativeTiming::Ms(flushed, completed);
         std::printf("DLSSG_GPU_BRIDGE_PROFILE %s\n", profile.dump().c_str());
       }
       const bool eligible = DlssgGpu::B(response, "eligible");
@@ -287,8 +382,10 @@ public:
       last_recorded_tick = scheduler.CurrentTick();
       mailbox->MarkUse();
       const auto tick = last_recorded_tick;
-      timing.upload_source = DlssgGpu::U(last_request, "source_game_frame");
-      timing.upload_pending = bool(timing.pool);
+      if (!async_exchange) {
+        timing.upload_source = DlssgGpu::U(last_request, "source_game_frame");
+        timing.upload_pending = bool(timing.pool);
+      }
       scheduler.Record([this, target, recorded](vk::CommandBuffer cmd) {
         timing.Mark(cmd, 4);
         mailbox->Ownership(VkCommandBuffer(cmd), 3, true, false);
@@ -338,18 +435,34 @@ public:
       // ACK, and no callback borrows us.
       scheduler.DeferPriorityOperation(
           [directory = peer->root, request = last_request,
-           serial = helper_serial, tick, completed] {
+           serial = helper_serial, result = flight, tick, completed] {
             try {
               const auto start = Clock::now();
-              DlssgGpu::Peer::PublishConsumed(directory, request, serial, tick);
+              const auto completed_serial = result.valid()
+                  ? DlssgGpu::U(result.get(), "helper_serial") : serial;
+              DlssgGpu::Peer::PublishConsumed(directory, request, completed_serial, tick);
               completed->set_value(DlssgNativeTiming::Ms(start, Clock::now()));
             } catch (...) {
               completed->set_exception(std::current_exception());
             }
           });
       const auto submit_start = Clock::now();
-      scheduler.Flush(); // Submit now; Present encoding stays later in the same
-                         // draw stream.
+      SubmitInfo submit{};
+      if (async_exchange) submit.await_ready = [result = flight, request = last_request] {
+        try {
+          const auto start = Clock::now();
+          Need(result.wait_for(std::chrono::seconds(30)) == std::future_status::ready,
+               "GPU output submission prerequisite deadline");
+          (void)result.get(); // Actual Helper fence/release validated by worker.
+          if (std::getenv("BB_FG_PROFILE") && DlssgGpu::U(request, "sequence") % 120 == 0)
+            std::printf("DLSSG_GPU_SUBMIT_READY_PROFILE source=%llu wait_cpu_ms=%.3f actual_Helper_GPU_complete=1 queue_lock_held=0\n",
+                        (unsigned long long)DlssgGpu::U(request, "source_game_frame"),
+                        DlssgNativeTiming::Ms(start, Clock::now()));
+        } catch (const std::exception& e) { Fail(e); }
+        catch (...) { Fail(std::runtime_error("unknown submission prerequisite failure")); }
+      };
+      scheduler.Flush(submit); // SAME draw timeline; prerequisite waits on the submit
+                              // worker, outside submit_mutex, before QueueSubmit.
       const auto submitted = Clock::now();
       sequence = DlssgGpu::U(last_request, "sequence");
       last_source = DlssgGpu::U(last_request, "source_game_frame");
@@ -362,14 +475,21 @@ public:
                     (unsigned long long)sequence,
                     (unsigned long long)last_source,
                     DlssgNativeTiming::Ms(submit_start, submitted));
-      if (sequence <= 3 || sequence % 120 == 0)
-        std::printf("DLSSG_GPU_NATIVE_OUTPUT sequence=%llu source=%llu "
+      if (sequence <= 3 || sequence % 120 == 0) {
+        if (async_exchange)
+          std::printf("DLSSG_GPU_NATIVE_QUEUED sequence=%llu source=%llu epoch=%llu "
+                      "output_candidate=%u Native_copy_tick=%llu eligibility=pending "
+                      "ACK_after_actual_GPU=async\n",
+                      (unsigned long long)sequence, (unsigned long long)last_source,
+                      (unsigned long long)epoch, unsigned(bool(target)), (unsigned long long)tick);
+        else std::printf("DLSSG_GPU_NATIVE_OUTPUT sequence=%llu source=%llu "
                     "epoch=%llu eligible=%u Native_copy_tick=%llu "
                     "helper_serial=%llu pixel_host_transfer_bytes=0 ACK_after_actual_GPU=async\n",
                     (unsigned long long)sequence,
                     (unsigned long long)last_source, (unsigned long long)epoch,
                     unsigned(bool(target)), (unsigned long long)tick,
                     (unsigned long long)helper_serial);
+      }
     } catch (const std::exception &e) {
       Fail(e);
     }
@@ -386,7 +506,9 @@ public:
       Need(!pending, "GPU completed request before stop");
       scheduler.Finish();
       Observe();
+      JoinFlight();
       WaitConsumedAck();
+      worker.reset();
       peer->Retire(*mailbox, last_request, helper_serial);
       depth_transfer.reset();
       retired = true;

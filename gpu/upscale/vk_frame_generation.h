@@ -90,6 +90,8 @@ public:
         u64 source_game_frame;
         bool strict_source = false;
         u64 previous_source_game_frame = 0;
+        std::shared_ptr<std::atomic<bool>> eligible; ///< Optional async model result, read after GPU readiness.
+        u64 capture_cpu_ns = 0; ///< CPU guide-capture boundary; not input polling time.
     };
     bool TakeOutput(VAddr display, Output& out);
 
@@ -121,6 +123,7 @@ private:
     u64 last_frame_ns = 0;
     u64 last_dispatch_ns = 0;
     u64 scene_id = 0;        ///< the captured scene's frame id (its Prepare's and Dispatch's)
+    u64 scene_capture_ns = 0;
     bool scene_reset = true; ///< it starts over (nothing before it to interpolate from)
     /// The scene's depth, copied at the capture (the game reuses its depth buffer before the
     /// display pass, where Prepare runs).
@@ -143,6 +146,8 @@ private:
         VAddr display = 0;
         bool ready = false;
         std::shared_ptr<std::atomic<bool>> recorded;
+        std::shared_ptr<std::atomic<bool>> eligible;
+        u64 capture_cpu_ns = 0;
     };
     std::mutex targets_mutex;
     std::unordered_map<VAddr, Target> targets;

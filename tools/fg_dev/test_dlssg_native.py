@@ -31,8 +31,16 @@ class NativeDlssgTests(unittest.TestCase):
         args=runner.parse_args(['start','cpu-dlssg','--daily','--fg-native','--local-inputs','/inputs','--experimental-fg','dlssg','--dlssg-model','/model'])
         self.assertTrue(args.fg_native)
         self.assertEqual(args.dlssg_helper_wake,'poll-v1')
+        self.assertEqual(args.dlssg_pipeline,'sync-v1')
+        args.dlssg_pipeline='submit-ready-v1'
+        with self.assertRaisesRegex(ValueError,'submit-ready-v1 requires'):
+            runner.dlssg_backend.validate_args(args)
+        args.dlssg_pipeline='sync-v1'
         args.dlssg_helper_wake='notify-v1'
         with self.assertRaisesRegex(ValueError,'requires gpu-dmabuf-v1'):
+            runner.dlssg_backend.validate_args(args)
+        args.dlssg_pipeline='gpu-gate-v1'
+        with self.assertRaisesRegex(ValueError,'unsupported DLSSG pipeline'):
             runner.dlssg_backend.validate_args(args)
 
     def test_native_camera_depth_and_inverse(self):

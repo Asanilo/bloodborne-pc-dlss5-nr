@@ -73,6 +73,8 @@ struct Frame {
     vk::ImageView interp_view{};
     bool has_interp = false;
     std::shared_ptr<std::atomic<bool>> interp_recorded;
+    std::shared_ptr<std::atomic<bool>> interp_eligible;
+    u64 fg_capture_cpu_ns = 0;
     u64 fg_frame = 0;
     bool fg_strict_source = false;
     u64 fg_previous_source = 0;
