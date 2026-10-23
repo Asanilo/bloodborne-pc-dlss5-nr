@@ -143,6 +143,11 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     if (FgBackendStatus::Is(selected,"dlssg") && instance.GetVendorID()!=0x10de) {
         supported=false;settings.frame_generation_problem="DLSS FG requires a supported NVIDIA GPU";
     }
+    if (FgBackendStatus::Application() && FgBackendStatus::Is(std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION"),"1")) {
+        supported=false;
+        settings.frame_generation=false;
+        settings.frame_generation_problem="Smooth Motion and application FG cannot run together; restart with one backend";
+    }
     settings.frame_generation_supported = supported;
     const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
     use316 = backend && std::strcmp(backend, "fsr316") == 0;
