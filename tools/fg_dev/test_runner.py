@@ -11,6 +11,25 @@ import peer_retirement
 
 
 class FgRunnerTests(unittest.TestCase):
+    def test_explicit_uncapped_experiment_and_invalid_limits(self):
+        base=['start','cpu-cap','--daily','--fg-native','--local-inputs','/inputs',
+              '--experimental-fg','fsr31-hudless']
+        self.assertIsNone(runner.parse_args(base).fg_fps_limit)
+        self.assertEqual(runner.parse_args(base+['--fg-fps-limit','0']).fg_fps_limit,0)
+        for value in ('-1','241'):
+            with self.assertRaises(SystemExit):runner.parse_args(base+['--fg-fps-limit',value])
+    def test_capture_requires_its_native_marker(self):
+        with tempfile.TemporaryDirectory() as directory:
+            build=Path(directory);(build/'gpu').mkdir()
+            library=build/'gpu/libbbgpu.so'
+            args=runner.parse_args(['start','cpu-capture','--daily','--fg-native',
+                                   '--local-inputs','/inputs','--experimental-fg','dlssg-capture'])
+            library.write_bytes(b'FG_EXIT_PROOF BB_FRAME_GEN_NATIVE')
+            with self.assertRaisesRegex(ValueError,'rebuilt Native diagnostic'):
+                runner.check_fg_capability(args,build)
+            library.write_bytes(b'FG_EXIT_PROOF BB_FRAME_GEN_NATIVE DLSSG_INPUT_CAPTURE')
+            runner.check_fg_capability(args,build)
+
     def test_old_installed_runtime_rejects_fg_before_launch(self):
         with tempfile.TemporaryDirectory() as directory:
             build = Path(directory)

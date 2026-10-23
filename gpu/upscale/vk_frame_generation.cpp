@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "upscale/vk_frame_generation.h"
 #include "upscale/frame_generation_lifecycle.h"
+#include "upscale/fg_backend_status.h"
 #include "upscale/frame_generation_contract.h"
 #include "bbport_toggles.h"
 
@@ -17,6 +18,9 @@
 #include <cstring>
 #include "render/scheduler.h"
 #include "vulkan/instance.h"
+#include "upscale/dlssg_input_capture.h"
+#include "upscale/dlssg_cpu_bridge.h"
+#include "upscale/dlssg_gpu_bridge.h"
 
 namespace Vulkan {
 
@@ -134,12 +138,31 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     } else {
         supported = true;
     }
+    const auto* selected=FgBackendStatus::Selected();
+    if (!FgBackendStatus::Application()) supported=false;
+    if (FgBackendStatus::Is(selected,"dlssg") && instance.GetVendorID()!=0x10de) {
+        supported=false;settings.frame_generation_problem="DLSS FG requires a supported NVIDIA GPU";
+    }
     settings.frame_generation_supported = supported;
     const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
     use316 = backend && std::strcmp(backend, "fsr316") == 0;
-    FgLifecycle::enabled.store(std::getenv("BB_FRAME_GEN") != nullptr);
-    std::printf("Frame generation: FSR 3.1 %s%s%s\n", supported ? "available" : "unavailable",
-                supported ? "" : ": ", supported ? "" : settings.frame_generation_problem.load());
+    if (backend && std::strcmp(backend, "dlssg-capture") == 0)
+        dlssg_capture = std::make_unique<DlssgInputCapture>(instance, scheduler);
+    if (backend && std::strcmp(backend, "dlssg") == 0) {
+        const char* transport = std::getenv("BB_DLSSG_TRANSPORT");
+        if (transport && std::strcmp(transport, "gpu-dmabuf-v1") == 0) {
+            dlssg_gpu = std::make_unique<DlssgGpuBridge>(instance, scheduler);
+        } else {
+            dlssg_capture = std::make_unique<DlssgInputCapture>(instance, scheduler, true);
+            dlssg_bridge = std::make_unique<DlssgCpuBridge>();
+        }
+    }
+    const char* sm = std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION");
+    const bool smooth_motion = sm && std::strcmp(sm, "1") == 0;
+    FgLifecycle::driver_smooth_motion.store(smooth_motion);
+    FgLifecycle::enabled.store(FgBackendStatus::Application() || smooth_motion);
+    std::printf("FG_BACKEND selected=%s application_enabled=%u driver_requested=%u supported=%u\n",
+                selected,unsigned(settings.frame_generation.load()),unsigned(smooth_motion),unsigned(supported));
 }
 
 FrameGeneration::~FrameGeneration() {
@@ -147,14 +170,19 @@ FrameGeneration::~FrameGeneration() {
 }
 
 bool FrameGeneration::Wanted() const {
-    return supported && !failed && !FgLifecycle::exit_requested.load() &&
+    return supported && !failed && !FgLifecycle::driver_smooth_motion.load() &&
+           !FgLifecycle::exit_requested.load() &&
            BbSettings::Get().frame_generation.load(std::memory_order_relaxed);
 }
 
 void FrameGeneration::Retire() {
     if (!FgLifecycle::Pending()) return;
+    async_output.reset();
+    ResolveDeferredGpuOutput();
     // Includes every encode from our output into a per-Frame image, not only FG dispatches.
     scheduler.Finish();
+    if (dlssg_bridge && !dlssg_bridge->Retire()) return;
+    if (dlssg_gpu && !dlssg_gpu->Retire()) return;
     Destroy();
     std::scoped_lock lock{targets_mutex};
     targets.clear();
@@ -192,6 +220,27 @@ void FrameGeneration::OnFrameStart() {
 }
 
 void FrameGeneration::Destroy() {
+    async_output.reset();
+    if (dlssg_gpu) {
+        ResolveDeferredGpuOutput();
+        scheduler.Finish();
+        if (!dlssg_gpu->Retire()) {
+            // Recording closures capture the owner; unknown GPU completion retains it too.
+            (void)dlssg_gpu.release();
+            return;
+        }
+        dlssg_gpu.reset();
+    }
+    if (dlssg_bridge) {
+        scheduler.Finish();
+        if (!dlssg_bridge->Retire()) return; // No normal draw-retired proof on unknown Helper state.
+        dlssg_bridge.reset();
+        dlssg_upload.reset();
+    }
+    if (dlssg_capture) {
+        scheduler.Finish();
+        dlssg_capture.reset();
+    }
     if (context316) {
         scheduler.Finish(); // Runs actual-completion RetireFrame callbacks before destruction.
         std::scoped_lock lock{context316_mutex};
@@ -272,7 +321,19 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 }
 
 void FrameGeneration::CaptureScene(const Scene& in) {
+    if (async_output) { async_output.reset(); reset_next = true; }
+    ResolveDeferredGpuOutput(); // Before scene fields, guide queries or mailbox inputs can change.
+    scene_capture_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     scene_captured = false;
+    if (dlssg_capture || dlssg_gpu) {
+        scene = in;
+        scene_captured = Wanted() && (dlssg_gpu ? dlssg_gpu->Guides(in) : dlssg_capture->Guides(in));
+        scene_id = in.source_game_frame;
+        scene_reset = reset_next || in.reset;
+        if (scene_captured) reset_next = false;
+        return;
+    }
     if (!Wanted() || !in.depth || !in.motion || !in.width || !in.height ||
         !in.render_width || !in.render_height ||
         !EnsureContext(in.render_width, in.render_height, in.width, in.height,
@@ -399,6 +460,7 @@ bool FrameGeneration::BindSceneColor(vk::Image color, vk::Format format, u32 wid
 }
 
 void FrameGeneration::CaptureHudless(vk::Image color) {
+    if (dlssg_capture || dlssg_gpu) return;
     static const bool enabled = [] {
         const char* value = std::getenv("BB_FRAME_GEN_HUDLESS");
         return value && value[0] == '1';
@@ -446,29 +508,7 @@ void FrameGeneration::CaptureHudless(vk::Image color) {
     });
 }
 
-void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
-    Stats();
-    if (!FgContract::CanInterpolate(Wanted(), scene_captured, color, scene.color,
-                                    context || context316)) {
-        std::scoped_lock lock{targets_mutex};
-        for (auto& [address, target] : targets) target.ready = false;
-        reset_next = true;
-        return;
-    }
-    ++stat_interpolated;
-    scene_captured = false;
-    dispatched_last_frame = true;
-    const u64 id = scene_id;
-    // OnFrameStart is after this call at the display-copy boundary. A pause must invalidate
-    // the FIRST resumed dispatch, not the one after it. No generated output on that reset.
-    const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
-        std::chrono::steady_clock::now().time_since_epoch()).count();
-    const bool reset = scene_reset || !last_dispatch_ns || now - last_dispatch_ns > 250'000'000;
-    last_dispatch_ns = now;
-    if (reset) std::printf("FG_HISTORY_RESET fg_frame=%llu scene_reset=%u gap_reset=%u\n",
-        (unsigned long long)id, scene_reset,
-        !scene_reset && reset);
-
+FrameGeneration::Target& FrameGeneration::PrepareTarget(VAddr display, u64 id, bool reset) {
     Target* target;
     {
         std::scoped_lock lock{targets_mutex};
@@ -512,9 +552,103 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
         target->frame = id;
         target->source_game_frame = scene.source_game_frame;
         target->display = display;
+        target->eligible.reset();
+        target->capture_cpu_ns = scene_capture_ns;
         target->recorded = std::make_shared<std::atomic<bool>>(false);
         if (target->ready) ++stat_ready;
     }
+
+    return *target;
+}
+
+void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
+    if (dlssg_gpu) {
+        ResolveDeferredGpuOutput(); // A prior display pass that never flipped is discarded.
+        if (Wanted() && scene_captured && color && color == scene.color) {
+            const u64 previous_source = dlssg_gpu->LastSource();
+            const bool eligible = dlssg_gpu->Evaluate(scene, color, display, scene_reset);
+            dispatched_last_frame = true;
+            if (dlssg_gpu->Independent()) {
+                async_output = eligible ? dlssg_gpu->TakeTicket() : nullptr;
+                if (async_output) async_output->capture_cpu_ns = scene_capture_ns;
+            } else if (eligible && !FgLifecycle::held.load()) {
+                auto& target = PrepareTarget(display, scene_id, false);
+                target.strict_source = true;
+                target.previous_source_game_frame = previous_source;
+                target.eligible = dlssg_gpu->Eligibility();
+                if (dlssg_gpu->Late()) {
+                    deferred_gpu_image = vk::Image(target.image);
+                    deferred_gpu_display = display;
+                    deferred_gpu_recorded = target.recorded;
+                } else dlssg_gpu->Consume(vk::Image(target.image), target.recorded);
+            } else {
+                dlssg_gpu->Consume({}); // Disabled still returns output ownership after real GPU use.
+            }
+        }
+        scene_captured = false;
+        return;
+    }
+    if (dlssg_capture) {
+        if (Wanted() && scene_captured && color && color == scene.color) {
+            if (!dlssg_bridge) dlssg_capture->Color(scene, color);
+            else if (dlssg_capture->ReadColor(scene, color)) {
+                if (!dlssg_upload) dlssg_upload = std::make_unique<VideoCore::Buffer>(instance, 0,
+                    u64(scene.width)*scene.height*4, VideoCore::MemoryType::HostUncached, "DLSSG Native owned upload");
+                const u64 previous_source = dlssg_bridge->LastSource();
+                const bool eligible = dlssg_bridge->Exchange(scene, display, scene_reset, *dlssg_capture, *dlssg_upload);
+                dispatched_last_frame = true;
+                if (eligible && !FgLifecycle::held.load()) {
+                    auto& target = PrepareTarget(display, scene_id, false);
+                    target.strict_source = true;
+                    target.previous_source_game_frame = previous_source;
+                    scheduler.Record([image=vk::Image(target.image),buffer=dlssg_upload->Handle(),
+                                      recorded=target.recorded,w=scene.width,h=scene.height,
+                                      timing=&dlssg_capture->timing,source=scene.source_game_frame](vk::CommandBuffer cmd) {
+                        timing->upload_source=source;timing->upload_pending=bool(timing->pool);timing->Mark(cmd,4);
+                        const vk::BufferMemoryBarrier2 upload{
+                            .srcStageMask=vk::PipelineStageFlagBits2::eHost,.srcAccessMask=vk::AccessFlagBits2::eHostWrite,
+                            .dstStageMask=vk::PipelineStageFlagBits2::eCopy,.dstAccessMask=vk::AccessFlagBits2::eTransferRead,
+                            .srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,
+                            .buffer=buffer,.size=VK_WHOLE_SIZE,
+                        };
+                        cmd.pipelineBarrier2({.bufferMemoryBarrierCount=1,.pBufferMemoryBarriers=&upload});
+                        ImageBarrier(cmd,image,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead,
+                            vk::PipelineStageFlagBits2::eCopy,vk::AccessFlagBits2::eTransferWrite,vk::ImageLayout::eUndefined);
+                        const vk::BufferImageCopy copy{.imageSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.imageExtent={w,h,1}};
+                        cmd.copyBufferToImage(buffer,image,vk::ImageLayout::eGeneral,copy);
+                        ImageBarrier(cmd,image,vk::PipelineStageFlagBits2::eCopy,vk::AccessFlagBits2::eTransferWrite,
+                            vk::PipelineStageFlagBits2::eFragmentShader,vk::AccessFlagBits2::eShaderRead);
+                        timing->Mark(cmd,5);recorded->store(true,std::memory_order_release);
+                    });
+                }
+            }
+        }
+        scene_captured = false;
+        return;
+    }
+    Stats();
+    if (!FgContract::CanInterpolate(Wanted(), scene_captured, color, scene.color,
+                                    context || context316)) {
+        std::scoped_lock lock{targets_mutex};
+        for (auto& [address, target] : targets) target.ready = false;
+        reset_next = true;
+        return;
+    }
+    ++stat_interpolated;
+    scene_captured = false;
+    dispatched_last_frame = true;
+    const u64 id = scene_id;
+    // OnFrameStart is after this call at the display-copy boundary. A pause must invalidate
+    // the FIRST resumed dispatch, not the one after it. No generated output on that reset.
+    const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const bool reset = scene_reset || !last_dispatch_ns || now - last_dispatch_ns > 250'000'000;
+    last_dispatch_ns = now;
+    if (reset) std::printf("FG_HISTORY_RESET fg_frame=%llu scene_reset=%u gap_reset=%u\n",
+        (unsigned long long)id, scene_reset,
+        !scene_reset && reset);
+
+    Target* target = &PrepareTarget(display, id, reset);
 
     FfxVkPortableFrameGenerationDispatchInfo dispatch{};
     dispatch.structSize = sizeof(dispatch);
@@ -665,7 +799,30 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     }
 }
 
+void FrameGeneration::ResolveDeferredGpuOutput(VAddr display) {
+    if (!deferred_gpu_image) return;
+    const bool copy = Wanted() && display && display == deferred_gpu_display;
+    dlssg_gpu->Consume(copy ? deferred_gpu_image : vk::Image{},
+                       copy ? deferred_gpu_recorded : nullptr);
+    deferred_gpu_image = vk::Image{};
+    deferred_gpu_recorded.reset();
+    deferred_gpu_display = 0;
+    if (!copy) {
+        std::scoped_lock lock{targets_mutex};
+        if (const auto it = targets.find(0); it != targets.end()) it->second.ready = false;
+        reset_next = true;
+    }
+}
+
+std::shared_ptr<DlssgOutputTicket> FrameGeneration::TakeAsyncOutput(VAddr display) {
+    auto ticket = std::exchange(async_output, {});
+    if (!ticket) return {};
+    if (!Wanted() || ticket->display != display) { reset_next = true; return {}; }
+    return ticket;
+}
+
 bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
+    ResolveDeferredGpuOutput(display); // Same recording owner, after the guest EOP wait.
     if (!Wanted()) {
         return false;
     }
@@ -684,7 +841,8 @@ bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
     }
     ++stat_taken;
     out = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame, t.recorded,
-           t.source_game_frame};
+           t.source_game_frame, t.strict_source, t.previous_source_game_frame, t.eligible,
+           t.capture_cpu_ns};
     return true;
 }
 

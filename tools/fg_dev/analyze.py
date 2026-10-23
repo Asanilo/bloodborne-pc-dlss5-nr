@@ -15,8 +15,12 @@ def percentile(values, p):
 def analyze(text):
     records = []
     for line in text.splitlines():
-        if not line.startswith('FG_PRESENT '):
+        start = line.find('FG_PRESENT ')
+        if start < 0:
             continue
+        # Another writer can leave an unterminated diagnostic before this
+        # complete record (observed with "Write fault sites ... faults").
+        line = line[start:]
         fields = dict(re.findall(r'(\w+)=(\S+)', line))
         records.append({key: value if key in ('kind', 'scope') else int(value)
                         for key, value in fields.items()})

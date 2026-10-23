@@ -1,3 +1,5 @@
+> M3 统一 FG 后端、DLSS 两条流水线和 SM 当前限制见 [M3 说明](FG_BACKENDS_M3.zh-CN.md)。
+
 # NR + DLSS SR + FSR FG 集成实验
 
 状态：**M1：NR + DLSS SR + FSR FG x2 功能性成功。三者联动可玩，

@@ -7,6 +7,14 @@ def row(kind, source, fg, ns, success=1):
 
 
 class PresentAuditTests(unittest.TestCase):
+    def test_complete_present_after_unterminated_diagnostic(self):
+        text = (row('generated', 7, 3, 1) +
+                'Write fault sites (guest code, this window): 4377 faults' +
+                row('real', 7, 3, 2) + row('generated', 8, 4, 3) + row('real', 8, 4, 4))
+        result = analyze(text)
+        self.assertEqual(result['matched_generated_then_real_pairs'], 2)
+        self.assertEqual(result['order_errors'], [])
+
     def test_pairs_and_real_only_warmup(self):
         result = analyze(row('real', 1, 0, 0) + row('generated', 2, 2, 8_000_000) +
                          row('real', 2, 2, 16_000_000))

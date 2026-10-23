@@ -4,6 +4,16 @@
 #include <utility>
 inline const char* BbChinese(const char* text) {
     static constexpr std::pair<std::string_view, const char*> entries[] = {
+        {"Real %.0f | Smooth Motion: display FPS unverified","真实 %.0f | Smooth Motion：显示帧率未独立验证"},
+        {"Choose an FG backend in the launcher and restart. NR remains independent.","在启动器选择帧生成后端后重启游戏。NR 独立控制。"},
+        {"Driver layer loaded and reports enabled. Display-frame count unverified. Restart to change backend.","驱动 Layer 已加载并报告启用。最终显示帧数尚未独立验证。更换后端需要重启。"},
+        {"Smooth Motion unavailable: driver reports unsupported. Restart with another backend.","Smooth Motion 不可用：驱动报告不支持。请在启动器更换后端后重启。"},
+        {"Smooth Motion requested; driver activation unverified. Restart required; application FG is off.","已请求 Smooth Motion；驱动激活尚未确认。更换需要重启，应用级帧生成已关闭。"},
+        {"Driver activation pending / unverified; restart required.","驱动激活尚待确认；更换后端需要重启。"},
+        {"Experimental frame generation (DLSS x2)", "实验性帧生成（DLSS x2）"},
+        {"Displays one DLSS-generated frame between consecutive real frames. Experimental: "
+         "1920x1080 Quality, Old memory model. NR is controlled separately with F8.",
+         "在连续真实帧之间显示一张 DLSS 生成帧。实验配置：1920×1080、Quality、Old 内存模型。F8 单独控制 NR。"},
         {"Enable NR", "启用 NR"},
         {"NR request failed; see menu", "NR 请求失败；请查看菜单"},
         {"Detailed NR diagnostics", "NR 详细诊断"},

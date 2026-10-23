@@ -300,6 +300,8 @@ void Display::PresentThread(std::stop_token stop) {
 }
 
 void Display::Flip(const Request& request) {
+    if (request.index >= 0) request.frame->flip_queue_cpu_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     RunPresenter([frame = request.frame, hdr = request.port->is_hdr] {
         presenter->SetHDR(hdr);
         presenter->Present(frame);

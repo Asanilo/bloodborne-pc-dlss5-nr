@@ -293,10 +293,16 @@ void Instance::CreateDevice() {
     ASSERT_MSG(graphics != families.end(), "the GPU has no graphics queue");
     graphics_family = u32(graphics - families.begin());
     static constexpr float priority = 1.0f;
+    static constexpr std::array<float,2> graphics_priorities{1.0f,1.0f};
+    const char* fg_pipeline=std::getenv("BB_DLSSG_PIPELINE");
+    const bool request_fg_queue=fg_pipeline && std::strcmp(fg_pipeline,"consumer-queue-v1")==0;
+    const bool separate_fg_queue=request_fg_queue && graphics->queueCount>=2;
+    if(request_fg_queue)std::printf("DLSSG_NATIVE_QUEUE family=%u available=%u requested=2 enabled=%u draw_index=0 present_consumer_index=%u equal_priority=1\n",
+        graphics_family,graphics->queueCount,unsigned(separate_fg_queue),unsigned(separate_fg_queue));
     std::vector<vk::DeviceQueueCreateInfo> queues{{
         .queueFamilyIndex = graphics_family,
-        .queueCount = 1,
-        .pQueuePriorities = &priority,
+        .queueCount = separate_fg_queue ? 2u : 1u,
+        .pQueuePriorities = graphics_priorities.data(),
     }};
     if (const char* env = std::getenv("BB_READBACK_QUEUE"); !env || env[0] != '0') {
         const auto compute = std::ranges::find_if(families, [](const auto& family) {
@@ -529,6 +535,7 @@ void Instance::CreateDevice() {
         dlss->Initialize(*instance, physical_device, *device);
     }
     graphics_queue = device->getQueue(graphics_family, 0);
+    present_queue = separate_fg_queue ? device->getQueue(graphics_family,1) : graphics_queue;
     if (readback_family != NoFamily) {
         readback_queue = device->getQueue(readback_family, 0);
         LOG_INFO(Render_Vulkan, "Readback queue: family {}", readback_family);

@@ -7,6 +7,7 @@ namespace Vulkan::FgLifecycle {
 // These flags never substitute for the scheduler's actual GPU completion waits.
 inline std::atomic<bool> enabled{false}, exit_requested{false}, draw_retired{false}, present_retired{false};
 inline std::atomic<bool> held{false};
+inline std::atomic<bool> driver_smooth_motion{false};
 inline std::atomic<unsigned long long> real_presents{0}, generated_presents{0}, other_presents{0};
 inline bool Pending() {
     return enabled.load() && exit_requested.load() && !draw_retired.load();

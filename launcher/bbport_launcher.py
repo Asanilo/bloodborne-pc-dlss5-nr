@@ -695,10 +695,32 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.nr_enabled_row = Adw.SwitchRow(title=tr("Enable neural rendering (NR)"),
             active=self.settings.get("nrbridge_enabled", True))
         group.add(self.nr_enabled_row)
-        self.nr_fg_row = Adw.SwitchRow(title=tr("Experimental FSR FG x2 (HUDless)"),
-            subtitle=tr("Optional; vegetation may drift in generated frames. Requires a rebuilt M1 runtime."),
-            active=self.settings.get("nrbridge_fsr_fg", False))
+        self.settings = dict(nrbridge.fg_config.discover(nrbridge.home()), **self.settings)
+        fg=nrbridge.fg_config.selection(self.settings)
+        choices=list(zip(nrbridge.fg_config.LABELS,nrbridge.fg_config.BACKENDS))
+        self.nr_fg_row=combo_row(tr("Frame generation backend"),tr("Backend changes apply on the next launch; NR remains independent."),choices,fg['backend'])
         group.add(self.nr_fg_row)
+        advanced=Adw.ExpanderRow(title=tr("Advanced FG settings"),expanded=False)
+        self.nr_fg_pipeline=combo_row(tr("DLSS GPU pipeline"),None,
+            [("Stable (submit-ready-v1)","submit-ready-v1"),("Experimental Q1 (consumer-queue-v1)","consumer-queue-v1")],
+            self.settings.get('fg_dlss_pipeline','submit-ready-v1'))
+        self.nr_fg_transport=combo_row(tr("DLSS transport"),tr("CPU fallback uses synchronous processing."),
+            [("GPU DMA-BUF","gpu-dmabuf-v1"),("CPU shared memory fallback","mapped-v1"),("CPU file fallback","files-v1")],fg['transport'])
+        advanced.add_row(self.nr_fg_pipeline);advanced.add_row(self.nr_fg_transport)
+        self.nr_fg_fields={}
+        for key,title,value in [('fg_dlss_model','DLSS FG model DLL',fg['model']),
+                                ('fg_dlss_runtime','Existing FG Helper runtime directory',fg['runtime']),
+                                ('fg_dlss_prefix_session','Retired FG prefix session',fg['prefix_session'])]:
+            row=Adw.EntryRow(title=tr(title),text=value)
+            self.nr_fg_fields[key]=row;advanced.add_row(row)
+            row.connect('changed',self.update_fg_status)
+        group.add(advanced)
+        self.nr_fg_status=Adw.ActionRow(title=tr("FG availability"))
+        group.add(self.nr_fg_status)
+        self.nr_fg_row.connect('notify::selected',self.update_fg_status)
+        self.nr_fg_transport.connect('notify::selected',self.update_fg_status)
+        self.nr_fg_pipeline.connect('notify::selected',self.update_fg_status)
+        self.update_fg_status()
         self.nr_mouse_row = Adw.SwitchRow(title=tr("Native mouse camera"),
             subtitle=tr("Turn off to use the joystick mouse compatibility path"),
             active=self.settings.get("nrbridge_native_mouse", True))
@@ -788,6 +810,19 @@ class LauncherWindow(Adw.ApplicationWindow):
                 self.toasts.add_toast(Adw.Toast(title=tr("NR inputs saved and validated")))
             return False
         threading.Thread(target=worker, daemon=True).start()
+
+    def fg_preferences(self):
+        return dict(fg_backend=combo_value(self.nr_fg_row),fg_dlss_pipeline=combo_value(self.nr_fg_pipeline),
+                    fg_dlss_transport=combo_value(self.nr_fg_transport),
+                    **{k:row.get_text().strip() for k,row in self.nr_fg_fields.items()})
+
+    def update_fg_status(self,*_):
+        if not hasattr(self,'nr_fg_status'):return
+        prefs=self.fg_preferences()
+        self.nr_fg_pipeline.set_sensitive(prefs['fg_backend']=='dlssg' and prefs['fg_dlss_transport']=='gpu-dmabuf-v1')
+        try:message=nrbridge.fg_config.availability(nrbridge.fg_config.selection(prefs),nrbridge.home())
+        except ValueError as error:message=str(error)
+        self.nr_fg_status.set_subtitle(tr(message))
 
     def start_nrbridge(self):
         if self.nr_setup_working or nrbridge.result_is_hold(self.nr_result):
@@ -1515,7 +1550,8 @@ class LauncherWindow(Adw.ApplicationWindow):
         if NRBRIDGE:
             s["nrbridge_gpu_id"] = self.nr_gpu_indices.get(s["gpu"]) if s["gpu"] else None
             s["nrbridge_enabled"] = self.nr_enabled_row.get_active()
-            s["nrbridge_fsr_fg"] = self.nr_fg_row.get_active()
+            s.update(self.fg_preferences())
+            s.pop("nrbridge_fsr_fg",None)
             s["nrbridge_native_mouse"] = self.nr_mouse_row.get_active()
         s["skip_network_choice"] = self.skip_network_row.get_active()
         s["language"] = combo_value(self.language_row)

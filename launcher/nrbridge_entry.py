@@ -32,6 +32,8 @@ from pathlib import Path
 APP = Path(os.environ.get("NRBRIDGE_APP", Path(__file__).resolve().parent.parent)).expanduser()  # <AppDir>/usr/share/bbport
 BUNDLE = APP / "nrbridge"
 TOOLS = APP / "tools/nr_dev"
+sys.path.insert(0,str(TOOLS))
+import fg_config
 BUNDLE_MANIFEST = APP / "nrbridge-bundle.json"
 # Keep in sync with packaging/nrbridge/closure.py.  These libraries belong to
 # the checked Native build and are staged under build/baselines/<sha>/gpu and
@@ -666,7 +668,7 @@ def check(args) -> None:
     home = Path(args.home or DEFAULT_HOME).expanduser()
     os.environ["NRBRIDGE_HOME"] = str(home)
     runtime_inputs = load_runtime_inputs()
-    config = home / "localinputs/runtime.json"
+    config = Path(getattr(args,"local_inputs",None) or home / "localinputs/runtime.json")
     if not config.is_file():
         die(f"no configuration at {config}; run --setup", 3)
     verify_private_library_dir(home)
@@ -893,7 +895,7 @@ def runner_supports_online() -> bool:
 
 def daily(args) -> int:
     home = canonical_home(args.home or DEFAULT_HOME)
-    config = home / "localinputs/runtime.json"
+    config = Path(getattr(args,"local_inputs",None) or home / "localinputs/runtime.json")
     if not config.is_file():
         if sys.stdin.isatty():
             log("first run: selecting local inputs")
@@ -901,9 +903,15 @@ def daily(args) -> int:
         else:
             die(f"no configuration at {config}; run this AppImage with --setup in a terminal", 3)
     ensure_runs(home)
-    verify_private_library_dir(home)
-    info = bundle_info()
-    if not info.get("daily_ready", False):
+    explicit_build=getattr(args,"native_build",None)
+    if explicit_build:
+        build=canonical_option(explicit_build,directory=True)
+        info=None # Existing managed build: play.py verifies its complete provenance.
+    else:
+        verify_private_library_dir(home)
+        info=bundle_info()
+        build=home / "build/baselines" / info["native"]["source"]
+    if info is not None and not info.get("daily_ready", False):
         marker = bool(info["native"].get("daily_portable", False))
         revision = info["helper"]["protocol"].get("interface_revision")
         die(
@@ -914,7 +922,6 @@ def daily(args) -> int:
             3,
         )
     session = args.session or ("nrbridge-" + time.strftime("%Y%m%d-%H%M%S"))
-    build = home / "build/baselines" / info["native"]["source"]
     launcher_settings = (
         canonical_option(args.launcher_settings)
         if getattr(args, "launcher_settings", None)
@@ -961,6 +968,11 @@ def daily(args) -> int:
         command += ["--player-data-dir", str(player_data)]
     if getattr(args, "sr_only", False):
         command.append("--sr-only")
+    if getattr(args,"fg_backend",None) is not None:
+        command += ["--fg-backend",args.fg_backend]
+    for key in ("reuse_nr_prefix","dlssg_model","dlssg_runtime","dlssg_prefix_session","dlssg_pipeline","dlssg_transport"):
+        value=getattr(args,key,None)
+        if value is not None:command += ["--"+key.replace("_","-"),str(value)]
     if getattr(args, "experimental_fg", None):
         command += ["--experimental-fg", args.experimental_fg, "--fg-native"]
     if continuation:
@@ -1050,6 +1062,12 @@ def main(argv=None) -> int:
                         help="canonical bbport.ini forwarded to play.py")
     parser.add_argument("--player-data-dir",
                         help="canonical player data directory forwarded to play.py")
+    parser.add_argument("--reuse-nr-prefix",default=os.environ.get("NRBRIDGE_REUSE_NR_PREFIX"))
+    parser.add_argument("--native-build",default=os.environ.get("NRBRIDGE_NATIVE_BUILD"),help="explicit existing managed development build; no package copy")
+    parser.add_argument("--local-inputs",default=os.environ.get("NRBRIDGE_RUNTIME_INPUTS"))
+    fg_config.add_argument(parser)
+    for name in ("dlssg-model","dlssg-runtime","dlssg-prefix-session","dlssg-pipeline","dlssg-transport"):
+        parser.add_argument("--"+name)
     parser.add_argument("--experimental-fg", choices=("fsr31-hudless",),
                         help="opt-in Experimental HUDless FSR FG x2; requires a rebuilt M1 runtime")
     parser.add_argument("--fg-native", action="store_true",

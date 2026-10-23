@@ -5,6 +5,7 @@
 #endif
 #include "bbport_overlay.h"
 #include "upscale/frame_generation_lifecycle.h"
+#include "upscale/fg_backend_status.h"
 #include "nr_ui_start_request.h"
 #include "render/nr_runtime_control.h"
 #include "render/native_async_pre_sr_policy.h"
@@ -104,7 +105,10 @@ bool FgCounter() {
         previous_real = real; previous_generated = generated; previous_other = other;
         start = now;
     }
-    ImGui::Text("Real %.0f | FG %.0f | Present %.0f", real_fps, generated_fps, present_fps);
+    if (Vulkan::FgLifecycle::driver_smooth_motion.load())
+        ImGui::Text(BbSettings::MenuText("Real %.0f | Smooth Motion: display FPS unverified",
+                                       "Real %.0f | Smooth Motion: display FPS unverified"),real_fps);
+    else ImGui::Text("Real %.0f | FG %.0f | Present %.0f", real_fps, generated_fps, present_fps);
     return true;
 }
 
@@ -599,7 +603,9 @@ void Menu() {
                 frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg);
     ToyPadSection();
 
-    if (BbNativeAsyncPreSr::Enabled())
+    const char* native_fg = std::getenv("BB_FRAME_GEN_NATIVE");
+    if (BbNativeAsyncPreSr::Enabled() && s.frame_generation && Vulkan::FgBackendStatus::Application() &&
+        !(native_fg && std::strcmp(native_fg, "1") == 0))
         ImGui::TextDisabled("NR requires frame generation off; this combination is not validated.");
     ImGui::SeparatorText(BbSettings::MenuText("Temporal upscaler", "Временной апскейлер"));
     const char* upscalers[] = {
@@ -768,13 +774,30 @@ void Menu() {
         "Ctrl+клик по ползунку — ввести точное значение."));
     ImGui::EndDisabled();
     // Experimental FG is exposed only by an explicit managed launch selection.
-    if (std::getenv("BB_FRAME_GEN")) {
+    ImGui::Text("FG: %s", Vulkan::FgBackendStatus::Name());
+    if (Vulkan::FgBackendStatus::Is(Vulkan::FgBackendStatus::Selected(),"smooth-motion")) {
+        const auto* status=Vulkan::FgBackendStatus::SmoothMotionStatus();
+        ImGui::TextWrapped("%s",BbSettings::MenuText(status,status));
+    } else if (!Vulkan::FgBackendStatus::Application()) {
+        Hint(BbSettings::MenuText("Choose an FG backend in the launcher and restart. NR remains independent.",
+                                 "Выберите FG в лаунчере и перезапустите. NR независим."));
+    }
+    if (Vulkan::FgBackendStatus::Application()) {
+        const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
+        const bool dlssg = backend && std::strcmp(backend, "dlssg") == 0;
         ImGui::BeginDisabled(!s.frame_generation_supported.load(std::memory_order_relaxed));
-        Checkbox(BbSettings::MenuText("Experimental frame generation (FSR 3 x2)", "Экспериментальная генерация кадров (FSR 3 x2)"),
+        Checkbox(dlssg ? BbSettings::MenuText("Experimental frame generation (DLSS x2)", "Экспериментальная генерация кадров (DLSS x2)")
+                       : BbSettings::MenuText("Experimental frame generation (FSR 3 x2)", "Экспериментальная генерация кадров (FSR 3 x2)"),
                  s.frame_generation);
         ImGui::EndDisabled();
         if (const char* problem = s.frame_generation_problem.load(std::memory_order_relaxed)) {
             Hint(problem);
+        } else if (dlssg) {
+            Hint(BbSettings::MenuText(
+                "Displays one DLSS-generated frame between consecutive real frames. Experimental: "
+                "1920x1080 Quality, Old memory model. NR is controlled separately with F8.",
+                "Между последовательными реальными кадрами показывается кадр DLSS. Эксперимент: "
+                "1920x1080 Quality, модель памяти Old. NR переключается отдельно клавишей F8."));
         } else {
             Hint(BbSettings::MenuText(
                 "Shows a frame interpolated by FSR 3 between each two of the game's: twice the frames "
@@ -1214,7 +1237,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
     info.PhysicalDevice = instance.GetPhysicalDevice();
     info.Device = instance.GetDevice();
     info.QueueFamily = instance.GetGraphicsQueueFamilyIndex();
-    info.Queue = instance.GetGraphicsQueue();
+    info.Queue = instance.GetPresentQueue();
     info.DescriptorPoolSize = 16;
     info.MinImageCount = std::max(image_count, 2u);
     info.ImageCount = std::max(image_count, 2u);

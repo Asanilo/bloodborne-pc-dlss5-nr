@@ -13,6 +13,7 @@
 #include <mutex>
 #include <string>
 #include "render/native_persistent_history.h"
+#include "upscale/dlssg_output_ticket.h"
 #include <vector>
 
 #include "platform/videoout/videoout.h"
@@ -72,8 +73,16 @@ struct Frame {
     vk::Image interp_image{};
     vk::ImageView interp_view{};
     bool has_interp = false;
+    std::shared_ptr<DlssgOutputTicket> fg_ticket;
+    EncodePass::Settings fg_encode{};
+    vk::Format fg_view_format{};
     std::shared_ptr<std::atomic<bool>> interp_recorded;
+    std::shared_ptr<std::atomic<bool>> interp_eligible;
+    u64 fg_capture_cpu_ns = 0;
+    u64 fg_guide_record_cpu_ns = 0, fg_producer_submit_cpu_ns = 0, flip_queue_cpu_ns = 0;
     u64 fg_frame = 0;
+    bool fg_strict_source = false;
+    u64 fg_previous_source = 0;
     u64 present_tick = 0; ///< Includes an intermediate present even if the final one was skipped.
     u64 prepare_ns = 0;
 };
@@ -102,7 +111,7 @@ public:
     /// Frame generation's frame interpolated before `frame` (PrepareFrame): encoded into the
     /// frame's second image like the real one.
     void EncodeInterpolated(Frame* frame, vk::Image image, vk::Format format, u32 width, u32 height,
-                            vk::Format display_view_format, const EncodePass::Settings& encode);
+                            vk::Format display_view_format, const EncodePass::Settings& encode, Scheduler& scheduler);
     /// A black frame (no GPU work until it is presented).
     Frame* PrepareBlankFrame(bool present_thread);
     /// Present thread: shows `frame` and frees it (unless `is_reusing_frame`).
@@ -146,6 +155,7 @@ private:
     std::deque<u64> recent_frame_ticks; ///< BB_FRAMES_AHEAD bound (PrepareFrame)
     std::mutex fg_images_mutex; ///< Resize/encode owner versus normal-exit Present retirement.
     u64 last_prepare_ns = 0;
+    u64 last_real_game_source = 0;
     double fg_interval_ms = 16.667;
     u64 present_real = 0, present_generated = 0, present_other = 0, present_failed = 0;
 

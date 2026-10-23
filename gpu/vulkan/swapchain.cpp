@@ -40,6 +40,9 @@ Swapchain::Swapchain(const Instance& instance_, const Frontend::WindowSDL& windo
     : instance{instance_}, surface{CreateSurface(instance.GetInstance(), window)} {
     ChooseFormat();
     ChoosePresentMode();
+    if (std::getenv("BB_FG_PROFILE")) std::printf("FG_SWAPCHAIN_MODE selected=%s requested=%s FPS_LIMIT=%s\n",
+        vk::to_string(present_mode).c_str(),std::getenv("BB_PRESENT_MODE")?std::getenv("BB_PRESENT_MODE"):"default",
+        std::getenv("BB_FPS_LIMIT")?std::getenv("BB_FPS_LIMIT"):"default");
     Create(u32(window.GetWidth()), u32(window.GetHeight()));
 }
 
@@ -189,6 +192,17 @@ void Swapchain::DestroyResources() {
     acquired.clear();
     acquired_ticks.clear();
     present_ready.clear();
+}
+
+bool Swapchain::RetireDriverLayer() {
+    const auto device = instance.GetDevice();
+    if (device.waitIdle() != vk::Result::eSuccess) return false;
+    DestroyResources();
+    if (swapchain) device.destroySwapchainKHR(swapchain);
+    swapchain = vk::SwapchainKHR{};
+    // The layer's destroy must join its swapchain workers. Observe device completion
+    // again after that call; an application's timeline alone cannot retire layer work.
+    return device.waitIdle() == vk::Result::eSuccess;
 }
 
 void Swapchain::Recreate(u32 width_, u32 height_) {

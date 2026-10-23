@@ -30,8 +30,12 @@ namespace VideoCore { struct Buffer; }
 
 namespace Vulkan {
 
+struct DlssgOutputTicket;
 class Instance;
 class Scheduler;
+class DlssgInputCapture;
+class DlssgCpuBridge;
+class DlssgGpuBridge;
 
 class FrameGeneration {
 public:
@@ -85,12 +89,18 @@ public:
         u64 frame;
         std::shared_ptr<std::atomic<bool>> recorded;
         u64 source_game_frame;
+        bool strict_source = false;
+        u64 previous_source_game_frame = 0;
+        std::shared_ptr<std::atomic<bool>> eligible; ///< Optional async model result, read after GPU readiness.
+        u64 capture_cpu_ns = 0; ///< CPU guide-capture boundary; not input polling time.
     };
     bool TakeOutput(VAddr display, Output& out);
+    std::shared_ptr<DlssgOutputTicket> TakeAsyncOutput(VAddr display);
 
 private:
     bool EnsureContext(u32 render_width, u32 render_height, u32 width, u32 height, vk::Format format);
     void Destroy();
+    void ResolveDeferredGpuOutput(VAddr display = 0);
 
     const Instance& instance;
     Scheduler& scheduler;
@@ -100,6 +110,14 @@ private:
     FfxVkPortableFrameGenerationContext* context = nullptr;
     FfxVkFsr3_3_1_6FrameGenerationContext* context316 = nullptr;
     bool use316 = false;
+    std::unique_ptr<DlssgInputCapture> dlssg_capture;
+    std::unique_ptr<DlssgCpuBridge> dlssg_bridge;
+    std::unique_ptr<DlssgGpuBridge> dlssg_gpu;
+    std::shared_ptr<DlssgOutputTicket> async_output;
+    vk::Image deferred_gpu_image;
+    VAddr deferred_gpu_display = 0;
+    std::shared_ptr<std::atomic<bool>> deferred_gpu_recorded;
+    std::unique_ptr<VideoCore::Buffer> dlssg_upload;
     std::mutex context316_mutex; ///< Record/retire may run on different scheduler owners.
     u32 context_render_w = 0, context_render_h = 0, context_w = 0, context_h = 0;
     vk::Format context_format{};
@@ -112,6 +130,7 @@ private:
     u64 last_frame_ns = 0;
     u64 last_dispatch_ns = 0;
     u64 scene_id = 0;        ///< the captured scene's frame id (its Prepare's and Dispatch's)
+    u64 scene_capture_ns = 0;
     bool scene_reset = true; ///< it starts over (nothing before it to interpolate from)
     /// The scene's depth, copied at the capture (the game reuses its depth buffer before the
     /// display pass, where Prepare runs).
@@ -129,12 +148,17 @@ private:
         u32 width = 0, height = 0;
         u64 frame = 0;
         u64 source_game_frame = 0;
+        bool strict_source = false;
+        u64 previous_source_game_frame = 0;
         VAddr display = 0;
         bool ready = false;
         std::shared_ptr<std::atomic<bool>> recorded;
+        std::shared_ptr<std::atomic<bool>> eligible;
+        u64 capture_cpu_ns = 0;
     };
     std::mutex targets_mutex;
     std::unordered_map<VAddr, Target> targets;
+    Target& PrepareTarget(VAddr display, u64 id, bool reset);
 };
 
 } // namespace Vulkan

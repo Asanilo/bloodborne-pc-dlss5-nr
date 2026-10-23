@@ -1,0 +1,841 @@
+# M2：NVIDIA DLSS FG x2 实验
+
+> 2026-10-23 更新：已完成 GPU Bridge 异步提交候选及同场景性能对照。当前交付见
+> [M2.2 异步提交流水线](#m22-异步提交流水线2026-10-23基于fc73856)，前文保留各阶段历史。
+
+工作树仍为 `.worktree/fg`，开发分支 `m2/dlss-fg`，从 M1
+`nrbridge@7489493` 分出。M1 恢复标签 `archive/m1-fsr-experiments` 保留；
+玩家安装、正式存档和 NR 分支未被改写。FSR 高速转镜植被错位仍是已知缺陷。
+
+## 当前可玩 Experimental 入口
+
+已实现：**Native Bloodborne Vulkan → NR 310.9.16 SF B → DLSS SR → Wine Vulkan
+DLSSG x2 → Native Vulkan Present**。DLSSG 使用 Wine 托管的 NVIDIA DLL，不能称为 Linux
+ELF 原生 FG 插件；游戏与最终 Present 保持原生 Linux Vulkan。FSR、SM、DLSSG 互斥。
+
+```bash
+bash out/play-dlssg.sh B
+# 等价的版本化入口：bash tools/fg_dev/play_dlssg.sh B
+```
+
+默认 1080p Quality、Old memory，复制指定猎人梦境私有存档。进入可操作场景按 F8 启动
+NR；之后 F8 单独切换 NR，Delete 中的 **实验性帧生成（DLSS x2）** 单独切换 FG。
+A/B/old 的 NR 配置选择保留；本 M2 组合实测为 B，未重新声称 A/old 均已实机验收。
+`--dlssg-transport files-v1` 可回退到原 CPU 文件传输；原 `out/play-integration.sh` 仍为
+FSR 模式，未覆盖。玩家安装、正式存档和 `runtime/current` 未修改。
+
+性能实现提交 `ce3c191`，干净 Native 构建在 `m2-native-dlssg-mapped-r21` 实测。
+同位置静态场景、无 validation，各采样 10 秒：
+
+| 配置 | 真实 FPS | 生成 FPS | 成功 Present FPS | 真实帧间隔中位 / p95 |
+|---|---:|---:|---:|---:|
+| SR，FG 关闭 | 60.0 | 0 | 60.0 | 16.73 / 18.17 ms |
+| SR + DLSSG | 38.4 | 38.3 | 76.7 | 25.90 / 28.56 ms |
+| NR B + SR + DLSSG | 35.3 | 35.4 | 70.7 | 27.76 / 32.15 ms |
+
+这证明插帧通道实际进入 Present，不代表 FG 相对于关闭状态提升两倍性能，也不代表
+物理 scanout 或输入延迟测量。CPU 往返约 11–13 ms，仍限制基础真实帧率；旧文件桥
+r19 窗口约 24 真实 / 47 Present FPS，且非严格同轮配对性能对照。
+
+r21 完成 12298 条 FG 请求，最终 12292 次生成 Present；有界保留日志中的 3434 张生成
+帧全部满足 `R(n-1) → I(n-1,n) → R(n)`，无源帧配对拒绝。三者联动采样中 353 次真实
+Present 均选择 NR cache。FG OFF/ON、F8 OFF/ON、快速有界转镜持续运行。完整 NR GPU/FD、
+DLSSG Release/Shutdown/device destroy/正常 reap、Native staging/目标与 Present 最后读取
+均通过，`PASS_NORMAL_TEARDOWN`、无残留、全局凭据 retired。约 24 MB 临时 CPU 槽
+在完整退休后回收。r21 持久逻辑新增约 763 MB，主要为独立 NR prefix 和有界日志；
+不新增游戏/依赖/构建环境。CPU 34 项及增量 Native 检查通过。
+
+画质验收仍开放：HUD 静态可辨，未证明高速转镜植被错位已全部消除，也未取得玩家
+对 DLSSG 手感的确认。请在草丛场景只切换 FG 对照快速左右转镜、移动/闪避、HUD 和
+遮挡边缘；正常落叶/粒子不应计为错误。非致命局部伪影可保留 Experimental。
+既有 r17 Vulkan validation 类别仍未全部解决；r21 性能采样关闭 validation，不作全净结论。
+
+入口提交 `b9e9eea` 的干净构建通过 `m2-dlssg-launcher-r22` 实机启动检查，菜单显示
+DLSS x2，实际生成帧，未开启 NR。完整正常退休，CPU 槽回收；此轮只保留轻量运行记录，
+无新增完整 Wine prefix。随后仅将原“NR requires frame generation off”旧菜单提示限制于
+非 Native FG 路径，匹配现有 `BB_FRAME_GEN_NATIVE=1` 的兼容条件；不改变渲染/NR协议。
+测量及终态：`out/m2-native-dlssg-mapped-r21-samples.json`、
+`out/m2-r21-present-verification.json`、NRROOT 对应 run。r18 历史 HOLD 保留，未改写为通过。
+
+## 早期入口验证记录（2026-10-22，后续集成见上文）
+
+RTX 4060 Laptop，CachyOS，NVIDIA 615.78.08。
+
+| 路径 | 实际结果 | 尚未证明 |
+|---|---|---|
+| M1 NR B + SR Quality + Smooth Motion | NVIDIA present layer 实际映射；驱动报告 support=1、enabled=1；1080p；FSR 生成数为 0；正常退出 | 驱动插帧的独立 scanout 计数、画质和延迟对照 |
+| Native NGX requirements | FG 11 返回 `0xbad00012`；SR requirements 成功 | 不代表所有 Linux FG 都不可能；旧探针未到 Create/Evaluate |
+| Wine 公共 NGX core | Vulkan Init/parameters 成功，FG Create `0xbad0000b` | 未通过 core 的 FG 路由 |
+| Wine + 系统 DLSSG 310.2.1 snippet | requirements support_bits=0；Init/Create 成功；Evaluate 持续 `0xbad00005` | 缓存 Backbuffer extent 始终为 0；没有有效输出 |
+| Wine + Streamline 2.14.1 包 DLSSG snippet | 6 次实际 Evaluate、实际 GPU fence；首张 disable=true，后续 5 张 false；3 张输出像素验证为中间运动位置；正常退休 | 尚未接入 Bloodborne 输入、Native Present 或可玩 x2 |
+
+最后一项是实际离屏插值，不能称为游戏交付。合成矩形每帧右移 32 px，三张生成帧
+的红色区域重心与中点之差分别为 0.0725、0.0294、0.1104 px；与相邻真实帧均不相同，
+没有残留的洋红清屏像素。条纹内部存在插值扭曲，不作画质通过结论。
+
+### 真实游戏输入与资源复用
+
+`m2-game-input-capture-r11` 从指定猎人梦境私有存档读取连续源帧 `8398–8403`：
+SR 后 1920×1080 颜色、同源 1280×720 D32 深度及 RG16F 像素运动向量、相机和 jitter。
+专门的 `dlssg-capture` 模式不创建 FSR context，也不生成帧；GPU 完成后才写出至多六组
+文件。无 NR Helper/Evaluate；Native 游戏正常退休。该次 Native 源码差分中未收录当时
+尚未跟踪的新采集头文件；本提交保存该文件，实际运行二进制 SHA 仍由原清单绑定。
+
+`prepare_game_inputs.py` 只绑定已退休采集、连续真实编号和完整文件，不复制图像。
+离屏 `m2-wine-game-inputs-r12` 实际执行六次 DLSSG Evaluate，首张 disable=true，
+后五张 false，生成图有实际运动变化，正常 Release/Shutdown/device destroy。
+近景遮挡物可见拖影，尚未进行可玩画质验收。
+
+`m2-wine-game-reuse-r13` 将同一组输入改为两组交替使用的常驻 Vulkan 图像，始终保留
+上一帧，等待本次真实 fence/idle 后才覆写较旧的一组。保存的三张有效生成图与六组
+图像版本逐字节一致，五张有效标志相同，正常退休。此有限对照支持后续单槽 CPU 桥
+PoC，不宣称所有场景的资源复用均已验证。原 r13 `GetTickCount64` 计时粒度不足、
+多项为 0，不能用于性能结论；代码后续改用高精度 CPU 时钟。
+
+Native/Present 尚未运行 DLSS FG。拟先以 CPU 数据桥接入现有 `TakeOutput` 边界：
+固定前后真实编号、session/epoch/请求序号，响应被 Native 复制前不得复用槽位；
+Native 自有 staging 和目标仍需实际 GPU 最后读完成。两组常驻输入 descriptor 地址
+保持稳定；helper 的私有图像只在 Release/Shutdown 和后续 idle 后释放。
+接口还需核对游戏 scene 原始字节与 display BGRA/sRGB encode，避免红蓝交换。
+
+GPU 会话分别为 `m2-sm-1080q-r1` 和 `m2-wine-*-r1` 至 `r10`。
+截至 `m2-wine-evaluate-streamline214-r10`，全部正常退休，没有新 HOLD。
+原始日志和绑定清单位于现有 NRROOT 的 `runs/`；离屏 PoC 的零 Native reader 退休
+不能替代未来共享输出的 Native GPU 最后读取证明。
+
+后续 r11–r13 也均正常退休，没有新 HOLD。r11 逻辑大小约 168 MB（其中输入图像
+约 94 MB），r12、r13 各约 67 MB；仍只复用原 Wine prefix，没有新增完整游戏环境。
+
+### 常驻 Helper 单槽 CPU 协议
+
+`m2-wine-stream-fixture-r14`、`m2-wine-stream-tmpfs-r15`、
+`m2-wine-stream-cached-r16` 均完成六条真实游戏输入请求、五张有效输出以及实际消费
+ACK、停止、Release/Shutdown/device destroy，均正常退休。三张保存的有效输出与
+r12 逐字节一致。GPU input image/view/NGX descriptor 一直保留至 Release；两组交替
+输入，上一真实帧不被当前请求覆写。GPU 输出在同一 Evaluate 命令流后复制至 CPU，
+真实 fence/idle 完成后才原子发布响应，Native 消费 ACK 后才允许覆盖 CPU 槽。
+
+r14 普通 Btrfs 文件的有效请求服务约 44–48 ms，r15 仅换到 tmpfs 仍约 37–40 ms。
+r16 定位到 HOST_VISIBLE|COHERENT 读回内存 type 2（flags=0x6）不具备 CPU cache，
+将输出读回/状态缓冲改用 HOST_CACHED type 3（flags=0xe）后，服务降为约 10–12 ms。
+其中输入复制约 2.6–3.9 ms，记录命令、实际 fence 和 idle 约 5 ms，输出复制约
+2.3–3.8 ms。这是六次离屏请求的 CPU 服务区间，不是纯推理 GPU 时间，也不是游戏
+帧率或输入延迟。没有绕过 fence、退休或型号限制。
+
+传输槽为单个私有 `/tmp/bb-dlssg-*` 目录，正常退出且所有 CPU 输出已消费后清理。
+失败则保留槽和真实 HOLD。持久记录只保留协议终态、日志、三个对照图像；每次常驻
+协议试验约新增 25 MB 证据，不新增完整环境。CPU 协议/相机/FG 工具测试当前 28 项
+通过，Native 可玩路径尚在接入。
+
+## 首次 Native Present 与 NR 联动
+
+`m2-native-dlssg-validation-r17` 已在游戏窗口实际显示 DLSSG 输出，1080p Quality、
+Old memory、猎人梦境私有存档。4193 条 FG 请求，最终计数为 16457 次真实 Present、
+4188 次生成 Present（含标题、FG 关闭对照等不同阶段，不能用全程比值评估 x2）。
+有界保留日志窗口中的 1457 张生成帧全部满足 `R(n-1) → I(n-1,n) → R(n)`，
+没有迟到帧/源帧配对拒绝。八对实际 Present 编码图已 GPU 读回，颜色无明显红蓝交换，
+HUD 可辨；转镜仍需更多场景评价，不宣称修复 FSR 的全部植被缺陷。
+
+先以 NR 关闭测试 SR+DLSSG，关闭 FG 后真实帧单独运行；F8 开启 310.9.16 SF B、
+出现实际 `cache_selected=1` 后恢复 FG，epoch 重置、随后插帧均正常。生成 Present
+不进入 NR NotifyPresent/Evaluate 的真实帧路径。FG 历史编号独立，NR 仍使用原有时域协议。
+
+正常关闭后，FG Helper 成功 Release/Shutdown/device destroy、精确消费 ACK/正常 waitpid，
+Native staging/目标最后 GPU 使用和独立 Present 图像退休均通过；NR 既有完整 GPU/FD
+退休也通过。结果 `PASS_NORMAL_TEARDOWN`，无残留、新 HOLD 或守卫绕过。临时 CPU
+槽在全部退休后清理，JSON 终态保留。r17 逻辑新增约 886 MB，主要为原有 NR 日常流程
+首次创建的 Wine prefix 与一次八对读回；后续显式复用该已退休 prefix，避免重复环境。
+
+**性能尚不足以替代 FSR：** validation 下约 17–20 真实 FPS / 34–40 Present FPS，
+关闭 FG 的同轮片段约 47 真实 FPS。Helper 服务约 11–13 ms，Native CPU 往返约
+18–23 ms，另有同步 GPU 读回和调度等待。后续先关闭 validation 测量，再降低传输/
+同步开销，不能把两个 Present 当作基础性能提升。
+
+Validation 仍出现已记载类别：RuntimeSpirv Location-06272、dynamicRenderingUnusedAttachments-08912、
+Draw None-09600、ImageView usage-02275 和 WSI WRITE-AFTER-PRESENT。此次未观察到
+新的 CPU 上传/导引复制 hazard 类别；这不证明每个具体报错均与旧报告同源，也不宣称全净。
+
+实验启动需要显式模型和已退休私有 prefix；不修改玩家入口：
+
+```bash
+NRBRIDGE_HOME=/absolute/existing/nr-dev python3 tools/nr_dev/play.py \
+  --daily --fg-native --experimental-fg dlssg \
+  --dlssg-model /absolute/streamline-2.14.1/nvngx_dlssg.dll \
+  --dlssg-prefix-session m2-native-dlssg-validation-r17 \
+  --native-build "$PWD/out" \
+  --local-inputs /absolute/existing/nr-dev/localinputs/nr310-B-playable.json \
+  --continue-session play-20261022-141640 --session unique-session
+```
+
+F8 保留 NR 场景确认/开关，原 FG 开关保留；SM、FSR FG 与 DLSSG 互斥。
+上述命令当前为可交互但有明显性能限制的 Experimental 通道，尚不是本阶段最终性能交付。
+
+### 无 validation 对照与 prefix 回归修复
+
+`m2-native-dlssg-perf-r18` 的 SR+DLSSG 片段达到约 28.5 真实 FPS、57 Present FPS，
+CPU 往返仍约 20 ms。随后尝试 NR 联动失败：M2 的 prefix 节省改动错误地覆盖了
+`BB_NR_NATIVE_ORIGIN_PREFIX`，违反既有 owner 的 `prefix == run/profile/wine-prefix`
+约束。NR 没有 spawn；准备端超时请求正常关闭。DLSSG 的 5328 条请求完成正常退休，
+但整轮未取得完整 NR 退休证据，真实全局 HOLD 保留，不能把正常 FG 退出当作全轮通过。
+
+已撤回对 NR prefix 的覆盖；FG 自己仍可复用其已退休 prefix，NR 继续使用原有每会话
+隔离目录。启动 GPU 前新增该 scope 的验证和 CPU 回归，避免启动后才发现路径错误。
+r18 所在 boot 停止 GPU 验证，未清除凭据、未重写失败结果。NR owner 源码和路径规则均未放宽。
+
+用户重启后的 `m2-native-dlssg-prefix-r19` 使用 `5970e99` 启动器修复、原 `085120f`
+Native 构建，已验证 NR 使用本轮规范 prefix，FG 使用 r17 的已退休 prefix。F8 正常启动
+310.9.16 SF B，实际 `cache_selected=1`，DLSSG 共 3275 条请求。FG OFF/ON、epoch
+恢复及有界转镜正常；最终 3268 次生成 Present。完整 NR/FG/Present 正常退休、无残留，
+全局凭据 retired，CPU 槽在完整审计后回收。窗口截图约 24 真实/47 Present FPS，仍有
+同步 CPU 桥性能限制，不作为最终性能交付。r19 逻辑新增约 734 MB，主要为独立 NR prefix。
+有界保留日志的 Present 配对验证保存在 `out/m2-r19-present-verification.json`。
+
+
+### CPU payload map 优化
+
+`mapped-v1` 仅把三个输入及一张输出放进约 24 MB 的私有 CPU 文件映射，不导出/共享
+GPU 图像。Native 创建 0600 固定长度槽，Wine `MapViewOfFile` 打开同一文件；双方在
+原子请求/响应和精确消费 ACK 之间复制。Helper 的两组私有 Vulkan 输入、cached 读回、
+实际 fence/idle、Release/Shutdown、Native 自有上传和 Present 退休保持原约束。
+
+`m2-wine-stream-mapped-r20` 六条实际 GPU 请求、五张有效输出、完整正常退休；保存的
+三张生成图与 r16 文件传输逐字节一致。暖请求服务约 6.3–6.5 ms，先前约 10–12 ms，
+尚不是 Native 实机性能结论。正常退役后约 24 MB 临时槽回收，持久新增约 25 MB。
+34 项 FG CPU 检查及 Native 增量构建/CPU checks 通过。Native 默认使用 mapped-v1，
+可显式 `--dlssg-transport files-v1` 回退；Native 实机验证另记。
+
+## Wine 离屏入口
+
+复用已有 GE-Proton11-7、LLVM MinGW、共享 Vulkan/NGX 头文件及一份已正常退休的私有
+Wine prefix。`tools/fg_dev/build_wine_probe.py --compiler /absolute/existing/mingw-clang++`
+只构建 `out/wine-dlssg-probe.exe` 和很小的调用适配 DLL，并记录源码、头文件、编译器
+及产物 SHA256；不复制 SDK、工具链或游戏。
+
+系统 DLSSG DLL 依赖 CUDA。GE 普通 `x86_64-windows/nvcuda.dll` 是无导出的占位文件，
+直接加载 DLSSG 因而失败 126。实验的 `out/nvcuda.dll` 仅为指向 GE 自带
+`lib/wine/nvidia-libs/nvcuda/x86_64-windows/nvcuda.dll.so` 的符号链接；显式预加载该桥接
+解决加载问题，不修改系统 DLL、prefix 或玩家环境。
+
+调用适配 DLL 的文件名包含 `nvngx.dll`，与现有 NR forwarder 相同的调用模块要求。
+FG 的 `Init_Ext` 参数顺序为 version、params，与 NR 私有适配器不同。
+参数使用 core 的能力参数块；uint、float、64 位值通过精确回读及 canary 验证 ABI。
+没有修改硬件能力、型号、MFG 限制或 NVIDIA 二进制代码。
+
+```bash
+NRBRIDGE_HOME=/absolute/existing/nr-dev \
+python3 tools/fg_dev/wine_probe.py unique-session \
+  --snippet --cuda-interop --evaluate-fixture \
+  --model /absolute/streamline-2.14.1/nvngx_dlssg.dll \
+  --local-inputs /absolute/existing/nr-dev/localinputs/nr310-B-playable.json
+```
+
+启动器持有既有 GPU 独占锁、调用原有 preflight/boot guard、绑定模型及可执行文件身份。
+每次提交等待真实 fence；Release、Shutdown、实际 device idle/device destroy 后才允许
+退役全局凭据。失败输出从不因统计、哈希变化或 Evaluate 成功而自动判为插值成功。
+`OutputDisableInterpolation` 按 SDK 检查 GPU buffer 的首字节；x2 固定 count=1/index=1。
+独立退休结果与功能结果分开记录。
+
+## Native 集成接口约束
+
+复用 `FrameGeneration::Scene` 的真实 source_game_frame、SR 后颜色、Depth、Motion、
+HUDless 和相机数据。Wine FG 必须持有连续帧的独立 feature/history，不能沿用 NR 的
+稀疏 origin job 编号或逐 job reset。生成输出只能进入既有 `TakeOutput` →
+`EncodeInterpolated` → Vulkan Present，不能产生新的游戏帧编号或触发 NR Evaluate。
+
+共享输出还需独立证明 producer 完成、Native 最后读 GPU tick 和双方资源退休。
+在该边界落实前，离屏结果不作为可玩 FG 功能开放。
+
+SM 使用 `play.py --daily --smooth-motion ...` 独立启动，与 FSR/游戏内 DLSS FG 互斥。
+退出时真实等待 device idle、经 layer 销毁 swapchain、再次等待 idle，并要求唯一
+`SM_EXIT_PROOF` 和既有 FG/NR owner 退休证据。不要把环境变量加在旧 FSR 启动器外层。
+
+## 参考实现
+
+- [NVIDIA Streamline](https://github.com/NVIDIA-RTX/Streamline) 与
+  [DLSSG 指南](https://github.com/NVIDIA-RTX/Streamline/blob/main/docs/ProgrammingGuideDLSS_G.md)。
+  Vulkan 支持不等于存在可用 Linux ELF FG 插件；本机检查的 Streamline payload 是 PE DLL。
+- [OptiScaler Vulkan FG](https://github.com/optiscaler/OptiScaler/blob/master/OptiScaler/framegen/dlssg/DLSSG_Vk.cpp)：
+  实际走 Win32 surface/Streamline WSI，不能直接接收另一个进程的 Native Wayland 句柄。
+- [NVIDIA Smooth Motion](https://download.nvidia.com/XFree86/Linux-x86_64/580.173.02/README/nvpresent.html)。
+
+目前磁盘新增主要是恢复的一份 Native 增量构建（约 700 MB）及一份 SM 私有运行环境
+（逻辑大小约 741 MB）。后续 Wine PoC 复用该 prefix，仅保留日志和有界图像，
+不重复生成 AppImage 或完整运行环境。精确增量以各阶段记录为准。
+
+
+## M2.2 续接点：分段计时完成，GPU mailbox 尚未接入
+
+用户要求本轮测试完成后汇报并停下，待主会话升级 Astra 后继续。此处不是 M2.2 性能
+目标完成声明。Native/Helper 计时实现提交 `e69032a`；本轮未改 NR 渲染/历史模块。
+`--fg-profile` 每 120 帧输出少量阶段采样，默认关闭。新增 Native 输入读回和上传 GPU
+query、Wine 上传/Evaluate/输出读回 GPU query，以及 CPU copy/IPC/fence/idle/Present
+pacing 分段。GPU query 是对应 Vulkan queue 的命令区间，不单独隔离内部 CUDA/OFA；
+CPU 等待与其中 GPU 工作重叠，不得相加成总帧耗时。
+
+`m22-cpu-stage-profile-r23`：离屏六条已记录真实游戏输入、五张有效输出、真实 fence/
+idle，三张保留输出与 r20 逐字节一致，完整正常退休。暖 Evaluate queue 中位约2.77ms。
+`m22-native-cpu-profile-r24`：1080p Quality、Old、猎人梦境，NR未启动。2822条请求，
+2819次生成 Present；保留的2819张生成帧全部配对 `Rprev→I→R`，零配对拒绝。末段
+10秒成功Present-return采样为39.4真实+39.5生成=78.9总Present FPS。此轮只为CPU桥
+计时基线，不能将相对M2.1的帧率变化称为性能优化收益。两轮均PASS_NORMAL_TEARDOWN、
+rc0、完整Native staging/Present/Helper正常退出、无残留、无watchdog，global receipt
+retired；临时CPU槽正常回收。当前不需要新重启。
+
+r24保留23–24个稀疏样本的中位数：
+
+| 阶段 | CPU wall | GPU queue interval |
+|---|---:|---:|
+| Native depth/MV读回 | 包含于下述Finish | 0.566ms |
+| guides之后至最终颜色复制前 | — | 1.797ms |
+| Native最终颜色读回 | 包含于下述Finish | 0.619ms |
+| Native读回Finish等待 | 9.880ms | 包含此前排队工作，不能当作纯copy耗时 |
+| Native输入写CPU共享槽 | 1.310ms | — |
+| request原子发布 | 0.101ms | — |
+| Native等待Helper响应 | 8.774ms | 包含Helper全过程及轮询/唤醒 |
+| Wine CPU槽→上传buffer | 0.892ms | — |
+| Wine上传GPU输入 | 包含于fence | 1.204ms |
+| Evaluate录制 / queue区间 | 0.244ms | 2.568ms |
+| Wine输出读回 | 包含于fence | 0.624ms |
+| Wine实际fence等待 | 4.503ms | 包含上面输入/Evaluate/输出区间 |
+| Wine额外DeviceWaitIdle | 0.031ms | 不支持将它视为主要耗时来源 |
+| Wine读回buffer→CPU共享槽 | 0.509ms | — |
+| Native读输出+Flush | 0.310ms | — |
+| Native上传生成图 | 下次真实完成后读query | 0.692ms |
+| CPU桥全往返 | 10.934ms | 包含Helper服务约6.416ms |
+| Presenter进入时排队年龄 / WaitRendered | 0.043 / 1.079ms | — |
+| 插帧→真实帧有意pacing sleep | 12.562ms | 半真实帧间隔，不可直接删掉制造突发Present |
+| generated / real Present调用 | 0.434 / 0.487ms | 不是scanout/端到端输入延迟 |
+
+原始有界统计 `out/m22-profile-report.json`，GPU运行原始证据仍在NRROOT对应runs。
+两个run持久逻辑新增约93.5MB；未创建新的完整Wine prefix/依赖树/AppImage。
+M2.1四个Native运行产物、Helper exe/adapter及来源清单保存于
+`out/m21-verified-645c200/`，Btrfs reflink，逻辑约310MB，当前独占239.15MiB；新构建
+替换旧块后独占量会变化。恢复标签 `archive/m2.1-dlssg-645c200`。构建对象/缓存增量
+未单独计量。Native和Wine编译、34项FG CPU检查与既有Native --test全部通过。
+
+### 下一步的架构边界
+
+DSH B 交接：`/tmp/m2.2-mailbox-handoff-20261022.md`。已通过 Herdr 核对实际FG pane
+`wD:p1`并协调；工具继承的HERDR_PANE_ID=wC:p1指向NR会话，不得据此误投。Herdr
+上下文实际按cwd/title核对。唯一获授权的Astra只读审查已完成：子代理
+`/root/m22_gpu_architecture_review`，不要在同一轮重复发起完整审查。
+
+首选：Wine导出4张DMA-BUF mailbox，Native pidfd_getfd/import，Native GPU copy输入，
+Wine GPU copy到既有两组私有历史输入，Evaluate私有输出再copy至mailbox，Native copy
+至自有FG target。沿用现有TakeOutput/Present及严格真实source pair；生成帧不推进NR。
+首版仅一个mailbox、两个私有历史槽，不并发Evaluate，不加一帧队列，不假设外部Semaphore。
+
+已写但**未接入/未GPU验证**的草稿：`tools/fg_dev/dlssg_mailbox_export.h`（当前未跟踪）。
+它适配nrbridge/runtime/transport.h现有公开API，固定RGBA8 1080、R32F/RG16F720、
+独立dedicated DMA_BUF allocation、offset0、usage15，reuse query/metadata/initial_release/
+retire_fds，GPU copy进私有图/从私有输出回共享图。仅通过MinGW -fsyntax-only，不在
+Helper构建INPUTS中，没有改变当前运行时。不要把它当作已交付GPU互操作。
+
+Astra必须项：
+
+- 三输入、一个输出分别定义GENERAL布局与EXTERNAL所有权；初始化所有4张可统一
+  release，第一轮Helper也必须acquire输出。disabled输出仍要明确acquire/release归还。
+- Native imports核对真实UUID/driverUUID、角色format/extent/usage、external features、
+  exact memory requirements/dedicated/type/offset；pidfd duplicate核对dev/inode/target；
+  Helper原始FD在import ACK后经公开Vulkan import消费，Native按payload审计消失。
+- 不能照搬CPU桥stop→waitpid。必须STOP_READY→Native所有已录制/已提交共享最后使用
+  实际完成、释放所有权并销毁imports→NATIVE_RELEASED→Helper正常释放→terminal/reap。
+  Helper本地idle不能证明Native读完。现有Probe catch中!inflight自动retire只适用于
+  CPU/private版；共享active时任意未确认失败必须HOLD，禁止自动销毁共享图像。
+- Native consumed只在共享图像最后GPU访问完成后发。若输出copy到Native自有目标，
+  consumed可绑定copy+release实际tick；Present采样的是独立自有图，仍按现有证明退休。
+  若直接采样共享output，才必须等Present GPU最后读取；首版不走直接共享Present。
+- 单槽先稳态实际fence+ACK；不要等待尚未提交的copy，也不能持submit_mutex等IPC。
+  Native scheduler tick和Helper serial分域。统一请求/Helper fence阶段超时预算，
+  Helper等待consumed/NativeReleased必须有对端身份检查及有界HOLD，不能超时free。
+- 保持所有NGX private image/view/descriptor到Release/Shutdown完成，覆盖n−2私有槽前
+  n−1 Evaluate必须实际完成。source/previous/sequence/epoch/display完整回显。
+- D32/D32S8→R32F经device-local buffer的DEPTH→COLOR raw-copy，补transfer buffer
+  write→read barrier及源图恢复；RGBA/BGRA按M2.1原始字节语义做像素对照。
+- 先六帧离屏GPU共享PoC：真实输入/输出copy、disabled消费、两槽复用、FD/双阶段
+  完整退休和三张像素比较；再替换live通道，最后测FSR/CPU桥/GPU桥同场景。
+- 稳态删除whole-device idle之前确认输出GPU copy与fence覆盖的完成合同；本轮实测
+  idle仅0.03ms，首先优化像素Host往返及整条producer提交等待，而不是只删idle。
+
+本轮按用户要求停止在上述续接点，无运行中GPU任务，不启动下一次PoC。
+
+
+### M2.2 GPU mailbox 离屏通过（2026-10-23）
+
+切换主会话模型后继续。DSH B交接已读取；额外只读子代理复审了实际新代码，修复了
+Native编译歧义、零请求退休，并保持核心代码单执行者。未动NR模块或退休守卫。
+
+`m22-mailbox-zero-r25` 已实际创建/导入4张独立dedicated DMA-BUF（RGBA8/R32F/RG16F），
+精确UUID/driverUUID/driver版本、requirements、fd dev/inode/target核对，原始FD消费及
+Native payload消失审计成功。零请求也完成STOP_READY→Native imports释放→Helper
+共享/私有资源释放→正常reap→Native device destroy，PASS_NORMAL_TEARDOWN。
+
+`m22-mailbox-six-r26` 实际喂入既有六帧游戏输入，5张有效输出；保存的三张生成图与
+r20 CPU Bridge逐字节一致。首张disabled仍完成Native output acquire/release和真实fence，
+随后精确consumed，最后完整正常退休；无HOLD/残留。暖请求Helper服务中位3.51ms，
+GPU输入copy约0.14ms、Evaluate queue约2.81ms、输出copy约0.035ms；Native响应等待
+约4.59ms。这是离屏共享图像结果，尚不是实机Present性能结论。Native fixture为载入
+原始测试输入和验证输出仍使用本地Host buffer；跨Native/Wine图像传输为GPU-only，
+Helper只保留两个4-byte状态读回，无整图Host上传/读回。
+
+可复用实现为 `gpu/upscale/dlssg_gpu_contract.h`、`dlssg_mailbox_import.h`、
+`dlssg_gpu_peer.h`，Helper exporter适配既有 `nrbridge/runtime/transport.h`。
+CPU bridge仍是独立回退。GPU分支稳态只等待覆盖Evaluate及输出copy的实际fence，
+DeviceWaitIdle保留初始化/teardown；三张像素对照验证了本次队列完成边界。
+`out/m22-mailbox-fixture-verification.json` 保存简短统计及像素SHA；35项CPU检查通过。
+
+### M2.2 GPU mailbox 已进入游戏 Present（2026-10-23）
+
+`--dlssg-transport gpu-dmabuf-v1` 现在选择原生 GPU mailbox；默认 `mapped-v1` CPU
+桥仍保留。Native D32→device-local buffer→R32F、RG16F、1080p color 全在GPU内复制，
+Helper仍用两组私有历史输入，输出copy到Native自有FG target。每次consume保留真实
+完成ACK，FG target/Present另行退休；没有额外真实帧排队，没有改变NR源编号。
+
+`m22-native-mailbox-validation-r27`：2287请求、2283实际生成Present，独立FG关/开、
+有界转镜及完整正常退休通过。Native core/sync validation与r17同为既有五类；没有
+观察到新增copy/ownership错误类别，但既有类别有日志限流，不能宣称validation clean。
+只读复审修复了录制线程对mailbox状态的竞争，以及失败时排队closure/owner保活。
+
+`m22-native-mailbox-profile-r28`：无validation，1080p Quality/Old memory，同一猎人
+梦境私有存档、静置相机。实际成功Present返回时间的10秒样本：
+
+| 模式 | 真实FPS | 生成Present FPS | 合计Present FPS |
+|---|---:|---:|---:|
+| SR-only（同run FG关） | 60.0 | 0 | 60.0 |
+| SR + GPU mailbox DLSSG | 49.7 | 49.7 | 99.4 |
+| NR B + SR + GPU mailbox DLSSG | 44.7 | 44.7 | 89.4 |
+
+NR联动样本447/447真实Present均cache_selected=1。NR/FG双方和Present正常退休，无
+残留。对照历史CPU桥r24约39.4+39.5=78.9、NR联动r21约35.3+35.4=70.7；仍需同轮
+CPU/FSR对照。短暂转镜和截图未发现HUD异常，不作为人工手感或全部运动画质验收。
+Present返回不是屏幕scanout，也不是输入延迟测量。
+
+简短统计：`out/m22-live-mailbox-report.json`；构建为d9ff188加run内完整来源patch。
+下一步测量并优化consumer Finish及1ms控制轮询；保持真实GPU完成边界，不增加整帧缓存。
+
+`m22-native-mailbox-async-r29`：消费输出改为Flush并复用scheduler既有GPU完成线程，
+真实consumer tick到达后才发布ACK；回调按值拥有旧request/tick，下一Exchange与退休
+均等待ACK已发布，未引入新的帧队列。关FG超过44秒后恢复成功，正常退休。10秒静态
+样本49.7+49.7=99.4 Present FPS，与同步版近似；本项移除了显式consumer CPU等待，
+尚未证明额外吞吐或输入延迟收益。回调不依赖下一Guides，关FG不会卡在Helper消费超时。
+
+### M2.2 阶段交付／Sol high 接续点（2026-10-23）
+
+DSH B交接已采用；子代理仅做只读并发/生命周期审查，主代理为唯一代码执行者。
+已完成有限DMA-BUF像素对照、同步live、异步ACK、Native目录通知及同轮CPU/FSR对照。
+用户要求此处收束，切回Sol high继续；不留运行中的GPU任务，不自动启动新实验。
+
+启动已验证的GPU模式：
+
+```bash
+bash out/play-dlssg.sh B --dlssg-transport gpu-dmabuf-v1
+```
+
+F8启动/切换NR；Delete独立FG开关。仍使用猎人梦境`play-20261022-141640`私有存档。
+不加transport参数保持CPU mapped-v1回退；`out/play-integration.sh B`保持FSR HUDless。
+M2.1保留构建`out/m21-verified-645c200`及恢复标签不变，玩家安装/正式存档不变。
+
+最新实际短样本（无validation，1080p Quality、Old memory、同一静置场景）：
+
+| 模式／run | 真实FPS | 生成Present FPS | 总Present FPS |
+|---|---:|---:|---:|
+| CPU Bridge，r31 | 38.6 | 38.7 | 77.3 |
+| GPU mailbox＋异步ACK＋inotify，r30 | 51.2 | 51.2 | 102.4 |
+| NR B＋SR＋GPU DLSSG，r30 | 45.8 | 45.9 | 91.7 |
+| FSR 3.1 HUDless＋SR，r32 | 60.0 | 60.0 | 120.0 |
+
+GPU DLSSG相对本轮CPU桥约+32.5%，仍比FSR慢。NR联动窗口458/458真实Present选用NR
+缓存；每秒真实/生成数量0.1的差异来自窗口切边。不能据此宣称端到端输入延迟已验收。
+短暂转镜/截图HUD正常，离屏三张生成图与CPU路径逐字节一致；最终优化版仍需玩家确认
+操作响应与动态画质。FSR高速转镜植被错位仍为已知缺陷，本轮没有尝试修复它。
+
+代表性stage中位（各3–5个样本，区间重叠，不能相加当算法时长）：
+
+| 阶段 | CPU桥r31 | GPU桥r30 |
+|---|---:|---:|
+| Native producer Finish CPU等待（含前序游戏GPU工作） | 9.96ms | 8.76ms |
+| Native color readback／GPU内copy | 0.638ms | 0.029ms |
+| Native CPU像素写入 | 1.24ms | 0 |
+| Helper输入GPU上传／GPU内copy | 1.24ms | 0.092ms |
+| Helper Evaluate queue GPU区间 | 2.62ms | 3.97ms |
+| Helper输出GPU读回／GPU内copy | 0.647ms | 0.028ms |
+| Helper服务CPU wall | 8.04ms | 4.58ms |
+| Native响应等待CPU wall | 9.83ms | 5.68ms |
+| Native生成图上传／GPU内copy | 0.700ms | 0.023ms |
+| Native异步consumer Flush／ACK join | — | 0.008／0.003ms |
+| Presenter WaitRendered | 1.05ms | 0.313ms |
+| 生成→真实帧有意pacing sleep | 12.83ms | 9.79ms |
+
+GPU区间受当时GPU队列/频率影响，Evaluate区间并非独立CUDA/OFA算法耗时。新路径没有
+整图Host传输，Helper只读取4-byte状态；稳态没有DeviceWaitIdle。控制面采用原有真实
+fence+ACK，仍不假设外部semaphore。inotify仅重扫元数据，完整tuple/序号/完成证明不变，
+不可用则回退1ms轮询。Wine端Sleep(1)仍保留。
+
+r27–r32均PASS_NORMAL_TEARDOWN，完整日志解析生成/真实配对错误0；各run仍有既有启动
+菜单首个real Present失败1次（非生成帧）。r30共9112次生成Present；NR、FG、Present
+各自实际GPU退休，FD/raw payload审计通过。r29关FG超过44秒后恢复通过。r27 validation
+未出现新增copy/ownership类别；原有五类及限流仍存在，未宣称全量validation clean。
+39项FG CPU检查、16项既有审计回归和Native --test通过。统计为
+`out/m22-comparison-report.json`，不要依赖临时`/tmp`脚本才能阅读结果。
+
+运行目录r27–r32新增**1,780,376,224 bytes逻辑大小**，其中两份NR测试的私有Wine prefix
+约1.32GB；其余主要是既有runner保留的日志/存档。没有复制依赖、另建大型build或打包
+AppImage。该数不含共享ccache的变化，不等于Btrfs物理占用。清理仍先走artifact-gc dry-run，
+不删除他人产物或现有安全证据。
+
+下一步限于低延迟FG：
+- 先让玩家用GPU模式确认手感；NR本身延迟/画质优化仍另线处理。
+- 进一步优化前先量化剩余producer完成→Helper完成的串行关键路径；保留CPU回退。
+- Wine目录通知可先做CPU/文件系统PoC，再决定替换Sleep(1)；不是当前可玩版的前置条件。
+- 不增加额外真实帧缓存，不重复完整OptiScaler调查，不再为相同已通过边界反复GPU测试。
+- 基线`nrbridge@7489493`未修改；FSR子模块预先存在的dirty instrumentation保留不提交。
+
+### M2.2 单次控制路径优化实验（2026-10-23，基于69b4e13）
+
+本轮只优化Wine Helper控制唤醒，未重做mailbox、consumer ACK或Native inotify。
+先复查旧profiler和源码：`Scheduler::Finish()`是Flush→Wait(actual tick)，包含录制/
+提交及前序GPU完成，不能把8–11ms全部当作FG算法或直接删除。当前单槽在Helper响应后
+已释放输入，consumer ACK join约0.003ms；多一个slot本身不能消除同一真实帧的依赖。
+Presenter半间隔pacing保持不变，不通过突发Present制造吞吐量。更大范围的异步边界或
+跨帧流水线尚未实施，需要先单独评估延迟、所有权和退休取舍。
+
+本次选择可明确定位的CPU开销：Wine仍Sleep(1)轮询，旧数据Native响应等待比Helper
+服务多约1ms。新增`DlssgWineWake`，用Win32目录变化通知唤醒后重新扫描持久JSON。
+遵守[FindFirstChangeNotification](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findfirstchangenotificationa)
+和[FindNextChangeNotification](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-findnextchangenotification)
+的重挂规则：先注册，扫描条件，再等待；只在实际signaled后重挂，超时重试原wait。
+通知不表示GPU完成；每个schema/session/source pair/serial及真实fence检查均保留。
+不支持或通知API失败则回退原Sleep(1)。CPU-only Linux→Wine原子替换测试65次通过，
+覆盖请求先于watch、连续rename、多个超时后继续唤醒，零fallback；中位往返0.370ms，
+P95 0.532ms，实际检查未加载Vulkan/DLSSG模块。测试自行重新编译并记录源码/产物SHA。
+
+新增`--dlssg-helper-wake poll-v1|notify-v1`，通过已封印的config传给Helper，manifest
+审计防止漂移，旧config按poll解释。**默认仍是poll-v1**：NR ON没有明确性能收益，
+不替换用户已确认手感正常的默认路径。通知仅作为独立实验选项保留：
+
+```bash
+bash out/play-dlssg.sh B --dlssg-transport gpu-dmabuf-v1 --dlssg-helper-wake notify-v1
+```
+
+同一构建、1080p Quality/Old memory、同一猎人梦境私有存档与静置相机，各10秒实际
+成功Present窗口。三个run分别为r33 poll、r34 notify、r35 FSR；每个run均采NR OFF/ON
+以及FG OFF/ON，FG OFF样本全部60真实/60 Present FPS。
+
+| 模式 | NR OFF真实/总Present FPS | NR ON真实/总Present FPS |
+|---|---:|---:|
+| FG OFF | 60.0 / 60.0 | 60.0 / 60.0 |
+| FSR 3.1 HUDless | 60.0 / 120.0 | 60.0 / 120.0 |
+| DLSS GPU poll | 49.5 / 99.1 | 45.5 / 91.0 |
+| DLSS GPU notify | 50.8 / 101.6 | 44.9 / 89.9 |
+
+| DLSS模式 | NR OFF真实帧间隔中位/P95 | NR ON真实帧间隔中位/P95 |
+|---|---:|---:|
+| poll | 19.848 / 22.701ms | 21.808 / 25.053ms |
+| notify | 19.487 / 21.797ms | 22.237 / 24.625ms |
+
+短窗口中NR OFF约+2.6%真实FPS，NR ON均值略低但尾部略好，不能宣称全场景加速。
+时序开销是更直接的结果（每窗口3–5个stage样本中位）：
+
+| 指标 | NR OFF poll→notify | NR ON poll→notify |
+|---|---:|---:|
+| Native响应等待CPU wall | 6.160→5.535ms | 5.743→5.630ms |
+| 响应等待减Helper服务（控制额外开销） | 1.471→0.878ms | 1.013→0.934ms |
+| producer Finish + 响应等待串行阻塞 | 14.914→14.326ms | 16.067→15.823ms |
+
+这些区间不是输入到屏幕延迟，不能加GPU区间推算端到端延迟。输入、DLSSG模型、source
+管理、输出路径和Present pacing未改；没有新增帧队列，也未取消任何实际GPU完成等待。
+最大剩余串行段仍是producer提交/完成与Helper实际工作。**本轮未恢复到接近60真实FPS，
+按用户要求在此次实验和回归后停止**，不自动展开更大流水线重构。
+
+r33/r34/r35均PASS_NORMAL_TEARDOWN，GPU/FD/NR/FG/Present退休及离线重审通过，无残留，
+生成/真实配对错误0。r34实际win32_notify、fallback=0，8513次生成Present。
+各run既有菜单首个real Present失败1次，生成帧无失败；本轮未改Vulkan命令或同步，
+未重新运行完整validation，已有五类问题没有被本轮宣称解决。
+40项FG CPU检查、16项审计回归、Native --test通过；最后CLI定向回归确认默认poll不变。
+统计`out/m22-helper-wake-comparison.json`，CPU通知证据`out/m22-wine-notify-cpu.json`。
+
+测试遵守原GPU独占锁及真实HOLD。测试产生的三个临时NR prefix在正常退休后，经原
+artifact-gc dry-run及其open_paths检查、独立GPU审计后回收，保留注册表快照、私有存档、
+日志和全部GPU/FD证明，回收1,976,936,694 bytes；清理后GPU审计仍通过。三个run合计
+保留288,699,239 bytes逻辑文件，不含编译缓存变化；无新分支、依赖树、AppImage或
+长期保留的新运行环境。预先存在的FSR子模块dirty instrumentation未提交。
+
+### M2.2 异步提交流水线（2026-10-23，基于fc73856）
+
+本轮实际实现并实测两种异步路径，推荐`submit-ready-v1`。`sync-v1`仍是默认回退，
+CPU mapped/files bridge、FSR FG和NR独立开关保持可用。实验入口：
+
+```bash
+bash out/play-dlssg.sh B --dlssg-transport gpu-dmabuf-v1 --dlssg-pipeline submit-ready-v1
+```
+
+仍使用1080p Quality、Old memory和`play-20261022-141640`猎人梦境私有副本。
+未修改玩家安装、正式存档、NR核心协议或`vk_temporal_upscaler.cpp`，未新增分支。
+
+实现分为`c95fe8a`（Scheduler提交前置条件及持久CPU服务线程）、`b58cac5`（异步
+producer/Helper等待、结果资格与计时）、`2e02586`（独立的late消费实验）。
+
+- producer只Flush并保存实际draw submission tick；服务线程等待该精确timeline完成，
+  再发送同源、同session/epoch/sequence/display的不可变请求。没有提前声称GPU完成。
+- Helper仍执行原私有两组时域历史，真实Fence完成且输出已释放后才发布响应。
+- Native消费批次的`SubmitInfo.await_ready`在异步提交线程等待该响应，**不持有
+  submit_mutex**，随后才QueueSubmit。输出拷贝、生成帧编码和真实帧仍在同一draw
+  timeline，不混用draw/present的数值tick，不依赖Wine外部Semaphore。
+- consumer ACK仍在真实Native GPU消费完成后发布；回调持有该次响应future并读取其
+  实际helper serial。下一请求还必须等待前次ACK。退出先完成draw，再join服务线程、
+  ACK和原两阶段Helper/FD退休；未知完成仍HOLD/fail-stop。
+- Presenter分别检查命令已录制和Helper实际eligible标志，实际GPU ready后才可生成
+  Present。首张/reset禁用的模型结果不会被当作生成帧。NR源编号/历史推进仍仅来自真实帧。
+- 没有增加mailbox、历史或游戏帧队列数量，原FramesAhead/FlipAhead与半间隔pacing未改。
+
+首版曾将Helper完成转为Native本地host-signaled timeline gate。r37实测发现
+`VUID-vkQueuePresentKHR-pWaitSemaphores-03268`：同队列后续未发出host信号的等待，
+会成为当前Present二进制信号的前序依赖，并产生non-acquired-swapchain连带诊断。
+该路径已移除，新CLI/Native均拒绝；只读审计保留旧sealed配置的识别，以保存真实退休
+证据。没有通过隐藏validation、假信号或清除HOLD放行。r37本身正常退休。
+
+`late-ready-v1`把消费提交移至TakeOutput，在下一次采集/缺失flip/FG关闭/退出时必须
+先丢弃排空。请求job只在消费提交配套启动时才交给Helper，故暂停不会遗留已生成输出
+等待ACK。r42验证正常，但r43没有明确进一步收益：53.7/107.5（NR OFF）、47.1/94.2
+（NR ON），旧120帧采样的guide采集→真实Present返回分别26.014/30.119ms，仅作实验记录，
+不与修正采样后的最终延迟表直接比较。job启动仅比producer
+Flush晚0.096/0.117ms，实测没有预想的EOP等待空隙，未显示值得额外状态复杂度的收益。
+该模式只保留为独立实验，不推荐替代`submit-ready-v1`。
+
+#### OptiScaler迁移与边界
+
+已通过Herdr查阅DSH B交接，并实际读取上游四份Vulkan源码，文件SHA记录在
+`out/m22-optiscaler-reference.json`。参考
+[DLSSG_Vk](https://github.com/optiscaler/OptiScaler/blob/master/OptiScaler/framegen/dlssg/DLSSG_Vk.cpp)、
+[IFGFeature_Vk](https://github.com/optiscaler/OptiScaler/blob/master/OptiScaler/framegen/IFGFeature_Vk.cpp)、
+[Upscaler_Inputs_Vk](https://github.com/optiscaler/OptiScaler/blob/master/OptiScaler/inputs/FG/Upscaler_Inputs_Vk.cpp)、
+[DLSSG_Common](https://github.com/optiscaler/OptiScaler/blob/master/OptiScaler/framegen/dlssg/DLSSG_Common.cpp)。
+
+采用其短寿命输入保留GPU副本、资源随帧身份持有到消费、FG提交与游戏CPU分离的边界，
+以不可变request/future和submit prerequisite作跨进程等价实现。没有移植整个框架，
+也没有把Windows Streamline的Win32 surface/WSI、内部专属队列和Reflex标记视为Linux
+已可直接使用的接口。模型历史两槽、mailbox资源槽与Present frame pool继续各自管理。
+
+#### 最终同构建对照与延迟范围
+
+主对照为r46 sync与r47 submit-ready，同一最终Native构建、驱动615.78.08、同一私有
+场景与静止相机。每窗口15秒，无编译任务，先测**尚未启动NR Helper**，再F8启用NR B。
+冷NR OFF的job范围均为[0,0]；NR ON分别从404推进至537、533至675，效果选择有效。
+
+旧profiler的每120帧采样会与NR周期任务产生相位偏差，本轮改为每31帧，阶段表每窗口
+22–26个样本。真实FPS/帧间隔使用所有实际成功Present记录，不受该采样频率影响。
+r45早期约33.5ms的少量阶段样本不能作为最终延迟结论；r39 NR ON又与短CPU单测重叠，
+故均不作为主比较。F8效果关闭后驻留Helper继续工作（persistent advance/reserve与
+visual display_bypass分离），r45“NR OFF”窗口已重标记为resident-effect-off，不能
+冒充未启动NR。`out/m22-pipeline-comparison.json`保留各窗口的原始范围与说明。
+
+| 模式 | NR未启动 真实/总Present FPS | NR ON 真实/总Present FPS |
+|---|---:|---:|
+| 同步GPU回退（r46） | 49.73 / 99.47 | 44.33 / 88.67 |
+| 异步submit-ready（r47） | 53.40 / 106.80 | 47.40 / 94.87 |
+| FSR HUDless回归（r44，10秒） | 59.90 / 119.90 | 60.00 / 120.00 |
+| FG OFF（Helper驻留，效果OFF/ON，r40） | 60.00 / 60.00 | 60.00 / 60.00 |
+
+异步真实FPS相对本次同步回退约+7.4%（NR未启动）、+6.9%（NR ON）。起点fc73856的
+直接r36窗口为47.9/95.8、45.8/91.7；长时间实验存在温度、时钟和后台负载变化，主结论
+采用紧邻且同采样构建的r46/r47，不能用最慢一次旧窗口夸大增益。
+
+| 真实帧间隔（ms） | 中位 | P95 | P99 |
+|---|---:|---:|---:|
+| sync NR未启动 | 19.851 | 22.354 | 24.428 |
+| async NR未启动 | 18.491 | 20.466 | 21.852 |
+| sync NR ON | 22.503 | 24.900 | 26.398 |
+| async NR ON | 20.790 | 23.920 | 24.947 |
+
+| guide采集→真实Present返回（ms） | 中位 | P95 |
+|---|---:|---:|
+| sync NR未启动 | 26.874 | 28.975 |
+| async NR未启动 | 26.146 | 27.098 |
+| sync NR ON | 29.902 | 31.302 |
+| async NR ON | 29.245 | 31.378 |
+
+这是CPU guide采集边界至Present调用返回的阶段代理，**不是输入到屏幕/scanout延迟**。
+中位略降，NR ON P95基本相同，不宣称端到端响应已降低。玩家需重点对比快速转镜、
+闪避/攻击响应；本轮静态与有界转镜未见新增HUD或空间错位，不能替代人工长时间验收。
+
+#### 剩余关键路径及合流条件
+
+r47中producer Flush CPU约0.003ms，下一guide处owner join约0.029/0.024ms；实际
+producer tick等待仍有9.61/10.88ms，但已移到服务线程，包含前序Native GPU/提交队列
+依赖而非单纯FG算法。Helper响应等待约5.96/5.80ms，服务约4.69/4.65ms，Evaluate的
+Vulkan queue interval约4.00/3.98ms，不能等同纯CUDA/OFA时间。guides到最终颜色约
+1.84/1.87ms，最终颜色GPU copy约0.033ms，Helper输入/输出copy约0.10/0.036ms。
+这些区间不同起止点且存在重叠，不能简单相加推算端到端延迟。
+
+仍未达到60/120。当前消费批次在同一draw队列等待Helper，后续Native GPU提交仍排在
+它之后；仅多建mailbox槽不能解除这一关系。下一步有依据的方向是独立消费队列及有界
+slot，使下一真实帧GPU工作与Helper重叠，并明确跨队列完成域和未呈现token的退休。
+不能混用draw/present tick、默认多排一完整游戏帧，或把GPU并行收益当作已证实。本轮
+已形成有可重复FPS/尾帧改善的可选基线，在此停止，不宣称其余优化空间已耗尽。
+
+可作为**默认关闭的Experimental选项**合回nrbridge。共有Scheduler接口独立提交，
+NR核心/共享temporal文件没有冲突性改写。默认路径仍sync，建议手感验收后再考虑
+推广；`late-ready-v1`只供对照，`notify-v1`本轮没有稳定额外收益，默认poll不变。
+
+#### 工程与退休
+
+43项FG CPU回归、14项退休审计与Native --test通过。r36–r47全部正常退出，独占锁、
+HOLD与GPU/FD/NR/FG/Present退休机制完整，未新增HOLD。r38/r42当前提交方案的validation
+仅见原五类：WRITE-AFTER-PRESENT、Location-06272、usage-02275、DrawIndexed-08912、
+Draw-09600；不是validation clean。被拒绝的r37已单独记录并正常退休。
+保留日志与热窗口中的生成/真实配对检查错误0；部分早期日志已按原策略轮转，不能用
+没有保留生成帧的尾段日志代替全程计数。r47两个热窗口实际检查801/711对，最终保留
+日志5188对，均无源身份错误。菜单首个real Present失败仍是已知的1次，生成帧无新增失败。
+
+主统计`out/m22-pipeline-comparison.json`；采样器/摘要脚本为现有out/下的小型只读工具，
+不保存逐帧图像目录。清理先运行artifact-gc dry-run，再检查实际退休、独占锁及官方
+open_paths；只回收本轮12个会话的NR私有prefix和缓存，保留注册表快照、私有存档/
+备份、日志、源码绑定及全部GPU/FD证据，FG复用r17 prefix保持不动。
+回收8,133,263,870 bytes临时数据；12个会话保留1,009,742,418 bytes逻辑文件。
+没有新增完整build、依赖树、Wine长期环境或AppImage；这些数值不含共享ccache的
+单独归因，也不等于Btrfs压缩/reflink后的物理占用。清理后再次独立审计全部通过。
+预先存在的FSR子模块dirty instrumentation保持原状，未提交。
+
+
+### M2.3：独立消费提交与同族 Q1 Present（2026-10-23）
+
+本轮在 `m2/dlss-fg` 从 `52fbe08` 继续，没有重置已有成果。实现提交：
+
+- `50d47e0`：共享 Scheduler 的显式目标队列、Instance 同族第二队列和 overlay 上传队列。
+- `4e0efd1`：独立 GPU mailbox 消费、两槽原始输出 ticket、双完成域退休、Present 侧编码和有限 profiler。
+
+推荐新增的显式实验模式为 `consumer-queue-v1`。本机可运行：
+
+```bash
+bash out/play-dlssg.sh B --dlssg-transport gpu-dmabuf-v1 --dlssg-pipeline consumer-queue-v1
+```
+
+F8 首次启动 NR；FG 继续独立开关。日常默认 `BB_FPS_LIMIT=60`，复现下表加
+`--fg-fps-limit 0 --fg-profile`。回退改为 `--dlssg-pipeline submit-ready-v1` 或
+`sync-v1`；同 Q0 的独立消费对照为 `consumer-ready-v1`。原 CPU Bridge 与 FSR 入口保留。
+没有把新模式设为默认，也没有修改玩家安装或正式存档。
+
+#### 统一解除限帧的预算与最终比较
+
+所有性能窗口12秒，1080p Quality、Old memory、NR 310.9.16 Preset B、同一
+`play-20261022-141640` 猎人梦境私有种子和静止相机。`BB_FPS=uncap`、
+`BB_FPS_LIMIT=0`、`BB_PRESENT_MODE=Immediate`；新构建启动记录确认实际 `selected=Immediate`。
+不启用 validation，不并行编译。NR OFF 是**尚未启动 Helper**，不是F8关闭效果后仍驻留推理。
+NR ON 窗口检查 job 编号推进和每个实际真实 Present 的 cache selection。
+
+| 模式 | NR未启动：真实 / 总Present FPS | NR ON：真实 / 总Present FPS |
+|---|---:|---:|
+| 起点52fbe08 submit-ready，r49 | 52.83 / 105.67 | 47.25 / 94.50 |
+| 独立消费但仍Q0，r51 | 60.42 / 120.75 | 51.75 / 103.50 |
+| 新候选Q1，r55 | 63.08 / 126.17 | 55.25 / 110.50 |
+| 最终同构建旧submit-ready回退，r57 | 54.17 / 108.33 | 47.83 / 95.58 |
+| 最终同构建FG OFF，r56 | 95.92 / 95.92 | 79.67 / 79.67 |
+| 最终同构建FSR HUDless，r56 | 77.00 / 154.00 | 66.42 / 132.83 |
+
+相对52fbe08本轮实测，Q1真实FPS提升约19.4%/16.9%；相对更近邻、同构建的r57回退，
+提升约16.5%/15.5%。这是真实可见的工程收益，但NR ON仍未达到60/120。
+FSR仍较快；先前60/120受限帧影响，不能据此认定FSR本身零开销。
+这些是成功 `vkQueuePresentKHR` 返回的真实/生成帧计数，不是物理scanout频率。
+
+| 真实帧间隔 ms | P50 | P95 | P99 |
+|---|---:|---:|---:|
+| 52fbe08 NR未启动 | 18.560 | 21.167 | 22.992 |
+| Q1 NR未启动 | 16.181 | 18.597 | 19.873 |
+| 52fbe08 NR ON | 20.917 | 23.822 | 25.005 |
+| Q1 NR ON | 17.923 | 22.559 | 24.436 |
+| 同构建旧模式 NR未启动 | 18.254 | 20.017 | 21.301 |
+| 同构建旧模式 NR ON | 20.697 | 23.856 | 24.693 |
+
+完整有限统计在 `out/m23-comparison.json`。r56首次标记off-nron的窗口实际job范围
+为[0,0]，已明确排除；采用后续job1728→1875、cache有效的热态补测。没有把启动过程
+或resident-effect-off算成有效NR ON/OFF对照。
+
+#### 实际流水线修改与所有权
+
+旧模式的consumer批次在draw有序提交线程等待Helper，后续Native工作也因此排队。
+新模式由服务线程持有独立Scheduler：等待精确producer draw tick，验证Helper实际
+fence/release，复制共享output到本地raw slot，等待实际consumer tick，再发布ACK和ticket ready。
+下一帧Guides在join旧事务前先Flush已有Native工作；draw stream上不再放Helper响应等待。
+
+四张DMA-BUF mailbox、Helper串行Evaluate和两组私有时域历史保持原样。新增两个本地
+raw输出槽，按共享ticket引用管理；Present编码的实际GPU tick callback结束前不能复用。
+未flip、source不匹配、FG OFF都不会阻止服务线程消费/ACK。生成帧继续对应真实source pair，
+不推进游戏源编号、NR Evaluate或NR持久历史。
+
+`consumer-queue-v1` 请求同一graphics family的第二条VkQueue。RTX4060实测日志为
+`family=0 available=16 requested=2 enabled=1 draw_index=0 present_consumer_index=1`。
+Q0负责游戏/NR输入/SR/真实帧编码；Q1负责消费、生成帧编码、overlay上传、blit与Present。
+两队列相同优先级，仍使用全局submit mutex保护host提交及swapchain重建。
+Q1真实帧读取保留已提交的draw timeline semaphore、AllCommands wait及WaitSubmitted，
+没有host伪信号、外部semaphore假设或提前ACK。设备不提供两条队列时明确记录enabled=0，
+只能算Q0回退，不能冒充Q1成功。
+
+`split-v1` 明确区分draw input tick与consumer copy tick，禁止跨域比较计数大小。
+READY回显协商；请求、响应、ACK、STOP及最终证明绑定相同模式/source pair/Helper serial。
+退休分别排空draw、consumer与Present真实GPU工作，销毁imports后再允许Helper释放exports。
+零请求但有partial guides的退出允许draw>0/consumer=0；无Evaluate不得伪造consumer使用。
+Present退休还排空持有raw lease的completion callbacks和所有Frame tickets。
+
+#### 延迟、剩余开销与失败实验
+
+公共起点的“CaptureScene进入→真实Present返回”代理，NR未启动由26.45增至36.94ms，
+NR ON由29.73增至42.27ms。**不能宣称输入延迟降低或未增加。** 新模式更早到达下一帧
+CaptureScene，而该时间戳位于旧事务准入等待之前；Q1新增细分观测为：
+
+| Q1阶段 CPU ms中位 | NR未启动 | NR ON |
+|---|---:|---:|
+| CaptureScene进入→允许录制guides | 11.30 | 12.82 |
+| 真正guide录制边界→真实Present返回 | 26.21 | 30.35 |
+| Flip入队边界→Present入口 | 9.26 | 10.52 |
+| 编码录制及实际GPU完成等待 | 1.29 | 1.31 |
+
+后两组起点与旧总代理不同，不能用它们抵销公共代理的增长，更不能当成输入到屏幕实测。
+没有新增完整游戏Frame池，也没有更改pacing sleep，但允许在途工作的组织发生变化。
+是否存在可感知响应代价仍需玩家对比转镜、闪避和攻击；本轮只将新模式作为显式Experimental。
+
+NR ON关键区间：producer实际tick等待约11.52→6.48ms，Helper响应等待5.79→8.68ms，
+Helper Evaluate Vulkan queue interval4.02→6.24ms；这些是重叠区间，不能相加。
+后两者变长与更多Native/NR并发工作下的GPU竞争相符，不能据此宣称算法本身变慢。
+新候选Native output GPU copy约0.052ms、其完成等待0.82ms；SR Evaluate命令及依赖
+GPU区间约1.56ms。Frame池、旧Frame fence、FramesAhead等待在热窗口接近零。
+Present ticket等待约7.15ms、pacing sleep约9.08ms。游戏整帧GPU busy时间、NR纯kernel时间
+和CUDA/OFA内部并发未隔离测量，不能把CPU墙钟或队列区间冒充这些量。
+
+本轮实际尝试了两种提前输入复用方案：
+
+- r52：Helper释放输入即放行Guides；两raw槽耗尽导致跳过生成，70.83真实但仅52.50生成，
+  P95达41.54ms。拒绝把较高真实FPS当成合格x2。
+- r53：两槽等待实际GPU reader lease释放，恢复完整配对；NR ON却降至32.08真实，
+  P95达37.03ms、Present排队约46.91ms。说明更早放行输入可能只扩大积压。
+
+这两种方案的执行代码和新启动选项已移除，只保留密封历史配置的只读退休审计及必要记录。
+没有继续加槽或放松真实GPU等待。Q1建立在较保守的完整consumer完成边界上，消除了
+一部分同队列排序限制；尚不能把剩余开销认定为不可优化的DLSSG算法下限。
+
+#### 验证、合流与磁盘
+
+45项FG CPU检查、14项退休检查及Native `--test`通过。r48–r57共10个会话全部
+`PASS_NORMAL_TEARDOWN`，清理后再次独立审计通过，零残留/无watchdog超时，当前boot
+内核2842行日志未见NVIDIA Xid/掉卡记录。全局守卫最终retired，没有新增HOLD。
+
+r50同队列validation见原五类；r54 Q1扫描见Location-06272、usage-02275、
+DrawIndexed-08912、Draw-09600，未见新增类别，不能称validation clean，也不据未观察到
+WRITE-AFTER-PRESENT就声称修复了旧问题。保留有限扫描摘要，部分启动日志按既有规则轮转。
+Q1两组性能窗口及最终旧模式回退配对检查均错误0。一次转镜采集16张实际I/R Present
+读回，图像不同且HUD对应，未见新增明显空间漂移；有限抽查不能替代玩家长时间验收。
+全部16张已无损转PNG并逐张反解验证原始BGRA字节SHA相同，保留capture来源和转换清单。
+
+提交后的bb-probe、libbbgpu、libbbport_dlss与r55实测二进制逐字节一致，见
+`out/m23-committed-equivalence.json`。`nrbridge@7489493`是当前分支祖先，提交层面可快进；
+可合入**默认关闭的Experimental模式**，推广为默认应等待手感对照。没有执行合流或推送。
+共享队列接口独立提交，`vk_temporal_upscaler.cpp`及NR核心协议未改写。
+
+先执行artifact-gc dry-run，再对精确所属路径检查独占锁、所有正常退休证明和open_paths。
+回收本轮30个临时prefix/缓存目录 6,120,492,186 bytes；r17长期FG prefix、
+其他Agent产物、私有存档/备份及GPU/FD证据保留。16张图像由132,710,400 bytes raw无损压缩为
+49,411,401 bytes PNG。10会话最终保留 1,320,649,784 bytes逻辑文件（约1.32GB），
+本轮out摘要/构建日志另约1.22MB。没有新增完整构建目录、SDK/依赖副本或AppImage。
+这些不是Btrfs物理增量；共享ccache增量未单独归因。预先存在的FSR子模块dirty保持原样。
+
+本轮在形成有意义的可运行候选及明确延迟限制后停止。下一阶段优先人工响应对照，再决定
+是否推广Q1；若继续性能研发，应聚焦GPU竞争与低延迟调度，不再重复DMA-BUF/ACK架构搭建。
