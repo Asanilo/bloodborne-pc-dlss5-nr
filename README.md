@@ -89,8 +89,10 @@ for the full counters. Toggling the effect keeps the NR service running.
 BBSC can coexist with native mouse look. Its cinematic camera takes keyboard/mouse
 input while active and returns it to normal gameplay when closed.
 
-The current NR profile uses DLSS Quality, 1920×1080, 16:9 or Auto, jitter and object
-motion enabled. Choose Old or Auto memory; under NR, Auto selects the matching old
+The stable NR profile uses DLSS Quality, 1920×1080, 16:9 or Auto, jitter and object
+motion enabled. The source-built [M5 experiment](docs/M5_NR_DIMENSIONS.zh-CN.md) adds
+DLAA, Quality, Balanced and Performance with multiple outputs and live SR switching;
+select **Experimental NR dimensions (M5)** and keep FG Off. Choose Old or Auto memory; under NR, Auto selects the matching old
 model. Turn NR off to use ordinary upscaler settings.
 
 </details>
@@ -167,6 +169,7 @@ cd bbport-nrbridge
 | AppImage packaging | [Package guide](packaging/nrbridge/README.md) |
 | Bindings, Chinese UI and saves | [Player guide](docs/PC_FEATURES.zh-CN.md) (Chinese) |
 | Progress and known issues | [Preview status](docs/NRBRIDGE_PREVIEW_STATUS.md) |
+| Configurable NR execution and SR output | [M5 guide and tested configurations](docs/M5_NR_DIMENSIONS.zh-CN.md) |
 | Workspace and branch layout | [Repository maintenance](docs/WORKSPACE.md) |
 | Changes in bbport 0.6 | [Upstream changelog](docs/CHANGES_0.6.md) |
 

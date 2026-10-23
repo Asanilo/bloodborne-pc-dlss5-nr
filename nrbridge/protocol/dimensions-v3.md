@@ -3,9 +3,9 @@
 This optional daily profile keeps the historical wire 1/2 profiles unchanged.
 `BB_NR_DIMENSIONS_V3=1` selects wire 3. The versioned profile identity binds color,
 depth, motion, NR model and resolved-output extents, plus the final SR output.
-For the initial direct profile, render, guide, execution and resolved-output sizes
-are identical; `working_scale=1`, MV values remain previous-minus-current render
-pixels with scale 1/1. Source jitter is recorded; model jitter correction remains
+In the historical revision-1 direct profile, render, guide, execution and resolved-output
+sizes were identical; `working_scale=1`, MV values remain previous-minus-current render
+pixels with scale 1/1. Revision 2 below is the active variable-render contract. Source jitter is recorded; model jitter correction remains
 unverified and no proprietary jitter setter is claimed.
 
 **Normative correction:** the old frozen `effective-spec.json` COMPLETE prose says
@@ -57,3 +57,12 @@ This is a conservative image budget, not a measured promise that every allowed
 combination fits every device. An explicit `--nr-execution` selects a smaller
 working set without changing the SR render/output preset. WorkingScale itself
 remains 1.0 inside the NR feature; this is a separate Native input adapter.
+
+
+Revision 2 requires live host target scaling (`BB_LIVE_RES=1`); the startup game
+resolution patch is rejected. Its aligned render dimensions and restart-only
+selection are a different interface. Native binds the NR presentation ledger
+when the actual scaled display image is selected by Presenter, using the real
+GPU frame/prepare tick. This consumes the same association rule as the HDR
+1080p path without changing FG/Presenter implementation. Hot association does
+not trigger whole-frame readback; diagnostic captures remain explicit.

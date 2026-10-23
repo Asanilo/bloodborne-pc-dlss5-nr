@@ -4,6 +4,22 @@ This is a sanitized summary. Raw logs, machine identifiers, private paths and
 saves stay in ignored development data. No historical failure is retroactively
 converted into a pass.
 
+## M5: configurable NR dimensions (development branch)
+
+The opt-in source-built M5 profile has exercised DLAA, Quality, Balanced,
+Performance and Ultra Performance across 1080p, 1440p, 1920×1200 and 2560×1080.
+Seven configurations switched within one fixed NR720 execution session and
+resumed actual NR cache → Native SR → Present. A separate NR1920×1080 execution
+session with 1440p DLAA also completed real jobs and normal GPU/FD/model retirement
+on RTX 4060 Laptop. The stable M3 default and installed runtimes are unchanged.
+
+This is functional development acceptance, not full visual-quality acceptance.
+The new sizes currently require FG **Off**. NR phase/jitter correction remains
+UNVERIFIED; 4K and the full allowed matrix are not GPU-accepted. NR execution
+changes require a new normally retired session; SR preset/output/aspect changes
+are live with history reset. No public binary release is made.
+[Build, interface and measured configurations](M5_NR_DIMENSIONS.zh-CN.md).
+
 ## M1: NR + DLSS SR + FSR FG x2 functional success (2026-10-22)
 
 The verified integration history is merged into `nrbridge`. RTX 4060 Laptop gameplay
