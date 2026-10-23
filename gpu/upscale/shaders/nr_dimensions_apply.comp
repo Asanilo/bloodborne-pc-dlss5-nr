@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: GPL-2.0-or-later
+#version 450
+layout(local_size_x=8,local_size_y=8) in;
+layout(binding=0) uniform sampler2D executionEdited;
+layout(binding=1) uniform sampler2D executionRaw;
+layout(binding=2,rgba16f) uniform image2D actualHdr;
+layout(std430,binding=3) buffer Guard {uint failed;};
+layout(push_constant) uniform Params {uvec2 renderSize;uint pass;} p;
+void main(){ivec2 q=ivec2(gl_GlobalInvocationID.xy);if(any(greaterThanEqual(q,ivec2(p.renderSize))))return;
+ vec2 uv=(vec2(q)+.5)/vec2(p.renderSize);vec4 raw=imageLoad(actualHdr,q);
+ // Transfer only the NR edit. Retain render-resolution detail and exact alpha;
+ // NR's whole-frame raw fallback gives a zero residual, not a resampled frame.
+ vec3 value=raw.rgb+texture(executionEdited,uv).rgb-texture(executionRaw,uv).rgb;
+ if(p.pass==0u){if(any(isnan(value))||any(isinf(value))||any(greaterThan(abs(value),vec3(65504.))))atomicOr(failed,1u);}
+ else if(failed==0u)imageStore(actualHdr,q,vec4(value,raw.a));
+}

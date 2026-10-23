@@ -1,0 +1,26 @@
+{
+  "schema": "nrbridge-development-sources-v1",
+  "base_import": "713f8ac99959fcdf470b2600c2645a1e5b24b7c8",
+  "sources": {
+    "nrbridge/runtime/transport.h": {
+      "imported_sha256": "afde02b9cd4a89a750f744d21db1b06111298d6324bc4ab8578face1d88c450e",
+      "sha256": "92ac65a0b69b6703fa6ecdcc1ceb81fa072dbb3dda3e88ac6ca9323d50defe8a",
+      "change": "M5 dimensions-v3 execution and shared image extent; algorithm and NGX ABI retained"
+    },
+    "nrbridge/protocol/pre_sr_wire.h": {
+      "imported_sha256": "50c9ed37cdfbf948d07ce153b7b146a966c616ddef864cdab709c792f8395d4f",
+      "sha256": "6063ae065e86c56d2e3fb7dc269cdc9588febcd721ce747e71054bbcdaceba28",
+      "change": "M5 dimensions-v3 execution and shared image extent; algorithm and NGX ABI retained"
+    },
+    "nrbridge/runtime/runtime_frame.h": {
+      "imported_sha256": "03dff62923fc204421bb6d501bc346265e1123534a4a6d12ee39a1fe94eb68a6",
+      "sha256": "7c9cc24989aedf2d77752ecd46408b23a542fbc8bbf2e23fc9ebfa3a62fd0712",
+      "change": "M5 dimensions-v3 execution and shared image extent; algorithm and NGX ABI retained"
+    },
+    "nrbridge/runtime/wine_runtime_model.cpp": {
+      "imported_sha256": "cf572d86cfe460457bb368d5b6f1009364c7208589f14a7d519de3ef11611da7",
+      "sha256": "993be9018692efd7adc89150f2501e5a66e252d0a6314d9370f6f501aa7cc75c",
+      "change": "M5 dimensions-v3 execution and shared image extent; algorithm and NGX ABI retained"
+    }
+  }
+}

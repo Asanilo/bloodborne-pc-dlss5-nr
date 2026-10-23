@@ -34,6 +34,7 @@ BUNDLE = APP / "nrbridge"
 TOOLS = APP / "tools/nr_dev"
 sys.path.insert(0,str(TOOLS))
 import fg_config
+import dimension_profile
 BUNDLE_MANIFEST = APP / "nrbridge-bundle.json"
 # Keep in sync with packaging/nrbridge/closure.py.  These libraries belong to
 # the checked Native build and are staged under build/baselines/<sha>/gpu and
@@ -970,7 +971,7 @@ def daily(args) -> int:
         command.append("--sr-only")
     if getattr(args,"fg_backend",None) is not None:
         command += ["--fg-backend",args.fg_backend]
-    for key in ("dlssg_multiplier","reuse_nr_prefix","dlssg_model","dlssg_runtime","dlssg_prefix_session","dlssg_pipeline","dlssg_transport"):
+    for key in ("nr_sr_preset","nr_output","nr_execution","dlssg_multiplier","reuse_nr_prefix","dlssg_model","dlssg_runtime","dlssg_prefix_session","dlssg_pipeline","dlssg_transport"):
         value=getattr(args,key,None)
         if value is not None:command += ["--"+key.replace("_","-"),str(value)]
     if getattr(args, "experimental_fg", None):
@@ -1066,6 +1067,7 @@ def main(argv=None) -> int:
     parser.add_argument("--native-build",default=os.environ.get("NRBRIDGE_NATIVE_BUILD"),help="explicit existing managed development build; no package copy")
     parser.add_argument("--local-inputs",default=os.environ.get("NRBRIDGE_RUNTIME_INPUTS"))
     fg_config.add_argument(parser)
+    dimension_profile.add_arguments(parser)
     for name in ("dlssg-model","dlssg-runtime","dlssg-prefix-session","dlssg-pipeline","dlssg-transport"):
         parser.add_argument("--"+name)
     parser.add_argument("--experimental-fg", choices=("fsr31-hudless",),

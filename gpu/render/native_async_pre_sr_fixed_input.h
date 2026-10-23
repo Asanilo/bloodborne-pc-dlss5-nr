@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #pragma once
+#include "nr_dimensions.h"
 #include "textures/image.h"
 #include <atomic>
 #include <memory>
@@ -20,7 +21,7 @@ public:
  uint64_t LastUse()const noexcept{return last_use;}
  uint64_t CopyTick()const noexcept{return copy_tick;}
  uint64_t ReadTick()const noexcept{return sr_read_tick;}
- static constexpr uint64_t PackedBytes=uint64_t(1280)*720*8;
+ static inline const uint64_t PackedBytes=uint64_t(BbNRDimensions::Width())*BbNRDimensions::Height()*8;
 private:
  void Observe(Scheduler&);
  std::shared_ptr<NativeAsyncPreSrOriginQuiescence> quiescence;

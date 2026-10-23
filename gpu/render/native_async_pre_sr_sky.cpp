@@ -1,3 +1,4 @@
+#include "nr_dimensions.h"
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_async_pre_sr_sky.h"
 #include "native_sky_r2_spv.h"
@@ -33,7 +34,7 @@ NativeAsyncPreSrSky::NativeAsyncPreSrSky(const Instance& i):device(i.GetDevice()
  if(!i.GetPhysicalDevice().getFeatures().shaderStorageImageExtendedFormats)throw std::runtime_error("Native Sky extended storage formats unsupported");
  const auto limits=i.GetPhysicalDevice().getProperties().limits;
  if(limits.maxPerStageDescriptorStorageImages<7||limits.maxPerStageDescriptorSampledImages<(Masked()?14u:12u)||limits.maxUniformBufferRange<256)throw std::runtime_error("Native Sky descriptor limits");
- for(auto& b:banks){b.edit=Make(vk::Format::eR32G32B32A32Sfloat,1280,720);b.guide=Make(vk::Format::eR32G32B32A32Sfloat,1280,720);b.l1guide=Make(vk::Format::eR32G32B32A32Sfloat,320,180);unsigned w=320,h=180;for(auto& l:b.levels){l=Make(vk::Format::eR32G32B32A32Sfloat,w,h);w=(w+3)/4;h=(h+3)/4;}}
+ for(auto& b:banks){b.edit=Make(vk::Format::eR32G32B32A32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());b.guide=Make(vk::Format::eR32G32B32A32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());b.l1guide=Make(vk::Format::eR32G32B32A32Sfloat,320,180);unsigned w=320,h=180;for(auto& l:b.levels){l=Make(vk::Format::eR32G32B32A32Sfloat,w,h);w=(w+3)/4;h=(h+3)/4;}}
  dummy=Make(vk::Format::eR32G32B32A32Sfloat,1,1);exposure=Make(vk::Format::eR32G32B32A32Sfloat,1,1);stats=Make(vk::Format::eR32Uint,4,1);
  const auto sampler=[&](vk::Filter f){return device.createSamplerUnique({.magFilter=f,.minFilter=f,.mipmapMode=vk::SamplerMipmapMode::eNearest,.addressModeU=vk::SamplerAddressMode::eClampToEdge,.addressModeV=vk::SamplerAddressMode::eClampToEdge,.addressModeW=vk::SamplerAddressMode::eClampToEdge,.maxLod=0}).value;};
  linear=sampler(vk::Filter::eLinear);nearest=sampler(vk::Filter::eNearest);
@@ -49,15 +50,15 @@ NativeAsyncPreSrSky::NativeAsyncPreSrSky(const Instance& i):device(i.GetDevice()
  pipeline=Masked()?create(NativeSkyMaskedSpv,*pipeline_layout,"CSMain"):create(NativeSkyR2Spv,*pipeline_layout,"CSMain");conversion_pipeline=create(NATIVE_SKY_CONVERT_COMP,*conversion_pipeline_layout,"main");
  const unsigned sets_count=dispatch_slots*10;std::array<vk::DescriptorPoolSize,6> sizes{{{vk::DescriptorType::eUniformBuffer,sets_count},{vk::DescriptorType::eSampledImage,sets_count*(Masked()?14u:12u)},{vk::DescriptorType::eStorageImage,sets_count*7+15},{vk::DescriptorType::eSampler,sets_count},{vk::DescriptorType::eCombinedImageSampler,15},{vk::DescriptorType::eStorageBuffer,Masked()?sets_count:1u}}};
  pool=device.createDescriptorPoolUnique({.maxSets=sets_count+5,.poolSizeCount=Masked()?6u:5u,.pPoolSizes=sizes.data()}).value;
- for(auto& p:packets){p.converted[0]=Make(vk::Format::eR32G32B32A32Sfloat,1280,720);p.converted[1]=Make(vk::Format::eR32Sfloat,1280,720);p.converted[2]=Make(vk::Format::eR32G32Sfloat,1280,720);p.output=Make(vk::Format::eR32G32B32A32Sfloat,1280,720);
+ for(auto& p:packets){p.converted[0]=Make(vk::Format::eR32G32B32A32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());p.converted[1]=Make(vk::Format::eR32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());p.converted[2]=Make(vk::Format::eR32G32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());p.output=Make(vk::Format::eR32G32B32A32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());
   for(unsigned j=0;j<dispatch_slots;j++){p.constants[j]=std::make_unique<VideoCore::Buffer>(i,0,256,VideoCore::MemoryType::HostCached,"Native Sky tick-owned constants");p.sets[j]=device.allocateDescriptorSets({.descriptorPool=*pool,.descriptorSetCount=1,.pSetLayouts=&*layout}).value.front();}
   p.conversion=device.allocateDescriptorSets({.descriptorPool=*pool,.descriptorSetCount=1,.pSetLayouts=&*conversion_layout}).value.front();
  }
- for(auto& p:replay_packets){p.output=Make(vk::Format::eR32G32B32A32Sfloat,1280,720);for(unsigned j=0;j<dispatch_slots;j++){p.constants[j]=std::make_unique<VideoCore::Buffer>(i,0,256,VideoCore::MemoryType::HostCached,"Native Sky sparse catchup tick-owned constants");p.sets[j]=device.allocateDescriptorSets({.descriptorPool=*pool,.descriptorSetCount=1,.pSetLayouts=&*layout}).value.front();}}
+ for(auto& p:replay_packets){p.output=Make(vk::Format::eR32G32B32A32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());for(unsigned j=0;j<dispatch_slots;j++){p.constants[j]=std::make_unique<VideoCore::Buffer>(i,0,256,VideoCore::MemoryType::HostCached,"Native Sky sparse catchup tick-owned constants");p.sets[j]=device.allocateDescriptorSets({.descriptorPool=*pool,.descriptorSetCount=1,.pSetLayouts=&*layout}).value.front();}}
 
  if(Masked()){
-  raw_edit=Make(vk::Format::eR32G32B32A32Sfloat,1280,720);
-  for(unsigned k=0;k<2;++k){shown_edit[k]=Make(vk::Format::eR32G32B32A32Sfloat,1280,720);shown_guide[k]=Make(vk::Format::eR32G32B32A32Sfloat,1280,720);shown_context[k]=Make(vk::Format::eR32G32B32A32Sfloat,320,180);}
+  raw_edit=Make(vk::Format::eR32G32B32A32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());
+  for(unsigned k=0;k<2;++k){shown_edit[k]=Make(vk::Format::eR32G32B32A32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());shown_guide[k]=Make(vk::Format::eR32G32B32A32Sfloat,BbNRDimensions::Width(),BbNRDimensions::Height());shown_context[k]=Make(vk::Format::eR32G32B32A32Sfloat,320,180);}
  }
 
 }
@@ -69,7 +70,7 @@ void NativeAsyncPreSrSky::InitImages(vk::CommandBuffer cmd,bool conversion_only)
  if(conversion_only){Barrier(cmd);return;}
  for(auto& b:banks){init(b.edit);init(b.guide);init(b.l1guide);for(auto& l:b.levels)init(l);}for(auto& p:packets)init(p.output);for(auto& p:replay_packets)init(p.output);init(dummy);init(exposure);init(stats);if(Masked()){init(raw_edit);for(unsigned k=0;k<2;++k){init(shown_edit[k]);init(shown_guide[k]);init(shown_context[k]);}}Barrier(cmd);initialized=true;
 }
-DlssNrCacheConstants NativeAsyncPreSrSky::Base(unsigned m)const {DlssNrCacheConstants c{};c.Mode=m;c.Width=1280;c.Height=720;c.DepthWidth=c.MotionWidth=1280;c.DepthHeight=c.MotionHeight=720;c.MvScaleX=c.MvScaleY=1;c.Epsilon=1.f/512;c.DepthTolerance=.1f;c.ColourTolerance=.5f;c.HighDecay=.97f;c.RefreshBlend=c.LowGain=c.HighGain=1;c.Bilateral=1;c.ExposurePreMul=1;c.MaxLumaEdit=1.5f;return c;}
+DlssNrCacheConstants NativeAsyncPreSrSky::Base(unsigned m)const {DlssNrCacheConstants c{};c.Mode=m;c.Width=BbNRDimensions::Width();c.Height=BbNRDimensions::Height();c.DepthWidth=c.MotionWidth=BbNRDimensions::Width();c.DepthHeight=c.MotionHeight=BbNRDimensions::Height();c.MvScaleX=c.MvScaleY=1;c.Epsilon=1.f/512;c.DepthTolerance=.1f;c.ColourTolerance=.5f;c.HighDecay=.97f;c.RefreshBlend=c.LowGain=c.HighGain=1;c.Bilateral=1;c.ExposurePreMul=1;c.MaxLumaEdit=1.5f;return c;}
 void NativeAsyncPreSrSky::Pass(vk::CommandBuffer cmd,Packet& p,unsigned slot,const DlssNrCacheConstants& c,bool whole,const std::array<Image*,12>& reads,const std::array<Image*,7>& writes,Image* context_now,Image* context_prev){
  auto& buf=*p.constants[slot];std::memcpy(buf.mapped_data.data(),&c,256);const uint32_t v=whole?1:0;std::memcpy(buf.mapped_data.data()+156,&v,4);buf.Flush(0,256);
  const vk::BufferMemoryBarrier2 hb{.srcStageMask=vk::PipelineStageFlagBits2::eHost,.srcAccessMask=vk::AccessFlagBits2::eHostWrite,.dstStageMask=vk::PipelineStageFlagBits2::eComputeShader,.dstAccessMask=vk::AccessFlagBits2::eUniformRead,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.buffer=buf.Handle(),.offset=0,.size=256};cmd.pipelineBarrier2({.bufferMemoryBarrierCount=1,.pBufferMemoryBarriers=&hb});
@@ -87,7 +88,7 @@ void NativeAsyncPreSrSky::RecordConversionOnly(Scheduler& scheduler,unsigned ind
  for(unsigned k=0;k<3;k++){p.source_views[k]=device.createImageViewUnique({.image=source[k],.viewType=vk::ImageViewType::e2D,.format=k==0?vk::Format::eR16G16B16A16Sfloat:k==1?vk::Format::eD32SfloatS8Uint:vk::Format::eR16G16Sfloat,.subresourceRange={k==1?vk::ImageAspectFlagBits::eDepth:vk::ImageAspectFlagBits::eColor,0,1,0,1}}).value;}
  std::array<vk::DescriptorImageInfo,6> ci{};std::array<vk::WriteDescriptorSet,6> cw{};
  for(unsigned k=0;k<6;k++){ci[k]={.sampler=k<3?*nearest:vk::Sampler{},.imageView=k<3?*p.source_views[k]:*p.converted[k-3].view,.imageLayout=vk::ImageLayout::eGeneral};cw[k]={.dstSet=p.conversion,.dstBinding=k,.descriptorCount=1,.descriptorType=k<3?vk::DescriptorType::eCombinedImageSampler:vk::DescriptorType::eStorageImage,.pImageInfo=&ci[k]};}
- Barrier(cmd);device.updateDescriptorSets(cw,{});cmd.bindPipeline(vk::PipelineBindPoint::eCompute,*conversion_pipeline);cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,*conversion_pipeline_layout,0,p.conversion,{});cmd.dispatch(160,90,1);Barrier(cmd);
+ Barrier(cmd);device.updateDescriptorSets(cw,{});cmd.bindPipeline(vk::PipelineBindPoint::eCompute,*conversion_pipeline);cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,*conversion_pipeline_layout,0,p.conversion,{});cmd.dispatch(BbNRDimensions::GroupsX(),BbNRDimensions::GroupsY(),1);Barrier(cmd);
  next_index++;
 }
 vk::ImageView NativeAsyncPreSrSky::Record(Scheduler& scheduler,unsigned index,const std::array<vk::Image,3>& source,bool capture,const BbNativeAsync::Frame& frame,bool actual_cache_eligible){
@@ -98,7 +99,7 @@ vk::ImageView NativeAsyncPreSrSky::Record(Scheduler& scheduler,unsigned index,co
  auto& prev=banks[index%2];auto& next=banks[(index+1)%2];auto& color=p.converted[0];auto& depth=p.converted[1];auto& mv=p.converted[2];
  // Controlled noop origin: edited source is exactly the same converted immutable SR.
  std::array<Image*,12> reads{&prev.edit,&prev.guide,&color,&depth,&mv,&color,&dummy,&dummy,&dummy,&dummy,&exposure,&dummy};
- auto c=Base(capture?2:1);c.HistoryValid=capture?0:1;c.JitterDeltaX=(frame.previous_viewport[0]-frame.viewport[0])/1280.f;c.JitterDeltaY=(frame.previous_viewport[1]-frame.viewport[1])/720.f;Pass(cmd,p,0,c,true,reads,{&next.edit,&next.guide,&p.output,&next.levels[0],&next.l1guide,&stats,&dummy});
+ auto c=Base(capture?2:1);c.HistoryValid=capture?0:1;c.JitterDeltaX=(frame.previous_viewport[0]-frame.viewport[0])/float(BbNRDimensions::Width());c.JitterDeltaY=(frame.previous_viewport[1]-frame.viewport[1])/float(BbNRDimensions::Height());Pass(cmd,p,0,c,true,reads,{&next.edit,&next.guide,&p.output,&next.levels[0],&next.l1guide,&stats,&dummy});
  for(unsigned j=1;j<3;j++){auto d=Base(3);d.Width=next.levels[j].image.image_ci.extent.width;d.Height=next.levels[j].image.image_ci.extent.height;d.SourceWidth=next.levels[j-1].image.image_ci.extent.width;d.SourceHeight=next.levels[j-1].image.image_ci.extent.height;reads[5]=&next.levels[j-1];Pass(cmd,p,j,d,true,reads,{&next.levels[j],&dummy,&p.output,&dummy,&dummy,&stats,&dummy});}
  reads={&next.edit,&next.guide,&color,&depth,&mv,&next.levels[0],&next.l1guide,&next.levels[1],&next.levels[2],&dummy,&exposure,&dummy};auto apply=Base(4);if(Masked()){apply.LowTemporal=.95f;apply.Temporal=0;apply.CrossfadeOn=0;}Pass(cmd,p,3,apply,true,reads,{&p.output,&dummy,&dummy,Masked()?&raw_edit:&dummy,&dummy,&stats,&dummy});
  if(Masked()){last_apply_source=frame.source;last_apply_replay=false;if(actual_cache_eligible)CopyCurrentGuide(cmd,(index+1)%2,frame.source);}
@@ -116,7 +117,7 @@ vk::ImageView NativeAsyncPreSrSky::RecordSparseCatchup(Scheduler& s,unsigned cur
   auto& p=replay_packets[index];auto& src=packets[index];auto& prev=banks[index%2];auto& next=banks[(index+1)%2];
   auto& color=src.converted[0];auto& depth=src.converted[1];auto& mv=src.converted[2];
   std::array<Image*,12> reads{&prev.edit,&prev.guide,&color,&depth,&mv,&edited,&dummy,&dummy,&dummy,&dummy,&exposure,&dummy};
-  auto c=Base(index?1:2);c.HistoryValid=index?1:0;c.JitterDeltaX=(src.frame.previous_viewport[0]-src.frame.viewport[0])/1280.f;c.JitterDeltaY=(src.frame.previous_viewport[1]-src.frame.viewport[1])/720.f;
+  auto c=Base(index?1:2);c.HistoryValid=index?1:0;c.JitterDeltaX=(src.frame.previous_viewport[0]-src.frame.viewport[0])/float(BbNRDimensions::Width());c.JitterDeltaY=(src.frame.previous_viewport[1]-src.frame.viewport[1])/float(BbNRDimensions::Height());
   Barrier(cmd);Pass(cmd,p,0,c,true,reads,{&next.edit,&next.guide,&p.output,&next.levels[0],&next.l1guide,&stats,&dummy});
   for(unsigned j=1;j<3;j++){auto d=Base(3);d.Width=next.levels[j].image.image_ci.extent.width;d.Height=next.levels[j].image.image_ci.extent.height;d.SourceWidth=next.levels[j-1].image.image_ci.extent.width;d.SourceHeight=next.levels[j-1].image.image_ci.extent.height;reads[5]=&next.levels[j-1];Pass(cmd,p,j,d,true,reads,{&next.levels[j],&dummy,&p.output,&dummy,&dummy,&stats,&dummy});}
   // Only the final CURRENT link may grant a composite. Earlier replay output is
@@ -133,7 +134,7 @@ void NativeAsyncPreSrSky::CopyCurrentGuide(vk::CommandBuffer cmd,unsigned bank,u
  // Guide snapshot is THIS final current bank, not origin or an intermediate link.
  const vk::ImageMemoryBarrier2 from{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eTransfer,.dstAccessMask=vk::AccessFlagBits2::eTransferRead,.oldLayout=vk::ImageLayout::eGeneral,.newLayout=vk::ImageLayout::eTransferSrcOptimal,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=vk::Image(b.guide.image),.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}};
  auto to=from;to.dstAccessMask=vk::AccessFlagBits2::eTransferWrite;to.newLayout=vk::ImageLayout::eTransferDstOptimal;to.image=vk::Image(shown_guide[shown_next].image);
- const std::array before{from,to};cmd.pipelineBarrier2({.imageMemoryBarrierCount=2,.pImageMemoryBarriers=before.data()});cmd.copyImage(vk::Image(b.guide.image),vk::ImageLayout::eTransferSrcOptimal,vk::Image(shown_guide[shown_next].image),vk::ImageLayout::eTransferDstOptimal,vk::ImageCopy{.srcSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.dstSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.extent={1280,720,1}});
+ const std::array before{from,to};cmd.pipelineBarrier2({.imageMemoryBarrierCount=2,.pImageMemoryBarriers=before.data()});cmd.copyImage(vk::Image(b.guide.image),vk::ImageLayout::eTransferSrcOptimal,vk::Image(shown_guide[shown_next].image),vk::ImageLayout::eTransferDstOptimal,vk::ImageCopy{.srcSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.dstSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.extent={BbNRDimensions::Width(),BbNRDimensions::Height(),1}});
  auto restore=from;restore.srcStageMask=vk::PipelineStageFlagBits2::eTransfer;restore.srcAccessMask=vk::AccessFlagBits2::eTransferRead;restore.dstStageMask=vk::PipelineStageFlagBits2::eComputeShader;restore.dstAccessMask=vk::AccessFlagBits2::eShaderRead|vk::AccessFlagBits2::eShaderWrite;restore.oldLayout=vk::ImageLayout::eTransferSrcOptimal;restore.newLayout=vk::ImageLayout::eGeneral;
  auto ready=restore;ready.srcAccessMask=vk::AccessFlagBits2::eTransferWrite;ready.oldLayout=vk::ImageLayout::eTransferDstOptimal;ready.image=vk::Image(shown_guide[shown_next].image);const std::array after{restore,ready};cmd.pipelineBarrier2({.imageMemoryBarrierCount=2,.pImageMemoryBarriers=after.data()});
  last_guide_source=source;last_guide_slot=shown_next;last_guide_bank=bank;
@@ -171,9 +172,9 @@ vk::ImageView NativeAsyncPreSrSky::FinalizeMaskedCurrent(Scheduler& scheduler,un
  const bool old_context=prior&&old.context&&old.last_use&&old.observed->load(std::memory_order_acquire)>=old.last_use;
  const float step=context_on&&old_context?current_antipop_step:0.f;
  auto cmd=scheduler.CommandBuffer();std::array<Image*,12> reads{&b.edit,&b.guide,&src.converted[0],&src.converted[1],&src.converted[2],&dummy,&dummy,&dummy,&dummy,&dummy,&exposure,&dummy};
- if(context_on){auto ctx=Base(12);ctx.Width=320;ctx.Height=180;ctx.SourceWidth=1280;ctx.SourceHeight=720;Pass(cmd,p,4,ctx,true,reads,{&shown_context[shown_next],&dummy,&dummy,&dummy,&dummy,&stats,&dummy},&shown_context[shown_next],&shown_context[1-shown_next]);}
+ if(context_on){auto ctx=Base(12);ctx.Width=320;ctx.Height=180;ctx.SourceWidth=BbNRDimensions::Width();ctx.SourceHeight=BbNRDimensions::Height();Pass(cmd,p,4,ctx,true,reads,{&shown_context[shown_next],&dummy,&dummy,&dummy,&dummy,&stats,&dummy},&shown_context[shown_next],&shown_context[1-shown_next]);}
  if(last_guide_source!=current.source||last_guide_slot!=shown_next||last_guide_bank!=(index+1)%2)throw std::runtime_error("masked final current independent guide copy absent");
- auto c=Base(10);c.LowTemporal=.95f;c.Temporal=0;c.CrossfadeOn=0;c.TemporalValid=prior?1:0;c.JitterDeltaX=(current.previous_viewport[0]-current.viewport[0])/1280.f;c.JitterDeltaY=(current.previous_viewport[1]-current.viewport[1])/720.f;
+ auto c=Base(10);c.LowTemporal=.95f;c.Temporal=0;c.CrossfadeOn=0;c.TemporalValid=prior?1:0;c.JitterDeltaX=(current.previous_viewport[0]-current.viewport[0])/float(BbNRDimensions::Width());c.JitterDeltaY=(current.previous_viewport[1]-current.viewport[1])/float(BbNRDimensions::Height());
  struct Tail{uint32_t whole;float step,tolerance;uint32_t width,height;};static_assert(sizeof(Tail)==20);static_assert(offsetof(DlssNrCacheConstants,JitterDeltaY)==152);const Tail tail{1,step,.15f,320,180};std::memcpy(reinterpret_cast<unsigned char*>(&c)+156,&tail,sizeof tail);
  reads[5]=&raw_edit;reads[6]=&shown_edit[1-shown_next];reads[7]=&shown_guide[1-shown_next];
  Pass(cmd,p,5,c,true,reads,{&p.output,&dummy,&dummy,&shown_edit[shown_next],&dummy,&stats,&dummy},context_on?&shown_context[shown_next]:&dummy,old_context?&shown_context[1-shown_next]:&dummy);

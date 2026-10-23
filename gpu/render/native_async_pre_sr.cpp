@@ -1,3 +1,4 @@
+#include "nr_dimensions.h"
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "native_async_pre_sr.h"
 #include "nr_runtime_capture.h"
@@ -19,6 +20,7 @@ void NativeAsyncPreSr::Create(const Instance& instance) {
  diagnostic_instance=&instance;
  snapshot_creation_attempted=true; // EVER, even partial creation before an exception.
  auto next=std::make_shared<Retention>();
+ next->dimension_adapter=dimension_adapter;
  if(peer)next->quiescence=peer->Quiescence();
  if(NativeSkyDiagnostic::Enabled()&&!diagnostic)diagnostic=std::make_shared<NativeSkyDiagnostic>(instance);
  if(NativeSkyDiagnostic::EditEnabled()&&!edit_diagnostic)edit_diagnostic=std::make_shared<NativeSkyDiagnostic>(instance,true);
@@ -27,7 +29,7 @@ void NativeAsyncPreSr::Create(const Instance& instance) {
   auto& image=next->images[i];image=VideoCore::HostImage(instance.GetDevice(),instance.GetAllocator());
   image.Create(vk::ImageCreateInfo{.imageType=vk::ImageType::e2D,
    .format=color?vk::Format::eR16G16B16A16Sfloat:depth?vk::Format::eD32SfloatS8Uint:vk::Format::eR16G16Sfloat,
-   .extent={1280u,720u,1},.mipLevels=1,.arrayLayers=1,
+   .extent={BbNRDimensions::Width(),BbNRDimensions::Height(),1},.mipLevels=1,.arrayLayers=1,
    .samples=vk::SampleCountFlagBits::e1,.tiling=vk::ImageTiling::eOptimal,
    .usage=vk::ImageUsageFlagBits::eTransferDst|vk::ImageUsageFlagBits::eTransferSrc|vk::ImageUsageFlagBits::eSampled,
    .initialLayout=vk::ImageLayout::eUndefined});
@@ -39,9 +41,17 @@ void NativeAsyncPreSr::Create(const Instance& instance) {
   next->persistent=std::make_unique<NativePersistentHistory>(instance);
   std::printf("PERSISTENT_HISTORY_INIT image_bytes=%llu independent_visual_lifetime=1 immutable_origin_age4_admission=1 old_masked=0\n",(unsigned long long)next->persistent->ImageBytes());
  }
- std::printf("NATIVE_PRE_SR_GPU_RESOURCES raw_packed_bytes=92160000 sky_packed_bytes=%llu returns_packed_bytes=36864000 history_banks=2 packets=5 candidate_depth_inverted=0 depth_convention=UNVERIFIED jitter_delta=actual_previous_minus_current_viewport_over720 CPU_readback=0 phase=UNVERIFIED\n",(unsigned long long)next->sky->ImageBytes());
+ std::printf("NATIVE_PRE_SR_GPU_RESOURCES raw_packed_bytes=%llu sky_packed_bytes=%llu returns_packed_bytes=%llu history_banks=2 packets=5 candidate_depth_inverted=0 depth_convention=UNVERIFIED jitter_delta=actual_previous_minus_current_viewport_over_execution_extent CPU_readback=0 phase=UNVERIFIED\n",(unsigned long long)(BbNRDimensions::Get().Pixels()*100),(unsigned long long)next->sky->ImageBytes(),(unsigned long long)(BbNRDimensions::Get().Pixels()*40));
  retained=std::move(next);owner=std::make_shared<BbNativeAsync::Owner>();
  std::printf("NATIVE_ASYNC_PRE_SR_INIT session=%s origin1_links4=1 native_snapshots=15 hot_CPU_readback=0 sparse_adapter=%u localnoop=%u\n",Session().c_str(),bool(peer),!peer);
+}
+void NativeAsyncPreSr::HoldDimensionAdapter(std::shared_ptr<void> hold){
+ static auto* mutex=new std::mutex;static auto* held=new std::vector<std::shared_ptr<void>>;
+ std::scoped_lock lock(*mutex);held->push_back(std::move(hold));
+}
+void NativeAsyncPreSr::ApplicationRecorded(Scheduler& scheduler,uint64_t source){
+ if(!retained||!PersistentPrepared(source))return;
+ retained->persistent->MarkUse(scheduler,source);TrackUse(scheduler);
 }
 void NativeAsyncPreSr::HoldUnknown(std::shared_ptr<Retention> hold) {
  // Deliberate sticky lifetime, not detached cleanup. No free/reuse under unknown
@@ -473,7 +483,7 @@ bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& sche
  if(!instance.IsSeparateDepthStencilLayoutsEnabled())return false;
  for(unsigned i=0;i<3;++i){const auto& c=ci[i];
   const auto format=i==0?vk::Format::eR16G16B16A16Sfloat:i==1?vk::Format::eD32SfloatS8Uint:vk::Format::eR16G16Sfloat;
-  if(!source[i]||c.format!=format||c.extent.width!=(1280u)||c.extent.height!=(720u)||c.extent.depth!=1||
+  if(!source[i]||c.format!=format||c.extent.width!=(BbNRDimensions::Width())||c.extent.height!=(BbNRDimensions::Height())||c.extent.depth!=1||
      c.samples!=vk::SampleCountFlagBits::e1||c.mipLevels!=1||c.arrayLayers!=1||!(c.usage&vk::ImageUsageFlagBits::eTransferSrc))return false;
  }
  if(!retained)Create(instance);
@@ -535,7 +545,7 @@ bool NativeAsyncPreSr::TryCaptureOrigin(const Instance& instance,Scheduler& sche
    .srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,
    .image=dest,.subresourceRange={aspect,0,1,0,1}};
   const std::array barriers{src,dst};cmd.pipelineBarrier2({.imageMemoryBarrierCount=2,.pImageMemoryBarriers=barriers.data()});
-  const vk::ImageCopy copy{.srcSubresource={aspect,0,0,1},.dstSubresource={aspect,0,0,1},.extent={1280u,720u,1}};
+  const vk::ImageCopy copy{.srcSubresource={aspect,0,0,1},.dstSubresource={aspect,0,0,1},.extent={BbNRDimensions::Width(),BbNRDimensions::Height(),1}};
   cmd.copyImage(source[role],vk::ImageLayout::eGeneral,dest,vk::ImageLayout::eGeneral,copy);
   const vk::ImageMemoryBarrier2 ready{.srcStageMask=vk::PipelineStageFlagBits2::eTransfer,.srcAccessMask=vk::AccessFlagBits2::eTransferWrite,
    .dstStageMask=vk::PipelineStageFlagBits2::eComputeShader|vk::PipelineStageFlagBits2::eTransfer,
@@ -612,7 +622,7 @@ void NativeAsyncPreSr::SrReadRecorded(Scheduler& scheduler,uint64_t source,vk::I
   }catch(const std::exception& e){QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_ONCE_FAILED session=%s source=%llu reason=%s retry=0 unknown_GPU_use_held=1\n",Session().c_str(),(unsigned long long)source,e.what());}
  }
  if(actual_fixed_input)std::printf("NATIVE_PRE_SR_FIXED_SR_READ session=%s source=%llu input_image=%p copy_tick=%llu actual_SR_read_tick=%llu last_use_tick=%llu same_Native_timeline=1 actual_CPU_GPU_complete=NOT_YET_OBSERVED\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)fixed_input->CopyTick(),(unsigned long long)fixed_input->ReadTick(),(unsigned long long)fixed_input->LastUse());
- std::printf("NATIVE_ASYNC_PRE_SR_SR_READ session=%s source=%llu actual_input_image=%p native_sr_read_tick=%llu SR_success=%u cache_selected=%u request_origin=%llu candidate_job=%u scope=actual_current720_SR_input_binding_numeric_guard_GPU_wholeframe_fallback_NOT_MEASURED_HOT\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)scheduler.CurrentTick(),success,effect_selected,(unsigned long long)OriginSource(),effect_job);
+ std::printf("NATIVE_ASYNC_PRE_SR_SR_READ session=%s source=%llu actual_input_image=%p native_sr_read_tick=%llu SR_success=%u cache_selected=%u request_origin=%llu candidate_job=%u scope=actual_SR_input_binding_numeric_guard_GPU_wholeframe_fallback_NOT_MEASURED_HOT\n",Session().c_str(),(unsigned long long)source,(void*)VkImage(image),(unsigned long long)scheduler.CurrentTick(),success,effect_selected,(unsigned long long)OriginSource(),effect_job);
 }
 }
 

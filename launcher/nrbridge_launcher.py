@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools/nr_dev'))
 import fg_config
+import dimension_profile
 
 # The checked NRBridge values.  They are applied only while NR is enabled;
 # the ordinary launcher settings stay available when NR is switched off.
@@ -237,6 +238,7 @@ def daily_command(
     native_mouse: bool = True,
     experimental_fg: bool = False,
     fg_selection: dict | None = None,
+    nr_dimensions: dict | None = None,
     online_pool: str = "offline",
     account_config=None,
     bbsc: bool = False,
@@ -264,6 +266,10 @@ def daily_command(
         "--player-data-dir",
         str(Path(data_dir or player_data()).expanduser()),
     ]
+    if nr_dimensions:
+        command += ["--nr-sr-preset",nr_dimensions["preset_name"],"--nr-output",
+                    f'{nr_dimensions["output_width"]}x{nr_dimensions["output_height"]}',
+                    "--nr-execution",f'{nr_dimensions["model_width"]}x{nr_dimensions["model_height"]}']
     if not nr_enabled:
         command.append("--sr-only")
     if fg_selection is not None:
@@ -308,7 +314,7 @@ def can_close(process_alive: bool, result: dict | None = None) -> bool:
     return not process_alive and not result_is_hold(result)
 
 
-def nr_conflicts(settings: dict, ini: dict) -> list[str]:
+def nr_conflicts(settings: dict, ini: dict, *, dimensions=False) -> list[str]:
     """Human-readable conflicts with the checked NR constraints."""
     conflicts = []
     checks = (
@@ -320,6 +326,8 @@ def nr_conflicts(settings: dict, ini: dict) -> list[str]:
         ("jitter", str(ini.get("jitter", "1")), NR_INI["jitter"]),
     )
     for key, actual, required in checks:
+        if dimensions and key in ("preset","aspect_ratio","output_res"):continue
+        if dimensions and key=="upscaler" and actual=="off":continue
         if str(actual) != required and not (key == "aspect_ratio" and actual == "auto"):
             conflicts.append(f"{key}={actual} (NRBridge: {required})")
     memory = str(settings.get("memory_model", "auto"))
@@ -382,8 +390,17 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
     if fg["backend"]=="dlssg":
         conflicts=nr_conflicts(settings,ini)
         if conflicts:raise ValueError("DLSS FG requires 1080p DLSS Quality, Old memory: " + "; ".join(conflicts))
+    dimensions=None
+    if settings.get("nrbridge_dimensions",False):
+        if fg["backend"]!="off":raise ValueError("M5 NR dimensions currently require FG Off; FG size support is not validated")
+        try:name=tuple(dimension_profile.PRESETS)[int(ini.get("preset","1"))]
+        except (ValueError,IndexError):raise ValueError("M5 requires a supported DLSS SR preset")
+        if str(ini.get("preset","1")) not in ("0","1","2","3","4"):raise ValueError("M5 requires a supported DLSS SR preset")
+        if ini.get("upscaler")=="off":name="native"
+        dimensions=dimension_profile.select(argparse.Namespace(nr_sr_preset=name,nr_output=ini.get("output_res","1920x1080"),nr_execution=settings.get("nrbridge_execution","1280x720") or None))
+        if ini.get("aspect_ratio","auto") not in ("auto",dimensions["aspect_ratio"]):raise ValueError("M5 output and aspect ratio must match")
     if nr_enabled:
-        conflicts = nr_conflicts(settings, ini)
+        conflicts = nr_conflicts(settings, ini,dimensions=bool(dimensions))
         if conflicts:
             raise ValueError("NR requirements: DLSS Quality, 16:9 or Auto, 1920x1080, "
                              "jitter/object motion on, old or auto memory; " + "; ".join(conflicts))
@@ -397,6 +414,6 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
         session=session or session_name(), settings_path=settings_path, ini_path=ini_path,
         data_dir=data_dir, home_path=home_path, nr_enabled=nr_enabled,
         native_mouse=bool(settings.get("nrbridge_native_mouse", True)),
-        fg_selection=fg,
+        fg_selection=fg, nr_dimensions=dimensions,
         online_pool=pool, account_config=account, bbsc=bbsc,
     )

@@ -21,7 +21,8 @@ def payloads():
         raise ValueError('protocol canonical source drift; requires an explicit versioned change')
     spec = json.loads(spec_bytes)
     header = '#pragma once\nstatic const char pre_sr_spec_json[]=R"ASYNCSPEC(' + json.dumps(spec, indent=2) + ')ASYNCSPEC";\n'
-    files = {'native_runtime_model.h': model_bytes,
+    files = {'nr_dimensions.h': (HERE / 'nr_dimensions.h').read_bytes(),
+             'native_runtime_model.h': model_bytes,
              'pre_sr_wire.h': (HERE / 'pre_sr_wire.h').read_bytes(),
              'effective-spec.json': spec_bytes, 'pre_sr_spec.h': header.encode()}
     meta = {'schema': 'nrbridge-protocol-export-v1', 'wire_version': 1,

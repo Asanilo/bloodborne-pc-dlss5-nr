@@ -79,20 +79,27 @@ def load_request(args):
     nr = not getattr(args, 'sr_only', False)
     if nr:
         required = {'upscaler': 'dlss', 'preset': '1', 'output_res': '1920x1080', 'object_motion': '1'}
+        dimensions = getattr(args, 'nr_sr_preset', None)
+        if dimensions:
+            dimension_spec=importlib.util.spec_from_file_location('player_dimensions',Path(__file__).with_name('dimension_profile.py'))
+            module=importlib.util.module_from_spec(dimension_spec);dimension_spec.loader.exec_module(module)
+            profile=module.select(args)
+            required.update(preset=str(profile['preset']),output_res=f"{profile['output_width']}x{profile['output_height']}")
+            if not profile['sr_enabled']:required['upscaler']='off';required.pop('preset')
         mismatched = [k for k, v in required.items() if ini.get(k, v) != v]
-        if ini.get('aspect_ratio', '16:9') not in ('16:9', 'auto'):
+        if ini.get('aspect_ratio', '16:9') not in ((profile['aspect_ratio'], 'auto') if dimensions else ('16:9', 'auto')):
             mismatched.append('aspect_ratio')
         if ini.get('jitter', '1') != '1':
             mismatched.append('jitter')
         if mismatched:
-            raise ValueError('NR requires DLSS preset1, 16:9 1920x1080, jitter/object motion on; change: ' + ', '.join(mismatched))
+            raise ValueError('NR requires matching SR profile, DLSS, jitter/object motion on; change: ' + ', '.join(mismatched))
         if source.get('memory_model', 'auto') not in ('auto', 'old') or source.get('as_0_3', False):
             raise ValueError('NR requires the validated old memory model and current synchronization')
     upscaler = ini.get('upscaler', 'dlss')
     if upscaler not in ('dlss', 'fsr3', 'fsr4', 'fsr411', 'taa', 'off'):
         raise ValueError('player settings: unsupported upscaler')
     env = {'BB_GAME_DIR': str(game), 'BB_PC_MODEL': '1' if source.get('memory_model') == 'new' else '0',
-           'BB_UPSCALER': upscaler, 'BB_DLSS': '1' if upscaler == 'dlss' else '0',
+           'BB_UPSCALER': upscaler, 'BB_DLSS': '1' if upscaler == 'dlss' or nr and getattr(args,'nr_sr_preset',None)=='native' else '0',
            'BB_UPSCALE_PRESET': ini.get('preset', '1'), 'BB_JITTER': ini.get('jitter', '1'),
            'BB_OBJECT_MOTION': ini.get('object_motion', '1')}
     selected = {}

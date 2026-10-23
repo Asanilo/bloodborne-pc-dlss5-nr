@@ -104,6 +104,23 @@ class AdapterTests(unittest.TestCase):
                 bridge.player_command({key: value}, dict(bridge.NR_INI))
         bridge.player_command({'memory_model': 'auto'}, dict(bridge.NR_INI, aspect_ratio='auto'))
 
+    def test_m5_dimensions_are_opt_in_match_saved_profile_and_reject_fg(self):
+        ini=dict(bridge.NR_INI,preset='3',output_res='1920x1200',aspect_ratio='16:10')
+        settings=dict(nrbridge_dimensions=True,nrbridge_execution='1280x720',fg_backend='off')
+        command=bridge.player_command(settings,ini)
+        for flag,value in [('--nr-sr-preset','performance'),('--nr-output','1920x1200'),('--nr-execution','1280x720')]:
+            self.assertEqual(command[command.index(flag)+1],value)
+        self.assertNotIn('--sr-only',command)
+        with self.assertRaisesRegex(ValueError,'FG Off'):bridge.player_command(dict(settings,fg_backend='fsr31'),ini)
+        with self.assertRaises(ValueError):bridge.player_command(dict(settings,nrbridge_dimensions=False),ini)
+        with self.assertRaises(ValueError):bridge.player_command(settings,dict(ini,preset='-1'))
+        legacy=bridge.player_command({},dict(bridge.NR_INI))
+        self.assertNotIn('--nr-sr-preset',legacy)
+
+    def test_m5_native_only_uses_off_without_disabling_nr(self):
+        c=bridge.player_command(dict(nrbridge_dimensions=True,fg_backend='off'),dict(bridge.NR_INI,upscaler='off',preset='3'))
+        self.assertEqual(c[c.index('--nr-sr-preset')+1],'native');self.assertNotIn('--sr-only',c)
+
     def test_nr_off_keeps_upstream_options_but_still_managed(self):
         command = bridge.player_command({'nrbridge_enabled': False, 'memory_model': 'new'},
                                         {'upscaler': 'taa', 'preset': '0'})

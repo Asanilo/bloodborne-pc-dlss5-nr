@@ -2,6 +2,8 @@
 """Isolated NR development runner. No legacy approval, ledger or launch quota imports."""
 import argparse,datetime,fcntl,hashlib,json,os,re,shutil,subprocess,time,signal,math,uuid,importlib.util,stat,contextlib
 from pathlib import Path
+_dimensions_spec=importlib.util.spec_from_file_location('nr_dimension_profile',Path(__file__).with_name('dimension_profile.py'))
+dimension_profile=importlib.util.module_from_spec(_dimensions_spec);_dimensions_spec.loader.exec_module(dimension_profile)
 def workspace_root():
  value=os.environ.get('NRBRIDGE_HOME',str(Path.home()/'Code/nrbridge-dev'));path=Path(value)
  if not value or any(c in value for c in ('\x00','\n',':')) or not path.is_absolute() or str(path)!=value or path.resolve()!=path or path in (Path('/'),Path.home()):raise ValueError('NRBRIDGE_HOME requires a dedicated canonical absolute directory')
@@ -651,6 +653,8 @@ def check_fg_capability(args, build):
   raise ValueError('DLSSG input capture requires its rebuilt Native diagnostic')
 
 def validate_daily_args(args):
+ profile=dimension_profile.select(args)
+ if profile and fg_config.requested(args)!="off":raise ValueError("M5 new dimensions currently require FG off; FG mailbox dimensions are not adapted")
  fg_config.normalize(args)
  smooth_motion.validate_args(args)
  dlssg_backend.validate_args(args)
@@ -746,7 +750,9 @@ def launch_supervised(args,signals):
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
  check_fg_capability(args,build)
+ dimension_contract=dimension_profile.select(args)
  binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None
+ dimension_profile.validate_capabilities(dimension_contract,build,binding)
  ge_files=GE/'files';sysroot_lib=WT/'out/deps/root/usr/lib'
  if binding is not None:
   runtime_inputs.native_capability(build)
@@ -849,8 +855,13 @@ def launch_supervised(args,signals):
   env['BB_FRAME_GEN_BACKEND']=backend
   if backend in ('off','smooth-motion'):env['BB_FRAME_GEN']='0'
   fg_config.validate_environment(backend,env)
+  if dimension_contract:
+   env.update(dimension_profile.environment(dimension_contract))
+   env['BB_PRESET_FILE']=str(run/'sr-control')
+   ini_path=profile/'bbport.ini'
+   ini_path.write_text(dimension_profile.ini(dimension_contract,ini_path.read_text()))
   atomic(run/'manifest.json',{'schema':'nr-dev-session-v1','fg_backend':backend,'daily':getattr(args,'daily',False),'session':args.session,'native_executable':str(build/'bb-probe'),'native_build':str(build),'native_build_provenance':build_provenance,'artifacts':{str(p):sha(p) for p in (*native_artifacts,helper)},'environment':daily_online.public_environment(env),'redacted_environment':sorted(daily_online.SECRET_ENV & env.keys()),'online':online_record,'command':command,'host_safety':safety,'prelaunch_gpu_holders':gpu_holders(),'authorization_basis':'user full isolated persistent visual history development stage 2026-10-15; no legacy launch quota','mode':args.mode,'sky':args.sky,'planned_seconds':args.seconds,'watchdog_seconds':args.watchdog_seconds,'close_grace_seconds':args.close_grace,'continuation':continuation,'helper_build_manifest':helper_build,'runtime_model':bool(args.runtime_model_helper or binding),'runtime_inputs':binding,'helper_runtime_config':helper_runtime_config})
-  manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False);manifest['smooth_motion']=getattr(args,'smooth_motion',False)
+  manifest=json.loads((run/'manifest.json').read_text());manifest['nr_enabled']=not getattr(args,'sr_only',False);manifest['nr_dimensions']=dimension_contract;manifest['smooth_motion']=getattr(args,'smooth_motion',False)
   if player_binding is not None:manifest.update(player_settings=player_binding,player_save_source=player_save_source)
   atomic(run/'manifest.json',manifest)
   if getattr(args,'experimental_fg',None)=='dlssg':dlssg_backend.validate_manifest(run,manifest)
@@ -954,6 +965,7 @@ def parse_args(argv=None):
  fg_config.add_argument(p)
  p.add_argument('--reuse-nr-prefix',help='move an already retired NR prefix for this run; restore only after actual retirement')
  p.add_argument('--dlssg-runtime',help='existing FG Helper build directory; no runtime copy')
+ dimension_profile.add_arguments(p)
  p.add_argument('--experimental-fg',choices=['fsr31','fsr31-hudless','fsr316','dlssg-capture','dlssg'],help='FSR x2, DLSSG x2, or finite DLSSG input capture')
  p.add_argument('--dlssg-model',help='explicit existing DLSSG DLL for Experimental DLSSG bridge')
  p.add_argument('--dlssg-transport',choices=['files-v1','mapped-v1','gpu-dmabuf-v1'],default=None,help='Experimental payload transport; GPU mailbox is opt-in')

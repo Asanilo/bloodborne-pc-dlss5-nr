@@ -29,7 +29,7 @@ class BuildInputs(unittest.TestCase):
         source_protocol = WRAPPER.parents[2] / 'gpu/render'
         protocol = self.wt / 'gpu/render'
         protocol.mkdir(parents=True)
-        for name in ('native_runtime_model.h', 'native_runtime_model.export.json'):
+        for name in ('native_runtime_model.h', 'native_runtime_model.export.json', 'nr_dimensions.h'):
             shutil.copyfile(source_protocol / name, protocol / name)
         for name, rel in SPECS.items():
             (self.wt / rel).mkdir(parents=True)

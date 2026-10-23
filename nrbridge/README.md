@@ -78,7 +78,7 @@ shared-image/FD/model retirement. Unknown ownership and HOLD still stop reuse.
 Keep the accepted old Helper, forwarder and model selected in a separate sealed
 runtime config for rollback. Migration does not replace a player installation.
 Future extraction may move this subtree and its public protocol; a generic SDK,
-new memory model and expanded resolution matrix are outside this change.
+new memory model remains separate. The opt-in [M5 dimensions profile](../docs/M5_NR_DIMENSIONS.zh-CN.md) extends execution and SR sizes without changing the frozen baseline.
 
 See [Native build and runtime guide](../tools/nr_dev/README.md),
 [license boundary](LICENSE-NOTES.md), and [Preview status](../docs/NRBRIDGE_PREVIEW_STATUS.md).

@@ -34,9 +34,14 @@ def parser():
 
 def prepare(args):
     lock = json.loads((HERE / 'source-provenance.json').read_text())
+    changes_path = HERE / 'development-sources.json'
+    changes = json.loads(changes_path.read_text())['sources'] if changes_path.is_file() else {}
     for row in lock['sources']:
         path = ROOT / row['target']
-        if sha(path) != row['migrated_sha256']:
+        original = row['migrated_sha256']
+        change = changes.get(row['target'])
+        expected = change['sha256'] if change and change.get('imported_sha256') == original else original
+        if sha(path) != expected:
             raise ValueError('migrated source drift: ' + str(path))
     for path in (args.llvm_root, args.vulkan_include, args.ngx_sdk_root, args.json_root, DEV):
         if not path.is_absolute() or (path != DEV and not path.is_dir()):
@@ -88,7 +93,7 @@ def prepare(args):
     host_flags = ['-std=c++17', '-O2', '-Wall', '-Wextra', '-Werror',
                   '-I' + str(args.json_root), '-I' + str(HERE / 'protocol'),
                   '-I' + str(HERE / 'runtime'), '-I' + str(generated)]
-    for name in ('wire_check', 'test_protocol', 'test_runtime_config', 'test_daily_transport'):
+    for name in ('wire_check', 'test_protocol', 'test_runtime_config', 'test_daily_transport', 'test_dimensions'):
         files, _ = compiler_inputs(Path('/usr/bin/c++'), host_flags, HERE / ('tests/' + name + '.cpp'), ROOT, environment)
         dependencies.update(files)
     inputs = {'schema': 'nrbridge-helper-build-inputs-v1', 'sources': sources,
@@ -135,7 +140,7 @@ def main():
             commands.append({'name': name, 'command': command, 'exit_code': result.returncode})
             if result.returncode:
                 raise RuntimeError(name + ': ' + result.stdout.decode(errors='replace'))
-        for name in ('wire_check', 'test_protocol', 'test_runtime_config', 'test_daily_transport'):
+        for name in ('wire_check', 'test_protocol', 'test_runtime_config', 'test_daily_transport', 'test_dimensions'):
             checker = output / name
             run(name + '-compile', ['/usr/bin/c++', *inputs['host_flags'], str(HERE / ('tests/' + name + '.cpp')), '-o', str(checker)])
             run(name, [str(checker)])

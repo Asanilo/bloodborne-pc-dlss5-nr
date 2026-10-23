@@ -151,7 +151,7 @@ def load(path, root):
              (protocol[k] in (3, 4) if k == 'interface_revision' else protocol[k] == v)
              for k, v in HELPER_PROTOCOL.items()), 'Helper protocol/version mismatch')
     exports = protocol.get('exports')
-    need(isinstance(exports, dict) and set(exports) == {'native_runtime_model.h', 'pre_sr_wire.h', 'pre_sr_spec.h', 'effective-spec.json'}
+    need(isinstance(exports, dict) and set(exports) in ({'native_runtime_model.h', 'pre_sr_wire.h', 'pre_sr_spec.h', 'effective-spec.json'}, {'native_runtime_model.h', 'pre_sr_wire.h', 'pre_sr_spec.h', 'effective-spec.json', 'nr_dimensions.h'})
          and digest(protocol.get('export_manifest_sha256'))
          and all(isinstance(k, str) and digest(v) for k, v in exports.items()),
          'Helper protocol export identities required')
