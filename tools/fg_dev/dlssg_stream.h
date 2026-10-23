@@ -57,9 +57,9 @@ void Probe::stream(const char* root) {
   fixture=std::make_unique<FgFixture>(device,physical,command,gdpa,i<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties"));auto& g=*fixture;
   constexpr unsigned W=1920,H=1080,RW=1280,RH=720;
   FgGpuTiming timing(device,physical,gdpa,i<PFN_vkGetPhysicalDeviceProperties>("vkGetPhysicalDeviceProperties"),i<PFN_vkGetPhysicalDeviceQueueFamilyProperties>("vkGetPhysicalDeviceQueueFamilyProperties"),family);
-  struct Slot{FgFixture::Image color,depth,motion;std::array<FgFixture::Image,5> output;std::array<FgFixture::Buffer,5> disabled;FgFixture::Buffer color_upload,depth_upload,motion_upload,readback;};
+  struct Slot{FgFixture::Image color,depth,motion;std::array<FgFixture::Image,5> output;FgFixture::Buffer disabled;FgFixture::Buffer color_upload,depth_upload,motion_upload,readback;};
   auto descriptors=std::make_shared<std::array<Slot,2>>();input_descriptors=descriptors;auto& slots=*descriptors;
-  for(auto& s:slots){s.color=g.image(VK_FORMAT_R8G8B8A8_UNORM,false);s.depth=g.image(VK_FORMAT_R32_SFLOAT,false,RW,RH);s.motion=g.image(VK_FORMAT_R16G16_SFLOAT,false,RW,RH);for(unsigned i=0;i<generated_count;++i){s.output[i]=g.image(VK_FORMAT_R8G8B8A8_UNORM,true);s.disabled[i]=g.buffer(4,true);}if(!gpu){s.color_upload=g.buffer(size_t(W)*H*4);s.depth_upload=g.buffer(size_t(RW)*RH*4);s.motion_upload=g.buffer(size_t(RW)*RH*4);s.readback=g.buffer(size_t(W)*H*4,true);}}
+  for(auto& s:slots){s.color=g.image(VK_FORMAT_R8G8B8A8_UNORM,false);s.depth=g.image(VK_FORMAT_R32_SFLOAT,false,RW,RH);s.motion=g.image(VK_FORMAT_R16G16_SFLOAT,false,RW,RH);for(unsigned i=0;i<generated_count;++i){s.output[i]=g.image(VK_FORMAT_R8G8B8A8_UNORM,true);}s.disabled=g.buffer(4,true);if(!gpu){s.color_upload=g.buffer(size_t(W)*H*4);s.depth_upload=g.buffer(size_t(RW)*RH*4);s.motion_upload=g.buffer(size_t(RW)*RH*4);s.readback=g.buffer(size_t(W)*H*4,true);}}
   for(auto k:{"DLSSG.MVecsSubrectWidth","DLSSG.DepthSubrectWidth","DLSSG.InternalWidth"})ui(k,RW);
   for(auto k:{"DLSSG.MVecsSubrectHeight","DLSSG.DepthSubrectHeight","DLSSG.InternalHeight"})ui(k,RH);
   for(auto k:{"DLSSG.InputBackbufferSubrectWidth","DLSSG.OutputInterpolatedSubrectWidth","DLSSG.BackbufferSubrectWidth"})ui(k,W);
@@ -112,30 +112,32 @@ void Probe::stream(const char* root) {
     api(d<PFN_vkResetCommandBuffer>("vkResetCommandBuffer")(command,0),"stream reset command");VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};api(d<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(command,&begin),"stream begin");
     timing.Mark(command,0);if(gpu){mailbox->copy_to_private(g,s.color,0);mailbox->copy_to_private(g,s.depth,1);mailbox->copy_to_private(g,s.motion,2);}else{g.upload(s.color,s.color_upload);g.upload(s.depth,s.depth_upload);g.upload(s.motion,s.motion_upload);}
     std::array<int,5> results{};timing.Mark(command,1);const auto batch_record_start=cpu_ms();double evaluate_record_ms=0;
+    // SDK: this one boolean applies to all interpolated frames of the real pair.
+    // The model writes it at index1; never overwrite that result at later indices.
+    d<PFN_vkCmdFillBuffer>("vkCmdFillBuffer")(command,s.disabled.buffer,0,4,0xffffffffu);
     for(unsigned i=0;i<generated_count;++i){
-      auto& output=s.output[i];auto& disable=s.disabled[i];
+      auto& output=s.output[i];auto& disable=s.disabled;
       ui("DLSSG.MultiFrameIndex",i+1);ui("DLSSG.MultiFrameCount",generated_count);
       ptr("DLSSG.OutputInterpolated",&output.ngx);ptr("DLSSG.OutputDisableInterpolation",&disable.ngx);
       g.barrier(output,initialized[sequence%2]?VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL);
-      d<PFN_vkCmdFillBuffer>("vkCmdFillBuffer")(command,disable.buffer,0,4,0xffffffffu);
       VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;d<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,0,nullptr);
       const auto evaluate_start=cpu_ms();
       results[i]=sym<int(*)(void*,const void*,const void*)>(bridge,"fg_evaluate")(command,feature,params);
       evaluate_record_ms+=cpu_ms()-evaluate_start;
       if(generated_count==1)timing.Mark(command,2);
       if(gpu)mailbox->copy_output(g,output,i);else g.readback(output,s.readback);
-      g.host(disable,false);
     }
+    g.host(s.disabled,false);
     const int result=results[0];const auto batch_record_ms=cpu_ms()-batch_record_start;if(generated_count>1)timing.Mark(command,2);timing.Mark(command,3);api(d<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(command),"stream end");api(d<PFN_vkResetFences>("vkResetFences")(device,1,&fence),"stream reset fence");VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&command;
     const auto submit_start=cpu_ms();inflight=true;g.safe=false;api(d<PFN_vkQueueSubmit>("vkQueueSubmit")(queue,1,&submit,fence),"stream submit");const auto wait_start=cpu_ms();api(d<PFN_vkWaitForFences>("vkWaitForFences")(device,1,&fence,VK_TRUE,10000000000ull),"stream actual GPU fence");const auto idle_start=cpu_ms();if(!gpu)api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),"stream actual device idle");const auto idle_end=cpu_ms();inflight=false;g.safe=true;timing.safe=true;if(gpu)++mailbox->serial;initialized[sequence%2]=true;
     unsigned disabled=0;bool eligible=true;J outputs=J::array();
-    for(unsigned i=0;i<generated_count;++i){unsigned word=0;memcpy(&word,s.disabled[i].mapped,4);if(i==0)disabled=word;
+    for(unsigned i=0;i<generated_count;++i){unsigned word=0;memcpy(&word,s.disabled.mapped,4);if(i==0)disabled=word;
       const bool valid=results[i]==1&&(word&255)==0&&!(generated_count>1&&reset);eligible=eligible&&valid;
       outputs.push_back({{"index",i+1},{"count",generated_count},{"phase_denominator",generated_count+1},{"result",unsigned(results[i])},{"disable_word",word},{"eligible",valid},{"actual_GPU_complete",true},{"output_released",true}});
     }
     const auto gpu_completed=cpu_ms();
     if(eligible&&!gpu){if(mapped){memcpy(payload.At(DlssgCpu::OutputOffset,DlssgCpu::ColorBytes),s.readback.mapped,DlssgCpu::ColorBytes);payload.Publish();}else write_bytes("output-color.raw",s.readback.mapped,size_t(W)*H*4);}
-    J response=request;response.erase("camera");response.update(J{{"result",unsigned(result)},{"disable_word",disabled},{"eligible",eligible},{"actual_GPU_complete",true},{"output_bytes",eligible?size_t(W)*H*4*generated_count:0},{"outputs",outputs},{"input_copy_ms",input_copied-started},{"record_fence_idle_ms",gpu_completed-input_copied},{"output_copy_ms",cpu_ms()-gpu_completed},{"helper_service_ms",cpu_ms()-started},{"native_gpu_readers",0}});
+    J response=request;response.erase("camera");response.update(J{{"result",unsigned(result)},{"disable_word",disabled},{"eligible",eligible},{"actual_GPU_complete",true},{"output_bytes",eligible?size_t(W)*H*4*generated_count:0},{"outputs",outputs},{"disable_scope","real-frame-batch"},{"input_copy_ms",input_copied-started},{"record_fence_idle_ms",gpu_completed-input_copied},{"output_copy_ms",cpu_ms()-gpu_completed},{"helper_service_ms",cpu_ms()-started},{"native_gpu_readers",0}});
     if(gpu){response["helper_wake"]=control_wake.Enabled()?"win32_notify":"poll_1ms";response["wake_fallbacks"]=control_wake.Fallbacks();response.erase("native_gpu_readers");response.update(J{{"helper_GPU_complete",true},{"helper_serial",mailbox->serial},{"output_released",true},{"pixel_host_transfer_bytes",0}});}
     if(timing.pool){response.update(timing.Read());response.update(J{{"batch_record_cpu_ms",batch_record_ms},{"evaluate_record_cpu_ms",evaluate_record_ms},{"submit_cpu_ms",wait_start-submit_start},{"fence_wait_cpu_ms",idle_start-wait_start},{"device_idle_cpu_ms",idle_end-idle_start}});}
     if(generated_count>1&&timing.pool)response["gpu_timing_scope"]="Wine Vulkan batch Evaluate plus output copies; CUDA/OFA not isolated";
