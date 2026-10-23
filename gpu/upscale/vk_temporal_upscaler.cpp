@@ -368,6 +368,8 @@ TemporalUpscaler::TemporalUpscaler(const Instance& instance_, Scheduler& schedul
     // Explicit resolution overrides retain the old compatibility path. Normal presets
     // keep guest allocations/UI native and change only host raster targets at frame boundaries.
     scaled_session = std::getenv("BB_RENDER_RES") && std::getenv("BB_RENDER_RES")[0];
+    if(scaled_session&&BbNRDimensions::Get().enabled)
+        throw std::runtime_error("M5 NR dimensions require live host scene scaling (BB_LIVE_RES=1); startup render patches are incompatible");
     render_width = 1920;
     render_height = 1080;
     if (const char* res = std::getenv("BB_RENDER_RES")) {
@@ -2217,7 +2219,7 @@ void TemporalUpscaler::Run() {
         if (q1_frame_processed) q1_game_bridge.EndMergeTiming(scheduler);
         if (p0_frame_processed) p0_controller.EndMergeTiming(scheduler);
 #endif
-        if(native_async_pre_sr.Enabled()&&native_async_pre_sr.Supported()&&native_async_pre_sr.Source()==source_game_frame) {
+        if(native_async_pre_sr.Enabled()&&(!BbNRDimensions::Get().enabled||native_async_pre_sr.Armed())&&native_async_pre_sr.Supported()&&native_async_pre_sr.Source()==source_game_frame) {
             native_async_pre_sr.MergeRecorded(scheduler,source_game_frame);
             std::scoped_lock lock{c1_audit_mutex};
             if(native_async_pre_sr_pending_audit)throw std::runtime_error("Async preSR cannot overwrite current-source ledger");
@@ -2975,7 +2977,7 @@ void TemporalUpscaler::RunScaled() {
                 }
             }
         }
-    if(ok4&&BbNRDimensions::Get().enabled&&nr_dimension_source==BbStats::gpu_frames.load(std::memory_order_relaxed)&&native_async_pre_sr.Supported()){
+    if(ok4&&BbNRDimensions::Get().enabled&&native_async_pre_sr.Armed()&&nr_dimension_source==BbStats::gpu_frames.load(std::memory_order_relaxed)&&native_async_pre_sr.Supported()){
         native_async_pre_sr.MergeRecorded(scheduler,nr_dimension_source);
         std::scoped_lock lock{c1_audit_mutex};
         if(native_async_pre_sr_pending_audit)throw std::runtime_error("NR dimensions cannot overwrite source Present ledger");
@@ -3326,6 +3328,14 @@ bool TemporalUpscaler::DisplayOverride(VAddr address, Display& display) {
     const auto it = displays.find(address);
     if (it == displays.end() || !it->second.valid) {
         return false;
+    }
+    if(BbNRDimensions::Get().enabled){
+        // This is the actual scaled display buffer selected by Presenter. Bind the
+        // NR ledger here, using its real prepare counters; Presenter stays unchanged.
+        C1PresentAudit selected{};
+        if(TakeC1PresentAudit(address,BbStats::frame_number.load(std::memory_order_relaxed),
+              BbStats::gpu_frames.load(std::memory_order_relaxed),scheduler.CurrentTick(),selected))
+            it->second.c1_audit=std::move(selected);
     }
     display = {vk::Image(it->second.image), it->second.format, it->second.width,
                it->second.height, it->second.c1_audit};

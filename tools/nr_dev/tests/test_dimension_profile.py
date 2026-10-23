@@ -24,5 +24,5 @@ class Dimensions(unittest.TestCase):
   p=dims.select(self.args('--nr-sr-preset','quality','--nr-output','1920x1200'))
   ini=dims.ini(p,'key.cross=Space\nsharpen=0.3\naspect_ratio=auto\npreset=3\n')
   self.assertIn('key.cross=Space',ini);self.assertIn('sharpen=0.3',ini)
-  self.assertIn('aspect_ratio=16:10',ini);self.assertEqual(ini.count('preset='),1)
+  self.assertIn('aspect_ratio=16:10',ini);self.assertIn('live_resolution=1',ini);self.assertEqual(dims.environment(p)['BB_LIVE_RES'],'1');self.assertEqual(ini.count('preset='),1)
   with self.assertRaisesRegex(ValueError,'output menu'):dims.select(self.args('--nr-sr-preset','quality','--nr-output','1900x1000'))

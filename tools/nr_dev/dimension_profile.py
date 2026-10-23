@@ -39,7 +39,7 @@ def select(args):
  return {'schema':'nr-dimensions-v3','aspect_ratio':ratio,'preset':preset,'preset_name':name,'render_width':w,'render_height':h,'model_width':mw,'model_height':mh,'output_width':ow,'output_height':oh,'estimated_nr_image_bytes':mw*mh*768,'color_domain':'scene_hdr'}
 def environment(profile):
  if profile is None:return {}
- return {'BB_NR_DIMENSIONS_V3':'1','BB_NR_MODEL_WIDTH':str(profile['model_width']),'BB_NR_MODEL_HEIGHT':str(profile['model_height']),'BB_NR_SR_OUTPUT_WIDTH':str(profile['output_width']),'BB_NR_SR_OUTPUT_HEIGHT':str(profile['output_height']),'BB_UPSCALE_PRESET':str(profile['preset'])}
+ return {'BB_LIVE_RES':'1','BB_NR_DIMENSIONS_V3':'1','BB_NR_MODEL_WIDTH':str(profile['model_width']),'BB_NR_MODEL_HEIGHT':str(profile['model_height']),'BB_NR_SR_OUTPUT_WIDTH':str(profile['output_width']),'BB_NR_SR_OUTPUT_HEIGHT':str(profile['output_height']),'BB_UPSCALE_PRESET':str(profile['preset'])}
 def validate_capabilities(profile,build,binding):
  if profile is None:return
  if binding and b'NRBRIDGE_DIMENSIONS_V3R2' not in __import__('pathlib').Path(binding['config']['helper']['path']).read_bytes():raise ValueError('M5 variable dimensions require the matching v3 revision-2 Helper')
@@ -52,7 +52,7 @@ def validate_capabilities(profile,build,binding):
 def ini(profile,original=''):
  if profile is None:return None
  updates={'upscaler':'dlss','preset':str(profile['preset']),'aspect_ratio':profile['aspect_ratio'],
-          'output_res':f"{profile['output_width']}x{profile['output_height']}", 'jitter':'1','object_motion':'1'}
+          'output_res':f"{profile['output_width']}x{profile['output_height']}", 'jitter':'1','object_motion':'1','live_resolution':'1'}
  # Keep controls, language and other saved choices in the isolated run profile.
  lines=[]
  for line in original.splitlines():
