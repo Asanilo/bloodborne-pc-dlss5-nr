@@ -13,6 +13,7 @@ INPUTS = [
     'tools/fg_dev/wine_dlssg_probe.cpp',
     'tools/fg_dev/dlssg_snippet_bridge.cpp',
     'tools/fg_dev/dlssg_fixture.h',
+    'tools/fg_dev/dlssg_mfg_unlock.h',
     'tools/fg_dev/dlssg_evaluate_fixture.h',
     'tools/fg_dev/dlssg_stream.h',
     'tools/fg_dev/dlssg_wine_wake.h',
@@ -61,7 +62,7 @@ def main():
         flags += ['-I' + str(path.resolve()) for path in includes]
         commands = []
         for name, source, extra in [
-            ('wine-dlssg-probe.exe', INPUTS[0], []),
+            ('wine-dlssg-probe.exe', INPUTS[0], ['-lversion']),
             ('nvngx.dll_dlssg.dll', INPUTS[1], ['-shared']),
         ]:
             target = ROOT / 'out' / name

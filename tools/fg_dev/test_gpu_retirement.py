@@ -42,7 +42,7 @@ class GpuRetirementTests(unittest.TestCase):
                    for i,(role,fmt,w,h) in enumerate([('color',37,1920,1080),('depth',100,1280,720),('motion',83,1280,720),('output',37,1920,1080)])]
         meta=base|dict(resources=resources,completed_GPU=True,initial_release_serial=1)
         closed=base|dict(export_raw_fd_owned=0,closed_fd=[dict(role=r['role'],fd=r['fd']) for r in resources])
-        self.docs={'dlssg-launch.json':base|{'launcher_pid':1234},
+        self.docs={'dlssg-config.json':{'multiplier':2},'dlssg-launch.json':base|{'launcher_pid':1234},
                    'dlssg-retired.json':dict(terminal=terminal,launcher_pid=1234,wait_status=0,Native_shared_GPU_complete=True,
                         Native_imports_destroyed=True,native_shared_used=True,native_last_use_tick=20,last_native_input_tick=19,last_request_pair=pair),
                    'dlssg-gpu-import.json':base|dict(metadata=meta,FD_retired=closed,raw_payloads_absent=True)}

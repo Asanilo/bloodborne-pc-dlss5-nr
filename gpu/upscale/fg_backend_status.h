@@ -17,7 +17,7 @@ inline const char* Name(){
     if(Is(v,"off"))return "Off";
     if(Is(v,"fsr31"))return Is(std::getenv("BB_FRAME_GEN_HUDLESS"),"1")?"FSR 3.1 HUDless x2":"FSR 3.1 x2";
     if(Is(v,"fsr316"))return "FSR 3.1.6 x2 (Experimental)";
-    if(Is(v,"dlssg"))return "NVIDIA DLSS FG x2";
+    if(Is(v,"dlssg")){static const std::string label=std::string("NVIDIA DLSS FG ")+(std::getenv("BB_DLSSG_MULTIPLIER")?std::getenv("BB_DLSSG_MULTIPLIER"):"2")+"X";return label.c_str();}
     if(Is(v,"smooth-motion"))return "NVIDIA Smooth Motion";
     if(Is(v,"dlssg-capture"))return "DLSS FG input diagnostic";
     return "Unknown / unavailable";

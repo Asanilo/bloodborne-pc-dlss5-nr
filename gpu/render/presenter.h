@@ -69,9 +69,10 @@ struct Frame {
     bool is_hdr = false;
     u8 id = 0;
     /// Frame generation: the frame interpolated before this one, encoded like it (shown first).
-    VmaAllocation interp_allocation{};
-    vk::Image interp_image{};
-    vk::ImageView interp_view{};
+    struct Interpolated { VmaAllocation allocation{};vk::Image image{};vk::ImageView view{}; };
+    std::array<Interpolated,5> interp{};
+    unsigned interp_count=1, generated_index=0;
+    u64 fg_epoch=0;
     bool has_interp = false;
     std::shared_ptr<DlssgOutputTicket> fg_ticket;
     EncodePass::Settings fg_encode{};
@@ -110,8 +111,8 @@ public:
     Frame* PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute, VAddr cpu_address);
     /// Frame generation's frame interpolated before `frame` (PrepareFrame): encoded into the
     /// frame's second image like the real one.
-    void EncodeInterpolated(Frame* frame, vk::Image image, vk::Format format, u32 width, u32 height,
-                            vk::Format display_view_format, const EncodePass::Settings& encode, Scheduler& scheduler);
+    bool EncodeInterpolated(Frame* frame, vk::Image image, vk::Format format, u32 width, u32 height,
+                            vk::Format display_view_format, const EncodePass::Settings& encode, Scheduler& scheduler, unsigned slot=0);
     /// A black frame (no GPU work until it is presented).
     Frame* PrepareBlankFrame(bool present_thread);
     /// Present thread: shows `frame` and frees it (unless `is_reusing_frame`).

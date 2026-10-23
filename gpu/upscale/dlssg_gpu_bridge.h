@@ -29,7 +29,8 @@ class DlssgGpuBridge {
   bool independent_consumer = false;
   std::unique_ptr<Scheduler> consumer_scheduler; // Construct/record/destroy on service thread only.
   std::atomic<u64> consumer_completed_tick{0};
-  std::array<std::shared_ptr<DlssgRawOutput>, 2> raw_outputs;
+  std::array<std::shared_ptr<DlssgRawOutput>, 10> raw_outputs;
+  unsigned generated_count = 1;
   std::shared_ptr<DlssgOutputTicket> output_ticket;
   u64 slot_misses = 0;
   std::packaged_task<void()> deferred_job;
@@ -93,6 +94,9 @@ class DlssgGpuBridge {
     Need(config.at("schema") == "dlssg-native-gpu-v1" &&
              config.at("transport") == "gpu-dmabuf-v1",
          "GPU bridge sealed transport");
+    generated_count=config.value("multiplier",2u)-1;
+    Need(generated_count>=1&&generated_count<=5,"bounded MFG output count");
+    Need(generated_count==1||config.at("pipeline")=="consumer-queue-v1","MFG requires Q1");
     const char *root = std::getenv("BB_DLSSG_STREAM_DIR");
     Need(root && config.at("ipc") == root, "GPU bridge exact IPC root");
     mailbox = std::make_unique<DlssgGpu::MailboxImport>(
@@ -114,7 +118,7 @@ class DlssgGpuBridge {
     }
     std::printf("DLSSG_GPU_PIPELINE mode=%s async_submit_prerequisite=%u external_semaphore=0 extra_game_frame_buffer=0\n",
                 pipeline.c_str(), unsigned(async_exchange));
-    last_request = J{{"schema", DlssgGpu::Schema},
+    last_request = J{{"generated_count",generated_count},{"schema", DlssgGpu::Schema},
                      {"session", peer->session},
                      {"sequence", 0},
                      {"epoch", 0},
@@ -129,9 +133,9 @@ class DlssgGpuBridge {
     depth_transfer = std::make_unique<VideoCore::Buffer>(
         instance, 0, 1280u * 720 * 4, VideoCore::MemoryType::DeviceLocal,
         "DLSSG depth GPU transfer");
-    std::printf("DLSSG_GPU_BRIDGE_READY session=%s imported_images=4 "
+    std::printf("DLSSG_GPU_BRIDGE_READY session=%s imported_images=%u "
                 "export_raw_fds_retired=1 pixel_host_transfer_bytes=0\n",
-                peer->session.c_str());
+                peer->session.c_str(), 3+generated_count);
   }
   void Observe() {
     if (last_recorded_tick > mailbox->last_use) {
@@ -181,7 +185,8 @@ public:
   bool Independent() const { return independent_consumer; }
   std::shared_ptr<DlssgOutputTicket> TakeTicket() { return std::exchange(output_ticket, {}); }
   std::shared_ptr<DlssgRawOutput> ClaimOutput(vk::Format format) {
-    for (auto& slot : raw_outputs) {
+    for (unsigned index=0;index<2*generated_count;++index) {
+      auto& slot=raw_outputs[index];
       if (!slot) {
         slot = std::make_shared<DlssgRawOutput>();
         slot->format = format;
@@ -281,9 +286,11 @@ public:
       Need(guides && !pending && guide_source == scene.source_game_frame,
            "GPU same real guides/color");
       std::shared_ptr<DlssgRawOutput> raw;
+      std::vector<std::shared_ptr<DlssgRawOutput>> additional;
       if (independent_consumer) {
         raw = ClaimOutput(scene.color_format);
         if (!raw) return false; // Preserve guides=true for actual completion before reuse.
+        for(unsigned i=1;i<generated_count;++i){auto next=ClaimOutput(scene.color_format);if(!next)return false;additional.push_back(std::move(next));}
       }
       const auto started = Clock::now();
       scheduler.EndRendering();
@@ -324,7 +331,7 @@ public:
         ++epoch;
       current_camera = DlssgCamera::Prepare(
           scene, last_source ? &previous_camera : nullptr, reset);
-      last_request = J{{"schema", DlssgGpu::Schema},
+      last_request = J{{"generated_count",generated_count},{"schema", DlssgGpu::Schema},
                        {"session", peer->session},
                        {"sequence", sequence + 1},
                        {"epoch", epoch},
@@ -353,8 +360,8 @@ public:
         std::shared_ptr<DlssgOutputTicket> ticket;
         if (independent_consumer) {
           ticket = std::make_shared<DlssgOutputTicket>();
-          ticket->raw = raw; ticket->ready = flight; ticket->eligible = flight_eligible;
-          ticket->source = scene.source_game_frame; ticket->previous_source = last_source;
+          ticket->raw = raw; ticket->additional=std::move(additional);ticket->generated_count=generated_count; ticket->ready = flight; ticket->eligible = flight_eligible;
+          ticket->epoch=epoch;ticket->source = scene.source_game_frame; ticket->previous_source = last_source;
           ticket->display = display;
           ticket->guide_record_cpu_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(timing.guides.time_since_epoch()).count();
           ticket->producer_submit_cpu_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(flushed.time_since_epoch()).count();
@@ -456,10 +463,10 @@ public:
     }
   }
   void RecordOutput(Scheduler& stream, vk::Image target,
-                    const std::shared_ptr<std::atomic<bool>>& recorded) {
-      stream.Record([this, target, recorded](vk::CommandBuffer cmd) {
-        timing.Mark(cmd, 4);
-        mailbox->Ownership(VkCommandBuffer(cmd), 3, true, false);
+                    const std::shared_ptr<std::atomic<bool>>& recorded, unsigned output_index=0) {
+      stream.Record([this, target, recorded, output_index](vk::CommandBuffer cmd) {
+        if(output_index==0)timing.Mark(cmd, 4);
+        mailbox->Ownership(VkCommandBuffer(cmd), 3+output_index, true, false);
         if (target) {
           const vk::ImageMemoryBarrier2 before{
               .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
@@ -480,7 +487,7 @@ public:
               .srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
               .dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
               .extent = {1920, 1080, 1}};
-          cmd.copyImage(vk::Image(mailbox->images[3].image),
+          cmd.copyImage(vk::Image(mailbox->images[3+output_index].image),
                         vk::ImageLayout::eGeneral, target,
                         vk::ImageLayout::eGeneral, copy);
           auto after = before;
@@ -492,8 +499,8 @@ public:
           cmd.pipelineBarrier2(
               {.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &after});
         }
-        mailbox->Ownership(VkCommandBuffer(cmd), 3, false, false);
-        timing.Mark(cmd, 5);
+        mailbox->Ownership(VkCommandBuffer(cmd), 3+output_index, false, false);
+        if(output_index+1==generated_count)timing.Mark(cmd, 5);
         if (recorded)
           recorded->store(true, std::memory_order_release);
       });
@@ -590,7 +597,9 @@ public:
     const auto recorded = ticket.recorded;
     const auto tick = stream.CurrentTick();
     const auto copy_begin = Clock::now();
+    Need(ticket.additional.size()+1==ticket.generated_count,"complete MFG raw bundle");
     RecordOutput(stream, target, recorded);
+    for(unsigned i=1;i<ticket.generated_count;++i)RecordOutput(stream,vk::Image(ticket.additional[i-1]->image),{},i);
     stream.Flush();
     const auto copy_submitted = Clock::now();
     stream.Wait(tick); // Service thread, never the draw recording owner.

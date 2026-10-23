@@ -1016,6 +1016,8 @@ def tr(text):
 
 # Unified FG selection (M3).
 ZH.update({
+    "DLSS frame multiplier": "DLSS 帧生成倍率",
+    "3X–6X requires GPU DMA-BUF and Experimental Q1; restart required.": "3X–6X 使用 GPU DMA-BUF 和 Experimental Q1，更换倍率需要重启。",
     "Smooth Motion temporarily unavailable: M3 exit produced ErrorDeviceLost; normal GPU retirement is unverified. Use Off, FSR or DLSS FG.": "Smooth Motion 暂不可用：M3 测试退出时发生 ErrorDeviceLost，未能完成正常 GPU 退休。请选择关闭、FSR 或 DLSS FG。",
     "Frame generation backend": "帧生成后端",
     "Backend changes apply on the next launch; NR remains independent.": "更换后端在下次启动生效；NR 独立控制。",
@@ -1043,9 +1045,16 @@ ZH.update({
 })
 
 ZH.update({
+    "DLSS frame multiplier": "DLSS 帧生成倍率",
+    "3X–6X requires GPU DMA-BUF and Experimental Q1; restart required.": "3X–6X 使用 GPU DMA-BUF 和 Experimental Q1，更换倍率需要重启。",
     "Smooth Motion unavailable: VK_LAYER_NV_present is not installed": "Smooth Motion 不可用：未安装 VK_LAYER_NV_present 驱动 Layer。",
     "DLSS FG unavailable: choose the existing nvngx_dlssg.dll model": "DLSS FG 不可用：请选择已有的 nvngx_dlssg.dll 模型。",
     "DLSS FG unavailable: choose a built FG Helper runtime directory": "DLSS FG 不可用：请选择已构建的 FG Helper 运行目录。",
     "DLSS FG unavailable: choose a normally retired FG prefix session": "DLSS FG 不可用：请选择已正常退休的 FG prefix 会话。",
     "DLSS FG unavailable: the selected prefix is missing or not normally retired": "DLSS FG 不可用：所选 prefix 缺失或未正常退休。",
 })
+
+# The multiplier is a setting inside the DLSS backend, not a separate backend.
+ZH["NVIDIA DLSS FG / MFG"]="NVIDIA DLSS 帧生成／多帧生成"
+for _fg_multiplier in range(2,7):
+    ZH[f"DLSS FG {_fg_multiplier}X; 1080p DLSS Quality, Old memory. NR is independent. Backend changes require restart."]=f"DLSS 帧生成 {_fg_multiplier}X：1080p DLSS Quality、Old 内存模型。NR 独立控制，更换配置需要重启。"

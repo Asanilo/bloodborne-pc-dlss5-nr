@@ -11,10 +11,11 @@ struct FgMailboxExport : PreSrTransport {
     VkPhysicalDeviceProperties2 p{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};p.pNext=&ids;
     I(vkGetPhysicalDeviceProperties2)(physical,&p);properties=p.properties;
   }
-  void create_mailbox(){
+  void create_mailbox(unsigned count=1){
+    require(count>=1&&count<=5,"bounded mailbox outputs");
     struct Spec{const char* role;VkFormat format;unsigned w,h;};
-    for(auto spec:{Spec{"color",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},Spec{"depth",VK_FORMAT_R32_SFLOAT,1280,720},
-                   Spec{"motion",VK_FORMAT_R16G16_SFLOAT,1280,720},Spec{"output",VK_FORMAT_R8G8B8A8_UNORM,1920,1080}}){
+    const Spec specs[]={{"color",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"depth",VK_FORMAT_R32_SFLOAT,1280,720},{"motion",VK_FORMAT_R16G16_SFLOAT,1280,720},{"output",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"output1",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"output2",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"output3",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"output4",VK_FORMAT_R8G8B8A8_UNORM,1920,1080}};
+    for(unsigned index=0;index<3+count;++index){const auto& spec=specs[index];
       images.emplace_back();auto& im=images.back();im.role=spec.role;im.format=spec.format;im.width=spec.w;im.height=spec.h;
       im.external=query(im.format,spec.role,true,spec.w,spec.h);VkExternalMemoryImageCreateInfo ex{};auto ci=image_ci(im.format,ex,spec.w,spec.h);
       api(D(vkCreateImage)(device,&ci,nullptr,&im.image),"FG mailbox image");
@@ -39,12 +40,13 @@ struct FgMailboxExport : PreSrTransport {
     D(vkCmdCopyImage)(cmd,shared.image,VK_IMAGE_LAYOUT_GENERAL,private_image.image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,1,&copy);
     release(role,VK_ACCESS_TRANSFER_READ_BIT);g.barrier(private_image,VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   }
-  void copy_output(FgFixture& g,FgFixture::Image& private_image){
-    auto& shared=images.at(3);acquire(3,VK_ACCESS_TRANSFER_WRITE_BIT);
+  void copy_output(FgFixture& g,FgFixture::Image& private_image,unsigned index=0){
+    const unsigned role=3+index;
+    auto& shared=images.at(role);acquire(role,VK_ACCESS_TRANSFER_WRITE_BIT);
     g.barrier(private_image,VK_IMAGE_LAYOUT_GENERAL,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     VkImageCopy copy{};copy.srcSubresource=copy.dstSubresource={VK_IMAGE_ASPECT_COLOR_BIT,0,0,1};copy.extent={shared.width,shared.height,1};
     D(vkCmdCopyImage)(cmd,private_image.image,VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,shared.image,VK_IMAGE_LAYOUT_GENERAL,1,&copy);
-    release(3,VK_ACCESS_TRANSFER_WRITE_BIT);
+    release(role,VK_ACCESS_TRANSFER_WRITE_BIT);
   }
   void destroy_released(){require(native_released&&!in_flight,"Native released imports before exporter destroy");
     for(auto& im:images){require(im.fd==-1,"export raw FD retired");D(vkDestroyImage)(device,im.image,nullptr);D(vkFreeMemory)(device,im.allocation,nullptr);}images.clear();}

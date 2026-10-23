@@ -35,6 +35,13 @@ int main(){
  bad=sa;bad["native_GPU_complete"]=false;rejects([&]{Consumed(bad,split,2);});
  rejects([&]{Consumed(ack,split,2);});
  bad=split;bad["native_input_domain"]="consumer";rejects([&]{Request(bad,"cpu",0,0,0,0);});
+ for(unsigned count=2;count<=5;++count){auto multi=split;multi["generated_count"]=count;
+  auto ma=Pair(multi);ma.update(J{{"helper_serial_echo",2},{"native_last_use_tick",1},{"native_last_use_domain","consumer"},{"native_GPU_complete",true},{"output_released",true}});
+  ma["completed_outputs"]=J::array();for(unsigned i=1;i<=count;++i)ma["completed_outputs"].push_back(i);
+  Consumed(ma,multi,2);auto missing=ma;missing["completed_outputs"].erase(count-1);rejects([&]{Consumed(missing,multi,2);});
+  auto duplicate=ma;duplicate["completed_outputs"][count-1]=1;rejects([&]{Consumed(duplicate,multi,2);});
+  auto drift=multi;drift["generated_count"]=count==5?2:5;rejects([&]{Consumed(ma,drift,2);});
+ }
  request["sequence"]=2;request["previous_source_game_frame"]=42;request["source_game_frame"]=44;
  request["native_input_tick"]=12;request["reset"]=false;
  rejects([&]{Request(request,"cpu",1,1,42,11);});
