@@ -22,8 +22,6 @@ def selection(settings):
         raise ValueError('Unsupported DLSS FG pipeline/transport')
     multiplier=settings.get('fg_dlss_multiplier',2)
     if type(multiplier) is not int or not 2<=multiplier<=6:raise ValueError('DLSS multiplier must be 2..6')
-    if backend=='dlssg' and multiplier>2 and (transport!='gpu-dmabuf-v1' or pipeline!='consumer-queue-v1'):
-        raise ValueError('DLSS 3X–6X requires GPU DMA-BUF and consumer-queue-v1; x2 retains all fallbacks')
     return dict(multiplier=multiplier,backend=backend, pipeline=pipeline if transport=='gpu-dmabuf-v1' else 'sync-v1',
                 transport=transport, model=settings.get('fg_dlss_model',''),
                 runtime=settings.get('fg_dlss_runtime',''), prefix_session=settings.get('fg_dlss_prefix_session',''))
@@ -111,6 +109,8 @@ def availability(config,home):
     if backend=='smooth-motion':
         raise ValueError(SM_UNAVAILABLE)
     if backend=='dlssg':
+        if config.get('multiplier',2)>2 and (config['transport']!='gpu-dmabuf-v1' or config['pipeline']!='consumer-queue-v1'):
+            raise ValueError('DLSS 3X–6X requires GPU DMA-BUF and consumer-queue-v1; x2 retains all fallbacks')
         if not config['model'] or not Path(config['model']).is_file():
             raise ValueError('DLSS FG unavailable: choose the existing nvngx_dlssg.dll model')
         runtime=Path(config['runtime'])
@@ -123,5 +123,5 @@ def availability(config,home):
         try:
             if json.loads((r/'result.json').read_text()).get('status')!='PASS_NORMAL_TEARDOWN' or not (r/'profile/wine-prefix').is_dir():raise ValueError()
         except (OSError,ValueError):raise ValueError('DLSS FG unavailable: the selected prefix is missing or not normally retired')
-        return 'DLSS FG x2; 1080p DLSS Quality, Old memory. NR is independent. Backend changes require restart.'
+        return f"DLSS FG {config.get('multiplier',2)}X; 1080p DLSS Quality, Old memory. NR is independent. Backend changes require restart."
     return 'Backend changes require restart. FSR/DLSS can be enabled or disabled in the game.'

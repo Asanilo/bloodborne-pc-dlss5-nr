@@ -1053,3 +1053,8 @@ ZH.update({
     "DLSS FG unavailable: choose a normally retired FG prefix session": "DLSS FG 不可用：请选择已正常退休的 FG prefix 会话。",
     "DLSS FG unavailable: the selected prefix is missing or not normally retired": "DLSS FG 不可用：所选 prefix 缺失或未正常退休。",
 })
+
+# The multiplier is a setting inside the DLSS backend, not a separate backend.
+ZH["NVIDIA DLSS FG / MFG"]="NVIDIA DLSS 帧生成／多帧生成"
+for _fg_multiplier in range(2,7):
+    ZH[f"DLSS FG {_fg_multiplier}X; 1080p DLSS Quality, Old memory. NR is independent. Backend changes require restart."]=f"DLSS 帧生成 {_fg_multiplier}X：1080p DLSS Quality、Old 内存模型。NR 独立控制，更换配置需要重启。"

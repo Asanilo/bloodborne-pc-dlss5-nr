@@ -39,7 +39,8 @@ class UnifiedTests(unittest.TestCase):
    c=fg_config.selection({'fg_backend':'dlssg','fg_dlss_pipeline':'consumer-queue-v1','fg_dlss_multiplier':m})
    self.assertEqual(c['multiplier'],m)
   for settings in ({'fg_dlss_pipeline':'submit-ready-v1'},{'fg_dlss_pipeline':'consumer-queue-v1','fg_dlss_transport':'mapped-v1'}):
-   with self.assertRaises(ValueError):fg_config.selection({'fg_backend':'dlssg','fg_dlss_multiplier':3}|settings)
+   config=fg_config.selection({'fg_backend':'dlssg','fg_dlss_multiplier':3}|settings) # UI must reopen to correct it
+   with self.assertRaisesRegex(ValueError,'requires GPU'):fg_config.availability(config,'/missing')
  def test_manifest_drift(self):
   env={'BB_FRAME_GEN':'0','BB_FRAME_GEN_BACKEND':'smooth-motion','NVPRESENT_ENABLE_SMOOTH_MOTION':'1'}
   fg_config.validate_environment('smooth-motion',env)
