@@ -11,7 +11,9 @@ Performance and Ultra Performance across 1080p, 1440p, 1920×1200 and 2560×1080
 Seven configurations switched within one fixed NR720 execution session and
 resumed actual NR cache → Native SR → Present. A separate NR1920×1080 execution
 session with 1440p DLAA also completed real jobs and normal GPU/FD/model retirement
-on RTX 4060 Laptop. The stable M3 default and installed runtimes are unchanged.
+on RTX 4060 Laptop. Strict NR-only at 1080p and 1440p, switching to SR and back,
+also completed real jobs and normal retirement. Upscaler Off bypasses the SR
+Feature while retaining NR. The stable M3 default and installed runtimes are unchanged.
 
 This is functional development acceptance, not full visual-quality acceptance.
 The new sizes currently require FG **Off**. NR phase/jitter correction remains

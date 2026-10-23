@@ -42,7 +42,12 @@ SR 档位、输出分辨率和宽高比；Delete 打开 NR 参数。NR 不会因
   不代表所有允许组合都已验证能在 8GB 上游玩。
 
 例如：NR 1280×720 可分别配合 SR 1706×960→2560×1440、1280×720→2560×1440，
-或 DLAA 2560×1440→2560×1440。最后一项是 NR 加同分辨率 DLAA；不宣称绕过 SR。
+或 DLAA 2560×1440→2560×1440。DLAA 仍调用 SR Feature。
+严格 NR-only 使用 `--nr-sr-preset native`；此时 render=output，Native 不创建或
+Evaluate SR Feature，NR HDR 结果直接进入游戏后处理和显示路径。
+启动器开启 M5 后选择 Upscaler Off 即是这一模式，SR 的隐藏档位设置会保留。
+NR-only 可以在图形菜单切回 DLSS SR；已有 SR Feature 在切到 Off 时等待真实 GPU
+完成后释放。同一模型执行尺寸继续使用原 NR 会话，切换触发历史 reset。
 `working_scale=1` 是模型内部约定；Native 输入适配与 OptiScaler WorkingScale 是两个概念。
 
 M5 显式使用 `BB_LIVE_RES=1` 的动态 host target 路径。旧的启动分辨率补丁会采用
@@ -111,6 +116,33 @@ CPU 验证包含 NR 工具 309 项、完整 NR 启动器/打包入口 60 项，�
 runtime config、ring64、动态尺寸和退休测试；Native 增量构建与原有 CPU 测试通过。
 新增路径最后的资源所有权调整随后由上述 r3/r4 实机验证覆盖。
 
+## 严格 NR-only（补充验证）
+
+`13879fe` / `m5-nr-only-live-r5` 使用相同 R2 Helper / Preset B，NR execution 1280×720。
+先运行 NR-only，再修改输出尺寸、启用真正的 SR，最后切回 NR-only：
+
+| 路径 | 实际 render → output | 短窗 FPS / P50 | 设备总显存采样最高 MiB |
+|---|---|---|---|
+| NR-only | 1920×1080 → 1920×1080 | 67.2 / 14.10 ms | 3780 |
+| NR-only | 2560×1440 → 2560×1440 | 53.4 / 18.12 ms | 4376 |
+| 恢复 NR→SR Quality | 1706×960 → 2560×1440 | 59.4 / 15.57 ms | 4383 |
+| 返回 NR-only | 1920×1080 → 1920×1080 | 65.5 / 14.50 ms | 4383 |
+
+初始两组短窗分别有 414 和 323 个真实 Present，均匹配同源
+`NRBRIDGE_NATIVE_WITHOUT_SR_V1` 记录，Native SR Evaluate 调用数为零。
+切换中原帧回退后恢复 NR cache_selected；F8 off/on 通过。
+2853 finalized（2825 captured、28 obsolete、0 skip），正常 GPU/FD/model reap、rc0、
+无残留，prefix lease 已归还。采样窗口含切换，范围与前表相同。
+
+NR-only 没有 DLSS 的时域抗锯齿，细线条锯齿可能明显，不能把它当作与 DLAA 等质。
+NR-only 的原 NR→SR→Present 三阶段冷捕获流程不在本轮验收范围；该流程需要 SR
+输出，暂不在 NR-only 使用。普通截图、NR 图像/任务记录和游玩/F8 不依赖该流程。
+
+新增 Native 能力标记 `NRBRIDGE_NATIVE_WITHOUT_SR_V1`：旧的尺寸 Native 被明确拒绝，
+而 Helper v3r2 和共享协议完全不变。NR-only 的 Native 使用记录包含实际后处理记录 tick，
+不伪造 SrReadRecorded；normal last-use、CONSUMED 和终端退休仍使用实际 Native 队列。
+CPU 回归更新为 311 项 NR 工具、61 项启动器/打包入口，Native 增量 --test 通过。
+
 ## 提交与集成边界
 
 - `6f6230b`：版本化尺寸协议、Helper/Native 固定执行尺寸参数化与配置选择。
@@ -118,6 +150,7 @@ runtime config、ring64、动态尺寸和退休测试；Native 增量构建与�
 - `8878c91`：强制 live host 尺寸路径、scaled display 的真实准备记录绑定。
 - `de2272d`：默认关闭的启动器选项与 CLI 转发，便于和 M4 启动器独立合流。
 - `0a616fd`：适配器与 render Motion 的 HOLD 生命周期、按需采样。
+- `13879fe`：严格 NR-only、和 SR 的运行时切换、旧 SR Feature 的实际退休。
 
 `gpu/render/presenter.cpp`、FG mailbox、FG backend 和多帧输出代码未修改。
 `vk_temporal_upscaler.cpp` 仅新增 M5 开关保护下的 NR prepass、SR 后的 NR 记录和

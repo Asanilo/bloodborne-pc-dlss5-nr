@@ -92,7 +92,8 @@ input while active and returns it to normal gameplay when closed.
 The stable NR profile uses DLSS Quality, 1920×1080, 16:9 or Auto, jitter and object
 motion enabled. The source-built [M5 experiment](docs/M5_NR_DIMENSIONS.zh-CN.md) adds
 DLAA, Quality, Balanced and Performance with multiple outputs and live SR switching;
-select **Experimental NR dimensions (M5)** and keep FG Off. Choose Old or Auto memory; under NR, Auto selects the matching old
+select **Experimental NR dimensions (M5)** and keep FG Off. Upscaler Off selects
+strict NR-only; DLAA keeps same-resolution DLSS reconstruction. Choose Old or Auto memory; under NR, Auto selects the matching old
 model. Turn NR off to use ordinary upscaler settings.
 
 </details>

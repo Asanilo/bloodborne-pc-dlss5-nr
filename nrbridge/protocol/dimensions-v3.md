@@ -66,3 +66,13 @@ when the actual scaled display image is selected by Presenter, using the real
 GPU frame/prepare tick. This consumes the same association rule as the HDR
 1080p path without changing FG/Presenter implementation. Hot association does
 not trigger whole-frame readback; diagnostic captures remain explicit.
+
+
+Native's optional `native` preset bypasses DLSS SR while keeping this same
+execution protocol. Render equals output, and the NR residual enters the game's
+HDR postprocessing directly. Native records final postprocess use and the actual
+Present association; it does not fabricate an SR read/evaluation. Choosing DLSS
+again resets visual history and creates a fresh SR feature; switching Off waits
+for real Native GPU completion before releasing that feature. The independent
+Helper/model session remains fixed. `NRBRIDGE_NATIVE_WITHOUT_SR_V1` gates this
+Native capability separately from the unchanged Helper v3r2 marker.
