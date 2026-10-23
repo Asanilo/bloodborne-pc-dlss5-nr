@@ -71,3 +71,31 @@ SM r62 在普通关闭窗口后出现 swapchain device-idle / timeline submissio
 CPU 回归：FG/runner/SM/统一后端52项、launcher/设置/鼠标及在线入口相关41项通过；
 另有前序 player存档/续跑31项通过。GTK 实际控件完成五项选择持久化且 NR 状态不变。
 Native 增量 `--test` 使用现有缓存；包含既有 DLC/运行时测试。
+
+## 主线结果与交付入口
+
+- 功能提交 `112004b`，合流提交 `5445cd2`，Native 冲突环境保护 `f558dc8`。
+  M1 恢复标签 `recovery/m1-pre-m3-7489493`，M2 恢复标签 `recovery/m2.3-f4f1f65`。
+  `nrbridge` 保留完整 M2 历史，FG 工作树同步到同一合流历史；未覆盖脏 FSR 子模块。
+- 主线 `f558dc8` 的 `m3-mainline-q1-r63` 完成 NR+SR+DLSS Q1 实机验收。
+  NR OFF 5秒：270真实/269生成；NR ON 5秒：242真实/243生成。
+  FG关闭3秒：180真实/0生成，NR job继续推进；恢复3秒：144真实/144生成。
+  抽样配对错误0；HUD截图检查正常。这里是功能验收场景和有界采样，非 M2 性能横比。
+- r63 返回0，`PASS_NORMAL_TEARDOWN`，实际 NR GPU/模型/FD proof、
+  `FG_DRAW_RETIRED`、`FG_PRESENT_RETIRED` 均通过；无残留进程、无watchdog，
+  guard为retired，借用NR prefix已归还，私有存档正常同步。
+- 合流后的 Native 增量 `--test`、52项FG和41项公共接口再次通过。
+  最终 GTK 实测保存所有后端、保持NR不变，并显示SM的实际失败原因。
+- 本机开发启动入口：在 FG 工作树执行 `bash out/launch-m3.sh`。
+  它使用**已有启动器**和 `nrbridge/out` 主线构建，复用 FG/out 的 Wine Helper，
+  设置与存档位于 FG/out/m3-launcher，未替换正式玩家安装或配置。
+  当前预选 DLSS GPU / consumer-queue-v1 / NR Preset B；高级选项可回退 submit-ready-v1。
+  `out/` 脚本是本机开发入口，不是可移植的发行包。
+- 本轮新建私有配置、存档副本和六个验收目录合计约 **0.89 GiB** 分配空间
+  （`du -sk`，含约0.42GiB的SM HOLD目录，保留GPU故障证据）。少量脚本/日志另计。
+  既有 out 的增量编译和共享缓存净变化没有独立起始计量，不把上述值冒充整个工作区净增量。
+  没有新 Wine prefix、完整构建副本、依赖副本或 AppImage。
+
+尚未完成：SM正常退出与独立显示生成帧验收；FSR3.1.6新画质验收；新AppImage发布；
+玩家长时间转镜/战斗、F8与FG开关体验、DLSS两条流水线的主观延迟比较。
+本轮没有改动联机/DLC算法；其公共入口/既有CPU测试通过，不声称完成新联机实机测试。
