@@ -34,6 +34,12 @@ class UnifiedTests(unittest.TestCase):
   a=argparse.Namespace(fg_backend=None,smooth_motion=True)
   fg_config.normalize(a)
   self.assertEqual(fg_config.requested(a),'smooth-motion')
+ def test_mfg_requires_supported_pipeline(self):
+  for m in range(2,7):
+   c=fg_config.selection({'fg_backend':'dlssg','fg_dlss_pipeline':'consumer-queue-v1','fg_dlss_multiplier':m})
+   self.assertEqual(c['multiplier'],m)
+  for settings in ({'fg_dlss_pipeline':'submit-ready-v1'},{'fg_dlss_pipeline':'consumer-queue-v1','fg_dlss_transport':'mapped-v1'}):
+   with self.assertRaises(ValueError):fg_config.selection({'fg_backend':'dlssg','fg_dlss_multiplier':3}|settings)
  def test_manifest_drift(self):
   env={'BB_FRAME_GEN':'0','BB_FRAME_GEN_BACKEND':'smooth-motion','NVPRESENT_ENABLE_SMOOTH_MOTION':'1'}
   fg_config.validate_environment('smooth-motion',env)

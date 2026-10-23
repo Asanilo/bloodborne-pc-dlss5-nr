@@ -12,6 +12,7 @@ static void api(VkResult result,const char* stage){if(result!=VK_SUCCESS||!geten
 #include <nvsdk_ngx_vk.h>
 #include <nlohmann/json.hpp>
 #include <fstream>
+#include "dlssg_mfg_unlock.h"
 
 template <class T> static T sym(HMODULE m, const char *n) {
   auto f = reinterpret_cast<T>(GetProcAddress(m, n));
@@ -48,7 +49,7 @@ struct Probe {
   std::shared_ptr<void> input_descriptors;
   nlohmann::json stream_terminal;
   bool core_attempted = false, inflight = false, shared_active = false;
-  unsigned create_result = 0;
+  unsigned create_result = 0, generated_count = 1;
   template <class T> T i(const char *n) {
     return reinterpret_cast<T>(gipa(instance, n));
   }
@@ -57,6 +58,8 @@ struct Probe {
   }
   void init(const char *run, const char *ge, const char *adapter) {
     snippet = adapter != nullptr;
+    if(const char* count=getenv("FG_POC_GENERATED_COUNT"))generated_count=std::stoul(count);
+    require(generated_count>=1&&generated_count<=5,"bounded MFG output count");
     std::string root = ge;
     dxgi = LoadLibraryExW(
         wide(win(root + "/lib/wine/dxvk/x86_64-windows/dxgi.dll")).c_str(),
@@ -271,7 +274,7 @@ struct Probe {
     set(params, "CreationNodeMask", 1);
     set(params, "VisibilityNodeMask", 1);
     set(params, "DLSSG.BackbufferFormat", VK_FORMAT_R8G8B8A8_UNORM);
-    set(params, "DLSSG.MultiFrameCount", 1);
+    set(params, "DLSSG.MultiFrameCount", generated_count);
     if (snippet) {
       // The snippet reads the documented logging fields from its Init parameter
       // block. Keep vendor error messages; do not replace failed capabilities
@@ -304,6 +307,7 @@ struct Probe {
       require(sym<int (*)(const wchar_t *)>(bridge, "fg_load")(
                   wide(win(model_path)).c_str()) == 1,
               "FG model load");
+      if(generated_count>1)MfgUnlock::Apply(GetModuleHandleW(L"nvngx_dlssg.dll"));
       NVSDK_NGX_FeatureRequirement r{};
       int qr = sym<int (*)(void *, void *, const void *, void *)>(
           bridge, "fg_requirements")(instance, physical, &discovery, &r);
@@ -320,7 +324,9 @@ struct Probe {
       int pr = sym<int (*)(void *)>(bridge, "fg_populate")(params);
       printf("FG_SNIPPET_POPULATE result=0x%08x\n", unsigned(pr));
       require(pr == 1, "FG model populate");
+      if(generated_count>1){unsigned maximum=0;require(get(params,"DLSSG.MultiFrameCountMax",&maximum)==1&&maximum>=generated_count,"MFG actual model maximum");printf("DLSSG_MFG_CAP maximum=%u requested=%u\n",maximum,generated_count); }
     }
+    set(params,"DLSSG.MultiFrameCount",generated_count);
     // Supply the same fixed extents for Create and Evaluate. The installed
     // 310.2.1 snippet may still initialize its cache on the first Evaluate
     // (logged explicitly).

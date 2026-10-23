@@ -706,6 +706,9 @@ class LauncherWindow(Adw.ApplicationWindow):
             self.settings.get('fg_dlss_pipeline','submit-ready-v1'))
         self.nr_fg_transport=combo_row(tr("DLSS transport"),tr("CPU fallback uses synchronous processing."),
             [("GPU DMA-BUF","gpu-dmabuf-v1"),("CPU shared memory fallback","mapped-v1"),("CPU file fallback","files-v1")],fg['transport'])
+        self.nr_fg_multiplier=combo_row(tr('DLSS frame multiplier'),tr('3X–6X requires GPU DMA-BUF and Experimental Q1; restart required.'),[(str(m)+'X',m) for m in range(2,7)],fg['multiplier'])
+        advanced.add_row(self.nr_fg_multiplier)
+        self.nr_fg_multiplier.connect('notify::selected',self.update_fg_status)
         advanced.add_row(self.nr_fg_pipeline);advanced.add_row(self.nr_fg_transport)
         self.nr_fg_fields={}
         for key,title,value in [('fg_dlss_model','DLSS FG model DLL',fg['model']),
@@ -812,7 +815,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         threading.Thread(target=worker, daemon=True).start()
 
     def fg_preferences(self):
-        return dict(fg_backend=combo_value(self.nr_fg_row),fg_dlss_pipeline=combo_value(self.nr_fg_pipeline),
+        return dict(fg_dlss_multiplier=combo_value(self.nr_fg_multiplier),fg_backend=combo_value(self.nr_fg_row),fg_dlss_pipeline=combo_value(self.nr_fg_pipeline),
                     fg_dlss_transport=combo_value(self.nr_fg_transport),
                     **{k:row.get_text().strip() for k,row in self.nr_fg_fields.items()})
 

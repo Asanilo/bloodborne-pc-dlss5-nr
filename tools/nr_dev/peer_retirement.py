@@ -254,8 +254,12 @@ def audit_dlssg_gpu(run,session,text,expected_split=False):
       and uint(meta,'initial_release_serial')>0 and uint(closed,'export_raw_fd_owned')==0,
       'GPU mailbox initial release, completed request serial and raw FD audit')
  resources=meta.get('resources',[])
- need(type(resources) is list and len(resources)==4,'GPU mailbox four imported images')
+ config=load(run/'dlssg-config.json');count=config.get('multiplier',2)-1
+ need(type(count) is int and 1<=count<=5,'MFG bounded output count')
+ need(meta.get('generated_count',1)==count and pair.get('generated_count',1)==count and terminal.get('generated_count',1)==count,'MFG negotiated retired count')
+ need(type(resources) is list and len(resources)==3+count,'GPU mailbox negotiated imported images')
  expected=[('color',37,1920,1080),('depth',100,1280,720),('motion',83,1280,720),('output',37,1920,1080)]
+ expected += [('output'+str(i),37,1920,1080) for i in range(1,count)]
  for resource,(role,fmt,width,height) in zip(resources,expected):
   need(resource.get('role')==role and uint(resource,'format')==fmt and uint(resource,'width')==width
        and uint(resource,'height')==height and resource.get('dedicated') is True and uint(resource,'offset')==0,

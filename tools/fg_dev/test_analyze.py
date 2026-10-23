@@ -7,6 +7,18 @@ def row(kind, source, fg, ns, success=1):
 
 
 class PresentAuditTests(unittest.TestCase):
+    def test_mfg_order_and_missing_output(self):
+        def mfg(index):
+            return row('generated',7,3,index).rstrip()+f' generated_index={index} generated_count=3 fg_epoch=8\n'
+        real=row('real',7,3,4).rstrip()+' generated_index=0 generated_count=3 fg_epoch=8\n'
+        self.assertEqual(analyze(mfg(1)+mfg(2)+mfg(3)+real)['order_errors'],[])
+        self.assertEqual(analyze(mfg(1)+mfg(2)+mfg(3)+real)['complete_generated_batches'],1)
+        self.assertEqual(analyze(mfg(2)+mfg(3)+real)['complete_generated_batches'],0)
+        self.assertEqual(analyze(mfg(1)+real)['complete_generated_batches'],0)
+        for text in (mfg(1)+mfg(3)+real,mfg(1)+mfg(2)+mfg(2)+real,mfg(1)+real):
+            self.assertTrue(analyze(text)['order_errors'])
+        self.assertEqual(analyze(mfg(2)+mfg(3)+real)['order_errors'],[]) # bounded sample starts mid-batch
+
     def test_complete_present_after_unterminated_diagnostic(self):
         text = (row('generated', 7, 3, 1) +
                 'Write fault sites (guest code, this window): 4377 faults' +

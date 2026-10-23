@@ -22,6 +22,7 @@ void Probe::stream(const char* root) {
   auto write_bytes=[&](const char* name,const void* data,size_t bytes){FILE* f=fopen((std::string(root)+"/"+name).c_str(),"wb");require(f,"stream output open");bool ok=fwrite(data,1,bytes,f)==bytes;ok=fclose(f)==0&&ok;require(ok,"stream output complete write");};
   auto read_bytes=[&](const char* name,void* data,size_t bytes){FILE* f=fopen((std::string(root)+"/"+name).c_str(),"rb");require(f,"stream input open");bool ok=fread(data,1,bytes,f)==bytes;ok=fgetc(f)==EOF&&ok;ok=fclose(f)==0&&ok;require(ok,"stream input exact length");};
   const auto config=read_json("stream-config.json");
+  require(DlssgGpu::Count(config)==generated_count,"MFG config/env count");
   const bool gpu=config.value("transport",std::string{})=="gpu-dmabuf-v1";
   const std::string schema=gpu?DlssgGpu::Schema:"dlssg-cpu-stream-v1";
   require(config.at("schema")==schema,"stream config schema");
@@ -47,34 +48,34 @@ void Probe::stream(const char* root) {
     require(identity.at("native_pid")==config.at("native_pid")&&identity.at("native_start_ticks")==config.at("native_start_ticks"),"GPU exact Native identity echo");linux_exporter=DlssgGpu::U(identity,"exporter_pid");exporter_ticks=DlssgGpu::U(identity,"exporter_start_ticks");check_peer();
     shared_active=true;mailbox=std::make_unique<FgMailboxExport>(instance,physical,device,queue,family,gipa,gdpa,command,fence);mailbox->session=session;mailbox->linux_pid=uint32_t(linux_exporter);
     require(config.at("device_uuid")==hex(mailbox->ids.deviceUUID)&&config.at("driver_uuid")==hex(mailbox->ids.driverUUID)&&DlssgGpu::U(config,"driver_version")==mailbox->properties.driverVersion,"GPU exact physical/driver match");
-    mailbox->create_mailbox();mailbox->initial_release();auto meta=J::parse(mailbox->metadata());meta.update(J{{"schema",schema},{"initial_release_serial",mailbox->serial},{"driver_version",mailbox->properties.driverVersion}});
+    mailbox->create_mailbox(generated_count);mailbox->initial_release();auto meta=J::parse(mailbox->metadata());meta.update(J{{"generated_count",generated_count},{"schema",schema},{"initial_release_serial",mailbox->serial},{"driver_version",mailbox->properties.driverVersion}});
     atomic_text(std::string(root)+"/gpu-meta.json",meta.dump()+"\n");J pairs=J::array();for(const auto& im:mailbox->images)pairs.push_back({{"role",im.role},{"fd",im.fd}});
-    auto imported=wait_gpu("gpu-imported.json",[](const J&){return true;});require(imported.at("raw_fd_pairs")==pairs&&DlssgGpu::U(imported,"initial_release_serial_echo")==mailbox->serial&&DlssgGpu::U(imported,"imported_images")==4&&DlssgGpu::U(imported,"owned_duplicate_fd")==0,"GPU exact import ACK");
+    auto imported=wait_gpu("gpu-imported.json",[](const J&){return true;});require(imported.at("raw_fd_pairs")==pairs&&DlssgGpu::U(imported,"initial_release_serial_echo")==mailbox->serial&&DlssgGpu::U(imported,"imported_images")==3+generated_count&&DlssgGpu::U(imported,"owned_duplicate_fd")==0,"GPU exact import ACK");
     mailbox->retire_fds();atomic_text(std::string(root)+"/gpu-fd-retired.json",J{{"schema",schema},{"session",session},{"closed_fd",J::parse(mailbox->closed_fds)},{"export_raw_fd_owned",0}}.dump()+"\n");
   }
 
   fixture=std::make_unique<FgFixture>(device,physical,command,gdpa,i<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties"));auto& g=*fixture;
   constexpr unsigned W=1920,H=1080,RW=1280,RH=720;
   FgGpuTiming timing(device,physical,gdpa,i<PFN_vkGetPhysicalDeviceProperties>("vkGetPhysicalDeviceProperties"),i<PFN_vkGetPhysicalDeviceQueueFamilyProperties>("vkGetPhysicalDeviceQueueFamilyProperties"),family);
-  struct Slot{FgFixture::Image color,depth,motion,output;FgFixture::Buffer color_upload,depth_upload,motion_upload,readback,disabled;};
+  struct Slot{FgFixture::Image color,depth,motion;std::array<FgFixture::Image,5> output;std::array<FgFixture::Buffer,5> disabled;FgFixture::Buffer color_upload,depth_upload,motion_upload,readback;};
   auto descriptors=std::make_shared<std::array<Slot,2>>();input_descriptors=descriptors;auto& slots=*descriptors;
-  for(auto& s:slots){s.color=g.image(VK_FORMAT_R8G8B8A8_UNORM,false);s.depth=g.image(VK_FORMAT_R32_SFLOAT,false,RW,RH);s.motion=g.image(VK_FORMAT_R16G16_SFLOAT,false,RW,RH);s.output=g.image(VK_FORMAT_R8G8B8A8_UNORM,true);s.disabled=g.buffer(4,true);if(!gpu){s.color_upload=g.buffer(size_t(W)*H*4);s.depth_upload=g.buffer(size_t(RW)*RH*4);s.motion_upload=g.buffer(size_t(RW)*RH*4);s.readback=g.buffer(size_t(W)*H*4,true);}}
+  for(auto& s:slots){s.color=g.image(VK_FORMAT_R8G8B8A8_UNORM,false);s.depth=g.image(VK_FORMAT_R32_SFLOAT,false,RW,RH);s.motion=g.image(VK_FORMAT_R16G16_SFLOAT,false,RW,RH);for(unsigned i=0;i<generated_count;++i){s.output[i]=g.image(VK_FORMAT_R8G8B8A8_UNORM,true);s.disabled[i]=g.buffer(4,true);}if(!gpu){s.color_upload=g.buffer(size_t(W)*H*4);s.depth_upload=g.buffer(size_t(RW)*RH*4);s.motion_upload=g.buffer(size_t(RW)*RH*4);s.readback=g.buffer(size_t(W)*H*4,true);}}
   for(auto k:{"DLSSG.MVecsSubrectWidth","DLSSG.DepthSubrectWidth","DLSSG.InternalWidth"})ui(k,RW);
   for(auto k:{"DLSSG.MVecsSubrectHeight","DLSSG.DepthSubrectHeight","DLSSG.InternalHeight"})ui(k,RH);
   for(auto k:{"DLSSG.InputBackbufferSubrectWidth","DLSSG.OutputInterpolatedSubrectWidth","DLSSG.BackbufferSubrectWidth"})ui(k,W);
   for(auto k:{"DLSSG.InputBackbufferSubrectHeight","DLSSG.OutputInterpolatedSubrectHeight","DLSSG.BackbufferSubrectHeight"})ui(k,H);
   for(auto k:{"DLSSG.MVecsSubrectBaseX","DLSSG.MVecsSubrectBaseY","DLSSG.DepthSubrectBaseX","DLSSG.DepthSubrectBaseY","DLSSG.InputBackbufferSubrectBaseX","DLSSG.InputBackbufferSubrectBaseY","DLSSG.OutputInterpolatedSubrectBaseX","DLSSG.OutputInterpolatedSubrectBaseY","DLSSG.BackbufferSubrectBaseX","DLSSG.BackbufferSubrectBaseY","DLSSG.ColorBuffersHDR","DLSSG.DepthInverted","DLSSG.NotRenderingGameFrames","DLSSG.OrthoProjection","DLSSG.MenuDetectionEnabled","DLSSG.MvecDilated","DLSSG.MvecJittered","DLSSG.AutomodeOverrideReset"})ui(k,0);
-  ui("DLSSG.CameraMotionIncluded",1);ui("DLSSG.MultiFrameCount",1);ui("DLSSG.MultiFrameIndex",1);
+  ui("DLSSG.CameraMotionIncluded",1);ui("DLSSG.MultiFrameCount",generated_count);ui("DLSSG.MultiFrameIndex",1);
   fp("DLSSG.MvecScaleX",1.f/RW);fp("DLSSG.MvecScaleY",1.f/RH);fp("DLSSG.CameraAspectRatio",float(W)/H);
   fp("DLSSG.CameraPinholeOffsetX",0);fp("DLSSG.CameraPinholeOffsetY",0);fp("DLSSG.MvecInvalidValue",3.402823466e38f);fp("DLSSG.MinRelativeLinearDepthObjectSeparation",40.f);
   for(auto k:{"DLSSG.HUDLess","DLSSG.UI","DLSSG.UIAlpha","DLSSG.OutputReal","DLSSG.BidirectionalDistortionField"})ptr(k,nullptr);
   std::array<float,16> identity{};for(unsigned k=0;k<4;++k)identity[k*5]=1;ptr("DLSSG.ClipToLensClip",identity.data());
   api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),"stream initialization idle");
   if(gpu)(void)DlssgGpu::Split(config);
-  atomic_text(std::string(root)+"/stream-ready.json",J{{"schema",schema},{"session",session},{"transport",transport},{"actual_GPU_complete",true},{"private_image_sets",2},{"native_completion_mode",config.value("native_completion_mode",std::string("draw-v1"))},{"native_gpu_readers",0},{"helper_serial",gpu?mailbox->serial:0}}.dump()+"\n");
+  atomic_text(std::string(root)+"/stream-ready.json",J{{"generated_count",generated_count},{"schema",schema},{"session",session},{"transport",transport},{"actual_GPU_complete",true},{"private_image_sets",2},{"native_completion_mode",config.value("native_completion_mode",std::string("draw-v1"))},{"native_gpu_readers",0},{"helper_serial",gpu?mailbox->serial:0}}.dump()+"\n");
   const bool split=gpu&&DlssgGpu::Split(config);
   uint64_t last_draw_tick=0,last_input_tick=0;
-  uint64_t sequence=0,last_source=0,epoch=0,last_native_tick=0;bool initialized[2]{};J last_request{{"schema",schema},{"session",session},{"sequence",0},{"epoch",0},{"source_game_frame",0},{"previous_source_game_frame",0},{"display",0}};
+  uint64_t sequence=0,last_source=0,epoch=0,last_native_tick=0;bool initialized[2]{};J last_request{{"generated_count",generated_count},{"schema",schema},{"session",session},{"sequence",0},{"epoch",0},{"source_game_frame",0},{"previous_source_game_frame",0},{"display",0}};
   if(split)last_request.update(J{{"native_completion_mode","split-v1"},{"native_input_domain","draw"}});
   while(true){
     check_peer();
@@ -85,7 +86,7 @@ void Probe::stream(const char* root) {
 
     if(!exists("request.json")){pause_control();continue;}
     auto request=read_json("request.json");uint64_t next=request.at("sequence");
-    if(gpu)DlssgGpu::Session(request,session);
+    if(gpu){DlssgGpu::Session(request,session);require(DlssgGpu::Count(request)==generated_count,"MFG request count");}
     if(next==sequence){pause_control();continue;}
     require(next==sequence+1&&request.at("schema")==schema&&request.at("session")==session,"request exact session/sequence");
     uint64_t source=request.at("source_game_frame"),previous=request.at("previous_source_game_frame"),generation=request.at("epoch");bool reset=request.at("reset");
@@ -107,23 +108,37 @@ void Probe::stream(const char* root) {
     for(unsigned k=0;k<4;++k)for(unsigned j=0;j<3;++j){std::string key=std::string(bases[k])+"XYZ"[j];float v=m.at(vector_keys[k]).at(j);require(std::isfinite(v),"finite camera vector");fp(key.c_str(),v);}
     fp("DLSSG.CameraNear",m.at("near"));fp("DLSSG.CameraFar",m.at("far"));fp("DLSSG.CameraFOV",m.at("vertical_fov"));fp("DLSSG.JitterOffsetX",m.at("jitter").at(0));fp("DLSSG.JitterOffsetY",m.at("jitter").at(1));
     ull("DLSSG.BackbufferFrameID",source);ui("DLSSG.Reset",reset);
-    ptr("DLSSG.Backbuffer",&s.color.ngx);ptr("DLSSG.Depth",&s.depth.ngx);ptr("DLSSG.MVecs",&s.motion.ngx);ptr("DLSSG.OutputInterpolated",&s.output.ngx);ptr("DLSSG.OutputDisableInterpolation",&s.disabled.ngx);
+    ptr("DLSSG.Backbuffer",&s.color.ngx);ptr("DLSSG.Depth",&s.depth.ngx);ptr("DLSSG.MVecs",&s.motion.ngx);
     api(d<PFN_vkResetCommandBuffer>("vkResetCommandBuffer")(command,0),"stream reset command");VkCommandBufferBeginInfo begin{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};api(d<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(command,&begin),"stream begin");
     timing.Mark(command,0);if(gpu){mailbox->copy_to_private(g,s.color,0);mailbox->copy_to_private(g,s.depth,1);mailbox->copy_to_private(g,s.motion,2);}else{g.upload(s.color,s.color_upload);g.upload(s.depth,s.depth_upload);g.upload(s.motion,s.motion_upload);}
-    g.barrier(s.output,initialized[sequence%2]?VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL);
-    d<PFN_vkCmdFillBuffer>("vkCmdFillBuffer")(command,s.disabled.buffer,0,4,0xffffffffu);
-    VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;d<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,0,nullptr);
-    timing.Mark(command,1);const auto evaluate_record_start=cpu_ms();
-    const int result=sym<int(*)(void*,const void*,const void*)>(bridge,"fg_evaluate")(command,feature,params);
-    const auto evaluate_record_ms=cpu_ms()-evaluate_record_start;timing.Mark(command,2);
-    if(gpu)mailbox->copy_output(g,s.output);else g.readback(s.output,s.readback);g.host(s.disabled,false);timing.Mark(command,3);api(d<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(command),"stream end");api(d<PFN_vkResetFences>("vkResetFences")(device,1,&fence),"stream reset fence");VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&command;
+    std::array<int,5> results{};timing.Mark(command,1);const auto batch_record_start=cpu_ms();double evaluate_record_ms=0;
+    for(unsigned i=0;i<generated_count;++i){
+      auto& output=s.output[i];auto& disable=s.disabled[i];
+      ui("DLSSG.MultiFrameIndex",i+1);ui("DLSSG.MultiFrameCount",generated_count);
+      ptr("DLSSG.OutputInterpolated",&output.ngx);ptr("DLSSG.OutputDisableInterpolation",&disable.ngx);
+      g.barrier(output,initialized[sequence%2]?VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:VK_IMAGE_LAYOUT_UNDEFINED,VK_IMAGE_LAYOUT_GENERAL);
+      d<PFN_vkCmdFillBuffer>("vkCmdFillBuffer")(command,disable.buffer,0,4,0xffffffffu);
+      VkMemoryBarrier memory{VK_STRUCTURE_TYPE_MEMORY_BARRIER};memory.srcAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;memory.dstAccessMask=VK_ACCESS_MEMORY_READ_BIT|VK_ACCESS_MEMORY_WRITE_BIT;d<PFN_vkCmdPipelineBarrier>("vkCmdPipelineBarrier")(command,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,0,1,&memory,0,nullptr,0,nullptr);
+      const auto evaluate_start=cpu_ms();
+      results[i]=sym<int(*)(void*,const void*,const void*)>(bridge,"fg_evaluate")(command,feature,params);
+      evaluate_record_ms+=cpu_ms()-evaluate_start;
+      if(generated_count==1)timing.Mark(command,2);
+      if(gpu)mailbox->copy_output(g,output,i);else g.readback(output,s.readback);
+      g.host(disable,false);
+    }
+    const int result=results[0];const auto batch_record_ms=cpu_ms()-batch_record_start;if(generated_count>1)timing.Mark(command,2);timing.Mark(command,3);api(d<PFN_vkEndCommandBuffer>("vkEndCommandBuffer")(command),"stream end");api(d<PFN_vkResetFences>("vkResetFences")(device,1,&fence),"stream reset fence");VkSubmitInfo submit{VK_STRUCTURE_TYPE_SUBMIT_INFO};submit.commandBufferCount=1;submit.pCommandBuffers=&command;
     const auto submit_start=cpu_ms();inflight=true;g.safe=false;api(d<PFN_vkQueueSubmit>("vkQueueSubmit")(queue,1,&submit,fence),"stream submit");const auto wait_start=cpu_ms();api(d<PFN_vkWaitForFences>("vkWaitForFences")(device,1,&fence,VK_TRUE,10000000000ull),"stream actual GPU fence");const auto idle_start=cpu_ms();if(!gpu)api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),"stream actual device idle");const auto idle_end=cpu_ms();inflight=false;g.safe=true;timing.safe=true;if(gpu)++mailbox->serial;initialized[sequence%2]=true;
-    unsigned disabled=0;memcpy(&disabled,s.disabled.mapped,4);bool eligible=result==1&&(disabled&255)==0;
+    unsigned disabled=0;bool eligible=true;J outputs=J::array();
+    for(unsigned i=0;i<generated_count;++i){unsigned word=0;memcpy(&word,s.disabled[i].mapped,4);if(i==0)disabled=word;
+      const bool valid=results[i]==1&&(word&255)==0&&!(generated_count>1&&reset);eligible=eligible&&valid;
+      outputs.push_back({{"index",i+1},{"count",generated_count},{"phase_denominator",generated_count+1},{"result",unsigned(results[i])},{"disable_word",word},{"eligible",valid},{"actual_GPU_complete",true},{"output_released",true}});
+    }
     const auto gpu_completed=cpu_ms();
     if(eligible&&!gpu){if(mapped){memcpy(payload.At(DlssgCpu::OutputOffset,DlssgCpu::ColorBytes),s.readback.mapped,DlssgCpu::ColorBytes);payload.Publish();}else write_bytes("output-color.raw",s.readback.mapped,size_t(W)*H*4);}
-    J response=request;response.erase("camera");response.update(J{{"result",unsigned(result)},{"disable_word",disabled},{"eligible",eligible},{"actual_GPU_complete",true},{"output_bytes",eligible?size_t(W)*H*4:0},{"input_copy_ms",input_copied-started},{"record_fence_idle_ms",gpu_completed-input_copied},{"output_copy_ms",cpu_ms()-gpu_completed},{"helper_service_ms",cpu_ms()-started},{"native_gpu_readers",0}});
+    J response=request;response.erase("camera");response.update(J{{"result",unsigned(result)},{"disable_word",disabled},{"eligible",eligible},{"actual_GPU_complete",true},{"output_bytes",eligible?size_t(W)*H*4*generated_count:0},{"outputs",outputs},{"input_copy_ms",input_copied-started},{"record_fence_idle_ms",gpu_completed-input_copied},{"output_copy_ms",cpu_ms()-gpu_completed},{"helper_service_ms",cpu_ms()-started},{"native_gpu_readers",0}});
     if(gpu){response["helper_wake"]=control_wake.Enabled()?"win32_notify":"poll_1ms";response["wake_fallbacks"]=control_wake.Fallbacks();response.erase("native_gpu_readers");response.update(J{{"helper_GPU_complete",true},{"helper_serial",mailbox->serial},{"output_released",true},{"pixel_host_transfer_bytes",0}});}
-    if(timing.pool){response.update(timing.Read());response.update(J{{"evaluate_record_cpu_ms",evaluate_record_ms},{"submit_cpu_ms",wait_start-submit_start},{"fence_wait_cpu_ms",idle_start-wait_start},{"device_idle_cpu_ms",idle_end-idle_start}});}
+    if(timing.pool){response.update(timing.Read());response.update(J{{"batch_record_cpu_ms",batch_record_ms},{"evaluate_record_cpu_ms",evaluate_record_ms},{"submit_cpu_ms",wait_start-submit_start},{"fence_wait_cpu_ms",idle_start-wait_start},{"device_idle_cpu_ms",idle_end-idle_start}});}
+    if(generated_count>1&&timing.pool)response["gpu_timing_scope"]="Wine Vulkan batch Evaluate plus output copies; CUDA/OFA not isolated";
     atomic_text(std::string(root)+"/response.json",response.dump()+"\n");
     // Do not overwrite the CPU response until its exact consumer ACK (copied or discarded).
     const auto consume_deadline=cpu_ms()+30000;

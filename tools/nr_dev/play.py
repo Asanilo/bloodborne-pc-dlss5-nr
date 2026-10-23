@@ -96,6 +96,7 @@ def launch_command(a):
   if value:command+=['--'+name.replace('_','-'),value]
  if getattr(a,'sr_only',False):command+=['--sr-only']
  if getattr(a,'fg_backend',None) is not None:command+=['--fg-backend',a.fg_backend]
+ if getattr(a,'experimental_fg',None)=='dlssg':command+=['--dlssg-multiplier',str(a.dlssg_multiplier)]
  if getattr(a,'dlssg_runtime',None):command+=['--dlssg-runtime',a.dlssg_runtime]
  if getattr(a,'experimental_fg',None):command+=['--experimental-fg',a.experimental_fg]
  if getattr(a,'fg_native',False):command+=['--fg-native']

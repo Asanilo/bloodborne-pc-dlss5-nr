@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 BACKENDS = ('off', 'fsr31', 'dlssg', 'smooth-motion', 'fsr316')
-LABELS = ('Off', 'FSR 3.1 x2 (HUDless)', 'NVIDIA DLSS FG x2', 'NVIDIA Smooth Motion', 'FSR 3.1.6 x2 (Experimental)')
+LABELS = ('Off', 'FSR 3.1 x2 (HUDless)', 'NVIDIA DLSS FG / MFG', 'NVIDIA Smooth Motion', 'FSR 3.1.6 x2 (Experimental)')
 PIPELINES = ('submit-ready-v1', 'consumer-queue-v1')
 SM_UNAVAILABLE = ('Smooth Motion temporarily unavailable: M3 exit produced ErrorDeviceLost; '
                   'normal GPU retirement is unverified. Use Off, FSR or DLSS FG.')
@@ -20,7 +20,11 @@ def selection(settings):
     transport = settings.get('fg_dlss_transport', 'gpu-dmabuf-v1')
     if pipeline not in PIPELINES or transport not in ('gpu-dmabuf-v1', 'mapped-v1', 'files-v1'):
         raise ValueError('Unsupported DLSS FG pipeline/transport')
-    return dict(backend=backend, pipeline=pipeline if transport=='gpu-dmabuf-v1' else 'sync-v1',
+    multiplier=settings.get('fg_dlss_multiplier',2)
+    if type(multiplier) is not int or not 2<=multiplier<=6:raise ValueError('DLSS multiplier must be 2..6')
+    if backend=='dlssg' and multiplier>2 and (transport!='gpu-dmabuf-v1' or pipeline!='consumer-queue-v1'):
+        raise ValueError('DLSS 3X–6X requires GPU DMA-BUF and consumer-queue-v1; x2 retains all fallbacks')
+    return dict(multiplier=multiplier,backend=backend, pipeline=pipeline if transport=='gpu-dmabuf-v1' else 'sync-v1',
                 transport=transport, model=settings.get('fg_dlss_model',''),
                 runtime=settings.get('fg_dlss_runtime',''), prefix_session=settings.get('fg_dlss_prefix_session',''))
 
@@ -49,13 +53,14 @@ def discover(home):
 def command_options(config):
     result=['--fg-backend',config['backend']]
     if config['backend']=='dlssg':
-        result += ['--dlssg-transport',config['transport'],'--dlssg-pipeline',config['pipeline'],
+        result += ['--dlssg-multiplier',str(config.get('multiplier',2)),'--dlssg-transport',config['transport'],'--dlssg-pipeline',config['pipeline'],
                    '--dlssg-model',config['model'],'--dlssg-runtime',config['runtime'],
                    '--dlssg-prefix-session',config['prefix_session']]
     return result
 
 
 def add_argument(parser):
+    parser.add_argument('--dlssg-multiplier',type=int,choices=range(2,7),default=2)
     parser.add_argument('--fg-backend',choices=BACKENDS,default=None,
                         help='one FG backend; NR and SR remain independent')
 

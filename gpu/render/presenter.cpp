@@ -115,10 +115,7 @@ Presenter::~Presenter() {
     present_scheduler.Finish();
     const vk::Device device = instance.GetDevice();
     for (auto& frame : frames) {
-        device.destroyImageView(frame.interp_view);
-        if (frame.interp_image) {
-            vmaDestroyImage(instance.GetAllocator(), frame.interp_image, frame.interp_allocation);
-        }
+        for(auto& output:frame.interp){device.destroyImageView(output.view);if(output.image)vmaDestroyImage(instance.GetAllocator(),output.image,output.allocation);output={};}
         device.destroyImageView(frame.image_view);
         if (frame.image) {
             vmaDestroyImage(instance.GetAllocator(), frame.image, frame.allocation);
@@ -183,12 +180,7 @@ void Presenter::RecreateFrame(Frame& frame, u32 width, u32 height) {
     }));
     SetObjectName(device, frame.image, "frame {}", frame.id);
     // Frame generation's frame (made with the first one generated: most sessions never need it).
-    device.destroyImageView(frame.interp_view);
-    if (frame.interp_image) {
-        vmaDestroyImage(instance.GetAllocator(), frame.interp_image, frame.interp_allocation);
-    }
-    frame.interp_image = vk::Image{};
-    frame.interp_view = vk::ImageView{};
+    for(auto& output:frame.interp){device.destroyImageView(output.view);if(output.image)vmaDestroyImage(instance.GetAllocator(),output.image,output.allocation);output={};}
     frame.has_interp = false;
     frame.width = width;
     frame.height = height;
@@ -388,6 +380,7 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
 
     // Frame generation: the frame interpolated before this one, encoded the same way.
     frame->has_interp = false;
+    frame->interp_count=1;frame->generated_index=0;frame->fg_epoch=0;
     frame->interp_recorded.reset();
     frame->interp_eligible.reset();
     frame->fg_capture_cpu_ns = 0;
@@ -553,12 +546,12 @@ void Presenter::SetExpectedSize(u32 width, u32 height) {
     expected_extent.store(PresentSizing::Pack(fitted), std::memory_order_relaxed);
 }
 
-void Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format format, u32 width,
+bool Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format format, u32 width,
                                    u32 height, vk::Format display_view_format,
-                                   const EncodePass::Settings& encode, Scheduler& scheduler) {
+                                   const EncodePass::Settings& encode, Scheduler& scheduler, unsigned slot) {
     std::scoped_lock fg_lock{fg_images_mutex};
     const vk::Device device = instance.GetDevice();
-    if (!frame->interp_image) {
+    if (!frame->interp[slot].image) {
         const VkImageCreateInfo image_info = vk::ImageCreateInfo{
             .imageType = vk::ImageType::e2D,
             .format = swapchain.GetSurfaceFormat().format,
@@ -574,12 +567,12 @@ void Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format for
         };
         VkImage created{};
         if (vmaCreateImage(instance.GetAllocator(), &image_info, &alloc_info, &created,
-                           &frame->interp_allocation, nullptr) != VK_SUCCESS) {
-            return;
+                           &frame->interp[slot].allocation, nullptr) != VK_SUCCESS) {
+            return false;
         }
-        frame->interp_image = created;
-        frame->interp_view = Check<"create a frame view">(device.createImageView({
-            .image = frame->interp_image,
+        frame->interp[slot].image = created;
+        frame->interp[slot].view = Check<"create a frame view">(device.createImageView({
+            .image = frame->interp[slot].image,
             .viewType = vk::ImageViewType::e2D,
             .format = swapchain.GetSurfaceFormat().format,
             .subresourceRange = ColorRange,
@@ -605,7 +598,7 @@ void Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format for
         .subresourceRange = ColorRange,
     }));
     scheduler.DeferOperation([device, source] { device.destroyImageView(source); });
-    scheduler.Record([this, frame, image, source, encode](vk::CommandBuffer cmdbuf) {
+    scheduler.Record([this, frame, image, source, encode, slot](vk::CommandBuffer cmdbuf) {
         const std::array<vk::ImageMemoryBarrier2, 2> before{{
             {
                 .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
@@ -623,12 +616,12 @@ void Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format for
                 .dstAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
                 .oldLayout = vk::ImageLayout::eUndefined,
                 .newLayout = vk::ImageLayout::eColorAttachmentOptimal,
-                .image = frame->interp_image,
+                .image = frame->interp[slot].image,
                 .subresourceRange = ColorRange,
             },
         }};
         cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 2, .pImageMemoryBarriers = before.data()});
-        encode_pass.Render(cmdbuf, source, frame->interp_view, {frame->width, frame->height}, encode);
+        encode_pass.Render(cmdbuf, source, frame->interp[slot].view, {frame->width, frame->height}, encode);
         const std::array<vk::ImageMemoryBarrier2, 2> after{{
             {
                 .srcStageMask = vk::PipelineStageFlagBits2::eFragmentShader,
@@ -644,13 +637,14 @@ void Presenter::EncodeInterpolated(Frame* frame, vk::Image image, vk::Format for
                 .srcAccessMask = vk::AccessFlagBits2::eColorAttachmentWrite,
                 .oldLayout = vk::ImageLayout::eColorAttachmentOptimal,
                 .newLayout = vk::ImageLayout::eGeneral,
-                .image = frame->interp_image,
+                .image = frame->interp[slot].image,
                 .subresourceRange = ColorRange,
             },
         }};
         cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 2, .pImageMemoryBarriers = after.data()});
     });
     frame->has_interp = true;
+    return true;
 }
 
 void Presenter::RecordPresent(vk::CommandBuffer cmdbuf, const Frame* frame, vk::Image target,
@@ -754,11 +748,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
             const auto device = instance.GetDevice();
             for (auto& owned : frames) {
                 owned.fg_ticket.reset();
-                device.destroyImageView(owned.interp_view);
-                if (owned.interp_image)
-                    vmaDestroyImage(instance.GetAllocator(), owned.interp_image, owned.interp_allocation);
-                owned.interp_view = vk::ImageView{};
-                owned.interp_image = vk::Image{};
+                for(auto& output:owned.interp){device.destroyImageView(output.view);if(output.image)vmaDestroyImage(instance.GetAllocator(),output.image,output.allocation);output={};}
             }
             if (FgLifecycle::driver_smooth_motion.load()) {
                 if (!swapchain.RetireDriverLayer()) {
@@ -808,9 +798,13 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
             ticket_wait_ms=profile_ms(ticket_begin,Clock::now());
             const auto encode_begin=Clock::now();
             if (ticket->eligible->load(std::memory_order_acquire)) {
-                EncodeInterpolated(frame, vk::Image(ticket->raw->image), ticket->raw->format,
-                    ticket->raw->width, ticket->raw->height, frame->fg_view_format,
-                    frame->fg_encode, present_scheduler);
+                bool encoded=true;
+                for(unsigned i=0;i<ticket->generated_count;++i){
+                    const auto& raw=i?ticket->additional.at(i-1):ticket->raw;
+                    encoded=EncodeInterpolated(frame,vk::Image(raw->image),raw->format,raw->width,raw->height,
+                        frame->fg_view_format,frame->fg_encode,present_scheduler,i)&&encoded;
+                }
+                frame->has_interp=encoded;frame->interp_count=ticket->generated_count;frame->fg_epoch=ticket->epoch;
                 frame->interp_recorded = ticket->recorded;
                 frame->interp_eligible = ticket->eligible;
                 // Keep the raw image alive until its actual final encoder GPU read.
@@ -848,23 +842,34 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         const char* value = std::getenv("BB_FRAME_GEN_ONLY");
         return value && value[0] == '1';
     }();
-    if (only_interp && !blank && frame->has_interp && frame->interp_image) {
+    if (only_interp && !blank && frame->has_interp && frame->interp[0].image) {
+        frame->generated_index=1;
         frame->has_interp = false;
-        PresentImage(frame, frame->interp_image, true, false, is_reusing_frame);
+        PresentImage(frame, frame->interp[0].image, true, false, is_reusing_frame);
         release();
         return;
     }
-    if (!blank && frame->has_interp && frame->interp_image) {
+    if (!blank && frame->has_interp && frame->interp[0].image) {
         frame->has_interp = false;
-        const auto gen_start=Clock::now();
-        if (PresentImage(frame, frame->interp_image, false, false, is_reusing_frame)) {
-            const auto pace_start=Clock::now();generated_present_ms=profile_ms(gen_start,pace_start);
-            std::this_thread::sleep_until(Clock::now() + std::chrono::duration_cast<Clock::duration>(
-                                                    std::chrono::duration<double, std::milli>(
-                                                        std::clamp(fg_interval_ms * 0.5, 1.0, 50.0))));
-            pace_sleep_ms=profile_ms(pace_start,Clock::now());
+        auto origin=Clock::now();
+        const auto step=std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double,std::milli>(
+            std::clamp(fg_interval_ms/double(frame->interp_count+1),1.0,50.0)));
+        for(unsigned i=0;i<frame->interp_count;++i){
+            frame->generated_index=i+1;const auto gen_start=Clock::now();
+            if(!PresentImage(frame,frame->interp[i].image,false,false,is_reusing_frame))break;
+            if(frame->interp_count>1)std::printf("DLSSG_MFG_PRESENT source=%llu epoch=%llu index=%u count=%u phase_denominator=%u\n",
+                (unsigned long long)frame->c1_source_game_frame,(unsigned long long)frame->fg_epoch,i+1,frame->interp_count,frame->interp_count+1);
+            const auto pace_start=Clock::now();generated_present_ms+=profile_ms(gen_start,pace_start);
+            // Absolute batch deadlines, with a minimum gap after a late submission.
+            // Never issue a burst to catch up after a delayed Helper/WSI operation.
+            auto deadline=origin+step*(i+1);
+            if(frame->interp_count==1)deadline=pace_start+step; // Preserve x2 pacing.
+            else if(deadline<=pace_start){origin=pace_start-step*i;deadline=pace_start+step;}
+            std::this_thread::sleep_until(deadline);
+            pace_sleep_ms+=profile_ms(pace_start,Clock::now());
         }
     }
+    frame->generated_index=0;
     const auto real_start=Clock::now();
     PresentImage(frame, {}, true, is_game_frame && !blank, is_reusing_frame);
     if (sample && frame->fg_capture_cpu_ns)
@@ -946,6 +951,7 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
         }
         if (left > 0 && !blank) {
             --left;
+            std::printf("FG_SEQUENCE_CAPTURE index=%d source=%llu generated_index=%u generated_count=%u epoch=%llu\n",index,(unsigned long long)frame->c1_source_game_frame,source?frame->generated_index:0,frame->interp_count,(unsigned long long)frame->fg_epoch);
             DumpPresented(instance, present_scheduler, cmdbuf, source ? source : frame->image,
                           frame->width, frame->height, swapchain.GetSurfaceFormat().format, index++,
                           source ? "interp" : "real");
@@ -993,14 +999,14 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
         if (fg_audit) {
             const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count();
-            std::printf("FG_PRESENT kind=%s source_frame=%llu fg_frame=%llu ready_tick=%llu submit_tick=%llu success=%u real=%llu generated=%llu other=%llu failed=%llu cpu_monotonic_ns=%lld source_game_frame=%llu scope=present_return_not_scanout\n",
+            std::printf("FG_PRESENT kind=%s source_frame=%llu fg_frame=%llu ready_tick=%llu submit_tick=%llu success=%u real=%llu generated=%llu other=%llu failed=%llu cpu_monotonic_ns=%lld source_game_frame=%llu generated_index=%u generated_count=%u fg_epoch=%llu scope=present_return_not_scanout\n",
                 source ? "generated" : (!blank && is_game_frame && !is_reusing_frame ? "real" : "other"),
                 (unsigned long long)frame->c1_present_frame_number,
                 (unsigned long long)frame->fg_frame, (unsigned long long)frame->ready_tick,
                 (unsigned long long)present_submit_tick, presented,
                 (unsigned long long)present_real, (unsigned long long)present_generated,
                 (unsigned long long)present_other, (unsigned long long)present_failed, (long long)ns,
-                (unsigned long long)frame->c1_source_game_frame);
+                (unsigned long long)frame->c1_source_game_frame, source ? frame->generated_index : 0, frame->interp_count,(unsigned long long)frame->fg_epoch);
         }
         if(is_game_frame&&!is_reusing_frame&&frame->runtime_capture)RuntimeCapturePresented(*frame->runtime_capture,presented);
         q0_owner.Stage(16);

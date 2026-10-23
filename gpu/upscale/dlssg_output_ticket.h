@@ -17,7 +17,10 @@ struct DlssgRawOutput {
 };
 struct DlssgOutputTicket {
     std::shared_ptr<DlssgRawOutput> raw;
+    std::vector<std::shared_ptr<DlssgRawOutput>> additional; // Same real pair, ordered indices 2..N.
+    unsigned generated_count = 1;
     std::shared_future<nlohmann::json> ready; // Helper + Native copy/release + ACK complete.
+    u64 epoch = 0;
     u64 source = 0, previous_source = 0, display = 0, capture_cpu_ns = 0;
     u64 guide_record_cpu_ns = 0, producer_submit_cpu_ns = 0;
     std::shared_ptr<std::atomic<bool>> recorded = std::make_shared<std::atomic<bool>>(false);
