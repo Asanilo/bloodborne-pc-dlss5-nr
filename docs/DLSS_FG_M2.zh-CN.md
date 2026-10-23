@@ -695,3 +695,147 @@ open_paths；只回收本轮12个会话的NR私有prefix和缓存，保留注册
 没有新增完整build、依赖树、Wine长期环境或AppImage；这些数值不含共享ccache的
 单独归因，也不等于Btrfs压缩/reflink后的物理占用。清理后再次独立审计全部通过。
 预先存在的FSR子模块dirty instrumentation保持原状，未提交。
+
+
+### M2.3：独立消费提交与同族 Q1 Present（2026-10-23）
+
+本轮在 `m2/dlss-fg` 从 `52fbe08` 继续，没有重置已有成果。实现提交：
+
+- `50d47e0`：共享 Scheduler 的显式目标队列、Instance 同族第二队列和 overlay 上传队列。
+- `4e0efd1`：独立 GPU mailbox 消费、两槽原始输出 ticket、双完成域退休、Present 侧编码和有限 profiler。
+
+推荐新增的显式实验模式为 `consumer-queue-v1`。本机可运行：
+
+```bash
+bash out/play-dlssg.sh B --dlssg-transport gpu-dmabuf-v1 --dlssg-pipeline consumer-queue-v1
+```
+
+F8 首次启动 NR；FG 继续独立开关。日常默认 `BB_FPS_LIMIT=60`，复现下表加
+`--fg-fps-limit 0 --fg-profile`。回退改为 `--dlssg-pipeline submit-ready-v1` 或
+`sync-v1`；同 Q0 的独立消费对照为 `consumer-ready-v1`。原 CPU Bridge 与 FSR 入口保留。
+没有把新模式设为默认，也没有修改玩家安装或正式存档。
+
+#### 统一解除限帧的预算与最终比较
+
+所有性能窗口12秒，1080p Quality、Old memory、NR 310.9.16 Preset B、同一
+`play-20261022-141640` 猎人梦境私有种子和静止相机。`BB_FPS=uncap`、
+`BB_FPS_LIMIT=0`、`BB_PRESENT_MODE=Immediate`；新构建启动记录确认实际 `selected=Immediate`。
+不启用 validation，不并行编译。NR OFF 是**尚未启动 Helper**，不是F8关闭效果后仍驻留推理。
+NR ON 窗口检查 job 编号推进和每个实际真实 Present 的 cache selection。
+
+| 模式 | NR未启动：真实 / 总Present FPS | NR ON：真实 / 总Present FPS |
+|---|---:|---:|
+| 起点52fbe08 submit-ready，r49 | 52.83 / 105.67 | 47.25 / 94.50 |
+| 独立消费但仍Q0，r51 | 60.42 / 120.75 | 51.75 / 103.50 |
+| 新候选Q1，r55 | 63.08 / 126.17 | 55.25 / 110.50 |
+| 最终同构建旧submit-ready回退，r57 | 54.17 / 108.33 | 47.83 / 95.58 |
+| 最终同构建FG OFF，r56 | 95.92 / 95.92 | 79.67 / 79.67 |
+| 最终同构建FSR HUDless，r56 | 77.00 / 154.00 | 66.42 / 132.83 |
+
+相对52fbe08本轮实测，Q1真实FPS提升约19.4%/16.9%；相对更近邻、同构建的r57回退，
+提升约16.5%/15.5%。这是真实可见的工程收益，但NR ON仍未达到60/120。
+FSR仍较快；先前60/120受限帧影响，不能据此认定FSR本身零开销。
+这些是成功 `vkQueuePresentKHR` 返回的真实/生成帧计数，不是物理scanout频率。
+
+| 真实帧间隔 ms | P50 | P95 | P99 |
+|---|---:|---:|---:|
+| 52fbe08 NR未启动 | 18.560 | 21.167 | 22.992 |
+| Q1 NR未启动 | 16.181 | 18.597 | 19.873 |
+| 52fbe08 NR ON | 20.917 | 23.822 | 25.005 |
+| Q1 NR ON | 17.923 | 22.559 | 24.436 |
+| 同构建旧模式 NR未启动 | 18.254 | 20.017 | 21.301 |
+| 同构建旧模式 NR ON | 20.697 | 23.856 | 24.693 |
+
+完整有限统计在 `out/m23-comparison.json`。r56首次标记off-nron的窗口实际job范围
+为[0,0]，已明确排除；采用后续job1728→1875、cache有效的热态补测。没有把启动过程
+或resident-effect-off算成有效NR ON/OFF对照。
+
+#### 实际流水线修改与所有权
+
+旧模式的consumer批次在draw有序提交线程等待Helper，后续Native工作也因此排队。
+新模式由服务线程持有独立Scheduler：等待精确producer draw tick，验证Helper实际
+fence/release，复制共享output到本地raw slot，等待实际consumer tick，再发布ACK和ticket ready。
+下一帧Guides在join旧事务前先Flush已有Native工作；draw stream上不再放Helper响应等待。
+
+四张DMA-BUF mailbox、Helper串行Evaluate和两组私有时域历史保持原样。新增两个本地
+raw输出槽，按共享ticket引用管理；Present编码的实际GPU tick callback结束前不能复用。
+未flip、source不匹配、FG OFF都不会阻止服务线程消费/ACK。生成帧继续对应真实source pair，
+不推进游戏源编号、NR Evaluate或NR持久历史。
+
+`consumer-queue-v1` 请求同一graphics family的第二条VkQueue。RTX4060实测日志为
+`family=0 available=16 requested=2 enabled=1 draw_index=0 present_consumer_index=1`。
+Q0负责游戏/NR输入/SR/真实帧编码；Q1负责消费、生成帧编码、overlay上传、blit与Present。
+两队列相同优先级，仍使用全局submit mutex保护host提交及swapchain重建。
+Q1真实帧读取保留已提交的draw timeline semaphore、AllCommands wait及WaitSubmitted，
+没有host伪信号、外部semaphore假设或提前ACK。设备不提供两条队列时明确记录enabled=0，
+只能算Q0回退，不能冒充Q1成功。
+
+`split-v1` 明确区分draw input tick与consumer copy tick，禁止跨域比较计数大小。
+READY回显协商；请求、响应、ACK、STOP及最终证明绑定相同模式/source pair/Helper serial。
+退休分别排空draw、consumer与Present真实GPU工作，销毁imports后再允许Helper释放exports。
+零请求但有partial guides的退出允许draw>0/consumer=0；无Evaluate不得伪造consumer使用。
+Present退休还排空持有raw lease的completion callbacks和所有Frame tickets。
+
+#### 延迟、剩余开销与失败实验
+
+公共起点的“CaptureScene进入→真实Present返回”代理，NR未启动由26.45增至36.94ms，
+NR ON由29.73增至42.27ms。**不能宣称输入延迟降低或未增加。** 新模式更早到达下一帧
+CaptureScene，而该时间戳位于旧事务准入等待之前；Q1新增细分观测为：
+
+| Q1阶段 CPU ms中位 | NR未启动 | NR ON |
+|---|---:|---:|
+| CaptureScene进入→允许录制guides | 11.30 | 12.82 |
+| 真正guide录制边界→真实Present返回 | 26.21 | 30.35 |
+| Flip入队边界→Present入口 | 9.26 | 10.52 |
+| 编码录制及实际GPU完成等待 | 1.29 | 1.31 |
+
+后两组起点与旧总代理不同，不能用它们抵销公共代理的增长，更不能当成输入到屏幕实测。
+没有新增完整游戏Frame池，也没有更改pacing sleep，但允许在途工作的组织发生变化。
+是否存在可感知响应代价仍需玩家对比转镜、闪避和攻击；本轮只将新模式作为显式Experimental。
+
+NR ON关键区间：producer实际tick等待约11.52→6.48ms，Helper响应等待5.79→8.68ms，
+Helper Evaluate Vulkan queue interval4.02→6.24ms；这些是重叠区间，不能相加。
+后两者变长与更多Native/NR并发工作下的GPU竞争相符，不能据此宣称算法本身变慢。
+新候选Native output GPU copy约0.052ms、其完成等待0.82ms；SR Evaluate命令及依赖
+GPU区间约1.56ms。Frame池、旧Frame fence、FramesAhead等待在热窗口接近零。
+Present ticket等待约7.15ms、pacing sleep约9.08ms。游戏整帧GPU busy时间、NR纯kernel时间
+和CUDA/OFA内部并发未隔离测量，不能把CPU墙钟或队列区间冒充这些量。
+
+本轮实际尝试了两种提前输入复用方案：
+
+- r52：Helper释放输入即放行Guides；两raw槽耗尽导致跳过生成，70.83真实但仅52.50生成，
+  P95达41.54ms。拒绝把较高真实FPS当成合格x2。
+- r53：两槽等待实际GPU reader lease释放，恢复完整配对；NR ON却降至32.08真实，
+  P95达37.03ms、Present排队约46.91ms。说明更早放行输入可能只扩大积压。
+
+这两种方案的执行代码和新启动选项已移除，只保留密封历史配置的只读退休审计及必要记录。
+没有继续加槽或放松真实GPU等待。Q1建立在较保守的完整consumer完成边界上，消除了
+一部分同队列排序限制；尚不能把剩余开销认定为不可优化的DLSSG算法下限。
+
+#### 验证、合流与磁盘
+
+45项FG CPU检查、14项退休检查及Native `--test`通过。r48–r57共10个会话全部
+`PASS_NORMAL_TEARDOWN`，清理后再次独立审计通过，零残留/无watchdog超时，当前boot
+内核2842行日志未见NVIDIA Xid/掉卡记录。全局守卫最终retired，没有新增HOLD。
+
+r50同队列validation见原五类；r54 Q1扫描见Location-06272、usage-02275、
+DrawIndexed-08912、Draw-09600，未见新增类别，不能称validation clean，也不据未观察到
+WRITE-AFTER-PRESENT就声称修复了旧问题。保留有限扫描摘要，部分启动日志按既有规则轮转。
+Q1两组性能窗口及最终旧模式回退配对检查均错误0。一次转镜采集16张实际I/R Present
+读回，图像不同且HUD对应，未见新增明显空间漂移；有限抽查不能替代玩家长时间验收。
+全部16张已无损转PNG并逐张反解验证原始BGRA字节SHA相同，保留capture来源和转换清单。
+
+提交后的bb-probe、libbbgpu、libbbport_dlss与r55实测二进制逐字节一致，见
+`out/m23-committed-equivalence.json`。`nrbridge@7489493`是当前分支祖先，提交层面可快进；
+可合入**默认关闭的Experimental模式**，推广为默认应等待手感对照。没有执行合流或推送。
+共享队列接口独立提交，`vk_temporal_upscaler.cpp`及NR核心协议未改写。
+
+先执行artifact-gc dry-run，再对精确所属路径检查独占锁、所有正常退休证明和open_paths。
+回收本轮30个临时prefix/缓存目录 6,120,492,186 bytes；r17长期FG prefix、
+其他Agent产物、私有存档/备份及GPU/FD证据保留。16张图像由132,710,400 bytes raw无损压缩为
+49,411,401 bytes PNG。10会话最终保留 1,320,649,784 bytes逻辑文件（约1.32GB），
+本轮out摘要/构建日志另约1.22MB。没有新增完整构建目录、SDK/依赖副本或AppImage。
+这些不是Btrfs物理增量；共享ccache增量未单独归因。预先存在的FSR子模块dirty保持原样。
+
+本轮在形成有意义的可运行候选及明确延迟限制后停止。下一阶段优先人工响应对照，再决定
+是否推广Q1；若继续性能研发，应聚焦GPU竞争与低延迟调度，不再重复DMA-BUF/ACK架构搭建。
