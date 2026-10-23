@@ -1224,7 +1224,7 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count) 
     info.PhysicalDevice = instance.GetPhysicalDevice();
     info.Device = instance.GetDevice();
     info.QueueFamily = instance.GetGraphicsQueueFamilyIndex();
-    info.Queue = instance.GetGraphicsQueue();
+    info.Queue = instance.GetPresentQueue();
     info.DescriptorPoolSize = 16;
     info.MinImageCount = std::max(image_count, 2u);
     info.ImageCount = std::max(image_count, 2u);

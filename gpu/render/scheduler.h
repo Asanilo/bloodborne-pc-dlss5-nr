@@ -106,7 +106,7 @@ using SubmitFunc = Common::UniqueFunction<void, SubmitInfo&>;
 class Scheduler {
 public:
     /// `threaded_recording`: commands passed to Record() are recorded by recording threads.
-    explicit Scheduler(const Instance& instance, bool threaded_recording = false);
+    explicit Scheduler(const Instance& instance, bool threaded_recording = false, vk::Queue target_queue = {});
     ~Scheduler();
 
     /// Submits what was recorded (it signals the current tick, with `info`'s waits and
@@ -591,6 +591,7 @@ private:
 
 private:
     const Instance& instance;
+    const vk::Queue target_queue;
     u32 crumb_stream = 0; ///< GPU breadcrumbs (vk_breadcrumbs.h)
     Semaphore work_semaphore;
     CommandPool command_pool;

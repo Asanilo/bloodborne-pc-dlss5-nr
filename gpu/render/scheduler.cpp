@@ -257,8 +257,8 @@ vk::CommandBuffer BeginCommandBuffer(CommandPool& pool) {
 
 } // namespace
 
-Scheduler::Scheduler(const Instance& instance, bool threaded_recording)
-    : instance{instance}, work_semaphore{instance}, command_pool{instance, &work_semaphore} {
+Scheduler::Scheduler(const Instance& instance, bool threaded_recording, vk::Queue queue)
+    : instance{instance}, target_queue{queue ? queue : instance.GetGraphicsQueue()}, work_semaphore{instance}, command_pool{instance, &work_semaphore} {
     const char* q0_env = std::getenv("BB_Q0_WAIT_STATE_DIAG");
     q0_wait_state_enabled = q0_env && std::strcmp(q0_env, "1") == 0;
     if (q0_wait_state_enabled) {
@@ -1339,7 +1339,7 @@ void Scheduler::QueueSubmit(std::span<const vk::CommandBuffer> cmdbufs, SubmitIn
     for (auto& operation : info.before_submit) {
         operation();
     }
-    const vk::Result result = instance.GetGraphicsQueue().submit(submit, info.fence);
+    const vk::Result result = target_queue.submit(submit, info.fence);
     if (result == vk::Result::eErrorDeviceLost) {
         Breadcrumbs::ReportDeviceLost("submit");
     }
