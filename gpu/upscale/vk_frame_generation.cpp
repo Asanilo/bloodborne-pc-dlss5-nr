@@ -171,6 +171,7 @@ bool FrameGeneration::Wanted() const {
 
 void FrameGeneration::Retire() {
     if (!FgLifecycle::Pending()) return;
+    ResolveDeferredGpuOutput();
     // Includes every encode from our output into a per-Frame image, not only FG dispatches.
     scheduler.Finish();
     if (dlssg_bridge && !dlssg_bridge->Retire()) return;
@@ -213,6 +214,7 @@ void FrameGeneration::OnFrameStart() {
 
 void FrameGeneration::Destroy() {
     if (dlssg_gpu) {
+        ResolveDeferredGpuOutput();
         scheduler.Finish();
         if (!dlssg_gpu->Retire()) {
             // Recording closures capture the owner; unknown GPU completion retains it too.
@@ -311,6 +313,7 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 }
 
 void FrameGeneration::CaptureScene(const Scene& in) {
+    ResolveDeferredGpuOutput(); // Before scene fields, guide queries or mailbox inputs can change.
     scene_capture_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
     scene_captured = false;
@@ -551,6 +554,7 @@ FrameGeneration::Target& FrameGeneration::PrepareTarget(VAddr display, u64 id, b
 
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     if (dlssg_gpu) {
+        ResolveDeferredGpuOutput(); // A prior display pass that never flipped is discarded.
         if (Wanted() && scene_captured && color && color == scene.color) {
             const u64 previous_source = dlssg_gpu->LastSource();
             const bool eligible = dlssg_gpu->Evaluate(scene, color, display, scene_reset);
@@ -560,7 +564,11 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
                 target.strict_source = true;
                 target.previous_source_game_frame = previous_source;
                 target.eligible = dlssg_gpu->Eligibility();
-                dlssg_gpu->Consume(vk::Image(target.image), target.recorded);
+                if (dlssg_gpu->Late()) {
+                    deferred_gpu_image = vk::Image(target.image);
+                    deferred_gpu_display = display;
+                    deferred_gpu_recorded = target.recorded;
+                } else dlssg_gpu->Consume(vk::Image(target.image), target.recorded);
             } else {
                 dlssg_gpu->Consume({}); // Disabled still returns output ownership after real GPU use.
             }
@@ -779,7 +787,23 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     }
 }
 
+void FrameGeneration::ResolveDeferredGpuOutput(VAddr display) {
+    if (!deferred_gpu_image) return;
+    const bool copy = Wanted() && display && display == deferred_gpu_display;
+    dlssg_gpu->Consume(copy ? deferred_gpu_image : vk::Image{},
+                       copy ? deferred_gpu_recorded : nullptr);
+    deferred_gpu_image = vk::Image{};
+    deferred_gpu_recorded.reset();
+    deferred_gpu_display = 0;
+    if (!copy) {
+        std::scoped_lock lock{targets_mutex};
+        if (const auto it = targets.find(0); it != targets.end()) it->second.ready = false;
+        reset_next = true;
+    }
+}
+
 bool FrameGeneration::TakeOutput(VAddr display, Output& out) {
+    ResolveDeferredGpuOutput(display); // Same recording owner, after the guest EOP wait.
     if (!Wanted()) {
         return false;
     }

@@ -98,6 +98,7 @@ public:
 private:
     bool EnsureContext(u32 render_width, u32 render_height, u32 width, u32 height, vk::Format format);
     void Destroy();
+    void ResolveDeferredGpuOutput(VAddr display = 0);
 
     const Instance& instance;
     Scheduler& scheduler;
@@ -110,6 +111,9 @@ private:
     std::unique_ptr<DlssgInputCapture> dlssg_capture;
     std::unique_ptr<DlssgCpuBridge> dlssg_bridge;
     std::unique_ptr<DlssgGpuBridge> dlssg_gpu;
+    vk::Image deferred_gpu_image;
+    VAddr deferred_gpu_display = 0;
+    std::shared_ptr<std::atomic<bool>> deferred_gpu_recorded;
     std::unique_ptr<VideoCore::Buffer> dlssg_upload;
     std::mutex context316_mutex; ///< Record/retire may run on different scheduler owners.
     u32 context_render_w = 0, context_render_h = 0, context_w = 0, context_h = 0;

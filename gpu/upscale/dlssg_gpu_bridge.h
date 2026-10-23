@@ -24,7 +24,8 @@ class DlssgGpuBridge {
   std::future<double> consumed_ack;
   uint64_t consumed_tick = 0;
   J last_request, response;
-  bool async_exchange = false;
+  bool async_exchange = false, late_exchange = false;
+  std::packaged_task<void()> deferred_job;
   std::unique_ptr<DlssgSerialWorker> worker;
   std::shared_future<J> flight;
   std::shared_ptr<std::atomic<bool>> flight_eligible;
@@ -97,13 +98,14 @@ class DlssgGpuBridge {
     auto ready = peer->Start(*mailbox);
     helper_serial = DlssgGpu::U(ready, "helper_serial");
     const auto pipeline = config.value("pipeline", std::string("sync-v1"));
-    Need(pipeline == "sync-v1" || pipeline == "submit-ready-v1", "supported GPU pipeline");
-    async_exchange = pipeline == "submit-ready-v1";
+    Need(pipeline == "sync-v1" || pipeline == "submit-ready-v1" || pipeline == "late-ready-v1", "supported GPU pipeline");
+    async_exchange = pipeline != "sync-v1";
+    late_exchange = pipeline == "late-ready-v1";
     if (async_exchange) {
       worker = std::make_unique<DlssgSerialWorker>();
     }
     std::printf("DLSSG_GPU_PIPELINE mode=%s async_submit_prerequisite=%u external_semaphore=0 extra_game_frame_buffer=0\n",
-                async_exchange ? "submit-ready-v1" : "sync-v1", unsigned(async_exchange));
+                pipeline.c_str(), unsigned(async_exchange));
     last_request = J{{"schema", DlssgGpu::Schema},
                      {"session", peer->session},
                      {"sequence", 0},
@@ -163,6 +165,7 @@ public:
     }
   }
   uint64_t LastSource() const { return last_source; }
+  bool Late() const { return late_exchange; }
   std::shared_ptr<std::atomic<bool>> Eligibility() const { return flight_eligible; }
   bool Guides(const FrameGeneration::Scene &scene) {
     if (scene.width != 1920 || scene.height != 1080 ||
@@ -175,6 +178,7 @@ public:
       return false;
     try {
       Start();
+      Need(!deferred_job.valid(), "GPU dormant request resolved before guide reuse");
       JoinFlight(); // Before query reuse or a new request; Peer has one CPU owner at a time.
       Need(!pending, "GPU previous response consumed");
       if (guides) {
@@ -299,14 +303,15 @@ public:
         auto promise = std::make_shared<std::promise<J>>();
         flight = promise->get_future().share();
         auto prior_ack = std::move(consumed_ack);
-        worker->Submit([this, request = last_request, serial = helper_serial,
+        auto job = [this, request = last_request, serial = helper_serial,
                         input_tick = last_recorded_tick,
                         producer = scheduler.GetWorkSemaphore(),
                         eligible = flight_eligible, promise,
                         prior_ack = std::move(prior_ack),
                         record_ms, flush_ms,
                         submitted = flushed,
-                        previous_output = last_source]() mutable {
+                        previous_output = last_source,
+                        pipeline = late_exchange ? "late-ready-v1" : "submit-ready-v1"]() mutable {
           try {
             const auto wait_begin = Clock::now();
             producer->Wait(input_tick); // Never Scheduler::Wait/Flush on this worker.
@@ -318,7 +323,7 @@ public:
             }
             const auto source = DlssgGpu::U(request, "source_game_frame");
             timing.ReadAsyncInput(source, previous_output, record_ms, flush_ms,
-                                 DlssgNativeTiming::Ms(wait_begin, input_complete));
+                                 DlssgNativeTiming::Ms(wait_begin, input_complete), pipeline);
             const auto exchange_begin = Clock::now();
             auto result = peer->Exchange(request, serial);
             const bool valid = DlssgGpu::B(result, "eligible");
@@ -331,8 +336,9 @@ public:
               profile["native_wait_cpu_ms"] = DlssgNativeTiming::Ms(exchange_begin, Clock::now());
               profile["producer_flush_cpu_ms"] = flush_ms;
               profile["producer_completion_wait_cpu_ms"] = DlssgNativeTiming::Ms(wait_begin, input_complete);
+              profile["worker_start_delay_cpu_ms"] = DlssgNativeTiming::Ms(submitted, wait_begin);
               profile["producer_to_helper_ready_cpu_ms"] = DlssgNativeTiming::Ms(submitted, Clock::now());
-              profile["pipeline"] = "submit-ready-v1";
+              profile["pipeline"] = pipeline;
               std::printf("DLSSG_GPU_BRIDGE_PROFILE %s\n", profile.dump().c_str());
             }
             // Both queue submission and the eventual ACK acquire this publication.
@@ -344,7 +350,11 @@ public:
           } catch (...) {
             Fail(std::runtime_error("GPU submission prerequisite worker unknown failure"));
           }
-        });
+        };
+        if (late_exchange) {
+          Need(!deferred_job.valid(), "one dormant GPU request");
+          deferred_job = std::packaged_task<void()>(std::move(job));
+        } else worker->Submit(std::move(job));
         guides = false;
         pending = true;
         return true; // Provisional output; actual eligibility gates Present separately.
@@ -378,6 +388,10 @@ public:
                const std::shared_ptr<std::atomic<bool>> &recorded = {}) {
     try {
       Need(pending, "GPU response before Native consume");
+      // A late request starts only together with its guaranteed consume/discard.
+      // A missing flip can leave this dormant indefinitely without stranding
+      // a Helper output or starting the consumed-ACK deadline.
+      if (deferred_job.valid()) worker->Submit(std::move(deferred_job));
       scheduler.EndRendering();
       last_recorded_tick = scheduler.CurrentTick();
       mailbox->MarkUse();

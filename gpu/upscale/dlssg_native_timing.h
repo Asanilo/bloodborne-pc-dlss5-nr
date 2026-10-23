@@ -21,13 +21,13 @@ struct DlssgNativeTiming {
     // consumer submission prerequisite. The preceding consumer is earlier on this same draw
     // timeline; the current consumer cannot reset 4/5 until we publish the response.
     void ReadAsyncInput(u64 input_source,u64 previous_output,double record_ms,
-                        double flush_ms,double wait_ms) const {
+                        double flush_ms,double wait_ms,const char* pipeline) const {
         if(!pool)return;
         u64 t[4]{};
         Check<"FG async completed inputs">(device.getQueryPoolResults(*pool,0,4,sizeof t,t,sizeof(u64),vk::QueryResultFlagBits::e64));
         if(input_source%120==0)
-            std::printf("DLSSG_GPU_INPUT_PROFILE source=%llu guides_copy_gpu_ms=%.3f guides_to_final_color_gpu_ms=%.3f color_copy_gpu_ms=%.3f record_cpu_ms=%.3f producer_flush_cpu_ms=%.3f producer_completion_wait_cpu_ms=%.3f pipeline=submit-ready-v1\n",
-                (unsigned long long)input_source,Delta(t[0],t[1]),Delta(t[1],t[2]),Delta(t[2],t[3]),record_ms,flush_ms,wait_ms);
+            std::printf("DLSSG_GPU_INPUT_PROFILE source=%llu guides_copy_gpu_ms=%.3f guides_to_final_color_gpu_ms=%.3f color_copy_gpu_ms=%.3f record_cpu_ms=%.3f producer_flush_cpu_ms=%.3f producer_completion_wait_cpu_ms=%.3f pipeline=%s\n",
+                (unsigned long long)input_source,Delta(t[0],t[1]),Delta(t[1],t[2]),Delta(t[2],t[3]),record_ms,flush_ms,wait_ms,pipeline);
         if(previous_output){u64 u[2]{};
             Check<"FG async preceding completed output">(device.getQueryPoolResults(*pool,4,2,sizeof u,u,sizeof(u64),vk::QueryResultFlagBits::e64));
             if(previous_output%120==0)

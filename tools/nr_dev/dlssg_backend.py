@@ -16,7 +16,7 @@ def validate_args(args):
         return
     if not (getattr(args,'daily',False) and getattr(args,'fg_native',False)):
         raise ValueError('DLSSG requires daily --fg-native real-source binding')
-    if getattr(args,'dlssg_pipeline','sync-v1') not in ('sync-v1','submit-ready-v1'):
+    if getattr(args,'dlssg_pipeline','sync-v1') not in ('sync-v1','submit-ready-v1','late-ready-v1'):
         raise ValueError('unsupported DLSSG pipeline')
     if getattr(args,'dlssg_helper_wake','poll-v1')=='notify-v1' and getattr(args,'dlssg_transport',None)!='gpu-dmabuf-v1':
         raise ValueError('notify-v1 requires gpu-dmabuf-v1')
@@ -34,6 +34,9 @@ def check(args,build):
     if (getattr(args,'dlssg_pipeline','sync-v1')!='sync-v1' and
         b'DLSSG_GPU_SUBMIT_READY_PROFILE' not in (Path(build)/'gpu/libbbgpu.so').read_bytes()):
         raise ValueError('submit-ready-v1 requires rebuilt asynchronous Native bridge')
+    if (getattr(args,'dlssg_pipeline','sync-v1')=='late-ready-v1' and
+        b'GPU dormant request resolved before guide reuse' not in (Path(build)/'gpu/libbbgpu.so').read_bytes()):
+        raise ValueError('late-ready-v1 requires rebuilt deferred Native bridge')
     source=Path(__file__).resolve().parents[2]
     spec=importlib.util.spec_from_file_location('dlssg_wine_build_inputs',source/'tools/fg_dev/build_wine_probe.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -90,7 +93,7 @@ def validate_manifest(run,manifest):
         raise ValueError('DLSSG sealed Helper wake drift')
     # Read the sealed historical r37 experiment for independent retirement
     # audit. New admission above/CLI never permits this rejected WSI mode.
-    if config.get('pipeline','sync-v1') not in ('sync-v1','submit-ready-v1','gpu-gate-v1') or env.get('BB_DLSSG_PIPELINE','sync-v1')!=config.get('pipeline','sync-v1'):
+    if config.get('pipeline','sync-v1') not in ('sync-v1','submit-ready-v1','late-ready-v1','gpu-gate-v1') or env.get('BB_DLSSG_PIPELINE','sync-v1')!=config.get('pipeline','sync-v1'):
         raise ValueError('DLSSG sealed pipeline drift')
     if config.get('pipeline','sync-v1')!='sync-v1' and transport!='gpu-dmabuf-v1':
         raise ValueError('DLSSG async prerequisite requires GPU transport')
