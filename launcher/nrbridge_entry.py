@@ -967,6 +967,8 @@ def daily(args) -> int:
         command += ["--launcher-ini", str(launcher_ini)]
     if player_data:
         command += ["--player-data-dir", str(player_data)]
+    if getattr(args, "gpu_validation", False):
+        command.append("--gpu-validation")
     if getattr(args, "sr_only", False):
         command.append("--sr-only")
     if getattr(args,"fg_backend",None) is not None:
@@ -1082,6 +1084,8 @@ def main(argv=None) -> int:
                         help="bounded FG CPU/GPU stage timings; does not change the backend")
     parser.add_argument("--fg-validation", action="store_true",
                         help="enable existing Vulkan core/sync validation for an FG test")
+    parser.add_argument("--gpu-validation", action="store_true",
+                        help="explicit core+sync GPU diagnostic; forwarded to daily coordinator")
     parser.add_argument("--sr-only", action="store_true",
                         help="do not start the Helper; the runner owns the SR-only path")
     parser.add_argument("--no-terminal", action="store_true")

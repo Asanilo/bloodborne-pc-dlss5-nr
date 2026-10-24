@@ -639,7 +639,15 @@ def validate_daily_manifest(run,manifest):
  daily_online.validate_manifest(run,manifest)
  if ui_start.ENVIRONMENT in environment:ui_start.validate(run,manifest)
 
+def prepared_gpu_validation(args):
+ if not (getattr(args,'gpu_validation',False) or getattr(args,'fg_validation',False)):return None
+ validation=WT/'out/deps/vulkan-validation/usr'
+ for name in ('share/vulkan/explicit_layer.d/VkLayer_khronos_validation.json','lib/libVkLayer_khronos_validation.so'):
+  if not (validation/name).is_file():raise ValueError('prepared Vulkan core+sync validation dependency missing')
+ return validation
+
 def check_fg_capability(args, build):
+ prepared_gpu_validation(args)
  if getattr(args,"fg_backend",None) is not None and b"FG_BACKEND selected=" not in (Path(build)/"gpu/libbbgpu.so").read_bytes():
   raise ValueError("Unified FG selection requires a rebuilt M3 Native runtime")
  smooth_motion.check_capability(args,build)
@@ -839,11 +847,11 @@ def launch_supervised(args,signals):
                BB_DLSSG_CAPTURE_TRIGGER=str(run/'dlssg-capture-trigger'))
    env['BB_PRESET_FILE']=str(run/'sr-control')
    (run/'dump').mkdir()
-   if getattr(args,'fg_validation',False):
-    validation=WT/'out/deps/vulkan-validation/usr'
-    env.update(BB_VK_VALIDATION='1',BB_VK_VALIDATION_SYNC='1',
-               VK_LAYER_PATH=str(validation/'share/vulkan/explicit_layer.d'),
-               LD_LIBRARY_PATH=str(validation/'lib')+':'+str(sysroot_lib))
+  validation=prepared_gpu_validation(args)
+  if validation is not None:
+   env.update(BB_GPU_VALIDATION='1',BB_VK_VALIDATION='1',BB_VK_VALIDATION_SYNC='1',
+              VK_LAYER_PATH=str(validation/'share/vulkan/explicit_layer.d'),
+              LD_LIBRARY_PATH=str(validation/'lib')+':'+str(sysroot_lib))
   if getattr(args,'smooth_motion',False):env.update(smooth_motion.environment(run))
   if getattr(args,'experimental_fg',None)=='dlssg':
    env.update(BB_FRAME_GEN_BACKEND='dlssg',BB_DLSSG_STREAM_DIR='pending')
@@ -978,6 +986,7 @@ def parse_args(argv=None):
  p.add_argument('--smooth-motion',action='store_true',help='exclusive driver-level NVIDIA Smooth Motion experiment')
  p.add_argument('--fg-fps-limit',type=int,default=None,help='explicit experiment real-frame cap: 0 uncapped; default 60')
  p.add_argument('--fg-profile',action='store_true',help='bounded FG CPU and GPU stage timing')
+ p.add_argument('--gpu-validation',action='store_true',help='prepared Vulkan core+sync validation for NR, SR or FG; excludes hot timing')
  p.add_argument('--fg-validation',action='store_true',help='explicit FG core/sync validation')
  player_settings.add_arguments(p)
  a=p.parse_args(argv)
