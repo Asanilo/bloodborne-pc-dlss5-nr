@@ -2,6 +2,7 @@
 > [主线集成说明](M4_M5_MAINLINE_INTEGRATION.zh-CN.md)。以下保留独立开发阶段记录。
 > M9 已解除固定 FG 尺寸限制，代表性 Old 多尺寸/多倍率实机结果及尚未通过的边界见
 > [M9 验收记录](DLSS_MFG_M9.zh-CN.md)；本文的固定 1080p 限制是 M4 当时状态。
+> New Memory 3X–6X、动态档位与 NR 恢复见 [M9 New 实机记录](DLSS_MFG_M9_NEW.zh-CN.md)。
 
 # M4：RTX 4060 Laptop DLSS MFG 游戏集成
 
