@@ -885,7 +885,33 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
                vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eTransferDst |
                    vk::ImageUsageFlagBits::eTransferSrc);
     make_image(reactive_image, reactive_view, vk::Format::eR8Unorm,
-               vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
+               vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled |
+                   vk::ImageUsageFlagBits::eTransferDst);
+    // HDR merge binds this typed R8 storage view even when its debug branch is
+    // disabled (DLSS never produces a reactive mask). Give every descriptor a
+    // real layout and neutral contents once per allocation, on the same queue.
+    scheduler.Record([image = vk::Image(reactive_image)](vk::CommandBuffer cmd) {
+        const vk::ImageSubresourceRange range{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+        vk::ImageMemoryBarrier2 barrier{
+            .dstStageMask = vk::PipelineStageFlagBits2::eClear,
+            .dstAccessMask = vk::AccessFlagBits2::eTransferWrite,
+            .oldLayout = vk::ImageLayout::eUndefined,
+            .newLayout = vk::ImageLayout::eGeneral,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = image,
+            .subresourceRange = range,
+        };
+        cmd.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier});
+        cmd.clearColorImage(image, vk::ImageLayout::eGeneral,
+                            vk::ClearColorValue{std::array<float, 4>{}}, range);
+        barrier.srcStageMask = vk::PipelineStageFlagBits2::eClear;
+        barrier.srcAccessMask = vk::AccessFlagBits2::eTransferWrite;
+        barrier.dstStageMask = vk::PipelineStageFlagBits2::eAllCommands;
+        barrier.dstAccessMask = vk::AccessFlagBits2::eShaderRead | vk::AccessFlagBits2::eShaderWrite;
+        barrier.oldLayout = vk::ImageLayout::eGeneral;
+        cmd.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier});
+    });
     fsr4_linear_view.reset();
     fsr4_linear_image = VideoCore::HostImage{};
     if (use_fsr4) {
