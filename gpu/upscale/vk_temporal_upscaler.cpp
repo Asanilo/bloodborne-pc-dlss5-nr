@@ -697,13 +697,20 @@ void TemporalUpscaler::RecordNrHdrPrepass(){
  nr_dimension_source=source;native_pre_sr_source_visited=true;
  const auto& settings=BbSettings::Get();
  bool pending=false;{std::scoped_lock lock{c1_audit_mutex};pending=native_async_pre_sr_pending_audit.has_value();}
- const bool supported=(UseDlss()||NrWithoutSr())&&settings.jitter&&!settings.frame_generation&&!pending&&scene_color&&camera_motion.Ready();
+ const auto dims=scene_targets.Size();const u32 rw=dims.width,rh=dims.height;
+ // The HDR prepass precedes this source's FG capture. Admit only a matching
+ // current/previous real source already accepted by the dynamic GPU backend.
+ // A size transition drains NR until the new FG domain has been captured;
+ // this domain check does not replace NR's completion or Present ledger.
+ const bool fg_compatible=!settings.frame_generation||
+     (UseDlss()&&frame_generation&&frame_generation->CompatibleScaledNrSource(
+         source,rw,rh,target_width,target_height));
+ const bool supported=(UseDlss()||NrWithoutSr())&&settings.jitter&&fg_compatible&&!pending&&scene_color&&camera_motion.Ready();
  native_async_pre_sr.BeginSource(source,supported);
  if(!supported||!native_async_pre_sr.Armed()){native_async_pre_sr.DrainUnavailable(scheduler);return;}
  try{
   auto& color=texture_cache.GetImage(scene_color);auto& depth=texture_cache.GetImage(camera_motion.Depth());
   if(color.info.pixel_format!=vk::Format::eR16G16B16A16Sfloat||depth.info.pixel_format!=vk::Format::eD32SfloatS8Uint)return;
-  const auto dims=scene_targets.Size();const u32 rw=dims.width,rh=dims.height;
   const std::array<u32,4> layout{rw,rh,target_width,target_height};const bool layout_changed=layout!=nr_source_layout;
   if(layout_changed){std::printf("NR_DIMENSIONS_SOURCE_LAYOUT source=%llu render=%ux%u model=%ux%u sr=%ux%u reset=1 immutable_resource_set=1\n",(unsigned long long)source,rw,rh,BbNRDimensions::Width(),BbNRDimensions::Height(),target_width,target_height);nr_source_layout=layout;}
   scheduler.EndRendering();
