@@ -153,3 +153,16 @@ class SessionGuard:
             raise ValueError('actual normal GPU retirement proof required for boot receipt')
         self._own_pending(receipt)
         self._write(receipt | {'state': 'retired'})
+
+    def retire_reaudited(self, receipt, run):
+        # Ordinary retire() still rejects every HOLD. This separate correction
+        # requires the original error, every actual owner proof, and exact nonce.
+        self._validate(receipt)
+        if (receipt['boot_id'] != self.boot_id or receipt['state'] != 'hold'
+                or self.read() != receipt):
+            raise ValueError('matching own held receipt required for reaudit')
+        from retirement_reaudit import validate_reconciliation
+        validate_reconciliation(Path(run), receipt)
+        if self.read() != receipt:
+            raise ValueError('held receipt changed during actual owner reaudit')
+        self._write(receipt | {'state': 'retired'})

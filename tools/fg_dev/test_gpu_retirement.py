@@ -67,6 +67,11 @@ class GpuRetirementTests(unittest.TestCase):
         path=self.root/'dlssg-generations.json';path.write_text(json.dumps(ledger));audit.audit_dlssg_gpu(self.root,'test',PROOF)
         manifest=dict(session='test',environment={'BB_DLSSG_TRANSPORT':'gpu-dmabuf-v1'})
         audit.audit_dlssg_owners(self.root,manifest,PROOF)
+        orphan=self.root/'dlssg-generations/g3';orphan.mkdir()
+        with self.assertRaisesRegex(ValueError,'unlisted FG'):audit.audit_dlssg_gpu(self.root,'test',PROOF)
+        orphan.rmdir()
+        with self.assertRaisesRegex(ValueError,'matching final'):
+            audit.audit_dlssg_gpu(self.root,'test',PROOF.replace('sequence=6','sequence=5'))
         # Exercise the actual owner dispatch, not just its recursive leaf audit.
         helper=self.root/'dlssg-generations/g2/dlssg-helper.log';helper.write_text('')
         with self.assertRaisesRegex(ValueError,'unique Helper'):audit.audit_dlssg_owners(self.root,manifest,PROOF)
