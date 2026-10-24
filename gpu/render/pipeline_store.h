@@ -19,7 +19,7 @@ struct StageSpecialization;
 namespace Vulkan::PipelineStore {
 
 /// Increment the one whose layout changes.
-constexpr u32 ShaderBinaryVersion = 20u; // the UI edge snap: corners, side edges only low (subtitles)
+constexpr u32 ShaderBinaryVersion = 21u; // motion varying locations include built-in budgets
 constexpr u32 ShaderMetaVersion = 7u;    // ImageResource::needs_native
 constexpr u32 PipelineKeyVersion = 5u;   // Info layout (ImageResource::needs_native)
 

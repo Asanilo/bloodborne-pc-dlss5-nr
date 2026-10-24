@@ -122,6 +122,12 @@ public:
     u32 MaxPushDescriptors() const {
         return max_push_descriptors;
     }
+    u32 MaxVertexOutputComponents() const {
+        return properties.limits.maxVertexOutputComponents;
+    }
+    u32 MaxFragmentInputComponents() const {
+        return properties.limits.maxFragmentInputComponents;
+    }
     u32 GetMaxViewportWidth() const {
         return properties.limits.maxViewportDimensions[0];
     }

@@ -88,8 +88,10 @@ struct SwVertexRuntimeInfo {
 /// clip-space positions per referenced vertex and read the previous frame's; the
 /// fragment shader writes the screen-space difference to an extra color attachment.
 struct MotionVectors {
-    static constexpr u32 CurrentLocation = 30;  ///< varying: current clip position
-    static constexpr u32 PreviousLocation = 31; ///< varying: previous clip position, z = valid
+    // Built-ins count against the same component limit as user varyings.
+    // Pipeline selection checks space and guest collisions before injecting these.
+    static constexpr u32 CurrentLocation = 28;  ///< varying: current clip position
+    static constexpr u32 PreviousLocation = 29; ///< varying: previous clip position, z = valid
     static constexpr u32 Output = 7;            ///< color attachment index
     /// Per-draw parameters (u32x4: store base, load base, vertices per instance, flags) and
     /// the position array (vec4 per vertex; element 0 is scratch), fixed for the session.
