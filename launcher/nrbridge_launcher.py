@@ -407,7 +407,7 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
         conflicts = nr_conflicts(settings, ini,dimensions=bool(dimensions))
         if conflicts:
             raise ValueError("NR requirements: DLSS Quality, 16:9 or Auto, 1920x1080, "
-                             "jitter/object motion on, old or auto memory; " + "; ".join(conflicts))
+                             "jitter/object motion on, old/new/auto memory; " + "; ".join(conflicts))
     dangerous = dangerous_extra_env(settings.get("extra_env", ""))
     if dangerous:
         raise ValueError("NRBridge reserved environment variables: " + ", ".join(dangerous))
