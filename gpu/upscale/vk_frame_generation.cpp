@@ -325,6 +325,11 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
     return true;
 }
 
+u64 FrameGeneration::AcceptedDisplaySource(vk::Image color,u32 width,u32 height,u64 source,bool sampled_ui) const {
+    return FgContract::CanStampDisplay(Wanted()&&bool(dlssg_gpu)&&scene_captured,sampled_ui,
+        color,scene.color,accepted_scene_source,source,scene.width,scene.height,width,height)?source:0;
+}
+
 bool FrameGeneration::CompatibleScaledNrSource(u64 source,u32 rw,u32 rh,u32 ow,u32 oh) const {
     const char* mode=std::getenv("BB_DLSSG_DYNAMIC_LAYOUT");
     return mode&&std::strcmp(mode,"1")==0&&dlssg_gpu&&accepted_scene_source&&

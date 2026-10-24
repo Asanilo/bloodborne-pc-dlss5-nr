@@ -3171,6 +3171,7 @@ bool TemporalUpscaler::RedirectColor(VideoCore::ImageId color,
     if (!display_redirect) {
         display.valid = false; // not upscaled: the presenter shows the guest buffer
         display.c1_audit = {};
+        display.source_stamp = {};
         return false;
     }
     if (!display.image || display.format != image.info.pixel_format ||
@@ -3196,6 +3197,7 @@ bool TemporalUpscaler::RedirectColor(VideoCore::ImageId color,
                      vk::ImageUsageFlagBits::eTransferSrc,
             .initialLayout = vk::ImageLayout::eUndefined,
         });
+        display.generation = ++display_generation;
         display.views.clear();
     }
     scheduler.EndRendering();
@@ -3216,6 +3218,19 @@ bool TemporalUpscaler::RedirectColor(VideoCore::ImageId color,
         cmd.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &b});
     });
     display.valid = true;
+    // This draw really targets this host image for the guest VideoOut address.
+    // Carry the finished UI source across NoteFrameStart; do not infer it later
+    // from a Helper response or from NR's optional Present ledger.
+    display.source_stamp = {};
+    const u64 display_gpu_frame=BbStats::gpu_frames.load(std::memory_order_relaxed);
+    if (pending_display_source.source && pending_display_source.address == address &&
+        pending_display_source.width == ui_width && pending_display_source.height == ui_height &&
+        display_gpu_frame > pending_display_source.source &&
+        display_gpu_frame - pending_display_source.source == 1) {
+        display.source_stamp = pending_display_source;
+        display.source_stamp.producer_tick = scheduler.CurrentTick();
+        display.source_stamp.generation = display.generation;
+    }
 #if NRBRIDGE_LEGACY_EXPERIMENTS
     if (c1_pending_source_game_frame != 0) {
         display.c1_audit = {
@@ -3353,6 +3368,16 @@ void TemporalUpscaler::OnDisplayPassStart(VAddr address, std::span<const VAddr> 
         }
     }
     if(NrWithoutSr())RecordNrDimensionPresent(true);
+    // Pin the accepted finished UI domain before Interpolate consumes its
+    // one-shot capture. Merely having a current renderer counter is insufficient.
+    FgContract::DisplayStamp accepted_display{};
+    if (frame_generation && ui_phase && ui_image && ui_color) {
+        const auto sampled_ui_address=texture_cache.GetImage(ui_color).info.guest_address;
+        const bool sampled_ui=std::ranges::find(sampled_addresses,sampled_ui_address)!=sampled_addresses.end();
+        const u64 source=frame_generation->AcceptedDisplaySource(vk::Image(ui_image),ui_width,ui_height,
+            BbStats::gpu_frames.load(std::memory_order_relaxed),sampled_ui);
+        if (source) accepted_display={.source=source,.address=address,.width=ui_width,.height=ui_height};
+    }
     if (NativeFrameGeneration() && frame_generation) {
         vk::Image finished{};
         if (native_fg_color) {
@@ -3372,6 +3397,11 @@ void TemporalUpscaler::OnDisplayPassStart(VAddr address, std::span<const VAddr> 
     } else if (frame_generation && ui_phase && ui_image) {
         frame_generation->Interpolate(vk::Image(ui_image), address);
     }
+    {
+        std::scoped_lock lock{display_mutex};
+        pending_display_source = accepted_display;
+        if (pending_display_source.source) pending_display_source.producer_tick=scheduler.CurrentTick();
+    }
 }
 
 bool TemporalUpscaler::DisplayOverride(VAddr address, Display& display) {
@@ -3390,6 +3420,9 @@ bool TemporalUpscaler::DisplayOverride(VAddr address, Display& display) {
     }
     display = {vk::Image(it->second.image), it->second.format, it->second.width,
                it->second.height, it->second.c1_audit};
+    display.source_game_frame = it->second.source_stamp.Consume(
+        address, BbStats::gpu_frames.load(std::memory_order_relaxed), scheduler.CurrentTick(),
+        it->second.generation, it->second.width, it->second.height);
     if (display.c1_audit.source_game_frame != 0) {
         display.c1_audit.buffer_address = address;
         // Hot NR association is metadata only. Keep whole-frame readback explicit.
