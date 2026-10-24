@@ -78,20 +78,21 @@ def evidence(run):
     return out
 
 
-def validate_reconciliation(run, receipt):
+def validate_reconciliation(run, receipt, prepared=False):
     """Recheck the exact archived HOLD, immutable proof, and actual owner audit."""
-    original_scope(run, receipt)
+    original = original_scope(run, receipt)
     record = read(run / RECORD)
     if (record.get('schema') != SCHEMA or record.get('receipt') != receipt
             or record.get('original_result_sha256') != digest(run / ORIGINAL_RESULT)
             or record.get('original_audit_sha256') != digest(run / ORIGINAL_AUDIT)
+            or record.get('auditor_sha256') != digest(Path(peer_retirement.__file__).resolve())
             or record.get('evidence') != evidence(run)):
         raise ValueError('retirement reconciliation evidence drift')
     result = read(run / 'result.json')
     normal_termination(result)
-    if (result.get('status') != 'PASS_NORMAL_TEARDOWN'
-            or result.get('native_lastuse_proof') is not True
-            or result.get('retirement_reaudit') != record['original_result_sha256']):
+    expected = original | dict(status='PASS_NORMAL_TEARDOWN', native_lastuse_proof=True,
+                               retirement_reaudit=record['original_result_sha256'])
+    if result != expected and not (prepared and result == original):
         raise ValueError('reaudited result lacks its original HOLD binding')
     audited = peer_retirement.audit_session(run)
     # Only result.json changes after the first, read-only audit.
@@ -128,16 +129,29 @@ def reconcile(run, guard, no_holders):
         with (run / RECORD).open('x') as stream:
             json.dump(record, stream, indent=2); stream.write('\n')
     record = read(run / RECORD)
-    # Use atomic replacement; archives and the failure latch remain unchanged.
+    # Two fresh, read-only full audits precede publication. A prepared record is
+    # resumable; it is never admission or retirement proof on its own.
+    validate_reconciliation(run, receipt, prepared=True)
+    validate_reconciliation(run, receipt, prepared=True)
+    if no_holders() is not True or guard.read() != receipt:
+        raise ValueError('owners or receipt changed before retirement publication')
     result = original | dict(status='PASS_NORMAL_TEARDOWN', native_lastuse_proof=True,
                              retirement_reaudit=record['original_result_sha256'])
     from runner import atomic
-    atomic(run / 'result.json', result)
-    validate_reconciliation(run, receipt)
-    if no_holders() is not True:
-        raise ValueError('live GPU owners appeared before receipt retirement')
-    guard.retire_reaudited(receipt, run)
-    atomic(run / 'retirement-audit.json', peer_retirement.audit_session(run))
+    audited = dict(record['audit'])
+    audited['result.json_sha256'] = hashlib.sha256((json.dumps(result, indent=2)+'\n').encode()).hexdigest()
+    try:
+        atomic(run / 'retirement-audit.json', audited)
+        atomic(run / 'result.json', result)
+        if no_holders() is not True:
+            raise ValueError('live GPU owners appeared before receipt retirement')
+        # The receipt is the last publication, after one more actual owner audit.
+        guard.retire_reaudited(receipt, run)
+    except BaseException:
+        if guard.read() == receipt:
+            atomic(run / 'result.json', original)
+            atomic(run / 'retirement-audit.json', read(run / ORIGINAL_AUDIT))
+        raise
     return result
 
 
