@@ -385,6 +385,7 @@ private:
     /// bbport BB_RESIDENCY_MIX=1 (diagnostics): bindings over blocks in VRAM and in place at once.
     void NoteResidencyMix(u64 first_block, u64 last_block, u64 size, bool is_written);
     void ProcessIdleBlocks();
+    void ReportMemoryProfile(u32 now);
     /// A VRAM slot of a block that left it: reused by the next move to VRAM.
     void ReleaseResidencySlot(vk::DeviceMemory memory, u64 offset);
     /// Unbinds a VRAM block of memory the game unmapped (uploaded again if mapped and used).
@@ -696,6 +697,7 @@ private:
     std::unordered_map<VkDeviceMemory, ResidencyChunk> residency_chunks;
     u32 idle_scan_second = 0;
     u32 last_evacuation = 0; ///< ProcessIdleBlocks: when a chunk was last emptied
+    u32 memory_profile_second = 0;
     u32 block_size{};
     u32 block_shift{};
     u32 blocks_per_arena_page{};

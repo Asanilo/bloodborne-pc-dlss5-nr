@@ -2031,8 +2031,44 @@ u64 BufferCache::EvictIdleCopies(u32 idle_seconds, u64 limit) {
     return idle.size();
 }
 
+void BufferCache::ReportMemoryProfile(u32 now) {
+    static const bool enabled = [] {
+        const char* value = std::getenv("BB_MEMORY_PROFILE");
+        return value && std::strcmp(value, "1") == 0;
+    }();
+    if (!enabled || now == memory_profile_second) return;
+    memory_profile_second = now;
+    u64 mirrors = 0, retired = 0, oldest = 0, valid = 0;
+    if (LayerMode()) {
+        for (const auto& [address, buffer] : layer_mirrors) mirrors += buffer->SizeBytes();
+        for (const auto& [buffer, tick] : layer_retired) {
+            retired += buffer->SizeBytes();
+            oldest = oldest ? std::min(oldest, tick) : tick;
+        }
+        valid = BbLayer::GpuMemory::Get().ValidBytes();
+    }
+    std::printf("MEMORY_RESIDENCY_V1 model=%s frame=%llu active_mirror_bytes=%llu "
+                "valid_mirror_bytes=%llu retired_mirror_bytes=%llu retired_mirror_count=%zu "
+                "oldest_retired_tick=%llu recorded_tick=%llu known_completed_tick=%llu "
+                "guest_vram_alloc_bytes=%llu vulkan_image_bytes=%llu cached_image_bytes=%llu "
+                "cached_image_count=%llu driver_heap_usage_bytes=%llu "
+                "scope=bookkeeping_bytes_cached_completion_lower_bound\n",
+                GuestInPlace() ? "new" : "old",
+                (unsigned long long)BbStats::gpu_frames.load(std::memory_order_relaxed),
+                (unsigned long long)mirrors, (unsigned long long)valid,
+                (unsigned long long)retired, LayerMode() ? layer_retired.size() : size_t{0},
+                (unsigned long long)oldest, (unsigned long long)scheduler.CurrentTick(),
+                (unsigned long long)scheduler.GetWorkSemaphore()->KnownGpuTick(),
+                (unsigned long long)BbStats::residency_alloc_bytes.load(std::memory_order_relaxed),
+                (unsigned long long)BbStats::vk_image_bytes.load(std::memory_order_relaxed),
+                (unsigned long long)BbStats::live_image_bytes.load(std::memory_order_relaxed),
+                (unsigned long long)BbStats::live_images.load(std::memory_order_relaxed),
+                (unsigned long long)BbStats::gc_used_bytes.load(std::memory_order_relaxed));
+}
+
 void BufferCache::ProcessIdleBlocks() {
     const u32 now = BbStats::coarse_second.load(std::memory_order_relaxed);
+    ReportMemoryProfile(now);
     if (now == idle_scan_second || VramIdleSeconds() == 0) {
         return;
     }

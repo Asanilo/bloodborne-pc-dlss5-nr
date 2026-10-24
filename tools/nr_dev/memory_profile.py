@@ -114,6 +114,7 @@ def main():
     begin = time.monotonic_ns()
     samples = {}
     memory_samples = {}
+    residency_samples = {}
     collector_cpu_begin = time.process_time()
     # Poll within the bounded log retention window; retain only the small timing ledger.
     while time.monotonic_ns() < begin + a.seconds * 1_000_000_000:
@@ -121,6 +122,11 @@ def main():
         if latest.is_file():
             sample = json.loads(latest.read_text())
             memory_samples[sample['monotonic_ns']] = sample
+        residency = run / 'memory-residency-latest.json'
+        if residency.is_file():
+            sample = json.loads(residency.read_text())
+            if sample['observed_monotonic_ns'] >= begin:
+                residency_samples[sample['observed_monotonic_ns']] = sample
         for row in tail.read(run):
             if int(row['cpu_monotonic_ns']) > begin:
                 samples[row['cpu_monotonic_ns']] = row
@@ -143,6 +149,7 @@ def main():
                   gpu_memory=metrics.memory(run, summary['begin_ns'], summary['end_ns'],
                                             samples=list(memory_samples.values())),
                   memory_samples=list(memory_samples.values()),
+                  residency_samples=list(residency_samples.values()),
                   route_sha256=hashlib.sha256(route.read_bytes()).hexdigest(),
                   scope='real Present return CPU intervals; device usage includes driver/other apps; '
                         'scene equivalence requires separate observation; no GPU/scanout completion claim',
