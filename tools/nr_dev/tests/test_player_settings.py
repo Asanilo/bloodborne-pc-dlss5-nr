@@ -138,6 +138,10 @@ class PlayerSettingsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'selected option drift'):
             p.verify_snapshot(run, binding, dict(r['environment'], BB_VK_VALIDATION='0'))
 
+    def test_gpu_validation_records_effective_selection(self):
+        self.args.gpu_validation = True
+        self.assertEqual(p.load_request(self.args)['environment']['BB_VK_VALIDATION'], '1')
+
     def test_legacy_diagnostic_can_add_core_and_sync_validation(self):
         r = p.load_request(self.args); run = self.root / 'run'; run.mkdir()
         binding = p.write_snapshot(run, r)

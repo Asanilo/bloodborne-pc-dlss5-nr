@@ -114,7 +114,8 @@ def load_request(args):
         value = source.get(key, key in ('mods_enabled', 'skip_network_choice'))
         if type(value) is not bool:
             raise ValueError('player settings: boolean required for ' + key)
-        if key == 'vk_validation' and getattr(args, 'fg_validation', False):
+        if key == 'vk_validation' and (getattr(args, 'fg_validation', False)
+                                       or getattr(args, 'gpu_validation', False)):
             value = True  # Explicit diagnostic flag strengthens the saved selection.
         env[target] = '1' if value else '0'
         selected[key] = value

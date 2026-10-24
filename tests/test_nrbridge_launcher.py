@@ -410,7 +410,7 @@ class EntryAndReadbackTests(unittest.TestCase):
     def test_entry_forwards_paths_without_automatic_test_continuation(self):
         home = Path('/tmp/fixture-home')
         args = argparse.Namespace(home=home, session='fixture', launcher_settings='/tmp/config/settings.json',
-            launcher_ini='/tmp/data/bbport.ini', player_data_dir='/tmp/data', sr_only=True, experimental_fg='fsr31-hudless',
+            launcher_ini='/tmp/data/bbport.ini', player_data_dir='/tmp/data', sr_only=True, gpu_validation=True, experimental_fg='fsr31-hudless',
             continue_session=None, new_game=False, online_pool='offline', offline=False,
             online_account_config=None, bbsc=False, joystick_mouse=False, no_terminal=True, print_command=True)
         with mock.patch.object(Path, 'is_file', return_value=True), mock.patch.object(entry, 'ensure_runs'), \
@@ -422,6 +422,7 @@ class EntryAndReadbackTests(unittest.TestCase):
         self.assertIn('--launcher-settings /tmp/config/settings.json', output.getvalue())
         self.assertIn('--launcher-ini /tmp/data/bbport.ini', output.getvalue())
         self.assertIn('--player-data-dir /tmp/data', output.getvalue())
+        self.assertIn('--gpu-validation', output.getvalue())
         self.assertIn('--sr-only', output.getvalue())
         self.assertIn('--experimental-fg fsr31-hudless --fg-native', output.getvalue())
 

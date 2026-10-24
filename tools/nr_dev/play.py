@@ -31,6 +31,7 @@ def parse_args(argv=None):
  p.add_argument('--smooth-motion',action='store_true',help='driver-level NVIDIA interpolation; excludes application FG')
  p.add_argument('--fg-fps-limit',type=int,default=None,help='explicit experiment real-frame cap: 0 uncapped; default 60')
  p.add_argument('--fg-profile',action='store_true',help='bounded FG CPU and GPU stage timing')
+ p.add_argument('--gpu-validation',action='store_true',help='prepared Vulkan core+sync validation for NR, SR or FG; excludes hot timing')
  p.add_argument('--fg-validation',action='store_true',help='Vulkan core/sync validation for the FG experiment')
  p.add_argument('--session',default='play-'+datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
  p.add_argument('--seconds',type=int,default=480,help='计划正常关闭时间（含准备时间）')
@@ -105,6 +106,7 @@ def launch_command(a):
  if getattr(a,'dlssg_runtime',None):command+=['--dlssg-runtime',a.dlssg_runtime]
  if getattr(a,'experimental_fg',None):command+=['--experimental-fg',a.experimental_fg]
  if getattr(a,'fg_native',False):command+=['--fg-native']
+ if getattr(a,'gpu_validation',False):command+=['--gpu-validation']
  if getattr(a,'fg_validation',False):command+=['--fg-validation']
  if getattr(a,'fg_profile',False):command+=['--fg-profile']
  if getattr(a,'fg_fps_limit',None) is not None:command+=['--fg-fps-limit',str(a.fg_fps_limit)]
