@@ -529,7 +529,9 @@ void TemporalUpscaler::PollNativeFrameBoundary() noexcept {
     native_pre_sr_source_visited = false;
     const auto& p0_settings=BbSettings::Get();
     try {
-        native_async_pre_sr.PollReady(instance,scheduler,(!Scaled()||BbNRDimensions::Get().enabled)&&(UseDlss()||NrWithoutSr())&&(p0_settings.preset==1||BbNRDimensions::Get().enabled)&&p0_settings.jitter&&(!p0_settings.frame_generation||NativeFrameGeneration()));
+        native_async_pre_sr.PollReady(instance,scheduler,(!Scaled()||BbNRDimensions::Get().enabled)&&(UseDlss()||NrWithoutSr())&&(p0_settings.preset==1||BbNRDimensions::Get().enabled)&&p0_settings.jitter&&(!p0_settings.frame_generation||NativeFrameGeneration()||
+            (BbNRDimensions::Get().enabled&&frame_generation&&frame_generation->CompatibleScaledNrSource(
+                BbStats::gpu_frames.load(std::memory_order_relaxed),render_width,render_height,target_width,target_height))));
         if (!source_visited) native_async_pre_sr.DrainUnavailable(scheduler);
     }
     catch(const std::exception& e){native_async_pre_sr.QuarantineRecorded(scheduler);std::fprintf(stderr,"NATIVE_ASYNC_PRE_SR_POLL_HOLD reason=%s unknown_partial_use_retained=1\n",e.what());}

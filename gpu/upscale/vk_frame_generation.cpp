@@ -325,15 +325,24 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
     return true;
 }
 
+bool FrameGeneration::CompatibleScaledNrSource(u64 source,u32 rw,u32 rh,u32 ow,u32 oh) const {
+    const char* mode=std::getenv("BB_DLSSG_DYNAMIC_LAYOUT");
+    return mode&&std::strcmp(mode,"1")==0&&dlssg_gpu&&accepted_scene_source&&
+           source>=accepted_scene_source&&source-accepted_scene_source<=1&&scene.color&&scene.depth&&scene.motion&&
+           scene.render_width==rw&&scene.render_height==rh&&scene.width==ow&&scene.height==oh;
+}
+
 void FrameGeneration::CaptureScene(const Scene& in) {
     if (async_output) { async_output.reset(); reset_next = true; }
     ResolveDeferredGpuOutput(); // Before scene fields, guide queries or mailbox inputs can change.
     scene_capture_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::steady_clock::now().time_since_epoch()).count();
     scene_captured = false;
+    accepted_scene_source = 0;
     if (dlssg_capture || dlssg_gpu) {
         scene = in;
         scene_captured = Wanted() && (dlssg_gpu ? dlssg_gpu->Guides(in) : dlssg_capture->Guides(in));
+        if(scene_captured)accepted_scene_source=in.source_game_frame;
         scene_id = in.source_game_frame;
         scene_reset = reset_next || in.reset;
         if (scene_captured) reset_next = false;
