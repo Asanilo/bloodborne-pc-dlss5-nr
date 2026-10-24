@@ -20,6 +20,10 @@ int main(int argc,char** argv){
  std::filesystem::create_directory(request.directory);
  bool collision=false;try{Vulkan::HistoryCapture::ValidateRequest(1,3,false,4);}
  catch(const Vulkan::HistoryCapture::DiagnosticAdmissionRejected&){collision=true;}assert(collision);
+ std::filesystem::remove(request.directory);
+ std::filesystem::create_symlink(root+"/missing",request.directory);
+ bool linked=false;try{Vulkan::HistoryCapture::ValidateRequest(1,3,false,4);}
+ catch(const Vulkan::HistoryCapture::DiagnosticAdmissionRejected&){linked=true;}assert(linked);
  bool missingOptIn=false;try{Vulkan::HistoryCapture::ValidateRequest(0,3,false,4);}
  catch(const Vulkan::HistoryCapture::DiagnosticAdmissionRejected&){missingOptIn=true;}assert(missingOptIn);
  assert(!BbNativeAsyncPreSr::ValidDevRun(run,"other"));

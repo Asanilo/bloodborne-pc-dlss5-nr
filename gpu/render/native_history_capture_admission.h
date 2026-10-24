@@ -45,8 +45,9 @@ inline Request ValidateRequest(uint64_t sequence,unsigned frames,bool environmen
  request.session=session;
  request.directory=(std::filesystem::path(run)/("persistent-history-diagnostic-"+request.session+
                     (request.ui_request?"-capture-"+std::to_string(sequence):""))).string();
- std::error_code error;const bool exists=std::filesystem::exists(request.directory,error);
- if(error||exists)throw DiagnosticAdmissionRejected("persistent diagnostic refuses inaccessible or existing output directory");
+ std::error_code error;const auto status=std::filesystem::symlink_status(request.directory,error);
+ if((error&&error!=std::errc::no_such_file_or_directory)||status.type()!=std::filesystem::file_type::not_found)
+  throw DiagnosticAdmissionRejected("persistent diagnostic refuses inaccessible or existing output directory");
  const char* links=std::getenv("BB_NR_QUALITY_CAPTURE_LINKS");
  request.capture_links=links&&!std::strcmp(links,"1");
  return request;
