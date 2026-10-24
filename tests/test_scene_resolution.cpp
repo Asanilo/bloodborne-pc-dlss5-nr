@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cstdlib>
 #include "common/slot_vector.h"
 #include "vulkan/instance.h"
 #include "render/runtime.h"
@@ -13,7 +14,8 @@
 
 int main() {
     using namespace Vulkan;
-    Instance instance(0, false);
+    setenv("BB_BREADCRUMBS", "0", 1); // global hang diagnostics outlive this standalone device
+    Instance instance(-1, true);
     // Calls emitted by this executable use a local dispatcher. libbbgpu.so initializes
     // its own default dispatcher while constructing Instance.
     static vk::detail::DynamicLoader loader;
@@ -83,6 +85,22 @@ int main() {
     };
     VideoCore::ImageViewInfo cv;
     cv.format = ci.pixel_format;
+    // A mutable sRGB render target may have STORAGE in the parent usage for
+    // UNORM views. Its sampled/attachment proxy view must not inherit STORAGE.
+    // This previously produced usage-02275 on the real NVIDIA NR/SR/FG path.
+    auto srgb_info = ci;
+    srgb_info.pixel_format = vk::Format::eR8G8B8A8Srgb;
+    const auto srgb_id = images.insert(instance, runtime, views, srgb_info);
+    auto srgb_view = cv;
+    srgb_view.format = srgb_info.pixel_format;
+    targets.SetSize(SceneResolution::ForPreset(1));
+    vk::ClearValue red{};
+    red.color.float32 = std::array{1.f, 0.f, 0.f, 1.f};
+    runtime.ClearImage(&images[srgb_id], {}, red);
+    const auto srgb = targets.Read(srgb_id, srgb_view);
+    assert(pixel(srgb.image, vk::ImageAspectFlagBits::eColor, srgb.layout, 1280, 720) == 0xff0000ff);
+    assert(targets.Attachment(srgb_id, srgb_view).view);
+    std::puts("Scene targets: sRGB sampled/attachment proxy with storage-capable parent PASS");
     auto dv = cv;
     dv.format = di.pixel_format;
     const auto clear_native = [&](u32 rgba, u32 stencil = 7) {

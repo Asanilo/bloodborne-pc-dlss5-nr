@@ -2354,12 +2354,14 @@ vk::ImageView TemporalUpscaler::CachedView(const VideoCore::Image& image, vk::Fo
     if (oldest->view) {
         scheduler.DeferOperation([device, view = oldest->view] { device.destroyImageView(view); });
     }
+    const vk::ImageViewUsageCreateInfo usage{.usage = vk::ImageUsageFlagBits::eSampled};
     *oldest = {
         .image = handle,
         .uid = image.image_uid,
         .format = format,
         .aspect = aspect,
         .view = Check(device.createImageView({
+            .pNext = &usage,
             .image = handle,
             .viewType = vk::ImageViewType::e2D,
             .format = format,

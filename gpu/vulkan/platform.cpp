@@ -168,7 +168,7 @@ vk::UniqueInstance CreateInstance(Frontend::WindowSystemType window_type, bool e
     const std::array settings = {
         setting(ValidationLayer, "validate_core", &core),
         setting(ValidationLayer, "validate_sync", &sync),
-        setting(ValidationLayer, "syncval_submit_time_validation", &sync),
+        setting(ValidationLayer, "syncval_full_validation", &sync),
         setting(ValidationLayer, "gpuav_enable", &gpu_assisted),
         setting(ValidationLayer, "gpuav_descriptor_checks", &gpu_assisted),
         setting(ValidationLayer, "gpuav_buffers_validation", &gpu_assisted),

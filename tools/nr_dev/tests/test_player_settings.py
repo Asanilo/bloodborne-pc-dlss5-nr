@@ -129,6 +129,24 @@ class PlayerSettingsTest(unittest.TestCase):
         self.assertEqual(e['BB_FRAME_STATS'], '1'); self.assertNotIn('BB_FRAME_LOG', e)
         self.assertEqual((e['MANGOHUD'], e['DISABLE_MANGOHUD']), ('1', '0'))
 
+    def test_explicit_validation_records_effective_selection_and_cannot_weaken(self):
+        self.args.fg_validation = True
+        r = p.load_request(self.args)
+        self.assertEqual(r['environment']['BB_VK_VALIDATION'], '1')
+        run = self.root / 'run'; run.mkdir()
+        binding = p.write_snapshot(run, r)
+        with self.assertRaisesRegex(ValueError, 'selected option drift'):
+            p.verify_snapshot(run, binding, dict(r['environment'], BB_VK_VALIDATION='0'))
+
+    def test_legacy_diagnostic_can_add_core_and_sync_validation(self):
+        r = p.load_request(self.args); run = self.root / 'run'; run.mkdir()
+        binding = p.write_snapshot(run, r)
+        e = dict(r['environment'], BB_VK_VALIDATION='1', BB_VK_VALIDATION_SYNC='1')
+        p.verify_snapshot(run, binding, e)
+        e.pop('BB_VK_VALIDATION_SYNC')
+        with self.assertRaisesRegex(ValueError, 'selected option drift'):
+            p.verify_snapshot(run, binding, e)
+
     def test_booleans_and_duplicate_json_not_coerced(self):
         self.obj['fullscreen'] = 'false'; self.write()
         with self.assertRaisesRegex(ValueError, 'boolean'):

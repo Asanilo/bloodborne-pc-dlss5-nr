@@ -114,6 +114,8 @@ def load_request(args):
         value = source.get(key, key in ('mods_enabled', 'skip_network_choice'))
         if type(value) is not bool:
             raise ValueError('player settings: boolean required for ' + key)
+        if key == 'vk_validation' and getattr(args, 'fg_validation', False):
+            value = True  # Explicit diagnostic flag strengthens the saved selection.
         env[target] = '1' if value else '0'
         selected[key] = value
     env['DISABLE_MANGOHUD'] = '0' if selected['mangohud'] else '1'
@@ -225,6 +227,12 @@ def verify_snapshot(run, record, environment):
         raise ValueError('player settings: snapshot schema drift')
     # Online selection can replace offline's network-choice field, never settings.
     for key, value in obj['environment'].items():
+        # Existing diagnostic sessions may have saved validation=off before the
+        # explicit --fg-validation override. Enabling core+sync validation is an
+        # admissible superset; removing requested validation remains a mismatch.
+        if (key == 'BB_VK_VALIDATION' and value == '0'
+                and environment.get(key) == '1' and environment.get('BB_VK_VALIDATION_SYNC') == '1'):
+            continue
         if key != 'BB_SKIP_NETWORK_CHOICE' and environment.get(key) != value:
             raise ValueError('player settings: selected option drift: ' + key)
     return obj
