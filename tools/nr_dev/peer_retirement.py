@@ -219,14 +219,18 @@ def rows(text,event):
 def audit_dlssg_gpu(run,session,text,expected_split=False):
  ledger_path=run/'dlssg-generations.json'
  if ledger_path.exists():
-  ledger=load(ledger_path);need(ledger.get('schema')=='dlssg-layout-generations-v1' and ledger.get('session')==session and ledger.get('active')==0,'all FG layout generations normally retired')
+  ledger=load(ledger_path);need(ledger.get('schema')=='dlssg-layout-generations-v1' and ledger.get('session')==session and type(ledger.get('active')) is int and ledger['active']==0,'all FG layout generations normally retired')
   entries=ledger.get('entries');need(type(entries) is list and 1<=len(entries)<=256,'bounded FG generation ledger')
+  directory_root=run/'dlssg-generations'
+  need(directory_root.resolve()==directory_root and not directory_root.is_symlink() and directory_root.is_dir(),'canonical FG generation root')
+  need(set(directory_root.iterdir())=={directory_root/f'g{n}' for n in range(1,len(entries)+1)},'no unlisted FG generation owner')
   for n,entry in enumerate(entries,1):
    directory=f'dlssg-generations/g{n}';need(entry.get('resource_epoch')==n and entry.get('directory')==directory,'contiguous FG resource epochs')
    generation=run/directory;need(generation.resolve()==generation and not generation.is_symlink(),'canonical FG generation directory')
+   need(not (generation/'dlssg-generations.json').exists() and not (generation/'dlssg-generations').exists(),'no nested FG owner ledger')
    cfg=load(generation/'dlssg-config.json');need(cfg.get('resource_epoch')==n and exact_typed(cfg.get('layout'),entry.get('layout')),'sealed generation layout')
    audit_dlssg_gpu(generation,session,(generation/'native-proof.log').read_text(),expected_split)
-  proof=rows(text,'DLSSG_GPU_BRIDGE_RETIRED');need(len(proof)==1,'one final FG owner retirement')
+  proof=rows(text,'DLSSG_GPU_BRIDGE_RETIRED');need(len(proof)==1 and proof==rows((generation/'native-proof.log').read_text(),'DLSSG_GPU_BRIDGE_RETIRED'),'one matching final FG owner retirement')
   return
  # This audits recorded completion facts; it never admits GPU work or repairs HOLD.
  proof=rows(text,'DLSSG_GPU_BRIDGE_RETIRED')

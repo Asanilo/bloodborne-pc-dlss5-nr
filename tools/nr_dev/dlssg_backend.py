@@ -101,6 +101,8 @@ def validate_manifest(run,manifest):
     config=json.loads(path.read_text())
     if config['session']!=manifest['session'] or config['run']!=str(run) or config['ipc']!=env.get('BB_DLSSG_STREAM_DIR') or env.get('BB_FRAME_GEN_NATIVE')!='1':
         raise ValueError('DLSSG private scope drift')
+    if config.get('layout_policy')=='actual-scene-v1' and env.get('BB_DLSSG_DYNAMIC_LAYOUT')!='1':
+        raise ValueError('DLSS dynamic layout policy drift')
     multiplier=config.get('multiplier',2)
     if env.get('BB_DLSSG_MULTIPLIER','2')!=str(multiplier):raise ValueError('DLSS multiplier environment drift')
     if type(multiplier) is not int or not 2<=multiplier<=6:raise ValueError('invalid sealed DLSS multiplier')
