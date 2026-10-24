@@ -325,11 +325,16 @@ bool Rasterizer::WriteLabelOnGpu(VAddr address, u64 value, u32 num_bytes) {
         cmdbuf.writeBufferMarkerAMD(vk::PipelineStageFlagBits::eBottomOfPipe, buffer, offset,
                                     static_cast<u32>(value));
     });
-    if (!marker) {
-        runtime.AccessBuffer(target->first, target->second, num_bytes,
-                             vk::PipelineStageFlagBits2::eTransfer,
-                             vk::AccessFlagBits2::eTransferWrite);
-    }
+    // AMD markers are transfer writes too. Without registering this access, a
+    // subsequent New Memory mirror/upload could copy the same guest chunk with
+    // no dependency (real SYNC-HAZARD-READ-AFTER-WRITE on NVIDIA). The marker can
+    // execute at its requested stage or TRANSFER; include both in the tracked
+    // scope so the next actual consumer emits the existing runtime barrier.
+    runtime.AccessBuffer(target->first, target->second, num_bytes,
+                         vk::PipelineStageFlagBits2::eTransfer |
+                             (marker ? vk::PipelineStageFlagBits2::eBottomOfPipe
+                                     : vk::PipelineStageFlags2{}),
+                         vk::AccessFlagBits2::eTransferWrite);
     // A VRAM copy of these bytes gets them too, at its next binding (as for CPU-written labels).
     buffer_cache.NoteLateCommandWrite(address, &value, num_bytes);
     BbStats::gpu_labels.fetch_add(1, std::memory_order_relaxed);
