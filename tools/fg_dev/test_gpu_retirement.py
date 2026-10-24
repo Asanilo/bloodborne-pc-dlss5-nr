@@ -11,6 +11,7 @@ import peer_retirement as audit
 import dlssg_backend
 
 PROOF='DLSSG_GPU_BRIDGE_RETIRED helper_GPU_complete=1 feature_released=1 child_reaped=1 Native_shared_GPU_complete=1 imports_destroyed=1 sequence=6\n'
+HELPER_PROOF='FG_POC_RETIRED actual_GPU_complete=1 feature_released=1 core_shutdown=1 device_destroyed=1 native_readers=0\n'
 
 class GpuRetirementTests(unittest.TestCase):
     def test_pipeline_is_sealed_and_old_configs_keep_sync(self):
@@ -61,13 +62,31 @@ class GpuRetirementTests(unittest.TestCase):
                 r.update(width=1706 if r['role'] in ('depth','motion') else 2560,height=960 if r['role'] in ('depth','motion') else 1440)
             for name,data in docs.items():(target/name).write_text(json.dumps(data))
             (target/'native-proof.log').write_text(PROOF)
+            (target/'dlssg-helper.log').write_text(HELPER_PROOF)
             ledger['entries'].append(dict(resource_epoch=n,directory=directory,layout=layout))
         path=self.root/'dlssg-generations.json';path.write_text(json.dumps(ledger));audit.audit_dlssg_gpu(self.root,'test',PROOF)
+        manifest=dict(session='test',environment={'BB_DLSSG_TRANSPORT':'gpu-dmabuf-v1'})
+        audit.audit_dlssg_owners(self.root,manifest,PROOF)
+        # Exercise the actual owner dispatch, not just its recursive leaf audit.
+        helper=self.root/'dlssg-generations/g2/dlssg-helper.log';helper.write_text('')
+        with self.assertRaisesRegex(ValueError,'unique Helper'):audit.audit_dlssg_owners(self.root,manifest,PROOF)
+        helper.write_text(HELPER_PROOF)
+        legacy=self.root/'dlssg-launch.json';legacy.write_text('{}')
+        with self.assertRaisesRegex(ValueError,'cannot coexist'):audit.audit_dlssg_owners(self.root,manifest,PROOF)
+        legacy.unlink()
+        with self.assertRaisesRegex(ValueError,'GPU generation ledger'):
+            audit.audit_dlssg_owners(self.root,dict(session='test',environment={'BB_DLSSG_TRANSPORT':'mapped-v1'}),PROOF)
         ledger['active']=2;path.write_text(json.dumps(ledger))
         with self.assertRaises(ValueError):audit.audit_dlssg_gpu(self.root,'test',PROOF)
         ledger['active']=0;path.write_text(json.dumps(ledger))
         target=self.root/'dlssg-generations/g1/dlssg-retired.json';report=json.loads(target.read_text());report['terminal']['resource_epoch']=2;target.write_text(json.dumps(report))
         with self.assertRaises(ValueError):audit.audit_dlssg_gpu(self.root,'test',PROOF)
+
+    def test_orphan_generation_cannot_be_reported_as_no_helper(self):
+        (self.root/'dlssg-generations').mkdir()
+        with self.assertRaisesRegex(ValueError,'GPU generation ledger'):
+            audit.audit_dlssg_owners(self.root,dict(session='test',environment={'BB_DLSSG_TRANSPORT':'gpu-dmabuf-v1'}),
+                                     'DLSSG_GPU_BRIDGE_NO_PEER no_helper_created=1\n')
 
     def test_normal_tuple_and_zero_requests(self):
         self.check()
