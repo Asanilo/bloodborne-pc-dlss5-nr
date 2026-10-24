@@ -64,6 +64,16 @@ class DailyLog(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'never lost a recorded failure'):
             log.read_completed(self.run)
 
+    def test_validation_counts_survive_rotation_without_forging_owner_failure(self):
+        first = b'gpu error (Render.Vulkan): VUID-vkCmdDraw-None-09600: bad layout\n'
+        second = b'gpu error (Render.Vulkan): SYNC-HAZARD-READ-AFTER-WRITE: bad dependency\n'
+        state = self.capture(first * 2 + second + b'ok\n' * 40000)
+        summary = state['validation_summary']
+        self.assertEqual(summary['vuids'], {'VUID-vkCmdDraw-None-09600':2})
+        self.assertEqual(summary['sync_hazards'], 1)
+        self.assertFalse(state['failure_latched'])
+        self.assertNotIn(b'09600', (self.run / 'game.log.1').read_bytes())
+
     def test_reader_keeps_both_files_in_stream_order_and_hashes_parsed_bytes(self):
         first = b'FG_EXIT_PROOF draw_GPU_complete=1 present_GPU_complete=1 resources_released=1\n'
         last = b'NATIVE_ASYNC_PRE_SR_EXIT_PROOF actual_source_cache_SR_GPU_lastuse_complete=1\n'
