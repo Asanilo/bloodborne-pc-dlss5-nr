@@ -708,7 +708,7 @@ void TemporalUpscaler::RecordNrHdrPrepass(){
   vk::Image ci=color.GetImage(),di=depth.GetImage();vk::ImageView cv=CachedView(color,color.info.pixel_format,vk::ImageAspectFlagBits::eColor),dv=CachedView(depth,depth.info.pixel_format,vk::ImageAspectFlagBits::eDepth);
   vk::ImageCreateInfo cinfo=color.backing->image.image_ci,dinfo=depth.backing->image.image_ci;
   const bool proxy=ReducedScene(color)&&scene_targets.EligibleScene(depth);
-  if(proxy){VideoCore::ImageViewInfo vi;vi.format=color.info.pixel_format;auto c=scene_targets.Read(scene_color,vi);vi.format=depth.info.pixel_format;auto d=scene_targets.Read(camera_motion.Depth(),vi);ci=c.image;cv=c.view;di=d.image;dv=d.view;cinfo=*scene_targets.CaptureCreateInfo(ci);dinfo=*scene_targets.CaptureCreateInfo(di);}
+  if(proxy){VideoCore::ImageViewInfo vi;vi.format=color.info.pixel_format;vi.is_storage=true;auto c=scene_targets.Read(scene_color,vi);vi.format=depth.info.pixel_format;vi.is_storage=false;auto d=scene_targets.Read(camera_motion.Depth(),vi);ci=c.image;cv=c.view;di=d.image;dv=d.view;cinfo=*scene_targets.CaptureCreateInfo(ci);dinfo=*scene_targets.CaptureCreateInfo(di);}
   else {runtime.Transit(&color,vk::ImageLayout::eGeneral,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite);runtime.Transit(&depth,vk::ImageLayout::eGeneral,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead);runtime.FlushBarriers();}
   if(!nr_dimension_adapter){nr_dimension_adapter=std::make_shared<NrDimensionAdapter>(instance);native_async_pre_sr.SetDimensionAdapter(nr_dimension_adapter);}
   EnsureMotionResources(rw,rh);
@@ -2352,7 +2352,11 @@ vk::ImageView TemporalUpscaler::CachedView(const VideoCore::Image& image, vk::Fo
     if (oldest->view) {
         scheduler.DeferOperation([device, view = oldest->view] { device.destroyImageView(view); });
     }
-    const vk::ImageViewUsageCreateInfo usage{.usage = vk::ImageUsageFlagBits::eSampled};
+    // HDR merge uses this same cached view as storage. Only strip STORAGE when
+    // the actual view format cannot support it (notably the sRGB LDR view).
+    vk::ImageViewUsageCreateInfo usage{.usage = image.backing->image.image_ci.usage};
+    if (!instance.IsFormatSupported(format, vk::FormatFeatureFlagBits2::eStorageImage))
+        usage.usage &= ~vk::ImageUsageFlagBits::eStorage;
     *oldest = {
         .image = handle,
         .uid = image.image_uid,
