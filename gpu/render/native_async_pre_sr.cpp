@@ -431,11 +431,12 @@ void NativeAsyncPreSr::PublishRuntimeStatus(){
   const auto outputs=ReadRuntimeOutputProgress(capture.seq);
   const bool outputs_complete=outputs.sr_complete>=capture.recorded_frames&&outputs.present_complete>=capture.recorded_frames&&outputs.presented>=capture.recorded_frames;
   runtime_status.capture_busy|=capture.complete&&!outputs_complete&&!outputs.failed;
-  if(capture.complete&&outputs_complete)runtime_status.capture_applied_seq=capture.seq;
+  if(capture.request_rejected||(capture.complete&&outputs_complete))runtime_status.capture_applied_seq=capture.seq;
   if((capture.failed||outputs.failed)&&!rejected){runtime_status.status=BbNR::Status::Failed;runtime_status.reason="Cold capture failed; original evidence preserved";}
   if(!rejected&&!runtime_model_pending&&!capture.failed&&!outputs.failed){
    runtime_status.status=applied.revision==runtime_request.revision?BbNR::Status::Applied:BbNR::Status::Pending;
    runtime_status.reason=runtime_status.status==BbNR::Status::Applied?"Frame controls applied; model changes require explicit Apply":"Waiting for a reusable current-frame slot";
+   if(capture.request_rejected)runtime_status.reason="Capture request rejected before GPU work: "+capture.reason+"; rendering continues";
   }
   runtime_status.applied_revision=applied.revision;
  }

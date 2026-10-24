@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_persistent_history_diagnostic.h"
-#include "native_dev_paths.h"
+#include "native_history_capture_admission.h"
 #include "buffers/buffer.h"
 #include "vulkan/instance.h"
 #include "render/scheduler.h"
@@ -27,11 +27,6 @@ constexpr std::array<uint64_t,3> CandidateSizes{uint64_t(1280)*720*16,uint64_t(1
 constexpr uint64_t CandidateBytes=CandidateSizes[0]+CandidateSizes[1]+CandidateSizes[2];
 constexpr uint64_t FrameBytes=Sizes[0]+Sizes[1]+Sizes[2]+Sizes[3]+Sizes[4]+Sizes[5]+Sizes[6]+Sizes[7]+Sizes[8]+Sizes[9];
 static_assert(FrameBytes*MaxFrames+CandidateBytes+(MaxFrames+1)*ManifestLimit<320ull*1024*1024);
-uint64_t Number(const char* name,uint64_t fallback,uint64_t max){
- const char* s=std::getenv(name);if(!s)return fallback;
- char* end=nullptr;errno=0;const auto v=std::strtoull(s,&end,10);
- if(errno==ERANGE||!*s||*s=='-'||!end||*end||!v||v>max)throw std::runtime_error("invalid bounded persistent diagnostic configuration");return v;
-}
 std::string Sha256(std::span<const uint8_t> bytes){
  constexpr std::array<uint32_t,64> k{0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2};
  std::array<uint32_t,8> h{0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19};
@@ -75,28 +70,17 @@ struct NativePersistentHistoryDiagnostic::Impl {
  std::atomic<bool> unknown{false};
  std::string directory,session;
  std::mutex mutex;std::condition_variable wake;std::jthread writer;
- explicit Impl(const Instance&,uint64_t,unsigned);
+ explicit Impl(const Instance&,HistoryCapture::Request);
  void Write(unsigned);
  void WriteCandidate();
  void Run(std::stop_token);
  bool Ready()const noexcept;
 };
-NativePersistentHistoryDiagnostic::Impl::Impl(const Instance& instance,uint64_t sequence,unsigned frame_count){
- capture_seq=sequence;ui_request=sequence!=0;
- if(!ui_request&&!NativePersistentHistoryDiagnostic::Enabled())throw std::runtime_error("persistent cold diagnostic explicit opt-in required");
- limit=frame_count?frame_count:unsigned(Number("BB_NATIVE_HISTORY_DIAGNOSTIC_FRAMES",3,MaxFrames));
- if(!limit||limit>MaxFrames)throw std::runtime_error("capture frame limit 1..4 required");
- if(!ui_request)after_candidate=Number("BB_NATIVE_HISTORY_DIAGNOSTIC_AFTER_CANDIDATE",1,1000000);
- if(!ui_request&&std::getenv("BB_NATIVE_HISTORY_DIAGNOSTIC_START_SOURCE"))start=Number("BB_NATIVE_HISTORY_DIAGNOSTIC_START_SOURCE",1,UINT64_MAX);
- const char* run=std::getenv("BB_NR_NATIVE_ASYNC_RUN_DIR"),*id=std::getenv("BB_NR_NATIVE_ASYNC_SESSION");
- if(!run||!id||!*id)throw std::runtime_error("persistent diagnostic current run/session required");
- session=id;
- if(!BbNativeAsyncPreSr::ValidDevRun(run,session))throw std::runtime_error("persistent diagnostic must use isolated canonical new run directory");
- const auto actual=std::filesystem::path(run);
- directory=(actual/("persistent-history-diagnostic-"+session+(ui_request?"-capture-"+std::to_string(capture_seq):""))).string();
+NativePersistentHistoryDiagnostic::Impl::Impl(const Instance& instance,HistoryCapture::Request request){
+ capture_seq=request.sequence;ui_request=request.ui_request;limit=request.limit;start=request.start;
+ after_candidate=request.after_candidate;session=std::move(request.session);directory=std::move(request.directory);
  // All staging is allocated before recording any readback. No render-thread
  // filesystem writes, hashing, mapping invalidation or per-frame allocation.
- if(std::filesystem::exists(directory))throw std::runtime_error("persistent diagnostic refuses existing output directory");
  for(unsigned i=0;i<limit;i++)for(unsigned j=0;j<10;j++)frames[i].staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,Sizes[j],VideoCore::MemoryType::HostCached,"Bounded persistent cold readback");
  for(unsigned j=0;j<3;j++)candidate_staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,CandidateSizes[j],VideoCore::MemoryType::HostCached,"Single exact candidate cold readback");
  writer=std::jthread([this](std::stop_token token){Run(token);});
@@ -111,7 +95,7 @@ void NativePersistentHistoryDiagnostic::Impl::ExpireCandidateWait() noexcept{
  }
 }
 bool NativePersistentHistoryDiagnostic::Enabled()noexcept{const char* e=std::getenv("BB_NATIVE_HISTORY_DIAGNOSTIC");return e&&std::strcmp(e,"1")==0;}
-NativePersistentHistoryDiagnostic::NativePersistentHistoryDiagnostic(const Instance& i,uint64_t sequence,unsigned frames):impl(std::make_unique<Impl>(i,sequence,frames)){}
+NativePersistentHistoryDiagnostic::NativePersistentHistoryDiagnostic(const Instance& i,uint64_t sequence,unsigned frames):impl(std::make_unique<Impl>(i,HistoryCapture::ValidateRequest(sequence,frames,Enabled(),MaxFrames))){}
 NativePersistentHistoryDiagnostic::~NativePersistentHistoryDiagnostic(){
  if(!impl)return;ReportRetirement("destructor");
  if(!Ready()){std::fprintf(stderr,"PERSISTENT_HISTORY_DIAGNOSTIC_HOLD pending_or_unknown=1 staging_retained=1\n");(void)impl.release();return;}
