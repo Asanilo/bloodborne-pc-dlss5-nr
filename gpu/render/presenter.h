@@ -52,6 +52,7 @@ struct Frame {
     vk::Semaphore ready_semaphore{};
     u64 ready_tick = 0;
     u64 c1_source_game_frame = 0;
+    u64 fg_real_source = 0; ///< Actual displayed content; never advances NR history.
     u64 c1_merge_tick = 0;
     u64 c1_guest_buffer_address = 0;
     u64 c1_guest_prepare_gpu_frame = 0;
