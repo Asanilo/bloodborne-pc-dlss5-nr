@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_persistent_history_diagnostic.h"
-#include "native_default_paths.h"
+#include "native_dev_paths.h"
 #include "buffers/buffer.h"
 #include "vulkan/instance.h"
 #include "render/scheduler.h"
@@ -91,12 +91,8 @@ NativePersistentHistoryDiagnostic::Impl::Impl(const Instance& instance,uint64_t 
  const char* run=std::getenv("BB_NR_NATIVE_ASYNC_RUN_DIR"),*id=std::getenv("BB_NR_NATIVE_ASYNC_SESSION");
  if(!run||!id||!*id)throw std::runtime_error("persistent diagnostic current run/session required");
  session=id;
- for(char c:session)if(!((c>='a'&&c<='z')||(c>='A'&&c<='Z')||(c>='0'&&c<='9')||c=='-'||c=='_'))throw std::runtime_error("persistent diagnostic unsafe session identifier");
- const auto default_root=NativeDefaultPaths::DevRoot();
- if(default_root.empty())throw std::runtime_error("persistent diagnostic default private root unavailable");
- const auto root=std::filesystem::canonical(default_root+"/runs");
- const auto actual=std::filesystem::canonical(run);const auto relative=actual.lexically_relative(root);
- if(relative.empty()||*relative.begin()==".."||relative=="."||actual!=std::filesystem::path(run).lexically_normal())throw std::runtime_error("persistent diagnostic must use isolated canonical new run directory");
+ if(!BbNativeAsyncPreSr::ValidDevRun(run,session))throw std::runtime_error("persistent diagnostic must use isolated canonical new run directory");
+ const auto actual=std::filesystem::path(run);
  directory=(actual/("persistent-history-diagnostic-"+session+(ui_request?"-capture-"+std::to_string(capture_seq):""))).string();
  // All staging is allocated before recording any readback. No render-thread
  // filesystem writes, hashing, mapping invalidation or per-frame allocation.
@@ -104,6 +100,7 @@ NativePersistentHistoryDiagnostic::Impl::Impl(const Instance& instance,uint64_t 
  for(unsigned i=0;i<limit;i++)for(unsigned j=0;j<10;j++)frames[i].staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,Sizes[j],VideoCore::MemoryType::HostCached,"Bounded persistent cold readback");
  for(unsigned j=0;j<3;j++)candidate_staging[j]=std::make_unique<VideoCore::Buffer>(instance,0,CandidateSizes[j],VideoCore::MemoryType::HostCached,"Single exact candidate cold readback");
  writer=std::jthread([this](std::stop_token token){Run(token);});
+ std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_DEV_ROOT_V2 exact_run=1 canonical=1\n");
  std::printf("PERSISTENT_HISTORY_DIAGNOSTIC_INIT frame_limit=%u frame_bytes=%llu staging_bytes=%llu disk_limit_bytes=%llu performance_excluded=1 no_GPU_wait=1\n",limit,(unsigned long long)FrameBytes,(unsigned long long)(FrameBytes*limit+CandidateBytes),(unsigned long long)((FrameBytes+ManifestLimit)*limit+(CandidateBytes+ManifestLimit)));
 }
 void NativePersistentHistoryDiagnostic::Impl::ExpireCandidateWait() noexcept{
