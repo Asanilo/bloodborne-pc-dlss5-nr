@@ -93,11 +93,11 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'NVPRESENT'):
             bridge.player_command({'extra_env':'NVPRESENT_ENABLE_SMOOTH_MOTION=1'},dict(bridge.NR_INI))
 
-    def test_nr_constraints_reject_without_replacing_player_choices(self):
+    def test_saved_sr_choice_automatically_uses_dimensions_without_replacing_choices(self):
         ini = dict(bridge.NR_INI, preset='3')
         before = dict(ini)
-        with self.assertRaisesRegex(ValueError, 'preset=3'):
-            bridge.player_command({}, ini)
+        command=bridge.player_command({}, ini)
+        self.assertEqual(command[command.index('--nr-sr-preset')+1], 'performance')
         self.assertEqual(ini, before)
         for key, value in [('memory_model', 'invalid'), ('as_0_3', True)]:
             with self.assertRaises(ValueError):
@@ -113,7 +113,7 @@ class AdapterTests(unittest.TestCase):
             self.assertEqual(command[command.index(flag)+1],value)
         self.assertNotIn('--sr-only',command)
         with self.assertRaisesRegex(ValueError,'FSR/CPU'):bridge.player_command(dict(settings,fg_backend='fsr31'),ini)
-        with self.assertRaises(ValueError):bridge.player_command(dict(settings,nrbridge_dimensions=False),ini)
+        self.assertIn('--nr-sr-preset',bridge.player_command(dict(settings,nrbridge_dimensions=False),ini))
         with self.assertRaises(ValueError):bridge.player_command(settings,dict(ini,preset='-1'))
         legacy=bridge.player_command({},dict(bridge.NR_INI))
         self.assertNotIn('--nr-sr-preset',legacy)

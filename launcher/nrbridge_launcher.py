@@ -392,7 +392,11 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
         if ini.get('upscaler')!='dlss':conflicts.append('DLSS FG requires the validated DLSS SR source handoff')
         if conflicts:raise ValueError("DLSS FG input requirements: " + "; ".join(conflicts))
     dimensions=None
-    if settings.get("nrbridge_dimensions",False):
+    # Saved SR/native choices use the existing dimensions route automatically.
+    # FSR and CPU-bridge retain their actual fixed-source constraints.
+    variable_source = fg['backend']=='off' or (fg['backend']=='dlssg' and fg['transport']=='gpu-dmabuf-v1')
+    nonbaseline = any(str(ini.get(k,v))!=v for k,v in NR_INI.items() if k in ('upscaler','preset','output_res','aspect_ratio'))
+    if settings.get("nrbridge_dimensions",False) or (nr_enabled and variable_source and nonbaseline):
         if fg["backend"]!="off" and not(fg["backend"]=="dlssg" and fg['transport']=='gpu-dmabuf-v1'):
             raise ValueError("Variable dimensions require Off or DLSS GPU mailbox; FSR/CPU keep their baseline")
         try:name=tuple(dimension_profile.PRESETS)[int(ini.get("preset","1"))]

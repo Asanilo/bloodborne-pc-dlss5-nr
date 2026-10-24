@@ -863,6 +863,7 @@ def launch_supervised(args,signals):
    if getattr(args,'fg_fps_limit',None) is not None:raise ValueError('use saved player FPS settings, not --fg-fps-limit')
   backend=fg_config.requested(args)
   env['BB_FRAME_GEN_BACKEND']=backend
+  if getattr(args,'fg_start_off',False):env['BB_FRAME_GEN_INITIAL']='0'
   if backend in ('off','smooth-motion'):env['BB_FRAME_GEN']='0'
   fg_config.validate_environment(backend,env)
   if dimension_contract:

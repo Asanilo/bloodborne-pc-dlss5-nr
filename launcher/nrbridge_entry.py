@@ -973,6 +973,8 @@ def daily(args) -> int:
         command.append("--sr-only")
     if getattr(args,"fg_backend",None) is not None:
         command += ["--fg-backend",args.fg_backend]
+    if getattr(args,"fg_start_off",False):
+        command.append("--fg-start-off")
     for key in ("nr_sr_preset","nr_output","nr_execution","dlssg_multiplier","reuse_nr_prefix","dlssg_model","dlssg_runtime","dlssg_prefix_session","dlssg_pipeline","dlssg_transport"):
         value=getattr(args,key,None)
         if value is not None:command += ["--"+key.replace("_","-"),str(value)]
