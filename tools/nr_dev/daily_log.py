@@ -68,6 +68,10 @@ class GameLog:
         self.state = {'schema': 'nr-daily-game-log-v1', 'complete': False,
                       'failure_latched': False, 'error': None, 'bytes_seen': 0,
                       'rotations': 0, 'limit_bytes': limit, 'retained_files': 2}
+        self.state['validation_summary'] = {'schema': 'nr-validation-summary-v1',
+                                            'vuids': {}, 'sync_hazards': 0,
+                                            'other_vuids': 0,
+                                            'scope': 'all captured stdout; independent of ownership retirement'}
         self.deadline = None
         self.thread = threading.Thread(target=self.pump, name='daily-game-log', daemon=True)
         self.save()
@@ -94,6 +98,20 @@ class GameLog:
             size, tail, pending = 0, b'', b''
             def emit(data):
                 nonlocal stream, size
+                summary = self.state['validation_summary']
+                # Complete bounded lines, including messages later lost to rotation.
+                # A diagnostic failure does not by itself invent unknown GPU ownership.
+                if b'gpu error (Render.Vulkan):' in data:
+                    ids = set(re.findall(rb'VUID-[A-Za-z0-9_-]+', data))
+                    for raw in ids:
+                        key = raw.decode('ascii')
+                        if key in summary['vuids'] or len(summary['vuids']) < 128:
+                            summary['vuids'][key] = summary['vuids'].get(key, 0) + 1
+                        else:
+                            summary['other_vuids'] += 1
+                    summary['sync_hazards'] += int(b'SYNC-HAZARD' in data)
+                    if ids or b'SYNC-HAZARD' in data:
+                        self.save()  # diagnostic counts precede rotation of the failing line
                 if data.startswith(b'MEMORY_MODEL_ACTIVE_V1 '):
                     # Preserve the resolved driver route across bounded stdout rotation.
                     route = self.run / 'memory-model-active.json'
