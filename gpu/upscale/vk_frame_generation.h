@@ -68,6 +68,8 @@ public:
     };
     /// End of the upscaler's scaled run (recording thread): keeps the HUD-less copy and the inputs.
     void CaptureScene(const Scene& scene);
+    /// Validated scaled FG source domain; never a GPU-completion or NR-history proof.
+    bool CompatibleScaledNrSource(u64 source,u32 rw,u32 rh,u32 ow,u32 oh) const;
     /// Native HDR SR captures guides before tonemapping; bind its finished LDR target at UI.
     bool BindSceneColor(vk::Image color, vk::Format format, u32 width, u32 height, u64 source);
 
@@ -123,6 +125,7 @@ private:
     vk::Format context_format{};
 
     Scene scene{};
+    u64 accepted_scene_source = 0;
     bool scene_captured = false; ///< this frame's, not yet interpolated
     u64 frame_id = 0;
     bool reset_next = true;
