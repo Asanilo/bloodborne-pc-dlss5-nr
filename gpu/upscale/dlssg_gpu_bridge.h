@@ -31,6 +31,17 @@ class DlssgGpuBridge {
   std::atomic<u64> consumer_completed_tick{0};
   std::array<std::shared_ptr<DlssgRawOutput>, 10> raw_outputs;
   unsigned generated_count = 1;
+  DlssgGpu::Layout layout;
+  u64 resource_epoch=0;
+  J generations=J::array();
+  std::string run_root,ipc_root;
+  struct PendingSource {
+    std::unique_ptr<VideoCore::Buffer> depth;
+    VideoCore::HostImage motion;
+    u64 tick=0;
+  };
+  std::shared_ptr<PendingSource> pending_source; // Not part of the old generation's retirement.
+
   std::shared_ptr<DlssgOutputTicket> output_ticket;
   u64 slot_misses = 0;
   std::packaged_task<void()> deferred_job;
@@ -84,10 +95,50 @@ class DlssgGpuBridge {
     cmd.pipelineBarrier2(
         {.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &b});
   }
-  void Start() {
-    if (peer)
-      return;
-    scheduler.Finish();
+  void SnapshotBeforeResize(const FrameGeneration::Scene& scene) {
+    Need(!pending_source,"one pending source snapshot");
+    pending_source=std::make_shared<PendingSource>();auto keep=pending_source;
+    keep->depth=std::make_unique<VideoCore::Buffer>(instance,0,u64(scene.render_width)*scene.render_height*4,
+        VideoCore::MemoryType::DeviceLocal,"DLSSG pending depth snapshot");
+    keep->motion=VideoCore::HostImage(instance.GetDevice(),instance.GetAllocator());
+    keep->motion.Create({.imageType=vk::ImageType::e2D,.format=vk::Format::eR16G16Sfloat,
+        .extent={scene.render_width,scene.render_height,1},.mipLevels=1,.arrayLayers=1,
+        .samples=vk::SampleCountFlagBits::e1,.tiling=vk::ImageTiling::eOptimal,
+        .usage=vk::ImageUsageFlagBits::eTransferSrc|vk::ImageUsageFlagBits::eTransferDst});
+    scheduler.EndRendering();keep->tick=scheduler.CurrentTick();
+    scheduler.Record([keep,depth=scene.depth,motion=scene.motion,w=scene.render_width,h=scene.render_height](vk::CommandBuffer cmd){
+      SourceBarrier(cmd,depth,vk::ImageAspectFlagBits::eDepth,true);
+      vk::BufferImageCopy bytes{.imageSubresource={vk::ImageAspectFlagBits::eDepth,0,0,1},.imageExtent={w,h,1}};
+      cmd.copyImageToBuffer(depth,vk::ImageLayout::eGeneral,keep->depth->Handle(),bytes);
+      SourceBarrier(cmd,depth,vk::ImageAspectFlagBits::eDepth,false);
+      SourceBarrier(cmd,motion,vk::ImageAspectFlagBits::eColor,true);
+      vk::ImageMemoryBarrier2 barrier{.srcStageMask=vk::PipelineStageFlagBits2::eTopOfPipe,
+        .dstStageMask=vk::PipelineStageFlagBits2::eCopy,.dstAccessMask=vk::AccessFlagBits2::eTransferWrite,
+        .oldLayout=vk::ImageLayout::eUndefined,.newLayout=vk::ImageLayout::eGeneral,
+        .image=vk::Image(keep->motion),.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}};
+      cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&barrier});
+      const vk::ImageCopy copy{.srcSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},
+        .dstSubresource={vk::ImageAspectFlagBits::eColor,0,0,1},.extent={w,h,1}};
+      cmd.copyImage(motion,vk::ImageLayout::eGeneral,vk::Image(keep->motion),vk::ImageLayout::eGeneral,copy);
+      SourceBarrier(cmd,motion,vk::ImageAspectFlagBits::eColor,false);
+      barrier.srcStageMask=vk::PipelineStageFlagBits2::eCopy;barrier.srcAccessMask=vk::AccessFlagBits2::eTransferWrite;
+      barrier.dstAccessMask=vk::AccessFlagBits2::eTransferRead;barrier.oldLayout=vk::ImageLayout::eGeneral;
+      cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&barrier});
+    });
+  }
+  void Start(const FrameGeneration::Scene& scene) {
+    const DlssgGpu::Layout requested{scene.render_width,scene.render_height,scene.width,scene.height};
+    requested.Validate();
+    if(peer&&requested==layout)return;
+    if(peer){
+      Need(Retire(true),"old layout actual GPU retirement before reconfigure");
+      peer.reset();mailbox.reset();raw_outputs={};output_ticket.reset();
+      sequence=last_source=helper_serial=guide_source=last_recorded_tick=consumed_tick=0;
+      consumer_completed_tick.store(0);guides=pending=false;retired=false;
+      flight_eligible.reset();previous_camera={};current_camera={};last_completed={};
+    }
+    layout=requested;
+    // Bootstrap touches only new private/mailbox images; no source or old FG wait is needed.
     const char *path = std::getenv("BB_DLSSG_STREAM_CONFIG");
     Need(path && *path, "GPU bridge explicit config");
     auto config = DlssgGpu::Peer::Read(path);
@@ -99,6 +150,18 @@ class DlssgGpuBridge {
     Need(generated_count==1||config.at("pipeline")=="consumer-queue-v1","MFG requires Q1");
     const char *root = std::getenv("BB_DLSSG_STREAM_DIR");
     Need(root && config.at("ipc") == root, "GPU bridge exact IPC root");
+    if(run_root.empty()){run_root=config.at("run");ipc_root=config.at("ipc");}
+    Need(resource_epoch<256,"bounded live layout generations");++resource_epoch;
+    const auto name="g"+std::to_string(resource_epoch);
+    const auto gen_run=std::filesystem::path(run_root)/"dlssg-generations"/name;
+    const auto gen_ipc=std::filesystem::path(ipc_root)/name;
+    Need(!std::filesystem::exists(gen_run)&&!std::filesystem::exists(gen_ipc),"fresh layout generation directories");
+    std::filesystem::create_directories(gen_run);std::filesystem::create_directory(gen_ipc);
+    std::filesystem::permissions(gen_ipc,std::filesystem::perms::owner_all,std::filesystem::perm_options::replace);
+    config["run"]=gen_run.string();config["ipc"]=gen_ipc.string();config["layout"]=layout.Json();config["resource_epoch"]=resource_epoch;
+    DlssgGpu::Peer::Atomic((gen_run/"dlssg-config.json").string(),config);
+    DlssgGpu::Peer::Atomic(run_root+"/dlssg-generations.json",J{{"schema","dlssg-layout-generations-v1"},{"session",config.at("session")},{"active",resource_epoch},{"entries",generations}});
+    std::printf("DLSSG_LAYOUT_V1 resource_epoch=%llu render=%ux%u output=%ux%u generation=%s\n",(unsigned long long)resource_epoch,layout.render_width,layout.render_height,layout.output_width,layout.output_height,name.c_str());
     mailbox = std::make_unique<DlssgGpu::MailboxImport>(
         VkInstance(instance.GetInstance()),
         VkPhysicalDevice(instance.GetPhysicalDevice()),
@@ -126,12 +189,13 @@ class DlssgGpuBridge {
                      {"previous_source_game_frame", 0},
                      {"display", 0},
                      {"native_input_tick", 0}};
+    last_request["layout"]=layout.Json();last_request["resource_epoch"]=resource_epoch;
     if (independent_consumer) {
       last_request["native_completion_mode"] = "split-v1";
       last_request["native_input_domain"] = "draw";
     }
     depth_transfer = std::make_unique<VideoCore::Buffer>(
-        instance, 0, 1280u * 720 * 4, VideoCore::MemoryType::DeviceLocal,
+        instance, 0, u64(layout.render_width) * layout.render_height * 4, VideoCore::MemoryType::DeviceLocal,
         "DLSSG depth GPU transfer");
     std::printf("DLSSG_GPU_BRIDGE_READY session=%s imported_images=%u "
                 "export_raw_fds_retired=1 pixel_host_transfer_bytes=0\n",
@@ -174,6 +238,7 @@ public:
       FgLifecycle::held.store(true);
       // Unknown Native last use: retain the backing GPU objects through process
       // teardown.
+      if(pending_source)(void)new std::shared_ptr<PendingSource>(std::move(pending_source));
       (void)depth_transfer.release();
       (void)timing.pool.release();
       std::fprintf(stderr, "DLSSG_GPU_NATIVE_HOLD normal_retirement_missing=1 "
@@ -187,12 +252,13 @@ public:
   std::shared_ptr<DlssgRawOutput> ClaimOutput(vk::Format format) {
     for (unsigned index=0;index<2*generated_count;++index) {
       auto& slot=raw_outputs[index];
+      if(slot&&slot.use_count()==1&&(slot->format!=format||slot->width!=layout.output_width||slot->height!=layout.output_height))slot.reset();
       if (!slot) {
         slot = std::make_shared<DlssgRawOutput>();
-        slot->format = format;
+        slot->format = format;slot->width=layout.output_width;slot->height=layout.output_height;
         slot->image = VideoCore::HostImage(instance.GetDevice(), instance.GetAllocator());
         slot->image.Create({.flags = vk::ImageCreateFlagBits::eMutableFormat | vk::ImageCreateFlagBits::eExtendedUsage,
-          .imageType = vk::ImageType::e2D, .format = format, .extent = {1920,1080,1},
+          .imageType = vk::ImageType::e2D, .format = format, .extent = {layout.output_width,layout.output_height,1},
           .mipLevels = 1, .arrayLayers = 1, .samples = vk::SampleCountFlagBits::e1,
           .tiling = vk::ImageTiling::eOptimal,
           .usage = vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled});
@@ -206,16 +272,20 @@ public:
 
   std::shared_ptr<std::atomic<bool>> Eligibility() const { return flight_eligible; }
   bool Guides(const FrameGeneration::Scene &scene) {
-    if (scene.width != 1920 || scene.height != 1080 ||
-        scene.render_width != 1280 || scene.render_height != 720 ||
+    if (!scene.width || !scene.height || !scene.render_width || !scene.render_height ||
         !scene.source_game_frame || !scene.depth || !scene.motion ||
         (scene.depth_format != vk::Format::eD32Sfloat &&
          scene.depth_format != vk::Format::eD32SfloatS8Uint) ||
         (scene.color_format != vk::Format::eR8G8B8A8Unorm &&
          scene.color_format != vk::Format::eB8G8R8A8Unorm))
       return false;
+    try { DlssgGpu::Layout{scene.render_width,scene.render_height,scene.width,scene.height}.Validate(); }
+    catch(const std::exception&){BbSettings::Get().frame_generation_problem="DLSS FG image extent exceeds the supported GPU working set";return false;}
     try {
-      Start();
+      const DlssgGpu::Layout requested{scene.render_width,scene.render_height,scene.width,scene.height};
+      if(peer&&requested!=layout)SnapshotBeforeResize(scene);
+      Start(scene);
+      if(pending_source)Need(scheduler.IsFree(pending_source->tick),"pending source snapshot completed by old generation drain");
       Need(!deferred_job.valid(), "GPU dormant request resolved before guide reuse");
       if (independent_consumer && flight.valid()) {
         // Send the next real frame's already recorded work before waiting for
@@ -236,16 +306,16 @@ public:
       last_recorded_tick = scheduler.CurrentTick();
       mailbox->MarkUse();
       scheduler.Record(
-          [this, depth = scene.depth, motion = scene.motion,
-           buffer = depth_transfer->Handle()](vk::CommandBuffer cmd) {
+          [this, depth = scene.depth, motion = pending_source?vk::Image(pending_source->motion):scene.motion,
+           snapshot=pending_source,buffer = pending_source?pending_source->depth->Handle():depth_transfer->Handle()](vk::CommandBuffer cmd) {
             timing.Mark(cmd, 0);
             mailbox->Ownership(VkCommandBuffer(cmd), 1, true, true);
-            SourceBarrier(cmd, depth, vk::ImageAspectFlagBits::eDepth, true);
+            if(!snapshot)SourceBarrier(cmd, depth, vk::ImageAspectFlagBits::eDepth, true);
             // D32/D32S8 depth aspect -> device-only bytes -> R32F color aspect.
             vk::BufferImageCopy cp{
                 .imageSubresource = {vk::ImageAspectFlagBits::eDepth, 0, 0, 1},
-                .imageExtent = {1280, 720, 1}};
-            cmd.copyImageToBuffer(depth, vk::ImageLayout::eGeneral, buffer, cp);
+                .imageExtent = {layout.render_width,layout.render_height,1}};
+            if(!snapshot)cmd.copyImageToBuffer(depth, vk::ImageLayout::eGeneral, buffer, cp);
             const vk::BufferMemoryBarrier2 b{
                 .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
                 .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
@@ -260,14 +330,14 @@ public:
             cp.imageSubresource.aspectMask = vk::ImageAspectFlagBits::eColor;
             cmd.copyBufferToImage(buffer, vk::Image(mailbox->images[1].image),
                                   vk::ImageLayout::eGeneral, cp);
-            SourceBarrier(cmd, depth, vk::ImageAspectFlagBits::eDepth, false);
+            if(!snapshot)SourceBarrier(cmd, depth, vk::ImageAspectFlagBits::eDepth, false);
             mailbox->Ownership(VkCommandBuffer(cmd), 1, false, true);
             mailbox->Ownership(VkCommandBuffer(cmd), 2, true, true);
             SourceBarrier(cmd, motion, vk::ImageAspectFlagBits::eColor, true);
             const vk::ImageCopy copy{
                 .srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
                 .dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
-                .extent = {1280, 720, 1}};
+                .extent = {layout.render_width,layout.render_height,1}};
             cmd.copyImage(motion, vk::ImageLayout::eGeneral,
                           vk::Image(mailbox->images[2].image),
                           vk::ImageLayout::eGeneral, copy);
@@ -275,6 +345,11 @@ public:
             mailbox->Ownership(VkCommandBuffer(cmd), 2, false, true);
             timing.Mark(cmd, 1);
           });
+      if(pending_source){
+        std::printf("DLSSG_SOURCE_SNAPSHOT source=%llu copied_before_drain_tick=%llu mailbox_copy_tick=%llu\n",
+          (unsigned long long)scene.source_game_frame,(unsigned long long)pending_source->tick,(unsigned long long)last_recorded_tick);
+        scheduler.DeferPriorityOperation([keep=std::exchange(pending_source,{})]() mutable {keep.reset();});
+      }
       return true;
     } catch (const std::exception &e) {
       Fail(e);
@@ -303,7 +378,7 @@ public:
         const vk::ImageCopy copy{
             .srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
             .dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
-            .extent = {1920, 1080, 1}};
+            .extent = {layout.output_width,layout.output_height,1}};
         cmd.copyImage(color, vk::ImageLayout::eGeneral,
                       vk::Image(mailbox->images[0].image),
                       vk::ImageLayout::eGeneral, copy);
@@ -344,6 +419,7 @@ public:
                        {"native_input_tick", last_recorded_tick},
                        {"native_input_GPU_complete", true},
                        {"camera", current_camera.constants}};
+      last_request["layout"]=layout.Json();last_request["resource_epoch"]=resource_epoch;
       if (independent_consumer) {
         last_request["native_completion_mode"] = "split-v1";
         last_request["native_input_domain"] = "draw";
@@ -361,7 +437,7 @@ public:
         if (independent_consumer) {
           ticket = std::make_shared<DlssgOutputTicket>();
           ticket->raw = raw; ticket->additional=std::move(additional);ticket->generated_count=generated_count; ticket->ready = flight; ticket->eligible = flight_eligible;
-          ticket->epoch=epoch;ticket->source = scene.source_game_frame; ticket->previous_source = last_source;
+          ticket->epoch=(resource_epoch<<32)|epoch;ticket->source = scene.source_game_frame; ticket->previous_source = last_source;
           ticket->display = display;
           ticket->guide_record_cpu_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(timing.guides.time_since_epoch()).count();
           ticket->producer_submit_cpu_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(flushed.time_since_epoch()).count();
@@ -486,7 +562,7 @@ public:
           const vk::ImageCopy copy{
               .srcSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
               .dstSubresource = {vk::ImageAspectFlagBits::eColor, 0, 0, 1},
-              .extent = {1920, 1080, 1}};
+              .extent = {layout.output_width,layout.output_height,1}};
           cmd.copyImage(vk::Image(mailbox->images[3+output_index].image),
                         vk::ImageLayout::eGeneral, target,
                         vk::ImageLayout::eGeneral, copy);
@@ -612,7 +688,7 @@ public:
     }
     return tick;
   }
-  bool Retire() {
+  bool Retire(bool reconfigure=false) {
     if (retired)
       return true;
     if (!peer) {
@@ -640,11 +716,12 @@ public:
                    independent_consumer ? consumer_completed_tick.load(std::memory_order_acquire) : 0);
       depth_transfer.reset();
       retired = true;
-      std::printf(
-          "DLSSG_GPU_BRIDGE_RETIRED helper_GPU_complete=1 feature_released=1 "
-          "child_reaped=1 Native_shared_GPU_complete=1 imports_destroyed=1 "
-          "sequence=%llu\n",
-          (unsigned long long)sequence);
+      const std::string proof="DLSSG_GPU_BRIDGE_RETIRED helper_GPU_complete=1 feature_released=1 child_reaped=1 Native_shared_GPU_complete=1 imports_destroyed=1 sequence="+std::to_string(sequence)+"\n";
+      {std::ofstream file(peer->run+"/native-proof.log");file<<proof;file.close();Need(bool(file),"layout generation native retirement record");}
+      generations.push_back(J{{"resource_epoch",resource_epoch},{"directory","dlssg-generations/g"+std::to_string(resource_epoch)},{"layout",layout.Json()}});
+      DlssgGpu::Peer::Atomic(run_root+"/dlssg-generations.json",J{{"schema","dlssg-layout-generations-v1"},{"session",peer->session},{"active",0},{"entries",generations}});
+      if(reconfigure)std::printf("DLSSG_LAYOUT_RETIRED resource_epoch=%llu actual_GPU_complete=1 helper_reaped=1\n",(unsigned long long)resource_epoch);
+      else std::fputs(proof.c_str(),stdout);
       return true;
     } catch (const std::exception &e) {
       FgLifecycle::held.store(true);

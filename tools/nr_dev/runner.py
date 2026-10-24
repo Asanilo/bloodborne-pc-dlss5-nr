@@ -653,9 +653,11 @@ def check_fg_capability(args, build):
   raise ValueError('DLSSG input capture requires its rebuilt Native diagnostic')
 
 def validate_daily_args(args):
- profile=dimension_profile.select(args)
- if profile and fg_config.requested(args)!="off":raise ValueError("M5 new dimensions currently require FG off; FG mailbox dimensions are not adapted")
  fg_config.normalize(args)
+ profile=dimension_profile.select(args)
+ if profile and fg_config.requested(args)!="off":
+  if fg_config.requested(args)!="dlssg" or args.dlssg_transport!="gpu-dmabuf-v1":raise ValueError("Variable FG dimensions require DLSS GPU mailbox; FSR/CPU retain their existing entry")
+  if not profile['sr_enabled']:raise ValueError("NR-only + FG source handoff is not yet admitted; choose a DLSS SR preset")
  smooth_motion.validate_args(args)
  dlssg_backend.validate_args(args)
  daily_online.validate_args(args)

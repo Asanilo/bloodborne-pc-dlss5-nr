@@ -20,6 +20,7 @@ INPUTS = [
     'tools/fg_dev/dlssg_gpu_timing.h',
     'tools/fg_dev/dlssg_mailbox_export.h',
     'gpu/upscale/dlssg_gpu_contract.h',
+    'gpu/upscale/dlssg_layout.h',
     'nrbridge/runtime/transport.h',
     'gpu/upscale/dlssg_cpu_slot.h',
     'nrbridge/runtime/fixture_util.h',

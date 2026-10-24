@@ -47,6 +47,7 @@ def check(args,build):
     if (getattr(args,'dlssg_pipeline','sync-v1')=='consumer-queue-v1' and
         b'DLSSG_NATIVE_QUEUE' not in (Path(build)/'gpu/libbbgpu.so').read_bytes()):
         raise ValueError('consumer-queue-v1 requires rebuilt second Native queue')
+    if getattr(args,'nr_sr_preset',None) and getattr(args,'dlssg_transport',None)=='gpu-dmabuf-v1' and b'DLSSG_LAYOUT_V1' not in (Path(build)/'gpu/libbbgpu.so').read_bytes():raise ValueError('Variable DLSS FG requires a rebuilt dynamic-layout Native')
     source=Path(__file__).resolve().parents[2]
     spec=importlib.util.spec_from_file_location('dlssg_wine_build_inputs',source/'tools/fg_dev/build_wine_probe.py')
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
@@ -86,9 +87,9 @@ def prepare(args,build,run,binding,runner):
             'executable':str(runtime/'wine-dlssg-probe.exe'),'adapter':str(runtime/'nvngx.dll_dlssg.dll'),
             'model':state['model']['path'],'cuda':str(runtime/'nvcuda.dll'),
             'identities':{k:state[k] for k in ['model','cuda','core']},'helper_build':state['build'],
-            'multiplier':getattr(args,'dlssg_multiplier',2),'pipeline':getattr(args,'dlssg_pipeline','sync-v1'),'transport':args.dlssg_transport,'helper_wake':getattr(args,'dlssg_helper_wake','poll-v1') if gpu else 'poll-v1','reused_retired_prefix':args.dlssg_prefix_session,'scope':'DMA-BUF GPU mailbox; private persistent FG history; actual GPU last-use ACK' if gpu else 'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
+            'layout_policy':'actual-scene-v1' if gpu else 'legacy-fixed-v1','multiplier':getattr(args,'dlssg_multiplier',2),'pipeline':getattr(args,'dlssg_pipeline','sync-v1'),'transport':args.dlssg_transport,'helper_wake':getattr(args,'dlssg_helper_wake','poll-v1') if gpu else 'poll-v1','reused_retired_prefix':args.dlssg_prefix_session,'scope':'DMA-BUF GPU mailbox; private persistent FG history; actual GPU last-use ACK' if gpu else 'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
     path=run/'dlssg-config.json';runner['atomic'](path,config)
-    return {'BB_DLSSG_MULTIPLIER':str(config['multiplier']),'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),'BB_DLSSG_TRANSPORT':args.dlssg_transport,'BB_DLSSG_HELPER_WAKE':config['helper_wake'],'BB_DLSSG_PIPELINE':config['pipeline'],
+    return {'BB_DLSSG_DYNAMIC_LAYOUT':'1' if gpu else '0','BB_DLSSG_MULTIPLIER':str(config['multiplier']),'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),'BB_DLSSG_TRANSPORT':args.dlssg_transport,'BB_DLSSG_HELPER_WAKE':config['helper_wake'],'BB_DLSSG_PIPELINE':config['pipeline'],
             'BB_DLSSG_CONFIG_SHA256':hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -101,6 +102,7 @@ def validate_manifest(run,manifest):
     config=json.loads(path.read_text())
     if config['session']!=manifest['session'] or config['run']!=str(run) or config['ipc']!=env.get('BB_DLSSG_STREAM_DIR') or env.get('BB_FRAME_GEN_NATIVE')!='1':
         raise ValueError('DLSSG private scope drift')
+    if config.get('layout_policy')=='actual-scene-v1' and env.get('BB_DLSSG_DYNAMIC_LAYOUT')!='1':raise ValueError('DLSS dynamic layout policy drift')
     multiplier=config.get('multiplier',2)
     if env.get('BB_DLSSG_MULTIPLIER','2')!=str(multiplier):raise ValueError('DLSS multiplier environment drift')
     if type(multiplier) is not int or not 2<=multiplier<=6:raise ValueError('invalid sealed DLSS multiplier')
@@ -137,11 +139,19 @@ def cleanup_cpu_slot(run,manifest,result):
         raise ValueError('private CPU slot cleanup scope')
     retained=Path(run)/'dlssg-ipc-terminal';retained.mkdir()
     records=[]
-    for path in ipc.iterdir():
-        if path.is_symlink() or not path.is_file():raise ValueError('unexpected CPU slot entry retained')
+    paths=list(ipc.rglob('*'))
+    if len(paths)>8192:raise ValueError('bounded FG CPU metadata cleanup')
+    for path in paths:
+        if path.is_symlink():raise ValueError('unexpected CPU slot symlink retained')
+        relative=path.relative_to(ipc)
+        if path.is_dir():
+            if len(relative.parts)!=1 or not __import__('re').fullmatch('g[1-9][0-9]{0,2}',relative.name):raise ValueError('unexpected CPU generation directory')
+            continue
+        if not path.is_file():raise ValueError('unexpected CPU slot entry retained')
         if path.suffix=='.json':
             if path.stat().st_size>131072:raise ValueError('bounded terminal metadata required')
-            shutil.copyfile(path,retained/path.name)
-            records.append({'name':path.name,'sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
+            target=retained/relative;target.parent.mkdir(parents=True,exist_ok=True)
+            shutil.copyfile(path,target)
+            records.append({'name':str(relative),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
     shutil.rmtree(ipc) # Owned CPU files only, after actual Helper + Native + Present retirement.
     return {'status':'RETIRED','directory':str(ipc),'terminal_metadata':records}

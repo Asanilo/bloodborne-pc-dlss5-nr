@@ -217,6 +217,17 @@ def audit_daily(run,session):
 def rows(text,event):
  return [dict(re.findall(r'(\w+)=([^\s]+)',line)) for line in text.splitlines() if line.startswith(event+' ')]
 def audit_dlssg_gpu(run,session,text,expected_split=False):
+ ledger_path=run/'dlssg-generations.json'
+ if ledger_path.exists():
+  ledger=load(ledger_path);need(ledger.get('schema')=='dlssg-layout-generations-v1' and ledger.get('session')==session and ledger.get('active')==0,'all FG layout generations normally retired')
+  entries=ledger.get('entries');need(type(entries) is list and 1<=len(entries)<=256,'bounded FG generation ledger')
+  for n,entry in enumerate(entries,1):
+   directory=f'dlssg-generations/g{n}';need(entry.get('resource_epoch')==n and entry.get('directory')==directory,'contiguous FG resource epochs')
+   generation=run/directory;need(generation.resolve()==generation and not generation.is_symlink(),'canonical FG generation directory')
+   cfg=load(generation/'dlssg-config.json');need(cfg.get('resource_epoch')==n and exact_typed(cfg.get('layout'),entry.get('layout')),'sealed generation layout')
+   audit_dlssg_gpu(generation,session,(generation/'native-proof.log').read_text(),expected_split)
+  proof=rows(text,'DLSSG_GPU_BRIDGE_RETIRED');need(len(proof)==1,'one final FG owner retirement')
+  return
  # This audits recorded completion facts; it never admits GPU work or repairs HOLD.
  proof=rows(text,'DLSSG_GPU_BRIDGE_RETIRED')
  need(len(proof)==1 and all(proof[0].get(k)=='1' for k in
@@ -265,8 +276,15 @@ def audit_dlssg_gpu(run,session,text,expected_split=False):
  need(type(count) is int and 1<=count<=5,'MFG bounded output count')
  need(meta.get('generated_count',1)==count and pair.get('generated_count',1)==count and terminal.get('generated_count',1)==count,'MFG negotiated retired count')
  need(type(resources) is list and len(resources)==3+count,'GPU mailbox negotiated imported images')
- expected=[('color',37,1920,1080),('depth',100,1280,720),('motion',83,1280,720),('output',37,1920,1080)]
- expected += [('output'+str(i),37,1920,1080) for i in range(1,count)]
+ layout=config.get('layout')
+ if layout is None:rw,rh,ow,oh=1280,720,1920,1080
+ else:
+  need(type(layout) is dict and layout.get('revision')==1 and layout.get('color_format')==37 and layout.get('depth_format')==100 and layout.get('motion_format')==83 and layout.get('color_domain')=='finished-scene-bytes' and layout.get('source_rect_origin')==[0,0],'GPU generation color/guide domain')
+  rw,rh,ow,oh=(uint(layout,k) for k in ('render_width','render_height','output_width','output_height'))
+  need(all(160<=w<=8192 and 90<=h<=8192 and w*h<=3840*2160 and .8<=w/h<=3.6 for w,h in ((rw,rh),(ow,oh))),'GPU bounded generation extents')
+  need(all(exact_typed(r.get('layout'),layout) and uint(r,'resource_epoch')==uint(config,'resource_epoch')>0 for r in (meta,pair,terminal)),'GPU same resource epoch and layout across owners')
+ expected=[('color',37,ow,oh),('depth',100,rw,rh),('motion',83,rw,rh),('output',37,ow,oh)]
+ expected += [('output'+str(i),37,ow,oh) for i in range(1,count)]
  for resource,(role,fmt,width,height) in zip(resources,expected):
   need(resource.get('role')==role and uint(resource,'format')==fmt and uint(resource,'width')==width
        and uint(resource,'height')==height and resource.get('dedicated') is True and uint(resource,'offset')==0,
