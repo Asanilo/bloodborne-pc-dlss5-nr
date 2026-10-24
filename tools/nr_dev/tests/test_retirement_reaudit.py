@@ -79,9 +79,24 @@ class ReauditTests(unittest.TestCase):
         with patch.object(self.guard, 'retire_reaudited', side_effect=RuntimeError('interrupted')):
             self.assertRaises(RuntimeError, self.execute)
         self.assertEqual(self.guard.read(), self.receipt)
+        self.assertEqual(audit.read(self.run / 'result.json'), self.result)
         self.put('dlssg-generations.json', {'changed':True})
         self.assertRaises(ValueError, self.execute)
         self.assertEqual(self.guard.read(), self.receipt)
+
+    def test_second_full_audit_failure_never_publishes_pass(self):
+        with patch.object(audit.peer_retirement, 'audit_session',
+                          side_effect=[self.proof, ValueError('second audit failed')]):
+            self.assertRaises(ValueError, audit.reconcile, self.run, self.guard, lambda: True)
+        self.assertEqual(audit.read(self.run / 'result.json'), self.result)
+        self.assertEqual(self.guard.read(), self.receipt)
+
+    def test_prepared_interruption_can_resume_only_with_identical_evidence(self):
+        with patch.object(audit.peer_retirement, 'audit_session',
+                          side_effect=[self.proof, ValueError('interrupted')]):
+            self.assertRaises(ValueError, audit.reconcile, self.run, self.guard, lambda: True)
+        self.execute()
+        self.assertEqual(self.guard.read()['state'], 'retired')
 
 
 if __name__ == '__main__':
