@@ -501,7 +501,13 @@ vk::ImageView SceneTargets::View(Entry& e, const VideoCore::Image& original,
         ? (info.is_storage ? original.aspect_mask : vk::ImageAspectFlags(vk::ImageAspectFlagBits::eDepth))
         : vk::ImageAspectFlags(vk::ImageAspectFlagBits::eColor);
     const auto format = original.info.props.is_depth ? original.backing->image.image_ci.format : info.format;
+    // Mutable sRGB proxy views cannot inherit STORAGE from their parent image.
+    // Match ordinary ImageView: sampled/attachment views exclude storage usage;
+    // actual storage views retain that requirement and must support it.
+    vk::ImageViewUsageCreateInfo usage{.usage = e.image.image_ci.usage};
+    if (!info.is_storage) usage.usage &= ~vk::ImageUsageFlagBits::eStorage;
     auto view = Check(instance.GetDevice().createImageViewUnique({
+        .pNext = &usage,
         .image = e.image, .viewType = vk::ImageViewType::e2D, .format = format,
         .components = info.mapping, .subresourceRange = {aspect,0,1,0,1},
     }));
@@ -526,7 +532,7 @@ SceneTargets::Target SceneTargets::Attachment(VideoCore::ImageId id,
     }
     e.state.ProxyWrite();
     auto attachment_info = info;
-    attachment_info.is_storage = true; // include stencil in attachment views
+    attachment_info.is_storage = depth; // include stencil, never STORAGE on color attachments
     return {e.image, View(e, original, attachment_info), e.layout, e.image.image_ci.usage};
 }
 bool SceneTargets::ProxyCurrent(const VideoCore::Image& image, u32 level, u32 levels) const {
