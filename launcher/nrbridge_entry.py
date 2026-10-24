@@ -978,6 +978,8 @@ def daily(args) -> int:
         if value is not None:command += ["--"+key.replace("_","-"),str(value)]
     if getattr(args, "experimental_fg", None):
         command += ["--experimental-fg", args.experimental_fg, "--fg-native"]
+    if getattr(args, "fg_profile", False):
+        command.append("--fg-profile")
     if continuation:
         command += ["--continue-session", continuation]
     if getattr(args, "joystick_mouse", False):
@@ -1078,6 +1080,8 @@ def main(argv=None) -> int:
                         help="explicit Native HDR integration (implied by --experimental-fg)")
     parser.add_argument("--gpu-validation", action="store_true",
                         help="explicit core+sync GPU diagnostic; forwarded to daily coordinator")
+    parser.add_argument("--fg-profile", action="store_true",
+                        help="bounded FG CPU/GPU stage timings; does not change the backend")
     parser.add_argument("--sr-only", action="store_true",
                         help="do not start the Helper; the runner owns the SR-only path")
     parser.add_argument("--no-terminal", action="store_true")

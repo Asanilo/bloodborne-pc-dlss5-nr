@@ -441,6 +441,30 @@ class EntryAndReadbackTests(unittest.TestCase):
         self.assertIn('--sr-only', output.getvalue())
         self.assertIn('--experimental-fg fsr31-hudless --fg-native', output.getvalue())
 
+    def test_entry_profile_flag_reaches_existing_daily_profiler(self):
+        with mock.patch.object(entry, 'daily', return_value=0) as daily:
+            self.assertEqual(entry.main(['--daily', '--fg-profile']), 0)
+        args = daily.call_args.args[0]
+        args.native_build = '/tmp/fixture-build'
+        args.local_inputs = '/tmp/fixture-inputs.json'
+        args.session = 'fixture-profile'
+        args.no_terminal = args.print_command = True
+        args.new_game = True
+        with mock.patch.object(Path, 'is_file', return_value=True), \
+             mock.patch.object(entry, 'ensure_runs'), \
+             mock.patch.object(entry, 'choose_continuation', return_value=None), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(entry.daily(args), 0)
+        import shlex
+        from tools.nr_dev import play
+        line = next(line for line in output.getvalue().splitlines() if '--fg-profile' in line)
+        command = shlex.split(line)
+        # Exercise the canonical play parser too; entry parsing alone can hide
+        # an option that never reaches the actual runner.
+        forwarded = play.parse_args(command[2:])
+        self.assertTrue(forwarded.fg_profile)
+        self.assertIsNone(forwarded.fg_backend)
+
 
 if __name__ == '__main__':
     unittest.main()
