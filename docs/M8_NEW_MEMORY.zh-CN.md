@@ -258,3 +258,18 @@ python3 tools/nr_dev/prefix_recovery.py m10-new1080q-cold-r1
 没有把尚未执行的恢复后测试写成通过。
 
 最后统一构建保留共享依赖/ccache，未生成新 AppImage 或 Wine prefix。公开 out 中旧 FG Helper 的源码闭包不匹配 M9；私有恢复配置已显式改为复用 `.worktree/fg/out` 的已封存 Helper42bc6f7，未复制二进制或改写 manifest。主线正式检查器对2X–6X的 source closure/artifact/model 身份核对均通过；这些是只读准备检查，不是GPU实测。
+
+## 新 boot 恢复与下一处真实切换缺陷
+
+上述恢复安排现已执行；最新事实见 [新 boot 基础验收](M8_BOOT2_RECOVERY.zh-CN.md)。
+New1080Q NR→SR+DLSS2、F9 和正常退出通过，旧 HOLD 未改写；GPU 随后交给 M9 完成 Old 多尺寸/MFG。
+M6 同设备接线及共享资源契约见 [Native NR 接线草案](M8_NATIVE_NR_INTEGRATION.zh-CN.md)，尚未启用游戏后端。
+
+M9 的 `m9-old1440q-2x-nr-r10` 暴露独立 NR 恢复问题：Q→DLAA→Q 时 FG 每代重建和生成正常，
+但暂时的 unsupported domain 进入 `PollPeer` 的 profile_change 停机，Helper 正常退出后不能重新开启。
+该会话实际正常退休，没有 HOLD。修复将 daily preSR 的此类不支持阶段视为可恢复暂停，保留当前 Helper
+及不可变资源，仍经原来的真实 acquire/obsolete/finalized/CONSUMED 链排空已提交单 job。
+非 daily 诊断仍按原 profile_change 退出；exit/rejected/sourceLimit、未知 GPU/peer 状态和所有租约门禁不变。
+恢复时仍走已有 source gap/layout_changed/history reset，不能重新消费旧布局 candidate。
+新增小型 CPU 检查覆盖暂停、退出/拒绝、有限诊断行为及实际租约/lineage 门禁；它不是 GPU 完成证明。
+此处源码修复的实机切换回归在下一场受管会话执行，不能提前写成通过。

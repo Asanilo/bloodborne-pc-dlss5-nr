@@ -90,7 +90,7 @@ void NativeAsyncPreSr::PollPeer(Scheduler& scheduler,bool supported){
  using Phase=NativeAsyncPreSrOriginOwner::Phase;
  if(peer->State()==Phase::Ready)peer_ready_observed=true;
  if(BbNativeAsync::ExitRequested())peer->RequestStop(2);
- if(!supported&&retained){peer->RequestStop(3);if(BbNativeAsyncPreSrPlay::Enabled())stopping=true;}
+ if(BbNativeAsyncPreSr::ProfileRequiresStop(supported,bool(retained))){peer->RequestStop(3);if(BbNativeAsyncPreSrPlay::Enabled())stopping=true;}
  if(peer->State()==Phase::Failed){Quarantine();PublishRuntimeStatus();return;}
  auto job=peer->TryJob();
  if(peer->State()==Phase::Finalized&&job){
@@ -147,7 +147,7 @@ void NativeAsyncPreSr::PollReady(const Instance& instance,Scheduler& scheduler,b
    (unsigned long long)last_reported_ready,(unsigned long long)owner->LatestReadySource());
  }
  const bool permanent=rejected||BbNativeAsync::ExitRequested()||(peer&&stopping);
- if(BbNativeAsync::NeedsHold(supported,bool(retained),BbNativeAsync::ExitRequested(),rejected))stopping=true;
+ if(BbNativeAsyncPreSr::NeedsStop(supported,bool(retained),BbNativeAsync::ExitRequested(),rejected))stopping=true;
  if(source_count>=BbNativeAsyncPreSrPlay::SourceLimit()){stopping=true;if(peer)peer->RequestStop(4);}
  if(stopping&&once_retired&&(!fixed_input||fixed_input->Ready())&&(!retained||retained->AllUsesReady())){
   if(BbNativeAsyncPreSrPlay::Enabled()&&!play_summary_printed){
