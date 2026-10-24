@@ -19,8 +19,10 @@ for p in sorted(r.glob('f*.raw')):
  target=out/(p.stem+'.png');Image.fromarray(rgba).save(target,compress_level=3)
  decoded=np.array(Image.open(target));restored=decoded[:,:,[2,1,0,3]] if order=='bgra' else decoded
  assert restored.tobytes()==raw
- arrays.append(rgba[:,:,:3].copy());rows.append(dict(index=int(index),kind=kind,raw_sha256=hashlib.sha256(raw).hexdigest(),png=str(target)))
+ arrays.append(rgba[:,:,:3].copy());rows.append(dict(index=int(index),kind=kind,width=w,height=h,raw_sha256=hashlib.sha256(raw).hexdigest(),png=str(target)))
 assert len(rows)==16
+width,height=rows[0]['width'],rows[0]['height']
+assert all((row['width'],row['height'])==(width,height) for row in rows),'capture must settle in one output layout before triggering'
 # Phase correlation of rigid world patches; HUD and player body excluded.
 def shift(a,b):
  a=a.astype(float).mean(axis=2);b=b.astype(float).mean(axis=2)
@@ -33,11 +35,15 @@ def shift(a,b):
  dx=sub(corr[y,x],corr[y,(x-1)%corr.shape[1]],corr[y,(x+1)%corr.shape[1]])
  dy=sub(corr[y,x],corr[(y-1)%corr.shape[0],x],corr[(y+1)%corr.shape[0],x])
  return [float((x if x<=corr.shape[1]//2 else x-corr.shape[1])+dx),float((y if y<=corr.shape[0]//2 else y-corr.shape[0])+dy),float(corr[y,x])]
-patches=[(320,280,780,700),(1220,260,1680,700),(700,200,1200,430)]
+def region(rect):
+ x0,y0,x1,y1=rect
+ return (round(x0*width/1920),round(y0*height/1080),round(x1*width/1920),round(y1*height/1080))
+patches=[region(rect) for rect in [(320,280,780,700),(1220,260,1680,700),(700,200,1200,430)]]
+wx0,wy0,wx1,wy1=region((250,220,1700,850))
 groups=[];real=[i for i,x in enumerate(rows) if x['kind']=='real']
 for first,last in zip(real,real[1:]):
  if last-first<2:continue
- segment=arrays[first:last+1];mae=[float(np.abs(a[220:850,250:1700].astype(float)-b[220:850,250:1700]).mean()) for a,b in zip(segment,segment[1:])]
+ segment=arrays[first:last+1];mae=[float(np.abs(a[wy0:wy1,wx0:wx1].astype(float)-b[wy0:wy1,wx0:wx1]).mean()) for a,b in zip(segment,segment[1:])]
  shifts=[]
  for x0,y0,x1,y1 in patches:
   ref=segment[0][y0:y1,x0:x1];shifts.append([shift(ref,a[y0:y1,x0:x1]) for a in segment[1:]])
@@ -58,7 +64,7 @@ for line in log.splitlines():
   pending=None
 assert len(mapping)==16,'capture mapping absent from recorded Native logs'
 for i,m in enumerate(mapping):assert int(m['index'])==i and (int(m['generated_index'])==0)==(rows[i]['kind']=='real')
-result=dict(capture=str(r),frames=rows,groups=groups,present_mapping=mapping,mapping_log_inputs=log_inputs,scope='lossless encoded Present inputs; rigid patch displacement is diagnostic, not optical input latency or scanout')
+result=dict(capture=str(r),width=width,height=height,patch_regions=patches,frames=rows,groups=groups,present_mapping=mapping,mapping_log_inputs=log_inputs,scope='lossless encoded Present inputs; rigid patch displacement is diagnostic, not optical input latency or scanout')
 (out/'analysis.json').write_text(json.dumps(result,indent=2)+'\n')
 if groups:
  inds=list(range(groups[0]['previous'],groups[0]['current']+1));thumbs=[]
