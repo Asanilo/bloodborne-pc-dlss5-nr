@@ -331,8 +331,8 @@ def nr_conflicts(settings: dict, ini: dict, *, dimensions=False) -> list[str]:
         if str(actual) != required and not (key == "aspect_ratio" and actual == "auto"):
             conflicts.append(f"{key}={actual} (NRBridge: {required})")
     memory = str(settings.get("memory_model", "auto"))
-    if memory not in ("auto", "old"):
-        conflicts.append(f"memory_model={memory} (NRBridge: old)")
+    if memory not in ("auto", "old", "new"):
+        conflicts.append(f"memory_model={memory} (unknown model)")
     if settings.get("as_0_3", False):
         conflicts.append("as_0_3=1 (NRBridge: 0)")
     return conflicts
@@ -389,7 +389,7 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
     if fg["backend"] in ("dlssg","smooth-motion"):fg_config.availability(fg,home_path or home())
     if fg["backend"]=="dlssg":
         conflicts=nr_conflicts(settings,ini)
-        if conflicts:raise ValueError("DLSS FG requires 1080p DLSS Quality, Old memory: " + "; ".join(conflicts))
+        if conflicts:raise ValueError("DLSS FG requires matching DLSS Quality inputs: " + "; ".join(conflicts))
     dimensions=None
     if settings.get("nrbridge_dimensions",False):
         if fg["backend"]!="off":raise ValueError("M5 NR dimensions currently require FG Off; FG size support is not validated")

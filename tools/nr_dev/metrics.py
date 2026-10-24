@@ -7,13 +7,13 @@ def rows(text,event):
 def percentile(a,p):
  if not a:return None
  a=sorted(a);v=(len(a)-1)*p;i=int(v);return a[i]+(a[min(i+1,len(a)-1)]-a[i])*(v-i)
-def memory(run,begin,end):
+def memory(run,begin,end,samples=None):
  result={'status':'NOT_MEASURED','scope':'PID-associated compute-app sampling; graphics memory may be absent; missing is not zero','device_total':{'status':'NOT_MEASURED','scope':'per-UUID physical device total includes other apps, driver and shared usage; never summed from PID reports'}}
- identity=run/'game-identity.json';samples=run/'gpu-memory.jsonl'
- if not samples.is_file():return result
+ identity=run/'game-identity.json'
+ if samples is None and not (run/'gpu-memory.jsonl').is_file():return result
  game=json.loads(identity.read_text()) if identity.is_file() else {};pid=game.get('pid');values=[];devices={}
- for line in samples.read_text().splitlines():
-  x=json.loads(line)
+ records=samples if samples is not None else (json.loads(line) for line in (run/'gpu-memory.jsonl').read_text().splitlines())
+ for x in records:
   pid_in_window=begin<=int(x.get('pid_used_MiB_csv_observed_monotonic_ns',x['monotonic_ns']))<=end
   device_in_window=begin<=int(x.get('device_uuid_used_total_MiB_csv_observed_monotonic_ns',x['monotonic_ns']))<=end
   for record in (x.get('pid_used_MiB_csv','') if pid_in_window else '').splitlines():

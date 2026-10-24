@@ -94,6 +94,15 @@ class GameLog:
             size, tail, pending = 0, b'', b''
             def emit(data):
                 nonlocal stream, size
+                if data.startswith(b'MEMORY_MODEL_ACTIVE_V1 '):
+                    # Preserve the resolved driver route across bounded stdout rotation.
+                    route = self.run / 'memory-model-active.json'
+                    if route.exists():
+                        raise ValueError('duplicate active memory model report')
+                    with route.open('x') as out:
+                        json.dump({'schema': 'bb-memory-model-active-v1',
+                                   'line': data.decode().strip(),
+                                   'observed_monotonic_ns': time.monotonic_ns()}, out)
                 if size + len(data) > self.limit:
                     stream.close()
                     path.replace(self.run / 'game.log.1')

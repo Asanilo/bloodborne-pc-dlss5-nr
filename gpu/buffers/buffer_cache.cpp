@@ -616,6 +616,12 @@ BufferCache::BufferCache(const Vulkan::Instance& instance_, Vulkan::Scheduler& s
         std::printf("Guest memory: the layer's memory module binds the game's memory in place "
                     "(chunk buffers, no sparse arena for it; BB_LAYER_MEMORY=1)\n");
     }
+    // Report the resolved route after driver probing/fallback. The launcher choice alone
+    // cannot establish that direct memory was actually imported and used in place.
+    std::printf("MEMORY_MODEL_ACTIVE_V1 model=%s in_place=%u layer=%u host_import=%u "
+                "write_tracking=%u constants_in_place=%u\n",
+                GuestInPlace() ? "new" : "old", GuestInPlace(), LayerMode(),
+                BbGuestMemory::HostImported(), WriteTracking(), ConstantsInPlace());
     const std::array<u32, 2> families = {instance.GetGraphicsQueueFamilyIndex(),
                                          instance.GetReadbackQueueFamilyIndex()};
     const bool shared = bool(instance.GetReadbackQueue()); // as Buffer creates the arenas

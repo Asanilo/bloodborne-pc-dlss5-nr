@@ -8,21 +8,20 @@ namespace Vulkan {
 class Instance;class Scheduler;
 // One bounded execution domain, immutable for the Helper session. Render guides
 // are resampled on the Native queue; this class never submits/waits or owns an FD.
+// Prepare borrows a matching motion image/view from TemporalUpscaler on that same
+// queue. The caller retains them until GPU completion; NR snapshots remain owned.
 class NrDimensionAdapter {
 public:
  explicit NrDimensionAdapter(const Instance&);
  std::array<vk::Image,3> Prepare(Scheduler&,const std::array<vk::Image,3>&,
-                 const std::array<vk::ImageCreateInfo,3>&,unsigned,unsigned);
+                 const std::array<vk::ImageCreateInfo,3>&,unsigned,unsigned,vk::ImageView motion_view);
  const std::array<vk::ImageCreateInfo,3>& Infos()const{return infos;}
- std::pair<vk::Image,vk::ImageView> RenderMotion(Scheduler&,unsigned,unsigned);
- const vk::ImageCreateInfo& RenderMotionInfo()const{return render_motion.image_ci;}
  void Apply(Scheduler&,vk::ImageView edited,vk::Image target,vk::ImageView target_view,unsigned,unsigned);
  vk::Image Motion()const{return vk::Image(images[2]);}
  vk::ImageView MotionView()const{return *views[2];}
  uint64_t ImageBytes()const;
 private:
- vk::Device device;const Instance& instance;unsigned width,height;
- VideoCore::HostImage render_motion;vk::UniqueImageView render_motion_view;
+ vk::Device device;unsigned width,height;
  std::array<VideoCore::HostImage,3> images;
  std::array<vk::UniqueImageView,3> views;
  std::array<vk::ImageCreateInfo,3> infos;

@@ -93,8 +93,11 @@ def load_request(args):
             mismatched.append('jitter')
         if mismatched:
             raise ValueError('NR requires matching SR profile, DLSS, jitter/object motion on; change: ' + ', '.join(mismatched))
-        if source.get('memory_model', 'auto') not in ('auto', 'old') or source.get('as_0_3', False):
-            raise ValueError('NR requires the validated old memory model and current synchronization')
+        if source.get('as_0_3', False):
+            raise ValueError('NR requires current synchronization')
+    memory_model = source.get('memory_model', 'auto')
+    if memory_model not in ('auto', 'old', 'new'):
+        raise ValueError('player settings: unsupported memory model')
     upscaler = ini.get('upscaler', 'dlss')
     if upscaler not in ('dlss', 'fsr3', 'fsr4', 'fsr411', 'taa', 'off'):
         raise ValueError('player settings: unsupported upscaler')
@@ -141,7 +144,8 @@ def load_request(args):
     if source.get('crash_diag', False):
         env.update(BB_FREE_CHECK='1', BB_WRITE_LOG='1', BB_PRODUCER_CHECK='1')
     extra = _text(source.get('extra_env', ''))
-    permitted = {'BB_MENU_POINTER', 'BB_CURSOR', 'BB_CJK_FONT', 'BB_SAVE_LOG', 'BB_FPS_LIMIT'}
+    permitted = {'BB_MENU_POINTER', 'BB_CURSOR', 'BB_CJK_FONT', 'BB_SAVE_LOG', 'BB_FPS_LIMIT',
+                 'BB_MEMORY_PROFILE'}
     for item in extra.split():
         if '=' not in item:
             raise ValueError('player settings: extra variables require NAME=value')
