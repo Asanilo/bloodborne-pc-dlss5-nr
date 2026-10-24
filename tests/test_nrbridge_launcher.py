@@ -441,9 +441,9 @@ class EntryAndReadbackTests(unittest.TestCase):
         self.assertIn('--sr-only', output.getvalue())
         self.assertIn('--experimental-fg fsr31-hudless --fg-native', output.getvalue())
 
-    def test_entry_profile_flag_reaches_existing_daily_profiler(self):
+    def test_entry_diagnostic_flags_reach_existing_daily_runner(self):
         with mock.patch.object(entry, 'daily', return_value=0) as daily:
-            self.assertEqual(entry.main(['--daily', '--fg-profile']), 0)
+            self.assertEqual(entry.main(['--daily', '--fg-backend', 'fsr31', '--fg-profile', '--fg-validation']), 0)
         args = daily.call_args.args[0]
         args.native_build = '/tmp/fixture-build'
         args.local_inputs = '/tmp/fixture-inputs.json'
@@ -463,7 +463,8 @@ class EntryAndReadbackTests(unittest.TestCase):
         # an option that never reaches the actual runner.
         forwarded = play.parse_args(command[2:])
         self.assertTrue(forwarded.fg_profile)
-        self.assertIsNone(forwarded.fg_backend)
+        self.assertTrue(forwarded.fg_validation)
+        self.assertEqual(forwarded.fg_backend, 'fsr31')
 
 
 if __name__ == '__main__':
