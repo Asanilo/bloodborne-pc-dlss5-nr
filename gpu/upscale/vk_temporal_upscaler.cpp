@@ -404,9 +404,10 @@ TemporalUpscaler::~TemporalUpscaler() {
     native_async_snapshot.RetireByTick(scheduler);
     p0_controller.Shutdown(instance, scheduler);
 #endif
-    if (resources_ready) scheduler.Finish();
+    // NR-only can create the shared motion guide without creating an SR context.
+    // Its borrowed descriptor/image still require real queue completion at exit.
+    if (resources_ready || motion_image || context) scheduler.Finish();
     if (context) {
-        scheduler.Finish();
         ffxVkPortableUpscaleContextDestroy(context);
     }
 }
@@ -712,9 +713,13 @@ void TemporalUpscaler::RecordNrHdrPrepass(){
   if(proxy){VideoCore::ImageViewInfo vi;vi.format=color.info.pixel_format;auto c=scene_targets.Read(scene_color,vi);vi.format=depth.info.pixel_format;auto d=scene_targets.Read(camera_motion.Depth(),vi);ci=c.image;cv=c.view;di=d.image;dv=d.view;cinfo=*scene_targets.CaptureCreateInfo(ci);dinfo=*scene_targets.CaptureCreateInfo(di);}
   else {runtime.Transit(&color,vk::ImageLayout::eGeneral,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite);runtime.Transit(&depth,vk::ImageLayout::eGeneral,vk::PipelineStageFlagBits2::eAllCommands,vk::AccessFlagBits2::eMemoryRead);runtime.FlushBarriers();}
   if(!nr_dimension_adapter){nr_dimension_adapter=std::make_shared<NrDimensionAdapter>(instance);native_async_pre_sr.SetDimensionAdapter(nr_dimension_adapter);}
-  const auto [motion, motion_view]=nr_dimension_adapter->RenderMotion(scheduler,rw,rh);
-  camera_motion.RecordMotion(dv,motion_view,rw,rh);
-  auto raw=nr_dimension_adapter->Prepare(scheduler,{ci,di,motion},{cinfo,dinfo,nr_dimension_adapter->RenderMotionInfo()},rw,rh);
+  EnsureMotionResources(rw,rh);
+  auto cmd=scheduler.CommandBuffer();
+  const vk::ImageMemoryBarrier2 writable{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eComputeShader,.dstAccessMask=vk::AccessFlagBits2::eShaderWrite,.oldLayout=vk::ImageLayout::eUndefined,.newLayout=vk::ImageLayout::eGeneral,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.image=vk::Image(motion_image),.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}};
+  cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&writable});
+  camera_motion.RecordMotion(dv,*motion_view,rw,rh);
+  auto raw=nr_dimension_adapter->Prepare(scheduler,{ci,di,vk::Image(motion_image)},{cinfo,dinfo,motion_image.image_ci},rw,rh,*motion_view);
+  if(layout_changed)std::printf("NR_GUIDES_SHARED_V1 source=%llu render=%ux%u motion_allocations=1 duplicate_bytes_avoided=%llu owner=temporal same_recording_queue=1 immutable_NR_snapshots=1\n",(unsigned long long)source,rw,rh,(unsigned long long)(uint64_t(rw)*rh*4));
   const float sx=float(BbNRDimensions::Width())/rw,sy=float(BbNRDimensions::Height())/rh;
   const auto vp=camera_motion.CurrentJitter(),prev=camera_motion.PreviousJitter();const auto proj=camera_motion.TaaDepthParameters();const float sign=BbToggle::Disabled(1u<<26)?-1.f:1.f;
   const bool recorded=native_async_pre_sr.TryCaptureOrigin(instance,scheduler,raw,nr_dimension_adapter->Infos(),{.source=source,.sr_reset=(NrWithoutSr()?nr_dimension_settings_reset:reset)||layout_changed,.viewport={vp[0]*sx,vp[1]*sy},.previous_viewport={prev[0]*sx,prev[1]*sy},.sr_jitter={sign*jitter[0],sign*jitter[1]},.previous_sr_jitter={previous_dlss_jitter_x,previous_dlss_jitter_y},.current_projection=proj[0],.previous_projection=proj[1],.previous_view_z=proj[2],.source_render={rw,rh},.sr_output={target_width,target_height}});
@@ -735,6 +740,29 @@ void TemporalUpscaler::OnDispatch(u64 cs_hash) {
         return;
     }
     Run();
+}
+
+void TemporalUpscaler::EnsureMotionResources(u32 w, u32 h, bool queue_drained) {
+    if (motion_image && motion_image.image_ci.extent.width == w &&
+        motion_image.image_ci.extent.height == h) return;
+    // A borrowed NR/SR/FG input may still be in flight. Queue completion, rather
+    // than a frame number or logical history reset, permits replacement.
+    if (motion_image && !queue_drained) scheduler.Finish();
+    motion_view.reset();
+    motion_image = VideoCore::HostImage(instance.GetDevice(), instance.GetAllocator());
+    motion_image.Create({
+        .imageType = vk::ImageType::e2D, .format = vk::Format::eR16G16Sfloat,
+        .extent = {w, h, 1}, .mipLevels = 1, .arrayLayers = 1,
+        .samples = vk::SampleCountFlagBits::e1, .tiling = vk::ImageTiling::eOptimal,
+        .usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled |
+                 vk::ImageUsageFlagBits::eTransferSrc,
+        .initialLayout = vk::ImageLayout::eUndefined,
+    });
+    motion_view = Check(instance.GetDevice().createImageViewUnique({
+        .image = vk::Image(motion_image), .viewType = vk::ImageViewType::e2D,
+        .format = vk::Format::eR16G16Sfloat,
+        .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
+    }));
 }
 
 bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
@@ -808,28 +836,8 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
     }
 
     const auto allocator = instance.GetAllocator();
-    motion_view.reset();
     output_view.reset();
-    motion_image = VideoCore::HostImage(device, allocator);
-    auto motion_usage = vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled;
-    if (C0CaptureEnabled() || BbNativeAsyncPreSr::Enabled()
-#if NRBRIDGE_LEGACY_EXPERIMENTS
-        || Q0CaptureEnabled() || Q1DiagnosticEnabled() || P0Enabled() || BbNativeAsync::OptIn()
-#endif
-    ) {
-        motion_usage |= vk::ImageUsageFlagBits::eTransferSrc;
-    }
-    motion_image.Create(vk::ImageCreateInfo{
-        .imageType = vk::ImageType::e2D,
-        .format = vk::Format::eR16G16Sfloat,
-        .extent = {w, h, 1},
-        .mipLevels = 1,
-        .arrayLayers = 1,
-        .samples = vk::SampleCountFlagBits::e1,
-        .tiling = vk::ImageTiling::eOptimal,
-        .usage = motion_usage,
-        .initialLayout = vk::ImageLayout::eUndefined,
-    });
+    EnsureMotionResources(w, h, true);
     output_image = VideoCore::HostImage(device, allocator);
     output_image.Create(vk::ImageCreateInfo{
         .imageType = vk::ImageType::e2D,
@@ -847,12 +855,6 @@ bool TemporalUpscaler::EnsureResources(u32 w, u32 h, u32 ow, u32 oh, bool hdr) {
         .image = vk::Image(output_image),
         .viewType = vk::ImageViewType::e2D,
         .format = vk::Format::eR16G16B16A16Sfloat,
-        .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-    }));
-    motion_view = Check(device.createImageViewUnique({
-        .image = vk::Image(motion_image),
-        .viewType = vk::ImageViewType::e2D,
-        .format = vk::Format::eR16G16Sfloat,
         .subresourceRange = {vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
     }));
     const auto make_image = [&](VideoCore::HostImage& image, vk::UniqueImageView& view,

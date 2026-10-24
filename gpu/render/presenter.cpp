@@ -19,6 +19,7 @@
 #include "bbport_timeline.h"
 #include "bbport_toggles.h"
 #include "core/emulator_settings.h"
+#include "buffers/memory_model.h"
 #include "sdl_window.h"
 #include "textures/image.h"
 #include "textures/texture_cache.h"
@@ -1012,6 +1013,21 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
         q0_owner.Stage(16);
         const auto c4_now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::steady_clock::now().time_since_epoch()).count();
+        static const bool memory_profile = [] {
+            const char* value = std::getenv("BB_MEMORY_PROFILE");
+            return value && std::strcmp(value, "1") == 0;
+        }();
+        if (memory_profile && !source && !blank && is_game_frame && !is_reusing_frame) {
+            // Same point for native, SR, NR and FG: successful real Present return.
+            // Neither a GPU completion assertion nor a physical scanout timestamp.
+            std::printf("MEMORY_PRESENT_V1 model=%s frame=%llu ready_tick=%llu "
+                        "present_tick=%llu success=%u cpu_monotonic_ns=%lld "
+                        "scope=real_present_return_not_gpu_completion\n",
+                        VideoCore::GuestInPlace() ? "new" : "old",
+                        (unsigned long long)frame->c1_present_frame_number,
+                        (unsigned long long)frame->ready_tick,
+                        (unsigned long long)present_submit_tick, presented, (long long)c4_now_ns);
+        }
         const char* p0_mode=std::getenv("BB_NR_P0_MODE");
         if(is_game_frame && !is_reusing_frame && p0_mode && std::strcmp(p0_mode,"srOnly")==0)
             std::printf("P0_SR_PRESENT mode=srOnly actual_game_frame=1 reused=0 cpu_monotonic_ns=%lld present_frame_number=%llu swapchain_present=%u helper_started=0 IPC=0 scope=CPU_present_call_completed_not_input_to_photon\n",

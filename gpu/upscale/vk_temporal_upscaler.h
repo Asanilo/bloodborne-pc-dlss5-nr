@@ -241,6 +241,7 @@ private:
     [[nodiscard]] bool Active() const;
     [[nodiscard]] bool ReactiveOn() const;
     bool EnsureResources(u32 width, u32 height, u32 out_width, u32 out_height, bool hdr);
+    void EnsureMotionResources(u32 width, u32 height, bool queue_drained = false);
     void CreatePipelines();
     /// Records the reactive mask pass; false when there is no snapshot this frame.
     bool RecordReactive(vk::ImageView color_view);

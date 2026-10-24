@@ -79,14 +79,23 @@ class PlayerSettingsTest(unittest.TestCase):
         self.assertFalse(r['nr_enabled']); self.assertEqual(r['environment']['BB_UPSCALER'], 'fsr3')
         self.assertEqual(r['environment']['BB_DLSS'], '0')
 
-    def test_nr_new_memory_and_old_sync_require_explicit_sr_mode(self):
+    def test_nr_new_memory_is_explicit_and_keeps_current_sync(self):
         self.obj['memory_model'] = 'new'; self.write()
-        with self.assertRaisesRegex(ValueError, 'memory model'):
-            p.load_request(self.args)
+        r = p.load_request(self.args)
+        self.assertTrue(r['nr_enabled'])
+        self.assertEqual(r['environment']['BB_PC_MODEL'], '1')
         self.args.sr_only = True
         self.assertEqual(p.load_request(self.args)['environment']['BB_PC_MODEL'], '1')
         self.args.sr_only = False; self.obj['memory_model'] = 'old'; self.obj['as_0_3'] = True; self.write()
         with self.assertRaisesRegex(ValueError, 'synchronization'):
+            p.load_request(self.args)
+
+    def test_unknown_memory_model_cannot_silently_select_old(self):
+        self.obj['memory_model'] = 'typo'; self.write()
+        with self.assertRaisesRegex(ValueError, 'unsupported memory model'):
+            p.load_request(self.args)
+        self.args.sr_only = True
+        with self.assertRaisesRegex(ValueError, 'unsupported memory model'):
             p.load_request(self.args)
 
     def test_extra_env_cannot_override_owner_or_hook_admission(self):

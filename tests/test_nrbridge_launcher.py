@@ -99,10 +99,11 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'preset=3'):
             bridge.player_command({}, ini)
         self.assertEqual(ini, before)
-        for key, value in [('memory_model', 'new'), ('as_0_3', True)]:
+        for key, value in [('memory_model', 'invalid'), ('as_0_3', True)]:
             with self.assertRaises(ValueError):
                 bridge.player_command({key: value}, dict(bridge.NR_INI))
         bridge.player_command({'memory_model': 'auto'}, dict(bridge.NR_INI, aspect_ratio='auto'))
+        bridge.player_command({'memory_model': 'new'}, dict(bridge.NR_INI))
 
     def test_m5_dimensions_are_opt_in_match_saved_profile_and_reject_fg(self):
         ini=dict(bridge.NR_INI,preset='3',output_res='1920x1200',aspect_ratio='16:10')

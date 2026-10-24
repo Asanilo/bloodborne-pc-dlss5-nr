@@ -47,6 +47,14 @@ class DailyLog(unittest.TestCase):
             self.assertLessEqual(path.stat().st_size, 4096)
         self.assertTrue((self.run / 'game.log').read_bytes().endswith(b'FINAL_NATIVE_TERMINAL\n'))
 
+    def test_resolved_memory_route_survives_both_log_rotations(self):
+        line = b'MEMORY_MODEL_ACTIVE_V1 model=new in_place=1 layer=1 host_import=1 write_tracking=0 constants_in_place=1'
+        state = self.capture(line + b'\n' + b'ordinary line\n' * 40000)
+        self.assertTrue(state['complete'])
+        self.assertEqual(json.loads((self.run / 'memory-model-active.json').read_text())['line'], line.decode())
+        self.assertNotIn(line, (self.run / 'game.log').read_bytes())
+        self.assertNotIn(line, (self.run / 'game.log.1').read_bytes())
+
     def test_failure_survives_rotation_beyond_both_retained_files(self):
         state = self.capture(b'x' * 65520 + b'\nNATIVE_RESOURCE_QUARANTINE error=1\n' + b'ok\n' * 40000)
         self.assertTrue(state['complete'])

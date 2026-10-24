@@ -331,8 +331,8 @@ def nr_conflicts(settings: dict, ini: dict, *, dimensions=False) -> list[str]:
         if str(actual) != required and not (key == "aspect_ratio" and actual == "auto"):
             conflicts.append(f"{key}={actual} (NRBridge: {required})")
     memory = str(settings.get("memory_model", "auto"))
-    if memory not in ("auto", "old"):
-        conflicts.append(f"memory_model={memory} (NRBridge: old)")
+    if memory not in ("auto", "old", "new"):
+        conflicts.append(f"memory_model={memory} (unknown model)")
     if settings.get("as_0_3", False):
         conflicts.append("as_0_3=1 (NRBridge: 0)")
     return conflicts
