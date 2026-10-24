@@ -11,13 +11,11 @@ struct FgMailboxExport : PreSrTransport {
     VkPhysicalDeviceProperties2 p{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};p.pNext=&ids;
     I(vkGetPhysicalDeviceProperties2)(physical,&p);properties=p.properties;
   }
-  void create_mailbox(unsigned count=1){
+  void create_mailbox(unsigned count=1,const DlssgGpu::Layout& layout={}){
     require(count>=1&&count<=5,"bounded mailbox outputs");
-    struct Spec{const char* role;VkFormat format;unsigned w,h;};
-    const Spec specs[]={{"color",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"depth",VK_FORMAT_R32_SFLOAT,1280,720},{"motion",VK_FORMAT_R16G16_SFLOAT,1280,720},{"output",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"output1",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"output2",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"output3",VK_FORMAT_R8G8B8A8_UNORM,1920,1080},{"output4",VK_FORMAT_R8G8B8A8_UNORM,1920,1080}};
-    for(unsigned index=0;index<3+count;++index){const auto& spec=specs[index];
-      images.emplace_back();auto& im=images.back();im.role=spec.role;im.format=spec.format;im.width=spec.w;im.height=spec.h;
-      im.external=query(im.format,spec.role,true,spec.w,spec.h);VkExternalMemoryImageCreateInfo ex{};auto ci=image_ci(im.format,ex,spec.w,spec.h);
+    for(unsigned index=0;index<3+count;++index){const auto& spec=DlssgGpu::Specs.at(index);
+      images.emplace_back();auto& im=images.back();im.role=spec.role;im.format=VkFormat(spec.format);im.width=(index==1||index==2)?layout.render_width:layout.output_width;im.height=(index==1||index==2)?layout.render_height:layout.output_height;
+      im.external=query(im.format,spec.role,true,im.width,im.height);VkExternalMemoryImageCreateInfo ex{};auto ci=image_ci(im.format,ex,im.width,im.height);
       api(D(vkCreateImage)(device,&ci,nullptr,&im.image),"FG mailbox image");
       VkImageMemoryRequirementsInfo2 ri{VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2};ri.image=im.image;
       VkMemoryRequirements2 req{VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2};req.pNext=&im.dedicated;D(vkGetImageMemoryRequirements2)(device,&ri,&req);im.req=req.memoryRequirements;

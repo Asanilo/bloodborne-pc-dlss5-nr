@@ -22,6 +22,7 @@ struct MailboxImport {
     PFN_vkGetInstanceProcAddr gipa{};PFN_vkGetDeviceProcAddr gdpa{};
     struct Image{VkImage image{};VkDeviceMemory memory{};VkFormat format{};VkExtent3D extent{};};
     std::array<Image,8> images{};unsigned image_count=4;std::vector<FdPayload> raw_payloads;bool destroyed=false,used=false,complete=true;
+    Layout layout;
     uint64_t last_use=0;pid_t exporter=-1;uint64_t exporter_ticks=0;
     MailboxImport(VkInstance in,VkPhysicalDevice ph,VkDevice dev,uint32_t fam,PFN_vkGetInstanceProcAddr gi,PFN_vkGetDeviceProcAddr gd):instance(in),physical(ph),device(dev),family(fam),gipa(gi),gdpa(gd){}
     ~MailboxImport(){if(!destroyed&&images[0].image)std::fprintf(stderr,"DLSSG_MAILBOX_IMPORT_HOLD explicit_GPU_retirement_missing=1\n");}
@@ -32,9 +33,9 @@ struct MailboxImport {
     void Import(const J& meta,const std::string& session,pid_t pid,uint64_t ticks){
         Session(meta,session);Need(!images[0].image&&B(meta,"completed_GPU")&&U(meta,"linux_pid")==uint64_t(pid)&&U(meta,"handle_type")==512&&U(meta,"initial_release_serial")>0,"GPU initial release/identity");
         const auto local=Identity();for(auto k:{"device_uuid","driver_uuid","driver_version"})Need(meta.at(k)==local.at(k),"GPU physical/driver identity mismatch");
-        image_count=3+Count(meta);Need(meta.at("resources").is_array()&&meta.at("resources").size()==image_count,"negotiated GPU mailbox images");
+        layout=Layout::From(meta);image_count=3+Count(meta);Need(meta.at("resources").is_array()&&meta.at("resources").size()==image_count,"negotiated GPU mailbox images");
         exporter=pid;exporter_ticks=ticks;std::set<int> raw_numbers;
-        for(unsigned k=0;k<image_count;++k){const auto& e=meta.at("resources").at(k);Resource(e,k);int raw=int(U(e,"fd"));Need(raw_numbers.insert(raw).second,"unique GPU raw FD numbers");
+        for(unsigned k=0;k<image_count;++k){const auto& e=meta.at("resources").at(k);Resource(e,k,layout);int raw=int(U(e,"fd"));Need(raw_numbers.insert(raw).second,"unique GPU raw FD numbers");
             Need(Ticks(pid)==ticks&&ticks>0,"GPU exporter starttime before duplication");auto payload=Payload(pid,raw);for(const auto& prior:raw_payloads)Need(!(payload==prior),"independent GPU memory payloads");raw_payloads.push_back(payload);
             int pidfd=int(syscall(SYS_pidfd_open,pid,0));Need(pidfd>=0,"GPU pidfd_open");int dup=int(syscall(SYS_pidfd_getfd,pidfd,raw,0));close(pidfd);Need(dup>=0,"GPU pidfd_getfd");
             try{

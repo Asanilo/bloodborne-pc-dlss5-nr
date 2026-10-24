@@ -2,8 +2,8 @@
 // CPU single-slot transport. GPU images are private to this process, never shared.
 #include "../../gpu/upscale/dlssg_cpu_slot.h"
 #include "dlssg_gpu_timing.h"
-#include "dlssg_mailbox_export.h"
 #include "../../gpu/upscale/dlssg_gpu_contract.h"
+#include "dlssg_mailbox_export.h"
 #include <sstream>
 #include "dlssg_wine_wake.h"
 void Probe::stream(const char* root) {
@@ -22,6 +22,8 @@ void Probe::stream(const char* root) {
   auto write_bytes=[&](const char* name,const void* data,size_t bytes){FILE* f=fopen((std::string(root)+"/"+name).c_str(),"wb");require(f,"stream output open");bool ok=fwrite(data,1,bytes,f)==bytes;ok=fclose(f)==0&&ok;require(ok,"stream output complete write");};
   auto read_bytes=[&](const char* name,void* data,size_t bytes){FILE* f=fopen((std::string(root)+"/"+name).c_str(),"rb");require(f,"stream input open");bool ok=fread(data,1,bytes,f)==bytes;ok=fgetc(f)==EOF&&ok;ok=fclose(f)==0&&ok;require(ok,"stream input exact length");};
   const auto config=read_json("stream-config.json");
+  const auto layout=DlssgGpu::Layout::From(config);
+  require(layout==feature_layout,"FG feature and mailbox exact layout");
   require(DlssgGpu::Count(config)==generated_count,"MFG config/env count");
   const bool gpu=config.value("transport",std::string{})=="gpu-dmabuf-v1";
   const std::string schema=gpu?DlssgGpu::Schema:"dlssg-cpu-stream-v1";
@@ -46,20 +48,21 @@ void Probe::stream(const char* root) {
     atomic_text(std::string(root)+"/gpu-pid-request.json",J{{"schema",schema},{"session",session},{"exe",module(GetModuleHandleA(nullptr))},{"win_pid",GetCurrentProcessId()}}.dump()+"\n");
     auto identity=wait_gpu("gpu-identity.json",[](const J&){return true;});
     require(identity.at("native_pid")==config.at("native_pid")&&identity.at("native_start_ticks")==config.at("native_start_ticks"),"GPU exact Native identity echo");linux_exporter=DlssgGpu::U(identity,"exporter_pid");exporter_ticks=DlssgGpu::U(identity,"exporter_start_ticks");check_peer();
-    shared_active=true;mailbox=std::make_unique<FgMailboxExport>(instance,physical,device,queue,family,gipa,gdpa,command,fence);mailbox->session=session;mailbox->linux_pid=uint32_t(linux_exporter);
+    shared_active=true;mailbox=std::make_unique<FgMailboxExport>(instance,physical,device,queue,family,gipa,gdpa,command,fence);mailbox->session=session;mailbox->linux_pid=uint32_t(linux_exporter);if(config.contains("resource_epoch"))mailbox->generation=DlssgGpu::U(config,"resource_epoch");
     require(config.at("device_uuid")==hex(mailbox->ids.deviceUUID)&&config.at("driver_uuid")==hex(mailbox->ids.driverUUID)&&DlssgGpu::U(config,"driver_version")==mailbox->properties.driverVersion,"GPU exact physical/driver match");
-    mailbox->create_mailbox(generated_count);mailbox->initial_release();auto meta=J::parse(mailbox->metadata());meta.update(J{{"generated_count",generated_count},{"schema",schema},{"initial_release_serial",mailbox->serial},{"driver_version",mailbox->properties.driverVersion}});
+    mailbox->create_mailbox(generated_count,layout);mailbox->initial_release();auto meta=J::parse(mailbox->metadata());meta.update(J{{"generated_count",generated_count},{"schema",schema},{"initial_release_serial",mailbox->serial},{"driver_version",mailbox->properties.driverVersion}});
+    if(config.contains("layout")){meta["layout"]=layout.Json();meta["resource_epoch"]=config.at("resource_epoch");}
     atomic_text(std::string(root)+"/gpu-meta.json",meta.dump()+"\n");J pairs=J::array();for(const auto& im:mailbox->images)pairs.push_back({{"role",im.role},{"fd",im.fd}});
     auto imported=wait_gpu("gpu-imported.json",[](const J&){return true;});require(imported.at("raw_fd_pairs")==pairs&&DlssgGpu::U(imported,"initial_release_serial_echo")==mailbox->serial&&DlssgGpu::U(imported,"imported_images")==3+generated_count&&DlssgGpu::U(imported,"owned_duplicate_fd")==0,"GPU exact import ACK");
     mailbox->retire_fds();atomic_text(std::string(root)+"/gpu-fd-retired.json",J{{"schema",schema},{"session",session},{"closed_fd",J::parse(mailbox->closed_fds)},{"export_raw_fd_owned",0}}.dump()+"\n");
   }
 
   fixture=std::make_unique<FgFixture>(device,physical,command,gdpa,i<PFN_vkGetPhysicalDeviceMemoryProperties>("vkGetPhysicalDeviceMemoryProperties"));auto& g=*fixture;
-  constexpr unsigned W=1920,H=1080,RW=1280,RH=720;
+  const unsigned W=layout.output_width,H=layout.output_height,RW=layout.render_width,RH=layout.render_height;
   FgGpuTiming timing(device,physical,gdpa,i<PFN_vkGetPhysicalDeviceProperties>("vkGetPhysicalDeviceProperties"),i<PFN_vkGetPhysicalDeviceQueueFamilyProperties>("vkGetPhysicalDeviceQueueFamilyProperties"),family);
   struct Slot{FgFixture::Image color,depth,motion;std::array<FgFixture::Image,5> output;FgFixture::Buffer disabled;FgFixture::Buffer color_upload,depth_upload,motion_upload,readback;};
   auto descriptors=std::make_shared<std::array<Slot,2>>();input_descriptors=descriptors;auto& slots=*descriptors;
-  for(auto& s:slots){s.color=g.image(VK_FORMAT_R8G8B8A8_UNORM,false);s.depth=g.image(VK_FORMAT_R32_SFLOAT,false,RW,RH);s.motion=g.image(VK_FORMAT_R16G16_SFLOAT,false,RW,RH);for(unsigned i=0;i<generated_count;++i){s.output[i]=g.image(VK_FORMAT_R8G8B8A8_UNORM,true);}s.disabled=g.buffer(4,true);if(!gpu){s.color_upload=g.buffer(size_t(W)*H*4);s.depth_upload=g.buffer(size_t(RW)*RH*4);s.motion_upload=g.buffer(size_t(RW)*RH*4);s.readback=g.buffer(size_t(W)*H*4,true);}}
+  for(auto& s:slots){s.color=g.image(VK_FORMAT_R8G8B8A8_UNORM,false,W,H);s.depth=g.image(VK_FORMAT_R32_SFLOAT,false,RW,RH);s.motion=g.image(VK_FORMAT_R16G16_SFLOAT,false,RW,RH);for(unsigned i=0;i<generated_count;++i){s.output[i]=g.image(VK_FORMAT_R8G8B8A8_UNORM,true,W,H);}s.disabled=g.buffer(4,true);if(!gpu){s.color_upload=g.buffer(size_t(W)*H*4);s.depth_upload=g.buffer(size_t(RW)*RH*4);s.motion_upload=g.buffer(size_t(RW)*RH*4);s.readback=g.buffer(size_t(W)*H*4,true);}}
   for(auto k:{"DLSSG.MVecsSubrectWidth","DLSSG.DepthSubrectWidth","DLSSG.InternalWidth"})ui(k,RW);
   for(auto k:{"DLSSG.MVecsSubrectHeight","DLSSG.DepthSubrectHeight","DLSSG.InternalHeight"})ui(k,RH);
   for(auto k:{"DLSSG.InputBackbufferSubrectWidth","DLSSG.OutputInterpolatedSubrectWidth","DLSSG.BackbufferSubrectWidth"})ui(k,W);
@@ -72,10 +75,13 @@ void Probe::stream(const char* root) {
   std::array<float,16> identity{};for(unsigned k=0;k<4;++k)identity[k*5]=1;ptr("DLSSG.ClipToLensClip",identity.data());
   api(d<PFN_vkDeviceWaitIdle>("vkDeviceWaitIdle")(device),"stream initialization idle");
   if(gpu)(void)DlssgGpu::Split(config);
-  atomic_text(std::string(root)+"/stream-ready.json",J{{"generated_count",generated_count},{"schema",schema},{"session",session},{"transport",transport},{"actual_GPU_complete",true},{"private_image_sets",2},{"native_completion_mode",config.value("native_completion_mode",std::string("draw-v1"))},{"native_gpu_readers",0},{"helper_serial",gpu?mailbox->serial:0}}.dump()+"\n");
+  J ready{{"generated_count",generated_count},{"schema",schema},{"session",session},{"transport",transport},{"actual_GPU_complete",true},{"private_image_sets",2},{"native_completion_mode",config.value("native_completion_mode",std::string("draw-v1"))},{"native_gpu_readers",0},{"helper_serial",gpu?mailbox->serial:0}};
+  if(config.contains("layout")){ready["layout"]=layout.Json();ready["resource_epoch"]=config.at("resource_epoch");}
+  atomic_text(std::string(root)+"/stream-ready.json",ready.dump()+"\n");
   const bool split=gpu&&DlssgGpu::Split(config);
   uint64_t last_draw_tick=0,last_input_tick=0;
   uint64_t sequence=0,last_source=0,epoch=0,last_native_tick=0;bool initialized[2]{};J last_request{{"generated_count",generated_count},{"schema",schema},{"session",session},{"sequence",0},{"epoch",0},{"source_game_frame",0},{"previous_source_game_frame",0},{"display",0}};
+  if(config.contains("layout")){last_request["layout"]=layout.Json();last_request["resource_epoch"]=config.at("resource_epoch");}
   if(split)last_request.update(J{{"native_completion_mode","split-v1"},{"native_input_domain","draw"}});
   while(true){
     check_peer();
@@ -86,7 +92,7 @@ void Probe::stream(const char* root) {
 
     if(!exists("request.json")){pause_control();continue;}
     auto request=read_json("request.json");uint64_t next=request.at("sequence");
-    if(gpu){DlssgGpu::Session(request,session);require(DlssgGpu::Count(request)==generated_count,"MFG request count");}
+    if(gpu){DlssgGpu::Session(request,session);require(DlssgGpu::Count(request)==generated_count,"MFG request count");if(config.contains("layout"))require(DlssgGpu::Layout::From(request)==layout&&DlssgGpu::U(request,"resource_epoch")==DlssgGpu::U(config,"resource_epoch"),"GPU immutable feature layout generation");}
     if(next==sequence){pause_control();continue;}
     require(next==sequence+1&&request.at("schema")==schema&&request.at("session")==session,"request exact session/sequence");
     uint64_t source=request.at("source_game_frame"),previous=request.at("previous_source_game_frame"),generation=request.at("epoch");bool reset=request.at("reset");

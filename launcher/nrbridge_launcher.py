@@ -388,15 +388,19 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
     fg=fg_config.selection(dict(fg_config.discover(home_path or home()), **settings))
     if fg["backend"] in ("dlssg","smooth-motion"):fg_config.availability(fg,home_path or home())
     if fg["backend"]=="dlssg":
-        conflicts=nr_conflicts(settings,ini)
-        if conflicts:raise ValueError("DLSS FG requires matching DLSS Quality inputs: " + "; ".join(conflicts))
+        conflicts=nr_conflicts(settings,ini,dimensions=fg['transport']=='gpu-dmabuf-v1')
+        if ini.get('upscaler')!='dlss':conflicts.append('DLSS FG requires the validated DLSS SR source handoff')
+        if conflicts:raise ValueError("DLSS FG input requirements: " + "; ".join(conflicts))
     dimensions=None
     if settings.get("nrbridge_dimensions",False):
-        if fg["backend"]!="off":raise ValueError("M5 NR dimensions currently require FG Off; FG size support is not validated")
+        if fg["backend"]!="off" and not(fg["backend"]=="dlssg" and fg['transport']=='gpu-dmabuf-v1'):
+            raise ValueError("Variable dimensions require Off or DLSS GPU mailbox; FSR/CPU keep their baseline")
         try:name=tuple(dimension_profile.PRESETS)[int(ini.get("preset","1"))]
         except (ValueError,IndexError):raise ValueError("M5 requires a supported DLSS SR preset")
         if str(ini.get("preset","1")) not in ("0","1","2","3","4"):raise ValueError("M5 requires a supported DLSS SR preset")
-        if ini.get("upscaler")=="off":name="native"
+        if ini.get("upscaler")=="off":
+            if fg["backend"]!="off":raise ValueError("NR-only + FG source handoff not yet admitted")
+            name="native"
         dimensions=dimension_profile.select(argparse.Namespace(nr_sr_preset=name,nr_output=ini.get("output_res","1920x1080"),nr_execution=settings.get("nrbridge_execution","1280x720") or None))
         if ini.get("aspect_ratio","auto") not in ("auto",dimensions["aspect_ratio"]):raise ValueError("M5 output and aspect ratio must match")
     if nr_enabled:

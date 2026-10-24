@@ -13,6 +13,7 @@ static void api(VkResult result,const char* stage){if(result!=VK_SUCCESS||!geten
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include "dlssg_mfg_unlock.h"
+#include "../../gpu/upscale/dlssg_layout.h"
 
 template <class T> static T sym(HMODULE m, const char *n) {
   auto f = reinterpret_cast<T>(GetProcAddress(m, n));
@@ -50,6 +51,7 @@ struct Probe {
   nlohmann::json stream_terminal;
   bool core_attempted = false, inflight = false, shared_active = false;
   unsigned create_result = 0, generated_count = 1;
+  DlssgGpu::Layout feature_layout;
   template <class T> T i(const char *n) {
     return reinterpret_cast<T>(gipa(instance, n));
   }
@@ -58,6 +60,8 @@ struct Probe {
   }
   void init(const char *run, const char *ge, const char *adapter) {
     snippet = adapter != nullptr;
+    if(const char* value=getenv("FG_POC_LAYOUT")){auto j=nlohmann::json::parse(value);feature_layout=DlssgGpu::Layout::From(j);}
+    feature_layout.Validate();
     if(const char* count=getenv("FG_POC_GENERATED_COUNT"))generated_count=std::stoul(count);
     require(generated_count>=1&&generated_count<=5,"bounded MFG output count");
     std::string root = ge;
@@ -269,8 +273,8 @@ struct Probe {
       int r = get(params, key, &v);
       printf("FG_CAP key=%s result=0x%08x value=0x%08x\n", key, unsigned(r), v);
     }
-    set(params, "Width", 1920);
-    set(params, "Height", 1080);
+    set(params, "Width", feature_layout.output_width);
+    set(params, "Height", feature_layout.output_height);
     set(params, "CreationNodeMask", 1);
     set(params, "VisibilityNodeMask", 1);
     set(params, "DLSSG.BackbufferFormat", VK_FORMAT_R8G8B8A8_UNORM);
@@ -327,20 +331,19 @@ struct Probe {
       if(generated_count>1){unsigned maximum=0;require(get(params,"DLSSG.MultiFrameCountMax",&maximum)==1&&maximum>=generated_count,"MFG actual model maximum");printf("DLSSG_MFG_CAP maximum=%u requested=%u\n",maximum,generated_count); }
     }
     set(params,"DLSSG.MultiFrameCount",generated_count);
-    // Supply the same fixed extents for Create and Evaluate. The installed
-    // 310.2.1 snippet may still initialize its cache on the first Evaluate
-    // (logged explicitly).
+    // Create and Evaluate share one immutable negotiated layout. A new layout
+    // is a fully retired/new feature generation, not an unchecked size update.
     for (auto k : {"DLSSG.InternalWidth", "DLSSG.BackbufferSubrectWidth",
                    "DLSSG.MVecsSubrectWidth", "DLSSG.DepthSubrectWidth"})
-      set(params, k, 1920);
+      set(params, k, feature_layout.output_width);
     for (auto k : {"DLSSG.InternalHeight", "DLSSG.BackbufferSubrectHeight",
                    "DLSSG.MVecsSubrectHeight", "DLSSG.DepthSubrectHeight"})
-      set(params, k, 1080);
+      set(params, k, feature_layout.output_height);
     set(params, "DLSSG.DynamicResolution", 0);
     if (getenv("FG_POC_INPUT_MANIFEST")||getenv("FG_POC_STREAM")) {
-      set(params,"DLSSG.InternalWidth",1280); set(params,"DLSSG.InternalHeight",720);
-      set(params,"DLSSG.MVecsSubrectWidth",1280); set(params,"DLSSG.MVecsSubrectHeight",720);
-      set(params,"DLSSG.DepthSubrectWidth",1280); set(params,"DLSSG.DepthSubrectHeight",720);
+      set(params,"DLSSG.InternalWidth",feature_layout.render_width); set(params,"DLSSG.InternalHeight",feature_layout.render_height);
+      set(params,"DLSSG.MVecsSubrectWidth",feature_layout.render_width); set(params,"DLSSG.MVecsSubrectHeight",feature_layout.render_height);
+      set(params,"DLSSG.DepthSubrectWidth",feature_layout.render_width); set(params,"DLSSG.DepthSubrectHeight",feature_layout.render_height);
     }
     VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     api(d<PFN_vkBeginCommandBuffer>("vkBeginCommandBuffer")(command, &bi),

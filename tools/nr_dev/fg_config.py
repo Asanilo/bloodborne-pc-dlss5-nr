@@ -123,5 +123,5 @@ def availability(config,home):
         try:
             if json.loads((r/'result.json').read_text()).get('status')!='PASS_NORMAL_TEARDOWN' or not (r/'profile/wine-prefix').is_dir():raise ValueError()
         except (OSError,ValueError):raise ValueError('DLSS FG unavailable: the selected prefix is missing or not normally retired')
-        return f"DLSS FG {config.get('multiplier',2)}X; 1080p DLSS Quality, Old memory. NR is independent. Backend changes require restart."
+        return f"DLSS FG {config.get('multiplier',2)}X; Actual DLSS SR render/output dimensions; NR is independent. Backend changes require restart."
     return 'Backend changes require restart. FSR/DLSS can be enabled or disabled in the game.'

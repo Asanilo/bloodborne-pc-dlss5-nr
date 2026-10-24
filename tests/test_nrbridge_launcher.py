@@ -112,11 +112,26 @@ class AdapterTests(unittest.TestCase):
         for flag,value in [('--nr-sr-preset','performance'),('--nr-output','1920x1200'),('--nr-execution','1280x720')]:
             self.assertEqual(command[command.index(flag)+1],value)
         self.assertNotIn('--sr-only',command)
-        with self.assertRaisesRegex(ValueError,'FG Off'):bridge.player_command(dict(settings,fg_backend='fsr31'),ini)
+        with self.assertRaisesRegex(ValueError,'FSR/CPU'):bridge.player_command(dict(settings,fg_backend='fsr31'),ini)
         with self.assertRaises(ValueError):bridge.player_command(dict(settings,nrbridge_dimensions=False),ini)
         with self.assertRaises(ValueError):bridge.player_command(settings,dict(ini,preset='-1'))
         legacy=bridge.player_command({},dict(bridge.NR_INI))
         self.assertNotIn('--nr-sr-preset',legacy)
+
+    def test_m9_dlss_gpu_profiles_keep_nr_independent(self):
+        for enabled in (False,True):
+            settings=dict(nrbridge_dimensions=True,nrbridge_execution='1280x720',nrbridge_enabled=enabled,fg_backend='dlssg',fg_dlss_pipeline='consumer-queue-v1',fg_dlss_multiplier=4)
+            ini=dict(bridge.NR_INI,preset='1',output_res='2560x1440',aspect_ratio='16:9')
+            with mock.patch.object(bridge.fg_config,'availability',return_value='GPU available'):
+                command=bridge.player_command(settings,ini)
+            self.assertEqual(command[command.index('--nr-output')+1],'2560x1440')
+            self.assertEqual(command[command.index('--dlssg-multiplier')+1],'4')
+            self.assertEqual('--sr-only' in command,not enabled)
+        with mock.patch.object(bridge.fg_config,'availability',return_value='GPU available'):
+            with self.assertRaises(ValueError):
+                bridge.player_command(dict(settings,fg_dlss_transport='mapped-v1',fg_dlss_multiplier=2),ini)
+            with self.assertRaisesRegex(ValueError,'source handoff'):
+                bridge.player_command(settings,dict(ini,upscaler='off'))
 
     def test_m5_native_only_uses_off_without_disabling_nr(self):
         c=bridge.player_command(dict(nrbridge_dimensions=True,fg_backend='off'),dict(bridge.NR_INI,upscaler='off',preset='3'))
