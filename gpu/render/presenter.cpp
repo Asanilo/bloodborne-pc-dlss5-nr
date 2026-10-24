@@ -316,6 +316,9 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     }
     const C1PresentAudit& frame_audit = upscaled ? display.c1_audit : c1_audit;
     frame->c1_source_game_frame = frame_audit.source_game_frame;
+    // Scaled content has its own producer/address/image-generation stamp even
+    // with NR disabled. Keep the verified Native HDR ledger route as before.
+    frame->fg_real_source = upscaled ? display.source_game_frame : frame_audit.source_game_frame;
     frame->c1_merge_tick = frame_audit.merge_tick;
     frame->c1_guest_buffer_address = frame_audit.buffer_address;
     frame->c1_guest_prepare_gpu_frame = frame_audit.buffer_prepare_gpu_frame;
@@ -393,7 +396,7 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     if (auto* fg = upscaler.GetFrameGeneration()) {
         auto ticket = fg->TakeAsyncOutput(cpu_address);
         if (ticket && ticket->raw->width == source_size.width && ticket->raw->height == source_size.height &&
-            FgContract::SameRealSource(ticket->source, frame->c1_source_game_frame)) {
+            FgContract::SameRealSource(ticket->source, frame->fg_real_source)) {
             frame->fg_ticket = std::move(ticket);
             frame->fg_encode = encode; frame->fg_view_format = view_info.format;
             frame->fg_strict_source = true; frame->fg_previous_source = frame->fg_ticket->previous_source;
@@ -407,10 +410,10 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     if (upscaler.GetFrameGeneration() &&
         upscaler.GetFrameGeneration()->TakeOutput(cpu_address, interp) &&
         interp.width == source_size.width && interp.height == source_size.height &&
-        // Native NR ledger already checks source+1, actual VideoOut address and merge tick.
-        // Only that real source may own the generated image encoded beside it.
+        // A separately proved actual display source owns this generated image.
+        // Scaled source identity does not depend on NR's optional Present ledger.
         ((!interp.strict_source && upscaled) || FgContract::SameRealSource(interp.source_game_frame,
-                                               frame->c1_source_game_frame))) {
+                                               frame->fg_real_source))) {
         EncodeInterpolated(frame, interp.image, interp.format, interp.width, interp.height,
                            view_info.format, encode, draw_scheduler);
         frame->interp_recorded = interp.recorded;
@@ -506,9 +509,9 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
             BbStats::WaitTimer timer{BbStats::present_wait_ns};
             const auto begin = std::chrono::steady_clock::now();
             draw_scheduler.Wait(tick);
-            if (std::getenv("BB_FG_PROFILE") && frame->c1_source_game_frame % 31 == 0)
+            if (std::getenv("BB_FG_PROFILE") && frame->fg_real_source % 31 == 0)
                 std::printf("FG_FRAMES_AHEAD_PROFILE source=%llu wait_cpu_ms=%.3f bound=%u\n",
-                    (unsigned long long)frame->c1_source_game_frame,
+                    (unsigned long long)frame->fg_real_source,
                     std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-begin).count(),ahead);
         }
     }
@@ -773,7 +776,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     using Clock = std::chrono::steady_clock;
     static const bool fg_profile = std::getenv("BB_FG_PROFILE") != nullptr;
     const bool sample = fg_profile && !blank && is_game_frame && !is_reusing_frame &&
-                        frame->c1_source_game_frame && frame->c1_source_game_frame % 31 == 0;
+                        frame->fg_real_source && frame->fg_real_source % 31 == 0;
     const auto profile_start = Clock::now();
     auto profile_ready = profile_start;
     double generated_present_ms=0, pace_sleep_ms=0, ticket_wait_ms=0, encode_wait_ms=0;
@@ -822,7 +825,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
             (!is_game_frame || is_reusing_frame || !frame->fg_previous_source ||
              last_real_game_source != frame->fg_previous_source)) {
             std::printf("DLSSG_PRESENT_PAIR_REJECT current=%llu expected_previous=%llu actual_previous=%llu\n",
-                (unsigned long long)frame->c1_source_game_frame,(unsigned long long)frame->fg_previous_source,
+                (unsigned long long)frame->fg_real_source,(unsigned long long)frame->fg_previous_source,
                 (unsigned long long)last_real_game_source);
             frame->has_interp = false;
         }
@@ -837,7 +840,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     }
     if (sample && (ticket_wait_ms || encode_wait_ms))
         std::printf("DLSSG_PRESENT_READY_PROFILE source=%llu ticket_wait_cpu_ms=%.3f encode_record_and_wait_cpu_ms=%.3f\n",
-            (unsigned long long)frame->c1_source_game_frame,ticket_wait_ms,encode_wait_ms);
+            (unsigned long long)frame->fg_real_source,ticket_wait_ms,encode_wait_ms);
     // BB_FRAME_GEN_ONLY=1 (diagnostics): only the interpolated frames are shown.
     static const bool only_interp = [] {
         const char* value = std::getenv("BB_FRAME_GEN_ONLY");
@@ -859,7 +862,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
             frame->generated_index=i+1;const auto gen_start=Clock::now();
             if(!PresentImage(frame,frame->interp[i].image,false,false,is_reusing_frame))break;
             if(frame->interp_count>1)std::printf("DLSSG_MFG_PRESENT source=%llu epoch=%llu index=%u count=%u phase_denominator=%u\n",
-                (unsigned long long)frame->c1_source_game_frame,(unsigned long long)frame->fg_epoch,i+1,frame->interp_count,frame->interp_count+1);
+                (unsigned long long)frame->fg_real_source,(unsigned long long)frame->fg_epoch,i+1,frame->interp_count,frame->interp_count+1);
             const auto pace_start=Clock::now();generated_present_ms+=profile_ms(gen_start,pace_start);
             // Absolute batch deadlines, with a minimum gap after a late submission.
             // Never issue a burst to catch up after a delayed Helper/WSI operation.
@@ -875,20 +878,20 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
     PresentImage(frame, {}, true, is_game_frame && !blank, is_reusing_frame);
     if (sample && frame->fg_capture_cpu_ns)
         std::printf("FG_CAPTURE_PRESENT_PROFILE source=%llu capture_to_real_present_cpu_ms=%.3f scope=guide_capture_to_Present_return_not_input_or_scanout\n",
-                    (unsigned long long)frame->c1_source_game_frame,
+                    (unsigned long long)frame->fg_real_source,
                     profile_ms(Clock::time_point(std::chrono::nanoseconds(frame->fg_capture_cpu_ns)), Clock::now()));
     if (sample && frame->fg_guide_record_cpu_ns && frame->flip_queue_cpu_ns) {
         auto at=[](u64 ns){return Clock::time_point(std::chrono::nanoseconds(ns));};
         const auto now=Clock::now();
         std::printf("DLSSG_SOURCE_AGE_PROFILE source=%llu admission_wait_cpu_ms=%.3f guide_record_to_submit_cpu_ms=%.3f submit_to_flip_queue_cpu_ms=%.3f actual_present_queue_cpu_ms=%.3f present_service_cpu_ms=%.3f guide_record_to_real_present_cpu_ms=%.3f not_input_latency=1\n",
-            (unsigned long long)frame->c1_source_game_frame,
+            (unsigned long long)frame->fg_real_source,
             profile_ms(at(frame->fg_capture_cpu_ns),at(frame->fg_guide_record_cpu_ns)),
             profile_ms(at(frame->fg_guide_record_cpu_ns),at(frame->fg_producer_submit_cpu_ns)),
             profile_ms(at(frame->fg_producer_submit_cpu_ns),at(frame->flip_queue_cpu_ns)),
             profile_ms(at(frame->flip_queue_cpu_ns),profile_start),profile_ms(profile_start,now),
             profile_ms(at(frame->fg_guide_record_cpu_ns),now));
     }
-    if(sample)std::printf("FG_PACING_PROFILE source=%llu queue_age_cpu_ms=%.3f wait_render_cpu_ms=%.3f generated_present_cpu_ms=%.3f pacing_sleep_cpu_ms=%.3f real_present_cpu_ms=%.3f total_cpu_ms=%.3f interval_estimate_ms=%.3f\n",(unsigned long long)frame->c1_source_game_frame,profile_ms(Clock::time_point(std::chrono::nanoseconds(frame->prepare_ns)),profile_start),profile_ms(profile_start,profile_ready),generated_present_ms,pace_sleep_ms,profile_ms(real_start,Clock::now()),profile_ms(profile_start,Clock::now()),fg_interval_ms);
+    if(sample)std::printf("FG_PACING_PROFILE source=%llu queue_age_cpu_ms=%.3f wait_render_cpu_ms=%.3f generated_present_cpu_ms=%.3f pacing_sleep_cpu_ms=%.3f real_present_cpu_ms=%.3f total_cpu_ms=%.3f interval_estimate_ms=%.3f\n",(unsigned long long)frame->fg_real_source,profile_ms(Clock::time_point(std::chrono::nanoseconds(frame->prepare_ns)),profile_start),profile_ms(profile_start,profile_ready),generated_present_ms,pace_sleep_ms,profile_ms(real_start,Clock::now()),profile_ms(profile_start,Clock::now()),fg_interval_ms);
     release();
 }
 
@@ -952,7 +955,7 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
         }
         if (left > 0 && !blank) {
             --left;
-            std::printf("FG_SEQUENCE_CAPTURE index=%d source=%llu generated_index=%u generated_count=%u epoch=%llu\n",index,(unsigned long long)frame->c1_source_game_frame,source?frame->generated_index:0,frame->interp_count,(unsigned long long)frame->fg_epoch);
+            std::printf("FG_SEQUENCE_CAPTURE index=%d source=%llu generated_index=%u generated_count=%u epoch=%llu\n",index,(unsigned long long)frame->fg_real_source,source?frame->generated_index:0,frame->interp_count,(unsigned long long)frame->fg_epoch);
             DumpPresented(instance, present_scheduler, cmdbuf, source ? source : frame->image,
                           frame->width, frame->height, swapchain.GetSurfaceFormat().format, index++,
                           source ? "interp" : "real");
@@ -987,7 +990,7 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
         else if (source) ++present_generated;
         else if (is_game_frame && !is_reusing_frame && !blank) {
             ++present_real;
-            last_real_game_source = frame->c1_source_game_frame;
+            last_real_game_source = frame->fg_real_source;
         }
         else ++present_other;
         FgLifecycle::real_presents.store(present_real, std::memory_order_relaxed);
@@ -1000,14 +1003,14 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
         if (fg_audit) {
             const auto ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count();
-            std::printf("FG_PRESENT kind=%s source_frame=%llu fg_frame=%llu ready_tick=%llu submit_tick=%llu success=%u real=%llu generated=%llu other=%llu failed=%llu cpu_monotonic_ns=%lld source_game_frame=%llu generated_index=%u generated_count=%u fg_epoch=%llu scope=present_return_not_scanout\n",
+            std::printf("FG_PRESENT kind=%s source_frame=%llu fg_frame=%llu ready_tick=%llu submit_tick=%llu success=%u real=%llu generated=%llu other=%llu failed=%llu cpu_monotonic_ns=%lld source_game_frame=%llu generated_index=%u generated_count=%u fg_epoch=%llu nr_source_game_frame=%llu scope=present_return_not_scanout\n",
                 source ? "generated" : (!blank && is_game_frame && !is_reusing_frame ? "real" : "other"),
                 (unsigned long long)frame->c1_present_frame_number,
                 (unsigned long long)frame->fg_frame, (unsigned long long)frame->ready_tick,
                 (unsigned long long)present_submit_tick, presented,
                 (unsigned long long)present_real, (unsigned long long)present_generated,
                 (unsigned long long)present_other, (unsigned long long)present_failed, (long long)ns,
-                (unsigned long long)frame->c1_source_game_frame, source ? frame->generated_index : 0, frame->interp_count,(unsigned long long)frame->fg_epoch);
+                (unsigned long long)frame->fg_real_source, source ? frame->generated_index : 0, frame->interp_count,(unsigned long long)frame->fg_epoch,(unsigned long long)frame->c1_source_game_frame);
         }
         if(is_game_frame&&!is_reusing_frame&&frame->runtime_capture)RuntimeCapturePresented(*frame->runtime_capture,presented);
         q0_owner.Stage(16);
