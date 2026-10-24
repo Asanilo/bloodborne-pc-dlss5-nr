@@ -99,6 +99,21 @@ class PublicPlayEntry(unittest.TestCase):
         self.mocks['legacy_helper'].assert_not_called()
         self.mocks['capability'].assert_called_once_with(self.build)
 
+    def test_gpu_validation_forwards_for_sr_only_and_keeps_legacy_fg_constraint(self):
+        args = self.args(['--daily', '--sr-only', '--gpu-validation', '--local-inputs', self.binding['path']])
+        with patch.object(p.runner, 'prepared_gpu_validation', return_value=self.root):
+            _, command = p.launch_command(args)
+        self.assertIn('--gpu-validation', command)
+        self.assertIn('--sr-only', command)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            self.args(['--daily', '--sr-only', '--fg-validation', '--local-inputs', self.binding['path']])
+
+    def test_explicit_validation_dependency_is_checked_before_launch(self):
+        args = self.args(['--gpu-validation'])
+        with patch.object(p.runner, 'WT', self.root), self.assertRaisesRegex(ValueError, 'dependency missing'):
+            p.runner.prepared_gpu_validation(args)
+        self.assertIsNone(p.runner.prepared_gpu_validation(self.args()))
+
     def test_daily_command_default_native_and_compatibility_are_explicit(self):
         for extra, native in (([], True), (['--joystick-mouse'], False)):
             args = self.args(['--daily', '--local-inputs', self.binding['path'], *extra])
