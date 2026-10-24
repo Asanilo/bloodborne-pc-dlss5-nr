@@ -518,6 +518,12 @@ GraphicsPipeline::GraphicsPipeline(
     std::array<vk::Format, Shader::IR::NumRenderTargets> color_formats;
     for (u32 i = 0; i < key.num_color_attachments; ++i) {
         const auto& color = key.color_buffers[i];
+        // Motion at slot 7 can extend the array past unused guest MRT slots.
+        // Their stale register formats do not describe bound Vulkan attachments.
+        if ((key.mrt_mask & (1u << i)) == 0) {
+            color_formats[i] = vk::Format::eUndefined;
+            continue;
+        }
         const auto format = instance.GetSupportedFormat(
             GcnToVk::SurfaceFormat(color.data_format, color.num_format),
             vk::FormatFeatureFlagBits2::eColorAttachment);

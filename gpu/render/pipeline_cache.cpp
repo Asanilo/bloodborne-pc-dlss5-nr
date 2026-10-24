@@ -35,6 +35,7 @@
 #include "render/vk_draw_prep.h"
 #include "shader/backend/spirv/emit_spirv.h"
 #include "shader/info.h"
+#include "shader/motion_interface.h"
 #include "shader/runtime_info.h"
 #include "upscale/motion_history.h"
 #include "vulkan/instance.h"
@@ -935,6 +936,12 @@ bool PipelineCache::RefreshGraphicsKey(PipelineSelection& sel) {
         }();
         if (all_motion) {
             sel.motion = true;
+        }
+        const auto* fs = sel.infos[static_cast<u32>(SwStage::Fragment)];
+        if (sel.motion && (!vs || !fs || !Shader::MotionInterfaceFits(
+                *vs, *fs, sel.runtime_infos[u32(SwStage::Fragment)].hw.fs, profile,
+                instance.MaxVertexOutputComponents(), instance.MaxFragmentInputComponents()))) {
+            sel.motion = false;
         }
         if (sel.motion && !RefreshGraphicsStages(sel)) {
             return false;

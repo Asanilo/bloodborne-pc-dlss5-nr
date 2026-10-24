@@ -148,6 +148,8 @@ void HostImage::Create(const vk::ImageCreateInfo& create_info) {
         vmaCreateImage(allocator, &vk_create_info, &alloc_ci, &handle, &allocation, &alloc_info);
     ASSERT_MSG(result == VK_SUCCESS, "image allocation: {}", vk::to_string(vk::Result{result}));
     image = handle;
+    Vulkan::SetObjectName(device, image, "host image {}x{} {}", image_ci.extent.width,
+                          image_ci.extent.height, vk::to_string(image_ci.format));
     size_bytes = alloc_info.size;
     BbStats::vk_image_bytes.fetch_add(size_bytes, std::memory_order_relaxed);
 }

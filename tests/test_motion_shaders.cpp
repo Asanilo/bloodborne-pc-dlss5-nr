@@ -7,6 +7,7 @@
 #include <setjmp.h>
 #include "shader/backend/spirv/emit_spirv.h"
 #include "shader/ir/ir_emitter.h"
+#include "shader/motion_interface.h"
 
 
 int main(int argc, char** argv) {
@@ -15,6 +16,39 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(dir);
     MotionVectors::params_address = 0x10000;
     MotionVectors::positions_address = 0x20000;
+    // The real 128-component NVIDIA boundary includes FragCoord, FrontFacing
+    // and barycentrics. Extra built-ins or colliding guest exports must fall back.
+    {
+        Info vs{}, fs{};
+        HwFragmentRuntimeInfo fragment{};
+        Profile profile{};
+        profile.supports_fragment_shader_barycentric = true;
+        fs.loads.Set(IR::Attribute::IsFrontFace, 0);
+        fs.loads.Set(IR::Attribute::BaryCoordSmooth, 0);
+        const auto fits = [&] { return MotionInterfaceFits(vs, fs, fragment, profile, 128, 128); };
+        if (!fits() || MotionInterfaceFits(vs, fs, fragment, profile, 123, 128)) return 2;
+        fs.loads.Set(IR::Attribute::BaryCoordNoPersp, 0);
+        if (fits()) return 3;
+        fs = Info{};
+        vs.stores.Set(IR::Attribute::Param0 + MotionVectors::CurrentLocation, 0);
+        if (fits()) return 4;
+        vs = Info{};
+        fragment.num_inputs = 1;
+        fragment.inputs[0].param_index = MotionVectors::CurrentLocation;
+        if (fits()) return 5;
+        fragment.inputs[0].param_index = MotionVectors::CurrentLocation - 1;
+        fragment.num_inputs = 2; // emulated clip distance is the trailing input
+        fragment.clip_distance_emulation = true;
+        if (fits()) return 6;
+        fragment.num_inputs = fragment.inputs.size() + 1;
+        if (fits()) return 9;
+        fragment = {};
+        vs.stores.Set(IR::Attribute::CullDistance, 0);
+        if (fits()) return 7; // a single cull write still declares all eight elements
+        vs = Info{};
+        fs.mrt_mask = 1u << MotionVectors::Output;
+        if (fits()) return 8;
+    }
     for (bool vertex : {true, false}) {
         for (bool motion : {false, true}) {
             Info info{};
@@ -50,6 +84,11 @@ int main(int argc, char** argv) {
             Profile profile{};
             profile.supported_spirv = 0x00010600;
             profile.support_int64 = true;
+            if (!vertex && motion) {
+                profile.supports_fragment_shader_barycentric = true;
+                info.loads.Set(IR::Attribute::IsFrontFace, 0);
+                info.loads.Set(IR::Attribute::BaryCoordSmooth, 0);
+            }
             Backend::Bindings bindings{};
             const auto code = Backend::SPIRV::EmitSPIRV(profile, runtime, program, bindings);
             const auto path = dir / (std::string(vertex ? "vertex" : "fragment") +
