@@ -21,8 +21,36 @@ static_assert(!CanInterpolate(true, true, 1u, 1u, false));
 static_assert(CanInterpolate(true, true, 1u, 1u, true));
 static_assert(!SameRealSource(0, 0));
 static_assert(!SameRealSource(1816, 1817)); // next real source cannot own old FG
-static_assert(!SameRealSource(1816, 0)); // missing NR Present ledger
+static_assert(!SameRealSource(1816, 0)); // missing actual real-content source
 static_assert(SameRealSource(1816, 1816));
+static_assert(CanStampDisplay(true,true,1u,1u,1816,1816,2560,1440,2560,1440));
+static_assert(!CanStampDisplay(true,false,1u,1u,1816,1816,2560,1440,2560,1440)); // not sampled
+static_assert(!CanStampDisplay(true,true,2u,1u,1816,1816,2560,1440,2560,1440)); // auxiliary image
+static_assert(!CanStampDisplay(true,true,1u,1u,1815,1816,2560,1440,2560,1440)); // stale capture
+static_assert(!CanStampDisplay(true,true,1u,1u,0,1816,2560,1440,2560,1440));
+static_assert(!CanStampDisplay(true,true,1u,1u,1816,1816,1920,1080,2560,1440));
+constexpr bool display_stamps() {
+    const DisplayStamp captured{1816, 0x1000, 99, 4, 2560, 1440};
+    auto stamp = captured;
+    if (stamp.Consume(0x1000, 1817, 99, 4, 2560, 1440) != 1816) return false;
+    if (stamp.Consume(0x1000, 1817, 100, 4, 2560, 1440)) return false; // one-shot
+    stamp=captured;
+    if (stamp.Consume(0x2000, 1817, 100, 4, 2560, 1440)) return false; // wrong VideoOut
+    if (stamp.Consume(0x1000, 1817, 100, 4, 2560, 1440)) return false; // rejection consumed
+    stamp=captured;
+    if (stamp.Consume(0x1000, 1818, 100, 4, 2560, 1440)) return false; // stale real source
+    stamp=captured;
+    if (stamp.Consume(0x1000, 1816, 100, 4, 2560, 1440)) return false; // before display epoch
+    stamp=captured;
+    if (stamp.Consume(0x1000, 1817, 98, 4, 2560, 1440)) return false; // before producer
+    stamp=captured;
+    if (stamp.Consume(0x1000, 1817, 100, 5, 2560, 1440)) return false; // rebuilt image
+    stamp=captured;
+    if (stamp.Consume(0x1000, 1817, 100, 4, 1920, 1080)) return false; // old output extent
+    stamp={};
+    return !stamp.Consume(0x1000, 1817, 100, 4, 2560, 1440);
+}
+static_assert(display_stamps());
 int main() {}
 '''
         with tempfile.TemporaryDirectory() as directory:

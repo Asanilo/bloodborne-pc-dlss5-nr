@@ -70,6 +70,8 @@ public:
     void CaptureScene(const Scene& scene);
     /// Validated scaled FG source domain; never a GPU-completion or NR-history proof.
     bool CompatibleScaledNrSource(u64 source,u32 rw,u32 rh,u32 ow,u32 oh) const;
+    /// Before Interpolate: accepted GPU guides and the UI actually sampled by this display draw.
+    u64 AcceptedDisplaySource(vk::Image color,u32 width,u32 height,u64 source,bool sampled_ui) const;
     /// Native HDR SR captures guides before tonemapping; bind its finished LDR target at UI.
     bool BindSceneColor(vk::Image color, vk::Format format, u32 width, u32 height, u64 source);
 

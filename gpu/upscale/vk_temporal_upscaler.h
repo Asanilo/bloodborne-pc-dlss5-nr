@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common/types.h"
+#include "upscale/frame_generation_contract.h"
 #include "vulkan/vk_common.h"
 #if NRBRIDGE_LEGACY_EXPERIMENTS
 #include "render/c1_game_bridge.h"
@@ -172,6 +173,7 @@ public:
         vk::Format format;
         u32 width, height;
         C1PresentAudit c1_audit{};
+        u64 source_game_frame = 0; ///< Actual display content; independent of NR admission.
     };
     bool DisplayOverride(VAddr address, Display& display);
     /// The game's display pass of `address` begins (recording thread): frame generation
@@ -379,8 +381,12 @@ private:
         u32 width = 0, height = 0;
         bool valid = false;
         C1PresentAudit c1_audit{};
+        u64 generation = 0;
+        FgContract::DisplayStamp source_stamp{};
     };
     std::mutex display_mutex;
+    FgContract::DisplayStamp pending_display_source{}; ///< Finished UI -> actual display draw.
+    u64 display_generation = 0;
     int present_dump_remaining = 0, present_dump_index = 0;
     std::unordered_map<VAddr, DisplayImage> displays;
     FfxVkPortableUpscaleContext* context = nullptr;
