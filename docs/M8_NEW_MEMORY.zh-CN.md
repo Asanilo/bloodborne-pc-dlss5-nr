@@ -272,4 +272,10 @@ M9 的 `m9-old1440q-2x-nr-r10` 暴露独立 NR 恢复问题：Q→DLAA→Q 时 F
 非 daily 诊断仍按原 profile_change 退出；exit/rejected/sourceLimit、未知 GPU/peer 状态和所有租约门禁不变。
 恢复时仍走已有 source gap/layout_changed/history reset，不能重新消费旧布局 candidate。
 新增小型 CPU 检查覆盖暂停、退出/拒绝、有限诊断行为及实际租约/lineage 门禁；它不是 GPU 完成证明。
-此处源码修复的实机切换回归在下一场受管会话执行，不能提前写成通过。
+该修复现已完成受管实机回归（Native bd654b2）：Old 的 Q→DLAA NR224/231、回Q223/230，
+稳定窗口165/165；New 对应166/173、176/183，稳定119/119。两场正常rc0，逐代GPU/FD/model及
+Native最后使用审计通过，prefix RETURNED，stop request仅最终exit，没有profile_change。
+Old stdout仍有10条cold WSI hazard，New整场VUID/sync0，均按原计数保留。
+New1440Q 未启动NR时 real117/generated117/order0，补上此前 scaled FG source stamp 的实际生成证据。
+详细边界及会话名见 [M9报告的后续回归](DLSS_MFG_M9.zh-CN.md#m8-后续公共修复回归)。
+内部SR/FG输出为2560×1440，最终窗口读回1920×1080；不声明物理1440p scanout或画质/热性能通过。
