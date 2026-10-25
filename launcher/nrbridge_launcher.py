@@ -421,10 +421,13 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
     if settings.get("gpu") and settings.get("nrbridge_gpu_id") is None:
         raise ValueError("Selected GPU was not found; refresh the GPU list or choose Auto")
     pool, account, bbsc = online_mapping(settings, settings_path)
-    return daily_command(
+    command = daily_command(
         session=session or session_name(), settings_path=settings_path, ini_path=ini_path,
         data_dir=data_dir, home_path=home_path, nr_enabled=nr_enabled,
         native_mouse=bool(settings.get("nrbridge_native_mouse", True)),
         fg_selection=fg, nr_dimensions=dimensions,
         online_pool=pool, account_config=account, bbsc=bbsc,
     )
+    if not settings.get('fg_enabled',True) and fg['backend'] in ('fsr31','fsr316','dlssg'):
+        command.append('--fg-start-off')
+    return command

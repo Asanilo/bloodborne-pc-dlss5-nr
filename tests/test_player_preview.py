@@ -50,3 +50,25 @@ class PlayerPreview(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'session'):
             self.prepare('--session','../../outside')
         self.assertFalse((self.root/'outside').exists())
+
+    def test_saved_backend_and_multiplier_restore_but_explicit_cli_wins(self):
+        data=self.root/'data'
+        record=dict(schema='bbport-fg-preferences-v1',owner=str(self.profile),backend='dlssg',multiplier=5,enabled=True)
+        player.fg_preferences.path_for(self.profile,data).write_text(json.dumps(record))
+        c=self.prepare('--nr','off')
+        self.assertEqual(c[c.index('--dlssg-multiplier')+1],'5')
+        self.assertIn('--sr-only',c)
+        self.assertNotIn('--fg-start-off',c)
+        c=self.prepare('--fg','dlssg','--multiplier','2')
+        self.assertEqual(c[c.index('--dlssg-multiplier')+1],'2')
+        record.update(backend='off',multiplier=2,enabled=False)
+        player.fg_preferences.path_for(self.profile,data).write_text(json.dumps(record))
+        c=self.prepare()
+        self.assertEqual(c[c.index('--fg-backend')+1],'off')
+        self.assertNotIn('--fg-start-off',c)
+
+    def test_saved_disable_retains_dlss_backend_without_enabling_fg(self):
+        record=dict(schema='bbport-fg-preferences-v1',owner=str(self.profile),backend='dlssg',multiplier=3,enabled=False)
+        player.fg_preferences.path_for(self.profile,self.root/'data').write_text(json.dumps(record))
+        c=self.prepare();self.assertIn('--fg-start-off',c)
+        self.assertEqual(c[c.index('--dlssg-multiplier')+1],'3')

@@ -6,6 +6,9 @@
 #include "upscale/dlssg_gpu_peer.h"
 #include "upscale/dlssg_native_timing.h"
 #include "upscale/frame_generation_lifecycle.h"
+#include "upscale/fg_backend_status.h"
+#include "upscale/dlssg_multiplier_policy.h"
+#include "shim/bbport_settings.h"
 #include <future>
 #include "upscale/dlssg_output_ticket.h"
 #include "upscale/dlssg_serial_worker.h"
@@ -129,7 +132,8 @@ class DlssgGpuBridge {
   void Start(const FrameGeneration::Scene& scene) {
     const DlssgGpu::Layout requested{scene.render_width,scene.render_height,scene.width,scene.height};
     requested.Validate();
-    if(peer&&requested==layout)return;
+    if(peer&&requested==layout&&DlssgGpu::RequestedMultiplier(peer->config,
+        BbSettings::Get().frame_generation_multiplier.load())==generated_count+1)return;
     if(peer){
       Need(Retire(true),"old layout actual GPU retirement before reconfigure");
       peer.reset();mailbox.reset();raw_outputs={};output_ticket.reset();
@@ -145,7 +149,9 @@ class DlssgGpuBridge {
     Need(config.at("schema") == "dlssg-native-gpu-v1" &&
              config.at("transport") == "gpu-dmabuf-v1",
          "GPU bridge sealed transport");
-    generated_count=config.value("multiplier",2u)-1;
+    generated_count=DlssgGpu::RequestedMultiplier(config,
+        BbSettings::Get().frame_generation_multiplier.load())-1;
+    config["multiplier"]=generated_count+1;
     Need(generated_count>=1&&generated_count<=5,"bounded MFG output count");
     Need(generated_count==1||config.at("pipeline")=="consumer-queue-v1","MFG requires Q1");
     const char *root = std::getenv("BB_DLSSG_STREAM_DIR");
@@ -161,7 +167,7 @@ class DlssgGpuBridge {
     config["run"]=gen_run.string();config["ipc"]=gen_ipc.string();config["layout"]=layout.Json();config["resource_epoch"]=resource_epoch;
     DlssgGpu::Peer::Atomic((gen_run/"dlssg-config.json").string(),config);
     DlssgGpu::Peer::Atomic(run_root+"/dlssg-generations.json",J{{"schema","dlssg-layout-generations-v1"},{"session",config.at("session")},{"active",resource_epoch},{"entries",generations}});
-    std::printf("DLSSG_LAYOUT_V1 resource_epoch=%llu render=%ux%u output=%ux%u generation=%s\n",(unsigned long long)resource_epoch,layout.render_width,layout.render_height,layout.output_width,layout.output_height,name.c_str());
+    std::printf("DLSSG_LAYOUT_V1 resource_epoch=%llu render=%ux%u output=%ux%u generation=%s multiplier=%u\n",(unsigned long long)resource_epoch,layout.render_width,layout.render_height,layout.output_width,layout.output_height,name.c_str(),generated_count+1);
     mailbox = std::make_unique<DlssgGpu::MailboxImport>(
         VkInstance(instance.GetInstance()),
         VkPhysicalDevice(instance.GetPhysicalDevice()),
@@ -170,6 +176,7 @@ class DlssgGpuBridge {
         VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr);
     peer = std::make_unique<DlssgGpu::Peer>(config);
     auto ready = peer->Start(*mailbox);
+    FgBackendStatus::active_multiplier.store(generated_count+1);
     helper_serial = DlssgGpu::U(ready, "helper_serial");
     const auto pipeline = config.value("pipeline", std::string("sync-v1"));
     Need(pipeline == "sync-v1" || pipeline == "submit-ready-v1" || pipeline == "late-ready-v1" || pipeline == "consumer-ready-v1" || pipeline == "consumer-queue-v1", "supported GPU pipeline");
@@ -283,7 +290,8 @@ public:
     catch(const std::exception&){BbSettings::Get().frame_generation_problem="DLSS FG image extent exceeds the supported GPU working set";return false;}
     try {
       const DlssgGpu::Layout requested{scene.render_width,scene.render_height,scene.width,scene.height};
-      if(peer&&requested!=layout)SnapshotBeforeResize(scene);
+      if(peer&&(requested!=layout||DlssgGpu::RequestedMultiplier(peer->config,
+          BbSettings::Get().frame_generation_multiplier.load())!=generated_count+1))SnapshotBeforeResize(scene);
       Start(scene);
       if(pending_source)Need(scheduler.IsFree(pending_source->tick),"pending source snapshot completed by old generation drain");
       Need(!deferred_job.valid(), "GPU dormant request resolved before guide reuse");
@@ -718,7 +726,7 @@ public:
       retired = true;
       const std::string proof="DLSSG_GPU_BRIDGE_RETIRED helper_GPU_complete=1 feature_released=1 child_reaped=1 Native_shared_GPU_complete=1 imports_destroyed=1 sequence="+std::to_string(sequence)+"\n";
       {std::ofstream file(peer->run+"/native-proof.log");file<<proof;file.close();Need(bool(file),"layout generation native retirement record");}
-      generations.push_back(J{{"resource_epoch",resource_epoch},{"directory","dlssg-generations/g"+std::to_string(resource_epoch)},{"layout",layout.Json()}});
+      generations.push_back(J{{"resource_epoch",resource_epoch},{"directory","dlssg-generations/g"+std::to_string(resource_epoch)},{"layout",layout.Json()},{"multiplier",generated_count+1}});
       DlssgGpu::Peer::Atomic(run_root+"/dlssg-generations.json",J{{"schema","dlssg-layout-generations-v1"},{"session",peer->session},{"active",0},{"entries",generations}});
       if(reconfigure)std::printf("DLSSG_LAYOUT_RETIRED resource_epoch=%llu actual_GPU_complete=1 helper_reaped=1\n",(unsigned long long)resource_epoch);
       else std::fputs(proof.c_str(),stdout);

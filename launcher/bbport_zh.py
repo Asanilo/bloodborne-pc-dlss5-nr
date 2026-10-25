@@ -1,5 +1,11 @@
 """Simplified Chinese UI text, keyed by the English fallback."""
 ZH = {
+    "NR uses the selected SR profile with a matching Helper, object motion and jitter. Old/New are supported. DLSS GPU FG accepts dynamic sizes; NR-only + FG is not yet available.": "NR 使用所选 SR 档位，需要匹配的 Helper、物体运动向量与抖动；支持 Old/New 内存模型。DLSS GPU 帧生成支持动态尺寸；目前尚不支持 NR-only + 帧生成。",
+    "Changing this size requires a normal exit and a new session.": "更改此尺寸需要正常退出游戏并启动新会话。",
+    "Experimental NR dimensions (M5)": "实验性 NR 尺寸（M5）",
+    "NR execution size": "NR 执行尺寸",
+    "Use the graphics page preset, output and aspect. Requires a matching NR Helper and a compatible FG backend.": "使用图形页选择的 SR 档位、输出尺寸和宽高比。需要匹配的 NR Helper 及支持该输入的帧生成后端。",
+    "Stable NR uses 1080p DLSS Quality. Experimental M5 dimensions use the selected DLSS preset, output and aspect ratio with FG Off; choose Upscaler Off for NR-only. Object motion, jitter and Old/Auto memory are required.": "NR 使用所选的 DLSS 档位、输出及宽高比，需要匹配 Helper、物体运动向量与抖动；支持 Old/New 内存模型。DLSS GPU 帧生成支持动态尺寸。选择关闭超分可使用 NR-only，但目前不能搭配帧生成。",
     "Experimental FSR FG x2 (HUDless)": "实验性 FSR 插帧 x2（HUDless）",
     "Optional; vegetation may drift in generated frames. Requires a rebuilt M1 runtime.": "可选开启；生成帧中的植被可能漂移。需要重新构建的 M1 运行时。",
     "FSR 4.1.1 DLL conversion unavailable": "暂不支持转换 FSR 4.1.1 DLL",

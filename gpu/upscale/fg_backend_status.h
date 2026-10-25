@@ -5,7 +5,9 @@
 #include <fstream>
 #include <string>
 #include <chrono>
+#include <atomic>
 namespace Vulkan::FgBackendStatus {
+inline std::atomic<unsigned> active_multiplier{2};
 inline bool Is(const char* value,const char* expected){return value&&std::strcmp(value,expected)==0;}
 inline const char* Selected(){
     if(const auto* value=std::getenv("BB_FRAME_GEN_BACKEND"))return value;
@@ -17,7 +19,10 @@ inline const char* Name(){
     if(Is(v,"off"))return "Off";
     if(Is(v,"fsr31"))return Is(std::getenv("BB_FRAME_GEN_HUDLESS"),"1")?"FSR 3.1 HUDless x2":"FSR 3.1 x2";
     if(Is(v,"fsr316"))return "FSR 3.1.6 x2 (Experimental)";
-    if(Is(v,"dlssg")){static const std::string label=std::string("NVIDIA DLSS FG ")+(std::getenv("BB_DLSSG_MULTIPLIER")?std::getenv("BB_DLSSG_MULTIPLIER"):"2")+"X";return label.c_str();}
+    if(Is(v,"dlssg")){
+        static constexpr const char* labels[]={"NVIDIA DLSS FG 2X","NVIDIA DLSS MFG 3X","NVIDIA DLSS MFG 4X","NVIDIA DLSS MFG 5X","NVIDIA DLSS MFG 6X"};
+        const unsigned count=active_multiplier.load();return labels[count>=2&&count<=6?count-2:0];
+    }
     if(Is(v,"smooth-motion"))return "NVIDIA Smooth Motion";
     if(Is(v,"dlssg-capture"))return "DLSS FG input diagnostic";
     return "Unknown / unavailable";

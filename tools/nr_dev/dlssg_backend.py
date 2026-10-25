@@ -88,8 +88,12 @@ def prepare(args,build,run,binding,runner):
             'model':state['model']['path'],'cuda':str(runtime/'nvcuda.dll'),
             'identities':{k:state[k] for k in ['model','cuda','core']},'helper_build':state['build'],
             'layout_policy':'actual-scene-v1' if gpu else 'legacy-fixed-v1','multiplier':getattr(args,'dlssg_multiplier',2),'pipeline':getattr(args,'dlssg_pipeline','sync-v1'),'transport':args.dlssg_transport,'helper_wake':getattr(args,'dlssg_helper_wake','poll-v1') if gpu else 'poll-v1','reused_retired_prefix':args.dlssg_prefix_session,'scope':'DMA-BUF GPU mailbox; private persistent FG history; actual GPU last-use ACK' if gpu else 'synchronous CPU transport; independent persistent FG history; no GPU shared images'}
+    live=(gpu and config['pipeline']=='consumer-queue-v1' and
+          state['model']['sha256']=='ff6e90eb78b827927dff5b4ecc6b1c870c2e9bca29ed9f48c7d348cc9e170b82')
+    config['allowed_multipliers']=list(range(2,7)) if live else [config['multiplier']]
     path=run/'dlssg-config.json';runner['atomic'](path,config)
     return {'BB_DLSSG_DYNAMIC_LAYOUT':'1' if gpu else '0','BB_DLSSG_MULTIPLIER':str(config['multiplier']),'BB_DLSSG_STREAM_CONFIG':str(path),'BB_DLSSG_STREAM_DIR':str(ipc),'BB_DLSSG_TRANSPORT':args.dlssg_transport,'BB_DLSSG_HELPER_WAKE':config['helper_wake'],'BB_DLSSG_PIPELINE':config['pipeline'],
+            'BB_DLSSG_LIVE_MULTIPLIER':'1' if live else '0',
             'BB_DLSSG_CONFIG_SHA256':hashlib.sha256(path.read_bytes()).hexdigest()}
 
 
@@ -107,6 +111,12 @@ def validate_manifest(run,manifest):
     multiplier=config.get('multiplier',2)
     if env.get('BB_DLSSG_MULTIPLIER','2')!=str(multiplier):raise ValueError('DLSS multiplier environment drift')
     if type(multiplier) is not int or not 2<=multiplier<=6:raise ValueError('invalid sealed DLSS multiplier')
+    if 'allowed_multipliers' in config:
+        live=(config['transport']=='gpu-dmabuf-v1' and config['pipeline']=='consumer-queue-v1' and
+              config['identities']['model']['sha256']=='ff6e90eb78b827927dff5b4ecc6b1c870c2e9bca29ed9f48c7d348cc9e170b82')
+        expected=list(range(2,7)) if live else [multiplier]
+        if config['allowed_multipliers']!=expected or env.get('BB_DLSSG_LIVE_MULTIPLIER')!=('1' if live else '0'):
+            raise ValueError('DLSS live multiplier policy drift')
     if multiplier>2 and (config.get('transport')!='gpu-dmabuf-v1' or config.get('pipeline')!='consumer-queue-v1' or config['identities']['model']['sha256']!='ff6e90eb78b827927dff5b4ecc6b1c870c2e9bca29ed9f48c7d348cc9e170b82'):
         raise ValueError('MFG sealed runtime/pipeline mismatch')
     transport=config.get('transport','files-v1')

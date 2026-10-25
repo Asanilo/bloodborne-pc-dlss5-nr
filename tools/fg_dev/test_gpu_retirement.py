@@ -51,6 +51,7 @@ class GpuRetirementTests(unittest.TestCase):
         for name,data in (docs or self.docs).items():(self.root/name).write_text(json.dumps(data))
         audit.audit_dlssg_gpu(self.root,'test',proof,split)
     def test_dynamic_generations_are_all_retired_and_exact(self):
+        (self.root/'dlssg-config.json').write_text(json.dumps(self.docs['dlssg-config.json']))
         ledger={'schema':'dlssg-layout-generations-v1','session':'test','active':0,'entries':[]}
         layout=dict(revision=1,render_width=1706,render_height=960,output_width=2560,output_height=1440,color_format=37,depth_format=100,motion_format=83,source_rect_origin=[0,0],color_domain='finished-scene-bytes')
         for n in (1,2):
@@ -65,6 +66,12 @@ class GpuRetirementTests(unittest.TestCase):
             (target/'dlssg-helper.log').write_text(HELPER_PROOF)
             ledger['entries'].append(dict(resource_epoch=n,directory=directory,layout=layout))
         path=self.root/'dlssg-generations.json';path.write_text(json.dumps(ledger));audit.audit_dlssg_gpu(self.root,'test',PROOF)
+        child=self.root/'dlssg-generations/g1/dlssg-config.json'
+        saved=json.loads(child.read_text());changed=dict(saved,multiplier=3)
+        child.write_text(json.dumps(changed))
+        with self.assertRaisesRegex(ValueError,'allowed by sealed parent'):
+            audit.audit_dlssg_gpu(self.root,'test',PROOF)
+        child.write_text(json.dumps(saved))
         manifest=dict(session='test',environment={'BB_DLSSG_TRANSPORT':'gpu-dmabuf-v1'})
         audit.audit_dlssg_owners(self.root,manifest,PROOF)
         orphan=self.root/'dlssg-generations/g3';orphan.mkdir()

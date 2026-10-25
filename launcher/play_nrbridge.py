@@ -17,6 +17,7 @@ APP = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(APP / 'tools/nr_dev'))
 sys.path.insert(0, str(APP / 'launcher'))
 import dimension_profile
+import fg_preferences
 import nrbridge_launcher as bridge
 
 
@@ -29,8 +30,9 @@ def arguments(argv=None):
     p.add_argument('--sr', choices=tuple(dimension_profile.PRESETS), default='quality')
     p.add_argument('--output', default='1920x1080')
     p.add_argument('--execution', default='1280x720')
-    p.add_argument('--fg', choices=('off', 'dlssg', 'fsr31'), default='off')
-    p.add_argument('--multiplier', type=int, choices=range(2, 7), default=2)
+    p.add_argument('--fg', choices=('off', 'dlssg', 'fsr31', 'fsr316'), default=None,
+                   help='override saved in-game FG backend; default uses saved selection')
+    p.add_argument('--multiplier', type=int, choices=range(2, 7), default=None)
     p.add_argument('--gpu-validation', action='store_true')
     p.add_argument('--check', action='store_true', help='validate launch without starting GPU work')
     p.add_argument('--session', help=argparse.SUPPRESS)
@@ -59,14 +61,19 @@ def prepare(a):
     base = json.loads(path(local['base_settings']).read_text())
     ini_text = path(local['base_ini']).read_text()
     data = path(local['player_data_dir'], 'dir')
+    preferences = fg_preferences.read(profile, data)
+    explicit_fg = a.fg is not None
+    if a.fg is None:a.fg=preferences.get('fg_backend','off')
+    if a.multiplier is None:a.multiplier=preferences.get('fg_dlss_multiplier',2) if a.fg=='dlssg' else 2
     # User saves belong to this private preview, separate from experiment runs.
     user = path(base['user_dir'], 'dir')
     if not user.is_relative_to(profile.parent):
         raise ValueError('Preview user_dir must be inside its private profile directory')
-    if a.fg == 'fsr31' and (a.multiplier != 2 or a.output != '1920x1080' or a.sr != 'quality'):
+    if a.fg in ('fsr31','fsr316') and (a.multiplier != 2 or a.output != '1920x1080' or a.sr != 'quality'):
         raise ValueError('FSR fallback currently uses 1080p Quality x2; DLSS supports the dynamic profiles')
     # Keep x2 available in the menu even when starting with FG disabled.
-    backend = 'dlssg' if a.fg == 'off' and a.sr != 'native' else a.fg
+    standby = a.fg=='off' and a.sr!='native' and (explicit_fg or not preferences)
+    backend = 'dlssg' if standby else a.fg
     fg = dict(local.get('fg', {}), backend=backend, multiplier=a.multiplier,
               pipeline='consumer-queue-v1', transport='gpu-dmabuf-v1')
     if backend == 'dlssg':
@@ -76,6 +83,8 @@ def prepare(a):
     base.update(memory_model=a.memory_model, nrbridge_enabled=a.nr == 'on',
                 nrbridge_native_mouse=True, nrbridge_dimensions=backend not in ('fsr31', 'fsr316'),
                 nrbridge_execution=a.execution, online=False, extra_env='')
+    base['fg_preferences_owner']=str(profile)
+    base['fg_enabled']=not standby and (preferences.get('fg_enabled',True) if not explicit_fg else a.fg!='off')
     for key in ('backend', 'multiplier', 'pipeline', 'transport', 'model', 'runtime', 'prefix_session'):
         target = 'fg_backend' if key == 'backend' else 'fg_dlss_' + key
         base[target] = fg.get(key, '')
@@ -99,8 +108,6 @@ def prepare(a):
     command[1] = str(APP / 'launcher/nrbridge_entry.py')
     if a.nr == 'on' and local.get('reuse_nr_prefix'):
         command += ['--reuse-nr-prefix', local['reuse_nr_prefix']]
-    if a.fg == 'off' and backend != 'off':
-        command += ['--fg-start-off']
     if a.gpu_validation:
         command += ['--gpu-validation']
     env = dict(os.environ, NRBRIDGE_HOME=str(home), NRBRIDGE_APP=str(APP),

@@ -315,6 +315,7 @@ bool WindowSDL::PollEvents() {
             focused = true;
             UpdateCursor();
         } else if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+            BbOverlay::SaveOnClose();
             if (is_open) {
                 std::printf("Window: closed (%s): the game ends\n",
                             event.type == SDL_EVENT_QUIT ? "quit" : "close button");

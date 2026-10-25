@@ -6,6 +6,7 @@
 #include "bbport_overlay.h"
 #include "upscale/frame_generation_lifecycle.h"
 #include "upscale/fg_backend_status.h"
+#include "upscale/fg_selection.h"
 #include "nr_ui_start_request.h"
 #include "render/nr_runtime_control.h"
 #include "render/native_async_pre_sr_policy.h"
@@ -773,8 +774,46 @@ void Menu() {
         "До 1 — резкость самого апскейлера (RCAS). Выше 1 добавляется ещё один проход RCAS. "
         "Ctrl+клик по ползунку — ввести точное значение."));
     ImGui::EndDisabled();
-    // Experimental FG is exposed only by an explicit managed launch selection.
+    // Keep sealed backend ownership stable until the next managed launch.
+    ImGui::SeparatorText(BbSettings::MenuText("Frame generation", "Генерация кадров"));
     ImGui::Text("FG: %s", Vulkan::FgBackendStatus::Name());
+    static constexpr const char* backend_labels[]={"Off","FSR 3.1 HUDless x2","NVIDIA DLSS FG / MFG",
+        "NVIDIA Smooth Motion (unavailable)","FSR 3.1.6 x2 (Experimental)"};
+    int next_backend=s.frame_generation_backend.load();
+    const int actual_backend=Vulkan::FgSelection::Index(Vulkan::FgBackendStatus::Selected());
+    if(ImGui::BeginCombo(BbSettings::MenuText("FG backend (next launch)","FG (следующий запуск)"),backend_labels[next_backend])){
+        for(int i=0;i<5;++i){
+            ImGui::BeginDisabled(i==3);
+            if(ImGui::Selectable(backend_labels[i],i==next_backend)){
+                Store(s.frame_generation_backend,i,true);next_backend=i;
+                if(i!=2)Store(s.frame_generation_next_multiplier,2,true);
+            }
+            ImGui::EndDisabled();
+        }
+        ImGui::EndCombo();
+    }
+    if(next_backend!=actual_backend)
+        Hint(BbSettings::MenuText("FG backend saved for the next launch. Restart normally to apply; NR is independent.",
+                                 "FG сохранён для следующего запуска. Перезапустите игру; NR независим."));
+    if(next_backend==2){
+        const int next_multiplier=s.frame_generation_next_multiplier.load();
+        const char* factors[]={"2X","3X","4X","5X","6X"};
+        if(ImGui::BeginCombo(BbSettings::MenuText("DLSS FG multiplier","Множитель DLSS FG"),factors[next_multiplier-2])){
+            for(int i=2;i<=6;++i)if(ImGui::Selectable(factors[i-2],i==next_multiplier)){
+                Store(s.frame_generation_next_multiplier,i,true);
+                if(actual_backend==2&&s.frame_generation_live_multiplier)
+                    Store(s.frame_generation_multiplier,i,true);
+            }
+            ImGui::EndCombo();
+        }
+        if(actual_backend==2&&s.frame_generation_live_multiplier){
+            Hint(BbSettings::MenuText("Multiplier changes rebuild FG history after retiring the old GPU resources.",
+                                     "Смена множителя пересоздаёт историю FG после освобождения старых ресурсов GPU."));
+        }else{
+            Hint(BbSettings::MenuText("This multiplier change requires a restart. Live switching needs the GPU consumer queue and verified runtime.",
+                                     "Для смены множителя нужен перезапуск. На лету требуется GPU consumer queue и проверенная модель."));
+        }
+    }
     if (Vulkan::FgBackendStatus::Is(Vulkan::FgBackendStatus::Selected(),"smooth-motion")) {
         const auto* status=Vulkan::FgBackendStatus::SmoothMotionStatus();
         ImGui::TextWrapped("%s",BbSettings::MenuText(status,status));
@@ -786,7 +825,7 @@ void Menu() {
         const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
         const bool dlssg = backend && std::strcmp(backend, "dlssg") == 0;
         ImGui::BeginDisabled(!s.frame_generation_supported.load(std::memory_order_relaxed));
-        Checkbox(dlssg ? BbSettings::MenuText("Experimental frame generation (DLSS x2)", "Экспериментальная генерация кадров (DLSS x2)")
+        Checkbox(dlssg ? BbSettings::MenuText("DLSS FG enabled (current backend)", "DLSS FG включён (текущий режим)")
                        : BbSettings::MenuText("Experimental frame generation (FSR 3 x2)", "Экспериментальная генерация кадров (FSR 3 x2)"),
                  s.frame_generation);
         ImGui::EndDisabled();
@@ -794,10 +833,8 @@ void Menu() {
             Hint(problem);
         } else if (dlssg) {
             Hint(BbSettings::MenuText(
-                "Displays one DLSS-generated frame between consecutive real frames. Experimental: "
-                "1920x1080 Quality, Old memory model. NR is controlled separately with F8.",
-                "Между последовательными реальными кадрами показывается кадр DLSS. Эксперимент: "
-                "1920x1080 Quality, модель памяти Old. NR переключается отдельно клавишей F8."));
+                "Displays DLSS-generated frames between real game frames. Dynamic SR dimensions and Old/New memory are supported. NR is controlled separately with F8.",
+                "Между реальными кадрами показываются кадры DLSS. Динамические размеры SR, Old/New. NR независим: F8."));
         } else {
             Hint(BbSettings::MenuText(
                 "Shows a frame interpolated by FSR 3 between each two of the game's: twice the frames "
@@ -1269,6 +1306,11 @@ void UpdateTextInput(SDL_Window* window) {
             SDL_StopTextInput(window);
         }
     }
+}
+
+void SaveOnClose() {
+    std::scoped_lock lock{imgui_mutex};
+    if(initialized) SetOpen(false);
 }
 
 bool HandleEvent(const SDL_Event& event) {

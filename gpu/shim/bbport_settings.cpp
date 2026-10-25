@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_settings.h"
 #include "../upscale/fg_backend_status.h"
+#include "../upscale/fg_selection.h"
 #include "bbport_zh.h"
 #include <cmath>
 
@@ -85,6 +86,10 @@ void Set(Values& v, const std::string& key, const std::string& value) {
         v.model_lod = std::clamp(i, -2, 2);
     } else if (key == "frame_generation") {
         v.frame_generation = i != 0;
+    } else if (key == "frame_generation_backend") {
+        v.frame_generation_backend = Vulkan::FgSelection::Index(value);
+    } else if (key == "frame_generation_multiplier") {
+        if (Vulkan::FgSelection::Multiplier(i)) v.frame_generation_multiplier = i;
     } else if (key == "live_resolution") {
         v.live_resolution = value == "auto" ? -1 : std::clamp(i, 0, 1);
     } else if (key == "output_res") {
@@ -286,6 +291,13 @@ void Load() {
     }
     if (Vulkan::FgBackendStatus::Is(std::getenv("BB_FRAME_GEN_INITIAL"),"0"))
         v.frame_generation=false;
+    v.frame_generation_backend=Vulkan::FgSelection::Index(Vulkan::FgBackendStatus::Selected());
+    // The launch's sealed configuration wins over a stale private INI.
+    const char* multiplier=std::getenv("BB_DLSSG_MULTIPLIER");
+    v.frame_generation_multiplier=multiplier?std::clamp(std::atoi(multiplier),2,6):2;
+    v.frame_generation_next_multiplier=v.frame_generation_multiplier.load();
+    v.frame_generation_live_multiplier=Vulkan::FgBackendStatus::Is(std::getenv("BB_DLSSG_LIVE_MULTIPLIER"),"1");
+    Vulkan::FgBackendStatus::active_multiplier.store(v.frame_generation_multiplier.load());
     if (!Vulkan::FgBackendStatus::Application() || Vulkan::FgBackendStatus::Is(std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION"),"1"))
         v.frame_generation=false;
     v.startup_preset = v.preset;
@@ -390,6 +402,8 @@ void Save() {
     // Read by run.sh at start.
     put("live_resolution", v.live_resolution < 0 ? "auto" : flag(v.live_resolution != 0));
     put("frame_generation", flag(v.frame_generation));
+    put("frame_generation_backend", Vulkan::FgSelection::Token(v.frame_generation_backend));
+    put("frame_generation_multiplier", std::to_string(v.frame_generation_next_multiplier.load()));
     if (v.menu_x >= 0.0f && v.menu_y >= 0.0f) {
         put("menu_pos", fixed(v.menu_x, 4) + "," + fixed(v.menu_y, 4));
     }

@@ -6,10 +6,19 @@ class LayoutTests(unittest.TestCase):
   root=Path(__file__).resolve().parents[2]
   code=r'''
 #include "gpu/upscale/dlssg_gpu_contract.h"
+#include "gpu/upscale/dlssg_multiplier_policy.h"
 #include <cassert>
 using namespace DlssgGpu;
 template<class F>void rejects(F f){bool fail=false;try{f();}catch(...){fail=true;}assert(fail);}
 int main(){
+ J config{{"multiplier",2},{"allowed_multipliers",{2,3,4,5,6}}};
+ for(unsigned m=2;m<=6;++m)assert(RequestedMultiplier(config,m)==m);
+ auto fixed=config;fixed["allowed_multipliers"]={2};assert(RequestedMultiplier(fixed,6)==2);
+ fixed.erase("allowed_multipliers");assert(RequestedMultiplier(fixed,6)==2);
+ rejects([&]{RequestedMultiplier(config,7);});
+ for(const auto& policy:{J{2,3},J{2,3,4,5,7},J{true},J{2.0,3,4,5,6}}){
+   auto bad=config;bad["allowed_multipliers"]=policy;rejects([&]{RequestedMultiplier(bad,3);});
+ }
  Layout old;assert(old==Layout::From(J::object()));
  for(const auto& layout:{Layout{1706,960,2560,1440},Layout{1130,636,1920,1080},Layout{2560,1440,2560,1440},Layout{1706,720,2560,1080},Layout{1280,800,1920,1200}}){
   J wire{{"layout",layout.Json()},{"resource_epoch",7}};assert(Layout::From(wire)==layout);
