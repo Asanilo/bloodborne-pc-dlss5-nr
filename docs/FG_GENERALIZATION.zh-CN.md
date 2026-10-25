@@ -160,3 +160,61 @@ FG关闭/恢复成功，NR开启时分别54.33/60.00/55.00真实FPS，均正常�
 NR prefix RETURNED、FG GPU退休/资源释放齐全、receipt retired。
 本机 `out/fg-fsr-variable-r19-checks.json`、`out/fg-native-fsr-r20-checks.json`、
 `out/fg-next-evidence/r19-fsr-variable/` 保留统计、PNG及映射。
+
+## 第五批：NR-only + FSR / DLSS FG，MFG倍率及恢复
+
+共享 upscaler 接入独立提交 `b5e4c8f`，启动准入 `8c8cc57`，场景深度修正 `abec32d`。
+SR为Off时，真实场景在既有UI合成域提供颜色，独立生成Motion并采集相机跟踪的场景Depth；
+不能使用首次HUD绘制的空/小stencil附件。菜单和读档帧不进入此采集。
+NR原有真实源编号、历史写回、admission及TTL不变；生成帧仍只由Presenter消费。
+倍率、源编号、DMA-BUF所有权、实际完成和消费ACK继续复用已验证机制，未增加完整游戏帧排队。
+同时修复 `sr-control` 四字段请求漏掉provider的条件，支持实际Native/DLSS切换。
+
+在主工作区调用现有新入口（沿用本机profile）：
+
+```bash
+out/bbport-play --nr on --sr native --fg dlssg --multiplier 3
+out/bbport-play --nr on --sr native --fg fsr31
+out/bbport-play --nr off --sr balanced --output 2560x1440 --fg fsr31
+```
+
+`--sr native` 是关闭SR，场景按输出分辨率渲染，与DLAA不同。
+NR/FG保持独立开关；DLSS当前GPU Q1模式下2X–6X菜单切换会安全重建FG资源/历史。
+旧Native不含 `FG_WITHOUT_SR_V1` 时启动前明确拒绝，CPU Bridge保留其1080Q固定输入回退。
+
+`fg-native-fsr-r20`：Native `abec32d`，New，Native场景1920×1080。
+NR未启动时FSR为60真实/约120Present；NR-only+FSR为51.66/103.33，实际155/155真实帧选用NR。
+恢复1080Q SR、FG关闭/恢复也通过，见上一批数据。
+
+`fg-native-dlss-r21`：同Native、New、相同场景、NR执行1280×720、60限帧、Q1。
+以下各3秒窗口，未开validation：
+
+| 模式 | 真实FPS | Present/s | 真实间隔P95 ms | NR实际选用 |
+|---|---:|---:|---:|---:|
+| Native场景+DLSS3X，NR未启动 | 45.67 | 137.33 | 23.78 | 0 |
+| NR-only+DLSS3X | 40.00 | 120.00 | 29.59 | 120/120 |
+| NR-only+DLSS6X | 32.67 | 196.66 | 34.40 | 98/98 |
+| NR-only+DLSS2X | 47.00 | 93.66 | 23.83 | 141/141 |
+| DLSS2X，F8旁路NR | 47.67 | 95.33 | 23.10 | 0/143 |
+| 恢复NR+1080Q SR+DLSS2X | 50.00 | 99.66 | 22.94 | 150/150 |
+
+各窗口失败Present和配对顺序错误0。3X转镜捕获16图、五个完整组全部不同，
+两张生成图与下一真实图位移示例约7.99/16.86/24.42px，映射与真实源编号完整。
+实际四代资源为Native3X→Native6X→Native2X→SR2X，ledger为g1–g4且全部正常退休。
+F8恢复NR、F6升高/返回也完成。
+采样设备总显存峰值：R19为5514、R20为5556、R21为5681MiB / 8188MiB，非完整进程峰值保证。
+
+Native场景与Quality的游戏渲染像素数不同，不将上表差值归因于FG自身损耗。
+196.66 Present/s不等于实际显示帧率，源到Present也不是输入到屏幕延迟。
+同一3秒SR恢复窗口抽样中，producer真实完成等待中位约8.44ms、Helper Evaluate队列区间
+约5.29ms、Native响应等待约8.55ms；这些区间重叠，不能相加作为算法或端到端开销。
+本批没有宣称MFG吞吐量优化收益，后续仍应针对producer依赖和实际pacing控制等待优化。
+
+`fg-native-validation-r22`：同Native，NR-only+DLSS2X开启Native core/sync validation，
+实际生成、NR选用、转镜和FG关闭/恢复通过，Native保留日志未出现VUID/validation error。
+该场不是性能测试，不替代全部Vulkan或Wine Helper内部的验证。
+R20/R21/R22均rc0、PASS_NORMAL_TEARDOWN、Native lastuse=true、residuals=[]、
+prefix RETURNED、receipt retired，FG draw/Present实际完成及资源释放证明齐全。
+本机证据 `out/fg-native-dlss-r21-checks.json`、`out/fg-native-dlss-r21-mapping.log`、
+`out/fg-next-evidence/r21-native-mfg3/`、`out/fg-native-r22-check.log`。
+仍需玩家确认长期游玩、快速转镜画质及主观操作手感；不重新承诺FSR植被伪影已消失。
