@@ -61,6 +61,16 @@ fps。X11录制的A/B短片被玩家指出卡顿，已停止用它作视觉验�
 两场均 `PASS_NORMAL_TEARDOWN`、rc0、真实Native末用完成、residuals=[]，
 前缀RETURNED，session receipt retired；未绕过任何HOLD。
 
+合流回归：`nrbridge@f0dd93f` 已完成公共Native增量构建及`--test`，
+使用默认每30源帧诊断、New/1080p Quality/B/FG Off执行
+`temporal-merged-fade-r9`。先确认实际游戏场景，再启用NR并执行13秒短跑停
+动作；动作段779条真实Present返回约59.94fps，策略标记确认fade-new生效。
+正常关闭为`PASS_NORMAL_TEARDOWN`、rc0、actual Native last-use完成、
+residuals=[]，审计为`PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP`，
+boot receipt retired。未录像，也不以这次功能回归替代视觉验收。
+本次run保留约72MiB；既有正常退休流程回收393,213,394B可再生加载文件，
+复用原Helper、前缀和研究存档，没有复制运行环境或切换正式安装。
+
 ## 已否定的方向
 
 A2a把显示过渡加长到6帧/100ms并丢弃过渡中的候选。在同一场景中将
