@@ -122,3 +122,41 @@ NR 全程关闭且未租借 NR prefix。F6后 E 升高，实际相机 Y 从 -27.
 FG draw/Present GPU complete与资源释放证明齐全、receipt retired。
 本机 `out/fg-f6-r18-{start,raised,turned,returned}.png` 和 `out/fg-f6-r18-stop.log`
 保留视觉及退休证据；未创建新 prefix、依赖树或 AppImage。
+
+## 第四批：FSR x2 多尺寸与 SR 档位
+
+`e3ae653` 复用现有 FSR context/depth/HUDless/输出重建和真实完成等待，
+开放统一启动器与新玩家入口的多尺寸 FSR x2。FSR 输出现在绑定实际采集源帧及显示图像，
+Presenter 还检查前一真实帧配对；不以 NR ledger 代替 FG 内容身份。
+共享的 guide 域判断只接受同尺寸当前/上一真实源，不替代 GPU 完成或 NR 历史证明。
+旧 Native 缺少动态源能力会在启动前明确拒绝。FSR 仍只支持 x2。
+
+实际 `fg-fsr-variable-r19`，Native `8c8cc57`（包含尚独立验收的 NR-only 接入）：
+New / DLSS SR / FSR3.1 HUDless，NR执行固定1280×720，统一60限帧。
+
+| 模式，3秒短窗口 | 真实FPS | 生成FPS | 真实间隔P95 ms |
+|---|---:|---:|---:|
+| 1440p Quality，NR未启动，1706×960输入 | 51.33 | 51.33 | 20.48 |
+| 1440p Quality，NR开启 | 45.66 | 46.00 | 25.72 |
+| 1440p Balanced，NR开启，1506×848输入 | 48.00 | 48.00 | 24.26 |
+| 1920×1200 Performance，NR开启，960×600输入 | 56.00 | 56.00 | 21.51 |
+
+各窗口失败Present/配对顺序错误均0，NR开启窗口分别137/137、144/144、168/168真实帧
+实际选用NR。运行中切换输出/档位后，实际新尺寸context与新源生成Present均得到确认。
+16张转镜时真实/生成图保留完整源编号映射，七个完整组全部图像不同；
+示例中间帧/下一真实帧位移约11.23/22.27px。HUD截图无明显错位。
+原有高速转镜植被漂移仍为已知算法缺陷，本批不宣称修复。
+
+这些是相同场景的功能短窗口，不能与历史Old路径60/120数据直接作性能回归结论。
+数值为成功Present返回时间，未测物理扫描、光学输入延迟或全部运动画质。
+内部1440p不等于物理屏幕1440p：该场截图为1920×1080，16:10读回为1728×1080。
+FSR3.1.6保留Experimental入口，本批未新增该版本的多尺寸GPU验收。
+
+该场最后的NR-only首次尝试未生成，已如实保留失败记录并正常退出；这与上表通过的
+SR+FG组合分开处理。后续 `fg-native-fsr-r20` / Native `abec32d` 又确认1080Q恢复SR、
+FG关闭/恢复成功，NR开启时分别54.33/60.00/55.00真实FPS，均正常配对。
+
+两场rc0、PASS_NORMAL_TEARDOWN、Native lastuse=true、residuals=[]、
+NR prefix RETURNED、FG GPU退休/资源释放齐全、receipt retired。
+本机 `out/fg-fsr-variable-r19-checks.json`、`out/fg-native-fsr-r20-checks.json`、
+`out/fg-next-evidence/r19-fsr-variable/` 保留统计、PNG及映射。
