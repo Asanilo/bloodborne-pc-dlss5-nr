@@ -71,8 +71,8 @@ def prepare(a):
     user = path(base['user_dir'], 'dir')
     if not user.is_relative_to(profile.parent):
         raise ValueError('Preview user_dir must be inside its private profile directory')
-    if a.fg in ('fsr31','fsr316') and (a.multiplier != 2 or a.output != '1920x1080' or a.sr != 'quality'):
-        raise ValueError('FSR fallback currently uses 1080p Quality x2; DLSS supports the dynamic profiles')
+    if a.fg in ('fsr31','fsr316') and a.multiplier != 2:
+        raise ValueError('FSR frame generation supports x2 only')
     # Keep x2 available in the menu even when starting with FG disabled.
     standby = a.fg=='off' and a.sr!='native' and (explicit_fg or not preferences)
     backend = 'dlssg' if standby else a.fg
@@ -83,7 +83,7 @@ def prepare(a):
     dims = dimension_profile.select(argparse.Namespace(
         nr_sr_preset=a.sr, nr_output=a.output, nr_execution=a.execution))
     base.update(memory_model=a.memory_model, nrbridge_enabled=a.nr == 'on',
-                nrbridge_native_mouse=True, nrbridge_dimensions=backend not in ('fsr31', 'fsr316'),
+                nrbridge_native_mouse=True, nrbridge_dimensions=True,
                 nrbridge_execution=a.execution, online=False, extra_env='')
     base['fg_preferences_owner']=str(profile)
     base['cinematic_camera']=a.cinematic_camera=='on'

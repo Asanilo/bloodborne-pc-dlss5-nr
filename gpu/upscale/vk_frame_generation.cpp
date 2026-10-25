@@ -327,19 +327,22 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
     std::printf("Frame generation backend: %s\n", use316 ? "FSR 3.1.6 (SDK 2.3) experimental" : "FSR 3.1 (SDK 1.1.4)");
     std::printf("Frame generation: %ux%u from %ux%u scenes (%s)\n", width, height, render_width,
                 render_height, vk::to_string(format).c_str());
+    std::printf("FG_FSR_DYNAMIC_V1 render=%ux%u output=%ux%u history_reset=1\n",
+                render_width,render_height,width,height);
     return true;
 }
 
 u64 FrameGeneration::AcceptedDisplaySource(vk::Image color,u32 width,u32 height,u64 source,bool sampled_ui) const {
-    return FgContract::CanStampDisplay(Wanted()&&bool(dlssg_gpu)&&scene_captured,sampled_ui,
+    return FgContract::CanStampDisplay(Wanted()&&scene_captured,sampled_ui,
         color,scene.color,accepted_scene_source,source,scene.width,scene.height,width,height)?source:0;
 }
 
 bool FrameGeneration::CompatibleScaledNrSource(u64 source,u32 rw,u32 rh,u32 ow,u32 oh) const {
-    const char* mode=std::getenv("BB_DLSSG_DYNAMIC_LAYOUT");
-    return mode&&std::strcmp(mode,"1")==0&&dlssg_gpu&&accepted_scene_source&&
-           source>=accepted_scene_source&&source-accepted_scene_source<=1&&scene.color&&scene.depth&&scene.motion&&
-           scene.render_width==rw&&scene.render_height==rh&&scene.width==ow&&scene.height==oh;
+    const char* mode=std::getenv(dlssg_gpu ? "BB_DLSSG_DYNAMIC_LAYOUT" : "BB_NR_DIMENSIONS_V3");
+    const bool dynamic=mode&&std::strcmp(mode,"1")==0&&!dlssg_capture;
+    return FgContract::CompatibleGuideDomain(dynamic,scene.color&&scene.depth&&scene.motion,
+        accepted_scene_source,source,scene.render_width,scene.render_height,scene.width,scene.height,
+        rw,rh,ow,oh);
 }
 
 void FrameGeneration::CaptureScene(const Scene& in) {
@@ -470,6 +473,7 @@ void FrameGeneration::CaptureScene(const Scene& in) {
         }};
         cmdbuf.pipelineBarrier2({.imageMemoryBarrierCount = 2, .pImageMemoryBarriers = after.data()});
     });
+    accepted_scene_source=in.source_game_frame;
 }
 
 
@@ -673,6 +677,11 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
         !scene_reset && reset);
 
     Target* target = &PrepareTarget(display, id, reset);
+    // FSR output is tied to the same real display stamp as DLSS. A skipped
+    // flip or a size transition cannot reuse an interpolation with another pair.
+    target->strict_source=true;
+    target->previous_source_game_frame=previous_fsr_source;
+    previous_fsr_source=scene.source_game_frame;
 
     FfxVkPortableFrameGenerationDispatchInfo dispatch{};
     dispatch.structSize = sizeof(dispatch);

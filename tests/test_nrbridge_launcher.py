@@ -105,14 +105,19 @@ class AdapterTests(unittest.TestCase):
         bridge.player_command({'memory_model': 'auto'}, dict(bridge.NR_INI, aspect_ratio='auto'))
         bridge.player_command({'memory_model': 'new'}, dict(bridge.NR_INI))
 
-    def test_m5_dimensions_are_opt_in_match_saved_profile_and_reject_fg(self):
+    def test_dimensions_match_saved_profile_and_allow_native_fsr(self):
         ini=dict(bridge.NR_INI,preset='3',output_res='1920x1200',aspect_ratio='16:10')
         settings=dict(nrbridge_dimensions=True,nrbridge_execution='1280x720',fg_backend='off')
         command=bridge.player_command(settings,ini)
         for flag,value in [('--nr-sr-preset','performance'),('--nr-output','1920x1200'),('--nr-execution','1280x720')]:
             self.assertEqual(command[command.index(flag)+1],value)
         self.assertNotIn('--sr-only',command)
-        with self.assertRaisesRegex(ValueError,'FSR/CPU'):bridge.player_command(dict(settings,fg_backend='fsr31'),ini)
+        for backend in ('fsr31','fsr316'):
+            for enabled in (False,True):
+                c=bridge.player_command(dict(settings,fg_backend=backend,nrbridge_enabled=enabled),ini)
+                self.assertEqual(c[c.index('--nr-output')+1],'1920x1200')
+                self.assertEqual(c[c.index('--nr-sr-preset')+1],'performance')
+                self.assertEqual('--sr-only' in c,not enabled)
         self.assertIn('--nr-sr-preset',bridge.player_command(dict(settings,nrbridge_dimensions=False),ini))
         with self.assertRaises(ValueError):bridge.player_command(settings,dict(ini,preset='-1'))
         legacy=bridge.player_command({},dict(bridge.NR_INI))

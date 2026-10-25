@@ -393,15 +393,16 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
         if conflicts:raise ValueError("DLSS FG input requirements: " + "; ".join(conflicts))
     dimensions=None
     # Saved SR/native choices use the existing dimensions route automatically.
-    # FSR and CPU-bridge retain their actual fixed-source constraints.
-    variable_source = fg['backend']=='off' or (fg['backend']=='dlssg' and fg['transport']=='gpu-dmabuf-v1')
+    # Native FSR and GPU DLSS use the actual scene/UI sizes; CPU DLSS retains
+    # its fixed wire layout.
+    variable_source = fg['backend'] in ('off','fsr31','fsr316') or (fg['backend']=='dlssg' and fg['transport']=='gpu-dmabuf-v1')
     nonbaseline = any(str(ini.get(k,v))!=v for k,v in NR_INI.items() if k in ('upscaler','preset','output_res','aspect_ratio'))
     # GPU FG consumes the actual SR extent even when no NR Helper is requested.
     # The dimensions protocol describes renderer inputs; it must not depend on F8/NR.
-    dynamic_fg = fg['backend']=='dlssg' and fg['transport']=='gpu-dmabuf-v1'
+    dynamic_fg = fg['backend'] in ('fsr31','fsr316') or (fg['backend']=='dlssg' and fg['transport']=='gpu-dmabuf-v1')
     if settings.get("nrbridge_dimensions",False) or (variable_source and nonbaseline and (nr_enabled or dynamic_fg)):
-        if fg["backend"]!="off" and not(fg["backend"]=="dlssg" and fg['transport']=='gpu-dmabuf-v1'):
-            raise ValueError("Variable dimensions require Off or DLSS GPU mailbox; FSR/CPU keep their baseline")
+        if not variable_source:
+            raise ValueError("Variable dimensions require native FSR or DLSS GPU mailbox; CPU retains its baseline")
         try:name=tuple(dimension_profile.PRESETS)[int(ini.get("preset","1"))]
         except (ValueError,IndexError):raise ValueError("M5 requires a supported DLSS SR preset")
         if str(ini.get("preset","1")) not in ("0","1","2","3","4"):raise ValueError("M5 requires a supported DLSS SR preset")

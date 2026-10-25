@@ -16,6 +16,20 @@ constexpr bool SameRealSource(std::uint64_t captured, std::uint64_t presented) {
     return captured && presented && captured == presented;
 }
 
+// The HDR prepass precedes this frame's guide capture. Accept only the current
+// or immediately previous real source in exactly the same resource domain.
+// This is content compatibility, never a completion or NR-history proof.
+constexpr bool CompatibleGuideDomain(bool enabled, bool guides,
+                                    std::uint64_t accepted, std::uint64_t source,
+                                    std::uint32_t rw, std::uint32_t rh,
+                                    std::uint32_t ow, std::uint32_t oh,
+                                    std::uint32_t actual_rw, std::uint32_t actual_rh,
+                                    std::uint32_t actual_ow, std::uint32_t actual_oh) {
+    return enabled && guides && accepted && source >= accepted && source-accepted <= 1 &&
+           rw && rh && ow && oh && rw==actual_rw && rh==actual_rh &&
+           ow==actual_ow && oh==actual_oh;
+}
+
 template<class Image>
 constexpr bool CanStampDisplay(bool wanted, bool sampled_ui, Image ui, Image captured_color,
                                std::uint64_t captured_source, std::uint64_t source,

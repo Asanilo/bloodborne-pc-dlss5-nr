@@ -128,6 +128,7 @@ private:
 
     Scene scene{};
     u64 accepted_scene_source = 0;
+    u64 previous_fsr_source = 0;
     bool scene_captured = false; ///< this frame's, not yet interpolated
     u64 frame_id = 0;
     bool reset_next = true;
