@@ -685,7 +685,7 @@ def check(args) -> None:
         binding = runtime_inputs.load(config, home)
     except Exception as error:  # the validator raises ValueError with a precise reason
         die(f"runtime configuration validation failed: {error}", 3)
-    selection = json.loads((home / "selection.json").read_text())
+    selected = binding['config']
     try:
         import importlib.util
         spec = importlib.util.spec_from_file_location("nrbridge_runner", TOOLS / "runner.py")
@@ -695,9 +695,9 @@ def check(args) -> None:
         runner.checked_native_build(home / "build/baselines" / bundle_info()["native"]["source"])
     except Exception as error:
         die(f"Native build validation failed: {error}", 3)
-    log(f"native  {selection['native_build']}")
-    log(f"helper  {selection['helper']} ({selection['helper_sha256'][:16]}…)")
-    log(f"model   {selection['model']} ({selection['model_sha256'][:16]}…) external")
+    log(f"native  {home / 'build/baselines' / bundle_info()['native']['source']}")
+    log(f"helper  {selected['helper']['path']} ({sha256(Path(selected['helper']['path']))[:16]}…)")
+    log(f"model   {selected['model']} ({sha256(Path(selected['model']))[:16]}…)")
     log(f"config  {config}")
     log(f"pins    {binding['pins_path']} ({binding['pins_sha256'][:16]}…)")
     info = bundle_info()
