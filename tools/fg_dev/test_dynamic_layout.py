@@ -63,4 +63,10 @@ int main(){
     runner.check_fg_capability(args,build)
    lib.write_bytes(lib.read_bytes()+b' FG_FSR_DYNAMIC_V1')
    runner.check_fg_capability(args,build)
+   native=runner.parse_args(['start','cpu','--daily','--local-inputs','/inputs','--sr-only',
+      '--nr-sr-preset','native','--nr-output','1920x1080','--fg-backend','fsr31'])
+   with self.assertRaisesRegex(ValueError,'native-scene FG handoff'):
+    runner.check_fg_capability(native,build)
+   lib.write_bytes(lib.read_bytes()+b' FG_WITHOUT_SR_V1')
+   runner.check_fg_capability(native,build)
 if __name__=='__main__':unittest.main()

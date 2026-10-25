@@ -389,7 +389,8 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
     if fg["backend"] in ("dlssg","smooth-motion"):fg_config.availability(fg,home_path or home())
     if fg["backend"]=="dlssg":
         conflicts=nr_conflicts(settings,ini,dimensions=fg['transport']=='gpu-dmabuf-v1')
-        if ini.get('upscaler')!='dlss':conflicts.append('DLSS FG requires the validated DLSS SR source handoff')
+        if ini.get('upscaler')!='dlss' and not(ini.get('upscaler')=='off' and fg['transport']=='gpu-dmabuf-v1'):
+            conflicts.append('DLSS FG requires the validated DLSS SR or native scene source handoff')
         if conflicts:raise ValueError("DLSS FG input requirements: " + "; ".join(conflicts))
     dimensions=None
     # Saved SR/native choices use the existing dimensions route automatically.
@@ -407,7 +408,6 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
         except (ValueError,IndexError):raise ValueError("M5 requires a supported DLSS SR preset")
         if str(ini.get("preset","1")) not in ("0","1","2","3","4"):raise ValueError("M5 requires a supported DLSS SR preset")
         if ini.get("upscaler")=="off":
-            if fg["backend"]!="off":raise ValueError("NR-only + FG source handoff not yet admitted")
             name="native"
         dimensions=dimension_profile.select(argparse.Namespace(nr_sr_preset=name,nr_output=ini.get("output_res","1920x1080"),nr_execution=settings.get("nrbridge_execution","1280x720") or None))
         if ini.get("aspect_ratio","auto") not in ("auto",dimensions["aspect_ratio"]):raise ValueError("M5 output and aspect ratio must match")

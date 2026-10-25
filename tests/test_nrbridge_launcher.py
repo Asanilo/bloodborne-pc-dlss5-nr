@@ -135,8 +135,8 @@ class AdapterTests(unittest.TestCase):
         with mock.patch.object(bridge.fg_config,'availability',return_value='GPU available'):
             with self.assertRaises(ValueError):
                 bridge.player_command(dict(settings,fg_dlss_transport='mapped-v1',fg_dlss_multiplier=2),ini)
-            with self.assertRaisesRegex(ValueError,'source handoff'):
-                bridge.player_command(settings,dict(ini,upscaler='off'))
+            native=bridge.player_command(settings,dict(ini,upscaler='off'))
+            self.assertEqual(native[native.index('--nr-sr-preset')+1],'native')
 
     def test_m5_native_only_uses_off_without_disabling_nr(self):
         c=bridge.player_command(dict(nrbridge_dimensions=True,fg_backend='off'),dict(bridge.NR_INI,upscaler='off',preset='3'))
