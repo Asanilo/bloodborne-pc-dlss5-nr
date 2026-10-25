@@ -23,6 +23,15 @@ static_assert(!SameRealSource(0, 0));
 static_assert(!SameRealSource(1816, 1817)); // next real source cannot own old FG
 static_assert(!SameRealSource(1816, 0)); // missing actual real-content source
 static_assert(SameRealSource(1816, 1816));
+static_assert(CompatibleGuideDomain(true,true,1816,1817,1506,848,2560,1440,1506,848,2560,1440));
+static_assert(CompatibleGuideDomain(true,true,1816,1816,1506,848,2560,1440,1506,848,2560,1440));
+static_assert(!CompatibleGuideDomain(false,true,1816,1817,1506,848,2560,1440,1506,848,2560,1440));
+static_assert(!CompatibleGuideDomain(true,false,1816,1817,1506,848,2560,1440,1506,848,2560,1440));
+static_assert(!CompatibleGuideDomain(true,true,0,1817,1506,848,2560,1440,1506,848,2560,1440));
+static_assert(!CompatibleGuideDomain(true,true,1816,1815,1506,848,2560,1440,1506,848,2560,1440));
+static_assert(!CompatibleGuideDomain(true,true,1816,1818,1506,848,2560,1440,1506,848,2560,1440));
+static_assert(!CompatibleGuideDomain(true,true,1816,1817,1506,848,2560,1440,1706,960,2560,1440));
+static_assert(!CompatibleGuideDomain(true,true,1816,1817,1506,848,2560,1440,1506,848,1920,1080));
 static_assert(CanStampDisplay(true,true,1u,1u,1816,1816,2560,1440,2560,1440));
 static_assert(!CanStampDisplay(true,false,1u,1u,1816,1816,2560,1440,2560,1440)); // not sampled
 static_assert(!CanStampDisplay(true,true,2u,1u,1816,1816,2560,1440,2560,1440)); // auxiliary image

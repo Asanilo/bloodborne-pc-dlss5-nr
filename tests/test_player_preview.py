@@ -50,7 +50,16 @@ class PlayerPreview(unittest.TestCase):
         c=self.prepare('--sr','native');self.assertNotIn('--sr-only',c)
         self.assertEqual(c[c.index('--fg-backend')+1],'off')
         c=self.prepare('--fg','fsr31');self.assertEqual(c[c.index('--fg-backend')+1],'fsr31')
-        self.assertNotIn('--nr-sr-preset',c)
+        self.assertIn('--nr-sr-preset',c)
+
+    def test_fsr_dynamic_profile_and_multiplier_rejection(self):
+        for backend in ('fsr31','fsr316'):
+            c=self.prepare('--fg',backend,'--nr','off','--sr','balanced','--output','2560x1440')
+            self.assertEqual(c[c.index('--nr-sr-preset')+1],'balanced')
+            self.assertEqual(c[c.index('--nr-output')+1],'2560x1440')
+            self.assertIn('--sr-only',c)
+            with self.assertRaisesRegex(ValueError,'x2 only'):
+                self.prepare('--fg',backend,'--multiplier','3')
 
     def test_bad_session_cannot_escape_private_recipes(self):
         with self.assertRaisesRegex(ValueError,'session'):

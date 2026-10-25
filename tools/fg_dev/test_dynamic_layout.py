@@ -46,5 +46,21 @@ int main(){
   args=runner.parse_args(base+['--fg-backend','dlssg','--dlssg-model','/model','--sr-only'])
   self.assertEqual(args.dlssg_transport,'gpu-dmabuf-v1')
   for backend in ('fsr31','fsr316'):
-   with self.assertRaises(SystemExit):runner.parse_args(base+['--fg-backend',backend,'--sr-only'])
+   for nr_args in (['--sr-only'],['--fg-native']):
+    args=runner.parse_args(base+['--fg-backend',backend,*nr_args])
+    self.assertEqual(args.fg_backend,backend)
+ def test_fsr_dimensions_reject_old_native_before_gpu_launch(self):
+  import sys
+  sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'nr_dev'))
+  import runner
+  args=runner.parse_args(['start','cpu','--daily','--local-inputs','/inputs','--sr-only',
+      '--nr-sr-preset','balanced','--nr-output','2560x1440','--fg-backend','fsr31'])
+  with tempfile.TemporaryDirectory() as directory:
+   build=Path(directory);(build/'gpu').mkdir()
+   lib=build/'gpu/libbbgpu.so'
+   lib.write_bytes(b'FG_BACKEND selected= FG_EXIT_PROOF BB_FRAME_GEN_NATIVE')
+   with self.assertRaisesRegex(ValueError,'dynamic-source Native'):
+    runner.check_fg_capability(args,build)
+   lib.write_bytes(lib.read_bytes()+b' FG_FSR_DYNAMIC_V1')
+   runner.check_fg_capability(args,build)
 if __name__=='__main__':unittest.main()
