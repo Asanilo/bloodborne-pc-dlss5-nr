@@ -34,6 +34,7 @@ def arguments(argv=None):
                    help='override saved in-game FG backend; default uses saved selection')
     p.add_argument('--multiplier', type=int, choices=range(2, 7), default=None)
     p.add_argument('--gpu-validation', action='store_true')
+    p.add_argument('--fg-profile', action='store_true', help='bounded FG stage timings and capture diagnostics')
     p.add_argument('--check', action='store_true', help='validate launch without starting GPU work')
     p.add_argument('--session', help=argparse.SUPPRESS)
     return p.parse_args(argv)
@@ -110,6 +111,8 @@ def prepare(a):
         command += ['--reuse-nr-prefix', local['reuse_nr_prefix']]
     if a.gpu_validation:
         command += ['--gpu-validation']
+    if a.fg_profile:
+        command += ['--fg-profile']
     env = dict(os.environ, NRBRIDGE_HOME=str(home), NRBRIDGE_APP=str(APP),
                NRBRIDGE_ENTRY=command[1], BB_NRBRIDGE_ACTIVE='1', BB_PREBUILT='1')
     return command, env, user
