@@ -29,7 +29,7 @@
 
 **NR、超分辨率与帧生成已统一到完整启动器，并可独立控制。**
 支持 AMD FSR x2、NVIDIA DLSS FG/MFG 2X–6X、多分辨率、多 SR 档位及 Old/New 内存。
-可使用 NR-only + FG。内存默认 `auto`（解析为 Old），New 显式可选；NR 画质策略默认 Legacy。
+可使用 NR-only + FG。内存默认 New（`auto` 也选择 New），Old 可选对照；NR 画质策略默认 Legacy。
 Smooth Motion 暂不开放，尚未完成安全退出验收。
 本机安装与开发工作树分离，更新保留上一版、设置和存档；目前不公开发布二进制。
 参见[玩家指南](docs/PLAYER_GUIDE.zh-CN.md)、[当前功能](docs/PC_FEATURES.zh-CN.md)、
