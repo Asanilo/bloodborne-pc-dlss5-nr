@@ -655,6 +655,9 @@ def check_fg_capability(args, build):
  # Fail before creating a session when a launcher selects FG on an older installed runtime.
  if not getattr(args, 'experimental_fg', None):return
  data=(Path(build)/'gpu/libbbgpu.so').read_bytes()
+ profile=dimension_profile.select(args)
+ if profile and not profile['sr_enabled'] and b'FG_WITHOUT_SR_V1' not in data:
+  raise ValueError('NR-only + FG requires the rebuilt native-scene FG handoff')
  if dimension_profile.select(args) and fg_config.requested(args) in ('fsr31','fsr316') and b'FG_FSR_DYNAMIC_V1' not in data:
   raise ValueError('Variable FSR FG requires the rebuilt dynamic-source Native')
  if b'FG_EXIT_PROOF' not in data or (getattr(args,'fg_native',False) and b'BB_FRAME_GEN_NATIVE' not in data):
@@ -667,7 +670,6 @@ def validate_daily_args(args):
  profile=dimension_profile.select(args)
  if profile and fg_config.requested(args)!="off":
   if fg_config.requested(args) not in ('fsr31','fsr316') and (fg_config.requested(args)!="dlssg" or args.dlssg_transport!="gpu-dmabuf-v1"):raise ValueError("Variable FG dimensions require native FSR or DLSS GPU mailbox; CPU retains its existing entry")
-  if not profile['sr_enabled']:raise ValueError("NR-only + FG source handoff is not yet admitted; choose a DLSS SR preset")
  smooth_motion.validate_args(args)
  dlssg_backend.validate_args(args)
  daily_online.validate_args(args)

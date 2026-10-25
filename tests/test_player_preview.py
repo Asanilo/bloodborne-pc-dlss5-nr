@@ -61,6 +61,15 @@ class PlayerPreview(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'x2 only'):
                 self.prepare('--fg',backend,'--multiplier','3')
 
+    def test_native_scene_fg_keeps_nr_selection_and_never_requests_sr(self):
+        for backend in ('dlssg','fsr31'):
+            for nr in ('on','off'):
+                c=self.prepare('--fg',backend,'--nr',nr,'--sr','native')
+                self.assertEqual(c[c.index('--nr-sr-preset')+1],'native')
+                self.assertEqual('--sr-only' in c,nr=='off')
+                ini=Path(c[c.index('--launcher-ini')+1]).read_text()
+                self.assertIn('upscaler=off',ini)
+
     def test_bad_session_cannot_escape_private_recipes(self):
         with self.assertRaisesRegex(ValueError,'session'):
             self.prepare('--session','../../outside')
