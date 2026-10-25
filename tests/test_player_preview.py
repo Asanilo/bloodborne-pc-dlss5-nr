@@ -72,3 +72,8 @@ class PlayerPreview(unittest.TestCase):
         player.fg_preferences.path_for(self.profile,self.root/'data').write_text(json.dumps(record))
         c=self.prepare();self.assertIn('--fg-start-off',c)
         self.assertEqual(c[c.index('--dlssg-multiplier')+1],'3')
+
+    def test_explicit_fg_diagnostic_forwarding(self):
+        c=self.prepare('--fg-profile')
+        self.assertIn('--fg-profile',c)
+        self.assertNotIn('--gpu-validation',c)
