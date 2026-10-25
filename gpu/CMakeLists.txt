@@ -185,6 +185,10 @@ if (NOT WIN32)
 endif()
 pkg_check_modules(FFMPEG REQUIRED IMPORTED_TARGET libavformat libavcodec libavutil libswscale libswresample)
 file(GLOB SHIM_SOURCES CONFIGURE_DEPENDS shim/*.cpp shim/*/*.cpp)
+# Only this private input wrapper sees the BBSC declarations; the online target
+# and the rest of the renderer keep their existing include/symbol namespaces.
+set_source_files_properties(shim/bbport_cinematic_input.cpp PROPERTIES
+    INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/bbnet20/bbsc")
 # The layer's own modules (independent of the shadPS4 code): layer/.
 file(GLOB LAYER_SOURCES CONFIGURE_DEPENDS layer/*.cpp)
 # Game profiles (what the translator knows about one game, out of its core): games/.

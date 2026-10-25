@@ -2,7 +2,12 @@
 // Run with: python3 tests/test_cinematic_input.py
 #include "gpu/shim/host_input.h"
 #include "gpu/shim/native_mouse_mailbox.h"
+#ifdef BBPORT_OFFLINE_CINEMATIC
+#include "gpu/shim/bbport_cinematic_input.h"
+#define Bbsc BbPortCinematic
+#else
 #include "core/bbsc_cinematic.h"
+#endif
 #include <SDL3/SDL.h>
 #include <cassert>
 #include <cstring>

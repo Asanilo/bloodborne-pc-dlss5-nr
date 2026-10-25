@@ -68,6 +68,7 @@ def launch_command(a):
   recovery.validate_scope(record,recovery.request(a),Path('/proc/sys/kernel/random/boot_id').read_text().strip(),runner.held_run_snapshot())
   recovery._trace_launch(record,a)
  build,_,_=runner.checked_native_build(a.native_build or runner.ROOT/'build/native')
+ if getattr(a,'launcher_settings',None):runner.player_settings.validate_native(runner.player_settings.load_request(a),build)
  runner.check_fg_capability(a,build)
  a.ingame_nr_start=runner.ui_start.enabled(a,build)
  binding=None

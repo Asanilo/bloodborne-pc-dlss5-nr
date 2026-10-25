@@ -15,17 +15,21 @@ def test_cinematic_input():
         log.parent.mkdir(parents=True)
         log.write_text('#pragma once\n#define LOG_INFO(...) ((void)0)\n')
         sdl = shlex.split(subprocess.check_output(['pkg-config', '--cflags', '--libs', 'sdl3'], text=True))
-        for tree, port in ((tree, port) for tree in ("bbnet20/bbsc", "bbnet/shadps4")
-                           for port in (True, False)):
-            binary = tmp / (tree.replace('/', '-') + ('-port' if port else '-upstream'))
+        variants=[(tree, port, False) for tree in ("bbnet20/bbsc", "bbnet/shadps4")
+                  for port in (True, False)]+[("bbnet20/bbsc",True,True)]
+        for tree, port, offline in variants:
+            binary = tmp / (tree.replace('/', '-') + ('-offline' if offline else '-port' if port else '-upstream'))
+            source=ROOT/'gpu/shim/bbport_cinematic_input.cpp' if offline else ROOT/'gpu'/tree/'core/bbsc_cinematic.cpp'
             command = [os.environ.get('CXX', 'c++'), '-std=c++20', '-Wall', '-Wextra', '-Werror',
                        '-pthread', '-I' + str(tmp), '-I' + str(ROOT),
                        '-I' + str(ROOT / 'gpu' / tree),
                        str(ROOT / 'tests/test_cinematic_input.cpp'),
-                       str(ROOT / 'gpu' / tree / 'core/bbsc_cinematic.cpp'),
+                       str(source),
                        '-o', str(binary), *sdl]
             if port:
-                command.append('-DBBNET_PORT_VERSION=20')
+                command.append('-DBBNET_PORT_VERSION='+('1' if offline else '20'))
+            if offline:
+                command.append('-DBBPORT_OFFLINE_CINEMATIC')
             subprocess.run(command, check=True)
             subprocess.run([str(binary)], check=True, env={**os.environ, 'SHADPS4_BBSC_CINEMATIC': '1'})
 

@@ -38,6 +38,21 @@ class PlayerSettingsTest(unittest.TestCase):
         self.assertEqual((e['BB_UPSCALER'], e['BB_PC_MODEL']), ('dlss', '0'))
         self.assertEqual(self.settings.read_text(), json.dumps(self.obj))
 
+    def test_offline_camera_requires_matching_native_without_changing_online_mode(self):
+        build=self.root/'native';(build/'gpu').mkdir(parents=True)
+        library=build/'gpu/libbbgpu.so';library.write_bytes(b'older-native')
+        request=p.load_request(self.args)
+        self.assertEqual(request['environment']['BB_CINEMATIC_CAMERA'],'0')
+        p.validate_native(request,build)
+        self.obj['cinematic_camera']=True;self.write()
+        request=p.load_request(self.args)
+        self.assertEqual(request['environment']['BB_CINEMATIC_CAMERA'],'1')
+        self.assertNotIn('BB_ONLINE',request['environment'])
+        with self.assertRaisesRegex(ValueError,'rebuilt offline-camera Native'):
+            p.validate_native(request,build)
+        library.write_bytes(b'BBPORT_CINEMATIC_OFFLINE_V1')
+        p.validate_native(request,build)
+
     def test_explicit_dimensions_preserve_matching_player_profile(self):
         self.args.nr_sr_preset='performance';self.args.nr_output='2560x1440';self.args.nr_execution='1280x720'
         self.text=self.text.replace('preset=1','preset=3').replace('1920x1080','2560x1440');self.write()

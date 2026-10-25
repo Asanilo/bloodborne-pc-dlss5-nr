@@ -34,6 +34,12 @@ class PlayerPreview(unittest.TestCase):
         self.assertEqual(s['memory_model'],'old');self.assertTrue(s['nrbridge_native_mouse'])
         self.assertEqual(c[c.index('--dlssg-multiplier')+1],'2')
 
+    def test_offline_camera_defaults_on_with_explicit_older_runtime_fallback(self):
+        for options, expected in [((), True), (('--cinematic-camera','off'), False)]:
+            c=self.prepare(*options)
+            settings=json.loads(Path(c[c.index('--launcher-settings')+1]).read_text())
+            self.assertIs(settings['cinematic_camera'],expected)
+
     def test_new_mfg6_and_sr_only_preserve_selection(self):
         c=self.prepare('--memory-model','new','--nr','off','--fg','dlssg','--multiplier','6','--sr','balanced','--output','2560x1440')
         self.assertIn('--sr-only',c);self.assertNotIn('--reuse-nr-prefix',c);self.assertNotIn('--fg-start-off',c)
