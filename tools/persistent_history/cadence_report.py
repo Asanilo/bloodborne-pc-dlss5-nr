@@ -13,7 +13,7 @@ def summarize(run):
     if not logs or any(p.is_symlink() for p in logs):
         raise ValueError("regular retained game logs required")
     text = b"".join(p.read_bytes() for p in logs).decode(errors="replace")
-    current, begins, finishes, deferred, samples, banks = {}, {}, [], [], {}, {}
+    current, begins, finishes, deferred, samples, banks, participation = {}, {}, [], [], {}, {}, {}
     for line in text.splitlines():
         if not line.startswith(("PERSISTENT_HISTORY_", "NR_HISTORY_")):
             continue
@@ -31,6 +31,8 @@ def summarize(run):
             deferred.append(source)
         elif line.startswith("NR_HISTORY_GPU_SAMPLE "):
             samples[source] = f
+        elif line.startswith("NR_HISTORY_PARTICIPATION_SAMPLE "):
+            participation[source] = f
         elif line.startswith("NR_HISTORY_BANK_SAMPLE "):
             banks[source] = f
     starts = sorted(begins)
@@ -67,6 +69,11 @@ def summarize(run):
                        "zero_valid_without_bank_or_return_gate"] += 1
         elif valid == 0:
             causes["zero_valid_without_bank_readback"] += 1
+        detail=participation.get(source)
+        if detail:
+            parsed={k:(int(v) if k in ("candidate_current","target_current") or k.startswith("reject_") else float(v))
+                    for k,v in detail.items() if k not in ("source","scope","masks","target_may_be_stale")}
+            row["participation"]=parsed
         rows.append(row)
     result = json.loads((run / "result.json").read_text()) if (run / "result.json").is_file() else {}
     return dict(schema="nr-cadence-report-v1", run=str(run.resolve()),
@@ -76,6 +83,8 @@ def summarize(run):
                     histogram=dict(sorted(collections.Counter(intervals).items()))),
                 transition_finishes=len(finishes), deferred_candidates=len(deferred),
                 completed_samples=len(rows), completed_bank_samples=len(banks),
+                completed_participation_samples=len(participation),
+                active_empty_samples=sum(float(v["active_live"])==0 for v in participation.values()),
                 zero_valid_coincident_gates=dict(causes),
                 valid_by_candidate_offset={str(k):dict(samples=len(v),mean=statistics.mean(v),
                     min=min(v),max=max(v)) for k,v in sorted(phase.items())},

@@ -129,7 +129,7 @@ NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.Ge
   if(end==interval||*end||value<1||value>120)throw std::runtime_error("BB_NR_HISTORY_SAMPLE_INTERVAL requires 1..120");
   sample_interval=unsigned(value);
  }
- std::printf("NR_HISTORY_EXPERIMENT transition=%s sample_interval=%u default_shader=1\n",transition.cadence?"cadence":"legacy",sample_interval);
+ std::printf("NR_HISTORY_EXPERIMENT transition=%s sample_interval=%u quality_policy=unchanged diagnostics=%u\n",transition.cadence?"cadence":"legacy",sample_interval,unsigned(sample_interval==1));
  if(!instance.GetPhysicalDevice().getFeatures().shaderStorageImageExtendedFormats)throw std::runtime_error("persistent history extended image formats unavailable");
  for(const auto f:{vk::Format::eR16G16B16A16Sfloat,vk::Format::eR32G32B32A32Sfloat,vk::Format::eR32Sfloat,vk::Format::eR32G32Sfloat}){
   const auto need=vk::FormatFeatureFlagBits::eStorageImage|vk::FormatFeatureFlagBits::eSampledImage|vk::FormatFeatureFlagBits::eTransferDst|vk::FormatFeatureFlagBits::eTransferSrc;
