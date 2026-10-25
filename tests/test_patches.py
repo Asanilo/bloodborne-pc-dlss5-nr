@@ -102,7 +102,8 @@ class DebugPatchTests(unittest.TestCase):
 
     def test_camera_patch_is_optional_and_compatible_with_fps_and_debug_menu(self):
         self.assertEqual(effect_patches({'debug_camera': '0', 'debug_menu': '0'}), [])
-        camera = effect_patches({'debug_camera': '1'})
+        self.assertEqual(effect_patches({'debug_camera':'1','debug_menu':'1'}, {}), [])
+        camera = effect_patches({'debug_camera': '1'}, {'BB_DEVELOPER_MODE':'1'})
         writes = compile_patches(XML, camera, '01.09', SEGMENTS)
         self.assertGreater(len(writes), 0)
         camera_bytes = {offset+i: byte for offset, data in writes for i, byte in enumerate(data)}
@@ -113,7 +114,7 @@ class DebugPatchTests(unittest.TestCase):
                         self.assertEqual(camera_bytes[offset+i], byte, patch)
 
     def test_debug_menu_needs_both_fonts_where_the_game_reads_them(self):
-        names = effect_patches({'debug_menu': '1'})
+        names = effect_patches({'debug_menu': '1'}, {'BB_DEVELOPER_MODE':'1'})
         menu = 'Restore Debug Menu (READ NOTES)'
         with tempfile.TemporaryDirectory() as directory:
             game = Path(directory)
