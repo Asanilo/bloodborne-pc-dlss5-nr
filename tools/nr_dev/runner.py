@@ -621,6 +621,9 @@ def validate_daily_manifest(run,manifest):
  smooth_motion.validate_manifest(run,manifest)
  dlssg_backend.validate_manifest(run,manifest)
  environment=manifest.get('environment',{})
+ player=None
+ if manifest.get('player_settings'):
+  player=player_settings.verify_snapshot(run,manifest['player_settings'],environment)
  for directory in (run/'profile',run/'profile/user'):
   if directory.resolve()!=directory or directory.is_symlink() or not directory.is_dir():raise ValueError('daily private profile directory drift')
  if (manifest.get('schema')!='nr-dev-session-v1' or manifest.get('session')!=run.name
@@ -629,13 +632,11 @@ def validate_daily_manifest(run,manifest):
      or any(type(manifest.get(k)) is not int or manifest[k]!=0 for k in ('planned_seconds','watchdog_seconds'))):raise ValueError('invalid daily session binding')
  required={'BB_NR_DAILY':'1','NRBRIDGE_HOME':str(ROOT),'BB_NR_NATIVE_ASYNC_SOURCE_LIMIT':'0',
            'BB_DATA_DIR':str(run/'profile'),'BB_USER_DIR':str(run/'profile/user'),
-           'BB_GPU_USER_DIR':str(run/'profile/user')}
+           'BB_GPU_USER_DIR':player['environment']['BB_GPU_USER_DIR'] if player else str(run/'profile/user')}
  if (any(environment.get(k)!=v for k,v in required.items())
      or environment.get('BB_NATIVE_MOUSE') not in ('0','1')
      or any(k in environment for k in ('BB_FRAME_LOG','BB_NR_PM4_COLD_TRACE','BB_NR_PM4_PRODUCER_CONTEXT','BB_NATIVE_HISTORY_DIAGNOSTIC','BB_RE_CAMERA','BB_RE_ENTRY'))):raise ValueError('daily private environment drift')
- if manifest.get('player_settings'):
-  player_settings.verify_snapshot(run,manifest['player_settings'],environment)
- elif environment.get('BB_FRAME_STATS')!='0':raise ValueError('diagnostic daily frame statistics drift')
+ if not player and environment.get('BB_FRAME_STATS')!='0':raise ValueError('diagnostic daily frame statistics drift')
  daily_online.validate_manifest(run,manifest)
  if ui_start.ENVIRONMENT in environment:ui_start.validate(run,manifest)
 
@@ -696,11 +697,13 @@ def validate_history_experiment_env():
  if policy is not None and policy not in ('legacy','fade-new'):
   raise ValueError('BB_NR_VISUAL_TRANSITION requires legacy or fade-new; cadence A2a was rejected')
  interval=os.environ.get('BB_NR_HISTORY_SAMPLE_INTERVAL')
- if interval is not None and (not re.fullmatch('[1-9][0-9]{0,2}',interval) or not 1<=int(interval)<=120):
-  raise ValueError('BB_NR_HISTORY_SAMPLE_INTERVAL requires canonical integer 1..120')
+ if interval is not None and (not re.fullmatch('0|[1-9][0-9]{0,2}',interval) or not 0<=int(interval)<=120):
+  raise ValueError('BB_NR_HISTORY_SAMPLE_INTERVAL requires canonical integer 0..120')
 
 def check_history_capability(build):
  validate_history_experiment_env()
+ if os.environ.get('BB_NR_HISTORY_SAMPLE_INTERVAL')=='0' and b'NRBRIDGE_NATIVE_HISTORY_SAMPLING_OFF_V1' not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
+  raise ValueError('Disabled NR diagnostics requires the current Native runtime')
  if os.environ.get('BB_NR_VISUAL_TRANSITION','legacy')=='fade-new':
   marker=b'NRBRIDGE_NATIVE_HISTORY_FADE_V1'
   if marker not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
@@ -857,7 +860,8 @@ def launch_supervised(args,signals):
   env.update(nr);env.update(online_env);command=['bash',str(WT/'run.sh')]
   if getattr(args,'experimental_fg',None):
    # SR-only and explicit Native HDR integration retain the managed PreSR retirement audit.
-   env.update(BB_FRAME_GEN='1',BB_FRAME_GEN_AUDIT='1',BB_PRESENT_MODE='Immediate',
+   audit=not player or player['environment'].get('BB_DEVELOPER_MODE')=='1' or any(getattr(args,k,False) for k in ('fg_profile','fg_validation','gpu_validation'))
+   env.update(BB_FRAME_GEN='1',BB_FRAME_GEN_AUDIT='1' if audit else '0',BB_PRESENT_MODE='Immediate',
               BB_FRAME_GEN_CONTROL=str(run/'fg-control'),
               BB_SEQUENCE_DUMP_TRIGGER=str(run/'fg-sequence-trigger'),
               BB_FPS_LIMIT=str(60 if getattr(args,'fg_fps_limit',None) is None else args.fg_fps_limit))
@@ -997,6 +1001,17 @@ def launch_supervised(args,signals):
      except (OSError,ValueError,KeyError,TypeError) as error:
       result['fg_preferences']={'status':'not_saved','reason':str(error)}
       print('FG settings were not saved: '+str(error),flush=True)
+     atomic(run/'result.json',result)
+     import player_preferences
+     try:result['player_preferences']=player_preferences.commit(run,result)
+     except (OSError,ValueError,KeyError,TypeError) as error:
+      result['player_preferences']={'status':'not_saved','reason':str(error)}
+      print('Game settings were not saved: '+str(error),flush=True)
+     try:
+      result['player_run_cleanup_plan']=player_preferences.prune_save_copies(run.parent,run)
+      result['player_run_cleanup']=player_preferences.prune_save_copies(run.parent,run,apply=True)
+     except (OSError,ValueError,KeyError,TypeError) as error:
+      result['player_run_cleanup']={'status':'retained','reason':str(error)}
      atomic(run/'result.json',result)
     return 4 if result.get('player_save_sync',{}).get('status')=='error' else 0
    return 3

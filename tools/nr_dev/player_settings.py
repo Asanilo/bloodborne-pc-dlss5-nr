@@ -95,17 +95,29 @@ def load_request(args):
             raise ValueError('NR requires matching SR profile, DLSS, jitter/object motion on; change: ' + ', '.join(mismatched))
         if source.get('as_0_3', False):
             raise ValueError('NR requires current synchronization')
-    memory_model = source.get('memory_model', 'auto')
+    memory_model = source.get('memory_model', 'new')
     if memory_model not in ('auto', 'old', 'new'):
         raise ValueError('player settings: unsupported memory model')
     upscaler = ini.get('upscaler', 'dlss')
     if upscaler not in ('dlss', 'fsr3', 'fsr4', 'fsr411', 'taa', 'off'):
         raise ValueError('player settings: unsupported upscaler')
-    env = {'BB_GAME_DIR': str(game), 'BB_PC_MODEL': '1' if source.get('memory_model') == 'new' else '0',
+    env = {'BB_GAME_DIR': str(game), 'BB_PC_MODEL': '0' if source.get('memory_model') == 'old' else '1',
            'BB_UPSCALER': upscaler, 'BB_DLSS': '1' if upscaler == 'dlss' or nr and getattr(args,'nr_sr_preset',None)=='native' else '0',
            'BB_UPSCALE_PRESET': ini.get('preset', '1'), 'BB_JITTER': ini.get('jitter', '1'),
            'BB_OBJECT_MOTION': ini.get('object_motion', '1')}
     selected = {}
+    developer=source.get('developer_mode',False)
+    if type(developer) is not bool:raise ValueError('player settings: boolean required for developer_mode')
+    diagnostics=source.get('diagnostics_enabled',False)
+    if type(diagnostics) is not bool:raise ValueError('player settings: boolean required for diagnostics_enabled')
+    developer=developer or diagnostics
+    env['BB_DEVELOPER_MODE']='1' if developer else '0'
+    if not developer:env.update(BB_NR_HISTORY_SAMPLE_INTERVAL='0',BB_NR_VISUAL_TRANSITION='legacy')
+    # Pipeline/shader caches belong to the player's persistent GPU directory,
+    # while the game still writes only its isolated transactional save copy.
+    env['BB_GPU_USER_DIR']=str(user)
+    nr_preset=source.get('nr_preset')
+    if nr_preset is not None and nr_preset not in ('Default','A','B'):raise ValueError('Unsupported NR preset')
     booleans = {'fullscreen': 'BB_FULLSCREEN', 'hdr': 'BB_HDR', 'mods_enabled': 'BB_MODS_ENABLED',
                 'cinematic_camera': 'BB_CINEMATIC_CAMERA',
                 'skip_network_choice': 'BB_SKIP_NETWORK_CHOICE', 'save_log': 'BB_SAVE_LOG',
@@ -115,6 +127,8 @@ def load_request(args):
         value = source.get(key, key in ('mods_enabled', 'skip_network_choice'))
         if type(value) is not bool:
             raise ValueError('player settings: boolean required for ' + key)
+        if not developer and key in ('frame_stats','gpu_profile','vk_validation'):
+            value=False
         if key == 'vk_validation' and (getattr(args, 'fg_validation', False)
                                        or getattr(args, 'gpu_validation', False)):
             value = True  # Explicit diagnostic flag strengthens the saved selection.
@@ -140,12 +154,12 @@ def load_request(args):
         raise ValueError('player settings: invalid FPS option')
     env.update(BB_FPS=fps, BB_FPS_LIMIT=str(limit))
     selected.update(language=language, ui_language=ui, fps_mode=fps, fps_limit=limit,
-                    memory_model=source.get('memory_model', 'auto'))
+                    memory_model=source.get('memory_model', 'new'))
     for key, target, default in [('mods_dir', 'BB_MODS_DIR', data / 'mods'), ('patches_dir', 'BB_PATCHES_DIR', data / 'patches')]:
         env[target] = str(canonical(source.get(key) or str(default)))
     env.update(BB_MODS_CONFIG=str(data / 'mods.json'), BB_PATCHES_CONFIG=str(data / 'patches.json'),
                BB_FSR4_DIR=str(data / 'fsr4_shaders'), BB_FSR411_DIR=str(data / 'fsr4_411'))
-    if source.get('crash_diag', False):
+    if developer and source.get('crash_diag', False):
         env.update(BB_FREE_CHECK='1', BB_WRITE_LOG='1', BB_PRODUCER_CHECK='1')
     extra = _text(source.get('extra_env', ''))
     permitted = {'BB_MENU_POINTER', 'BB_CURSOR', 'BB_CJK_FONT', 'BB_SAVE_LOG', 'BB_FPS_LIMIT',
@@ -156,6 +170,7 @@ def load_request(args):
         key, value = item.split('=', 1)
         if key not in permitted:
             raise ValueError('player settings: extra variable is not supported by the managed launcher: ' + key)
+        if not developer and key=='BB_MEMORY_PROFILE':continue
         env[key] = _text(value)
     # GPU selection is already enumerated by the launcher; use its saved index only.
     gpu_id = source.get('nrbridge_gpu_id')
@@ -167,7 +182,9 @@ def load_request(args):
     return {'schema': 'nrbridge-player-settings-v1', 'settings_path': str(settings_path),
             'fg_preferences_owner':str(owner),
             'fg_preferences_owner_sha256':hashlib.sha256(owner.read_bytes()).hexdigest(),
-            'ini_path': str(ini_path), 'data_dir': str(data), 'game_dir': str(game),
+            'nr_preset':nr_preset,
+            'ini_path': str(ini_path), 'ini_sha256':hashlib.sha256(ini_path.read_bytes()).hexdigest(),
+            'data_dir': str(data), 'game_dir': str(game),
             'user_dir': str(user), 'nr_enabled': nr, 'settings': selected,
             'ini_text': ini_text, 'environment': env}
 
@@ -182,8 +199,10 @@ def runtime_for_player(args, home):
     spec.loader.exec_module(module)
     binding = module.load(args.local_inputs, home)
     config = json.loads(json.dumps(binding['config']))
-    if config['assets']['path'] == request['game_dir']:
+    preset=request.get('nr_preset')
+    if config['assets']['path'] == request['game_dir'] and (preset is None or preset==config.get('nr_preset','Default')):
         return args.local_inputs
+    if preset is not None:config.update(schema=module.PRESET_SCHEMA,nr_preset=preset)
     # This SHA-validated runtime inventory covers the whole GE/library closure.
     # It is not a launcher-settings file and can legitimately exceed 128 KiB.
     pins = module.read(binding['pins_path'])
@@ -224,6 +243,9 @@ def write_snapshot(run, request):
 
 
 def validate_native(request, build):
+    if request is not None and request['nr_enabled'] and request['environment'].get('BB_NR_HISTORY_SAMPLE_INTERVAL')=='0':
+        if b'NRBRIDGE_NATIVE_HISTORY_SAMPLING_OFF_V1' not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
+            raise ValueError('Normal play needs the current game runtime with optional NR diagnostics')
     if request is not None and request['environment'].get('BB_CINEMATIC_CAMERA')=='1':
         if b'BBPORT_CINEMATIC_OFFLINE_V1' not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
             raise ValueError('F6 camera needs the rebuilt offline-camera Native; --cinematic-camera off retains the older runtime')

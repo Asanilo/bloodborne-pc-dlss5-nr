@@ -170,6 +170,7 @@ def effect_patches(settings, env=os.environ):
     names=[]
     hot=env.get('BB_HOT_EFFECTS','1')!='0'
     for key,(off,on) in EFFECTS.items():
+        if key in ('debug_camera','debug_menu') and env.get('BB_DEVELOPER_MODE')!='1':continue
         if key not in settings: continue
         if hot and key in HOT_EFFECTS: continue
         name=on if settings[key]=='1' else off

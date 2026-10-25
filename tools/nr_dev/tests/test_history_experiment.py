@@ -13,9 +13,9 @@ class HistoryExperimentAdmission(unittest.TestCase):
     os.environ['BB_NR_VISUAL_TRANSITION']=policy;runner.validate_history_experiment_env()
  def test_intervals(self):
   with patch.dict(os.environ,{},clear=True):
-   for value in ('1','30','120'):
+   for value in ('0','1','30','120'):
     os.environ['BB_NR_HISTORY_SAMPLE_INTERVAL']=value;runner.validate_history_experiment_env()
-   for value in ('','0','121','01','nan','-1'):
+   for value in ('','121','01','nan','-1'):
     os.environ['BB_NR_HISTORY_SAMPLE_INTERVAL']=value
     with self.assertRaises(ValueError):runner.validate_history_experiment_env()
  def test_old_native_is_rejected_only_for_new_feature(self):

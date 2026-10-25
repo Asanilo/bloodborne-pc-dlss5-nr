@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "render/player_diagnostics.h"
 #include "upscale/vk_frame_generation.h"
 #include "upscale/frame_generation_lifecycle.h"
 #include "upscale/fg_backend_status.h"
@@ -482,7 +483,7 @@ bool FrameGeneration::BindSceneColor(vk::Image color, vk::Format format, u32 wid
     if (!Wanted() || !scene_captured || !color || scene.color || scene.source_game_frame != source ||
         scene.color_format != format || scene.width != width || scene.height != height) return false;
     scene.color = color;
-    std::printf("FG_NATIVE_BIND source_game_frame=%llu fg_frame=%llu output=%ux%u hdr_SR=1\n",
+    if(VerbosePlayerFrames())std::printf("FG_NATIVE_BIND source_game_frame=%llu fg_frame=%llu output=%ux%u hdr_SR=1\n",
         (unsigned long long)source, (unsigned long long)scene_id, width, height);
     return true;
 }

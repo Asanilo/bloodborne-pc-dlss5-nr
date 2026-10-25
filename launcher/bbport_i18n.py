@@ -1002,6 +1002,41 @@ def language():
     return _language
 
 
+RU_PLAYER = {
+    "Automatic (uses New)":"Автоматически (New)","New (recommended)":"New (рекомендуется)","Old":"Old",
+    "New is the default. Old remains available for compatibility; performance depends on the scene.":"По умолчанию New. Old доступен для совместимости; результат зависит от сцены.",
+    'Advanced settings':'Расширенные настройки','Diagnostics and debug options':'Диагностика и отладка',
+    'Enable selected diagnostics':'Включить выбранную диагностику',
+    'Only explicitly enabled diagnostics run. They may reduce performance.':'Запускается только включённая диагностика. Она может снизить производительность.',
+    'F6 free camera':'Свободная камера (F6)',
+    'F6 toggles the camera; right mouse button looks around, WASD moves, E/Q moves vertically.':'F6 — свободная камера; правая кнопка мыши — обзор, WASD — движение, E/Q — вверх/вниз.',
+    'Old is the default. New may use more video memory; performance depends on the scene.':'По умолчанию Old. New может расходовать больше видеопамяти; результат зависит от сцены.',
+    'Neural rendering and frame generation':'Нейросетевой рендеринг и генерация кадров',
+    'NR, super resolution and frame generation can be controlled independently.':'NR, масштабирование и генерация кадров управляются независимо.',
+    'Enable neural rendering':'Включить нейросетевой рендеринг',
+    'NR preset':'Пресет NR', 'Preset B':'Пресет B', 'Preset A':'Пресет A', 'Default':'По умолчанию',
+    'NR quality resolution':'Разрешение обработки NR',
+    '1280×720 (recommended)':'1280×720 (рекомендуется)',
+    '1920×1080 (higher VRAM)':'1920×1080 (больше видеопамяти)',
+    'Higher values use more video memory. Applies when starting the game.':'Повышение расходует больше видеопамяти. Применяется при запуске игры.',
+    'Automatic':'Автоматически','Off':'Выкл','Ready':'Готово',
+    'Frame generation':'Генерация кадров','DLSS frame multiplier':'Множитель DLSS',
+    'DLSS scheduling':'Планирование DLSS','Standard':'Стандартное','Compatibility':'Совместимое',
+    'Advanced FG settings':'Расширенные настройки генерации кадров',
+    'FG availability':'Доступность генерации кадров',
+    'Free camera (F6)':'Свободная камера (F6)',
+    'F6 toggles the free camera; WASD moves, mouse looks, Shift changes speed.':'F6 — свободная камера; WASD — движение, мышь — обзор, Shift — скорость.',
+    'NVIDIA Smooth Motion (unavailable)':'NVIDIA Smooth Motion (недоступно)',
+    'Smooth Motion is unavailable until safe shutdown is verified. Choose another frame generation option.':'Smooth Motion недоступен до проверки безопасного завершения. Выберите другой режим.',
+    'The frame generation model is missing or invalid.':'Модель генерации кадров отсутствует или повреждена.',
+    'The frame generation runtime is not ready.':'Среда генерации кадров не готова.',
+    'The selected frame generation option is unavailable. See the log for details.':'Выбранная генерация кадров недоступна. Подробности в журнале.',
+    'Automatic (uses Old)':'Автоматически (Old)', 'Old (recommended)':'Old (рекомендуется)',
+    'Old is the default. New is available for comparison; performance depends on the scene.':'По умолчанию Old. New доступен для сравнения; результат зависит от сцены.',
+    'Unavailable':'Недоступно',
+}
+
+
 def tr(text):
     if _language == "zh_CN":
         english = EN.get(text, text)
@@ -1011,7 +1046,7 @@ def tr(text):
     if _language == "pt_BR":
         # Strings added after the translation fall back to English, not to the Russian key.
         return PT_BR.get(text, EN.get(text, text))
-    return text
+    return RU_PLAYER.get(text,text)
 
 
 # Unified FG selection (M3).

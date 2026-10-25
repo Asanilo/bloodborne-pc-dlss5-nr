@@ -27,12 +27,12 @@
 
 <a id="features"></a>
 
-**M1：NR + DLSS SR + FSR FG x2 功能性成功，三者联动可玩。**
-FSR FG 仍为 Experimental，HUDless x2 需玩家显式开启；HUD 正常，原有模糊问题已改善。
-已知缺陷是生成帧植被空间漂移，关闭 NR 亦可复现，画质尚未验收。
-急转抑制 FG 没有玩家收益，已舍弃。下一阶段方向为 NVIDIA DLSS FG，FSR 保留为可选后端。
-见[可重建 M1 入口与模式选择](docs/NR_SR_FG_INTEGRATION.zh-CN.md)。
-本轮不发布正式二进制，不切换现有安装；许可证兼容问题仍需在发布前解决。
+**NR、超分辨率与帧生成已统一到完整启动器，并可独立控制。**
+支持 AMD FSR x2、NVIDIA DLSS FG/MFG 2X–6X、多分辨率、多 SR 档位及 Old/New 内存。
+可使用 NR-only + FG。内存默认 New，NR 画质策略默认 Legacy。
+Smooth Motion 暂不开放，尚未完成安全退出验收。
+本机安装与开发工作树分离，更新保留上一版、设置和存档；目前不公开发布二进制。
+参见[玩家指南](docs/PLAYER_GUIDE.zh-CN.md)与[当前功能](docs/PC_FEATURES.zh-CN.md)。
 
 ## 为亚楠加上 NR
 
@@ -63,8 +63,8 @@ The Hunter’s Dream、Seamless Hunt 和可选 BBSC 入口也已集成，联网�
 
 已有 AppImage 或安装目录时，打开 AppImage 或 `./launch.sh`：
 
-1. 在启动器选择游戏和存档目录，完成 **NR 运行环境** 中的依赖配置。
-2. 保持 **启用神经渲染（NR）** 与 **原生鼠标视角** 开启，选择 DLSS 清晰度优先、1920×1080。
+1. 打开已安装的启动器，沿用游戏和存档目录。源码安装的依赖准备见开发说明。
+2. 独立选择 NR、超分辨率、分辨率和帧生成；可从 1080p 清晰度优先开始。
 3. 启动游戏，进入可操作场景后按 **F8**，直接启用 NR，无需切回启动器或再次确认。
 4. 结束游戏后，等待进度保存完成，再关闭启动器。
 
@@ -74,18 +74,18 @@ The Hunter’s Dream、Seamless Hunt 和可选 BBSC 入口也已集成，联网�
 | 按键 | 功能 |
 | :--- | :--- |
 | F1 | 释放鼠标；点击游戏画面重新捕获 |
-| F6 | 开启 BBSC 时，切换拍摄自由相机 |
+| F6 | 切换离线自由相机，无需启用 BBSC 或联机 |
 | F8 | 首次按下启用 NR；之后切换 NR 效果 |
-| Delete | 打开 NR 控制菜单；修改参数后点击 Apply |
+| Delete | 打开 NR 和画面设置 |
 | Insert／L3+R3 | 打开 bbport 设置浮层 |
 
-常驻状态栏只显示 FPS 和 NR 状态，详细计数可在 **Delete → NR 详细诊断** 中查看。
-切换效果时，NR 服务继续运行。
-BBSC 可与原生鼠标转镜同时使用；拍摄自由相机开启时接管键鼠，关闭后恢复正常操作。
+状态栏区分真实帧、生成帧与应用 Present 数量；Present 不等于屏幕实际显示帧数。
+F8、当前 FG 开关及 DLSS GPU 模式下 2X–6X 倍率可即时生效；只有确实需要重启的选项
+才显示提示，例如更换 FG 算法的运行时。NR 开关不会被 FG 切换改变。
 
-当前 NR 配置为 DLSS Quality、1920×1080、16:9 或自动，开启抖动和物体运动向量。
-内存模型选择“旧”或“自动”即可；NR 下“自动”会使用匹配的旧模型。
-关闭 NR 后可以选择普通超分设置。
+DLAA、Quality、Balanced、Performance 支持多输出分辨率与宽高比；关闭超分并保持 NR
+开启即为 NR-only。NR 画质分辨率与屏幕输出分辨率分别设置。NR 需要抖动及物体运动向量。
+普通游玩默认关闭 Validation、性能 Profiling 和诊断图像抽样。
 
 </details>
 
@@ -97,7 +97,7 @@ BBSC 可与原生鼠标转镜同时使用；拍摄自由相机开启时接管键
 - 当前 AppImage 的部分依赖要求 GLIBC 2.44，旧发行版兼容性待完善。
 - FSR 4.1.1 DLL 转换暂不可用，已准备好的资源仍可选择。
 
-详细进展见 [Preview 状态](docs/NRBRIDGE_PREVIEW_STATUS.md)。
+当前限制见[功能说明](docs/PC_FEATURES.zh-CN.md)，历史研发报告保留供开发者参考。
 
 </details>
 
@@ -149,7 +149,7 @@ cd bbport-nrbridge
 | 准备依赖、构建 Native 与 Helper | [开发指南](tools/nr_dev/README.md) |
 | 制作 AppImage | [打包说明](packaging/nrbridge/README.md) |
 | 改键、中文与存档 | [玩家使用说明](docs/PC_FEATURES.zh-CN.md) |
-| 当前进展与已知问题 | [Preview 状态](docs/NRBRIDGE_PREVIEW_STATUS.md) |
+| 当前进展与已知问题 | [当前功能](docs/PC_FEATURES.zh-CN.md) |
 | 工作空间和分支布局 | [仓库维护说明](docs/WORKSPACE.md) |
 | bbport 0.6 的更新 | [上游更新记录](docs/CHANGES_0.6.md) |
 

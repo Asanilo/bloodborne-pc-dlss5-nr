@@ -544,6 +544,12 @@ def _write_config_unlocked(home: Path, sel: dict[str, Path], runtime_inputs, *, 
     localinputs = home / "localinputs"
     localinputs.mkdir(parents=True, exist_ok=True)
     config_path = localinputs / "runtime.json"
+    versioned=os.environ.get('BB_PLAYER_RUNTIME') and os.environ.get('NRBRIDGE_RUNTIME_INPUTS')
+    if versioned:
+        config_path=canonical(versioned)
+        if config_path.parent!=localinputs or force:
+            die('Installed runtime edits must preserve the existing versioned configuration')
+    existing={}
     # Dependency edits preserve the selected seed byte-for-byte. In particular,
     # do not create a synthetic marker or rewrite its manifest on readback/save.
     if config_path.is_file() and not force:
@@ -552,11 +558,11 @@ def _write_config_unlocked(home: Path, sel: dict[str, Path], runtime_inputs, *, 
         canonical(str(seed / "manifest.json"))
     else:
         seed = stage_seed(home)
-    pins_path = localinputs / "runtime-pins.json"
+    pins_path = config_path.with_name(config_path.stem+'-pins.json') if versioned else localinputs / "runtime-pins.json"
     helper = stage_helper(home, replace=force)
     build = stage_native(home, replace=force)
-    forwarder = stage_forwarder(home)
-    libs = stage_libs(home, sel["sysroot"], replace=force)
+    forwarder = canonical(existing['forwarder']) if versioned else stage_forwarder(home)
+    libs = sel['sysroot'] if versioned else stage_libs(home, sel["sysroot"], replace=force)
     config = {
         "schema": "nr-local-runtime-inputs-v1",
         "assets": {"path": str(sel["game"]), "access": "read-only"},
@@ -573,6 +579,8 @@ def _write_config_unlocked(home: Path, sel: dict[str, Path], runtime_inputs, *, 
         "ngx_dir": str(sel["ngx"]),
         "pins": {"path": str(pins_path), "sha256": ""},
     }
+    if versioned and 'nr_preset' in existing:
+        config.update(schema=existing['schema'],nr_preset=existing['nr_preset'])
     required = [
         helper,
         helper.parent / "build.json",
@@ -593,7 +601,7 @@ def _write_config_unlocked(home: Path, sel: dict[str, Path], runtime_inputs, *, 
     )
     config["pins"]["sha256"] = sha256(pins_path)
     config_path.write_text(json.dumps(config, indent=2) + "\n")
-    (home / "selection.json").write_text(
+    (config_path.with_name(config_path.stem+'-selection.json') if versioned else home / "selection.json").write_text(
         json.dumps(
             {
                 "schema": "bbport-nrbridge-preview-selection-v1",

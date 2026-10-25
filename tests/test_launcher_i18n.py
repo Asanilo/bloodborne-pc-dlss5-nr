@@ -46,11 +46,13 @@ class LauncherTranslations(unittest.TestCase):
                         'CONTROLS', 'EFFECTS', 'MEMORY_MODELS', 'DRAW_PIPE',
                         'READBACKS', 'PREUPLOAD', 'PRESENT_MODES', 'LANGUAGES')
                     for target in node.targets):
-                for entry in ast.literal_eval(node.value):
-                    labels.add(entry[1] if node.targets[0].id in ('CONTROLS', 'EFFECTS') else entry[0])
+                choices=[node.value.body,node.value.orelse] if isinstance(node.value,ast.IfExp) else [node.value]
+                for choice in choices:
+                    for entry in ast.literal_eval(choice):
+                        labels.add(entry[1] if node.targets[0].id in ('CONTROLS', 'EFFECTS') else entry[0])
         # Names/abbreviations remain recognizable in every language.
         names = {'Steam / Lutris', "The Hunter's Dream", 'L3', 'SSAO', 'MangoHud',
-                 'DLSS (NVIDIA RTX)', 'FSR 4', 'FSR 4.1.1', 'FSR 3', 'Vulkan', 'NRBridge'}
+                 'DLSS (NVIDIA RTX)', 'FSR 4', 'FSR 4.1.1', 'FSR 3', 'Vulkan', 'NRBridge', 'Old'}
         previous = i18n.language()
         try:
             i18n.set_language('zh_CN')

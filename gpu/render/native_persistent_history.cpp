@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_persistent_history.h"
+#include "render/player_diagnostics.h"
 #include "nr_dimensions.h"
 #include "native_persistent_history_diagnostic.h"
 #include "native_history_capture_admission.h"
@@ -90,7 +91,7 @@ struct NativePersistentHistory::Impl {
  VisualTransition transition;
  BbNR::Request pending_controls{},applied_controls{};
  NativePersistentHistory::RuntimeSample latest_sample;
- unsigned runtime_samples_logged=0,sample_interval=30;
+ unsigned runtime_samples_logged=0,sample_interval=0;
  vk::UniqueQueryPool queries;float timestamp_period=0;unsigned timestamp_bits=0;
  bool initialized=false,prepared=false,applied=false,history=false,unknown=false,candidate_recorded=false;
  vk::Image return_image{};
@@ -126,10 +127,10 @@ NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.Ge
  }
  if(const auto* interval=std::getenv("BB_NR_HISTORY_SAMPLE_INTERVAL")){
   char* end=nullptr;const auto value=std::strtoul(interval,&end,10);
-  if(end==interval||*end||value<1||value>120)throw std::runtime_error("BB_NR_HISTORY_SAMPLE_INTERVAL requires 1..120");
+  if(end==interval||*end||value>120)throw std::runtime_error("BB_NR_HISTORY_SAMPLE_INTERVAL requires 0..120");
   sample_interval=unsigned(value);
  }
- std::printf("NR_HISTORY_EXPERIMENT capability=NRBRIDGE_NATIVE_HISTORY_FADE_V1 transition=%s sample_interval=%u admission_policy=unchanged diagnostics=%u\n",transition.fade_new_only?"fade-new":"legacy",sample_interval,unsigned(sample_interval==1));
+ std::printf("NR_HISTORY_EXPERIMENT capability=NRBRIDGE_NATIVE_HISTORY_FADE_V1 transition=%s sample_interval=%u admission_policy=unchanged diagnostics=%u sampling_off_capability=NRBRIDGE_NATIVE_HISTORY_SAMPLING_OFF_V1\n",transition.fade_new_only?"fade-new":"legacy",sample_interval,unsigned(sample_interval==1));
  if(!instance.GetPhysicalDevice().getFeatures().shaderStorageImageExtendedFormats)throw std::runtime_error("persistent history extended image formats unavailable");
  for(const auto f:{vk::Format::eR16G16B16A16Sfloat,vk::Format::eR32G32B32A32Sfloat,vk::Format::eR32Sfloat,vk::Format::eR32G32Sfloat}){
   const auto need=vk::FormatFeatureFlagBits::eStorageImage|vk::FormatFeatureFlagBits::eSampledImage|vk::FormatFeatureFlagBits::eTransferDst|vk::FormatFeatureFlagBits::eTransferSrc;
@@ -259,7 +260,7 @@ void NativePersistentHistory::Impl::FinishTransition(Scheduler& scheduler){
  const unsigned to=1-active;
  Pass(scheduler,PHAdopt,candidate,to,Converted(),banks[active].edit.View(),banks[active].meta.View(),current,true,0,0);
  active=to;history=true;
- std::printf("PERSISTENT_HISTORY_TRANSITION_FINISH source=%llu origin=%llu target_bank=%u active_bank=%u start_source=%llu scope=GPU_conditional_target_or_old_fallback\n",
+ if(VerbosePlayerFrames())std::printf("PERSISTENT_HISTORY_TRANSITION_FINISH source=%llu origin=%llu target_bank=%u active_bank=%u start_source=%llu scope=GPU_conditional_target_or_old_fallback\n",
   (unsigned long long)current.source,(unsigned long long)candidate_origin,candidate,active,(unsigned long long)transition.source);
  transition.Clear();
 }
@@ -376,7 +377,7 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  frame.history==p.last.history&&frame.params==p.last.params&&!frame.sr_reset;
  if(!continuous){p.history=false;p.transition.Clear();}
  p.slot=next;s.used=0;s.source_id=frame.source;s.borrowed.clear();p.current=frame;p.current_raw=raw[0];
- s.sampled=p.applied_controls.config.hud&&frame.source%p.sample_interval==0;s.stats_pending=false;s.sample_revision=p.applied_controls.revision;s.sample_generation=p.reset_window.generation;
+ s.sampled=p.sample_interval&&p.applied_controls.config.hud&&frame.source%p.sample_interval==0;s.stats_pending=false;s.sample_revision=p.applied_controls.revision;s.sample_generation=p.reset_window.generation;
  auto cmd=scheduler.CommandBuffer();if(s.sampled&&p.queries)cmd.resetQueryPool(*p.queries,p.slot*QueriesPerSlot,QueriesPerSlot);if(!p.initialized)p.Init(cmd);p.Convert(scheduler,raw);
  const auto views=p.Converted();const unsigned next_bank=1-p.active;
  p.Pass(scheduler,PHAdvance,p.active,next_bank,views,p.banks[p.active].edit.View(),p.banks[p.active].meta.View(),frame,p.history,1,float(p.current_dt_ms));
@@ -423,7 +424,7 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
  // of old active until the short display transition ends; GPU guards decide per pixel.
  p.candidate=current_bank;p.history=true;p.candidate_recorded=true;p.candidate_origin=links.front().frame.source;p.candidate_current=p.current.source;++p.candidate_count;
  if(!p.transition.Begin(p.current.source,p.clock_ms))throw std::runtime_error("invalid visual transition clock after candidate recording");
- std::printf("PERSISTENT_HISTORY_TRANSITION_BEGIN source=%llu origin=%llu target_bank=%u active_bank=%u weight=%.6f scope=GPU_guard_pending_no_age_refresh\n",
+ if(VerbosePlayerFrames())std::printf("PERSISTENT_HISTORY_TRANSITION_BEGIN source=%llu origin=%llu target_bank=%u active_bank=%u weight=%.6f scope=GPU_guard_pending_no_age_refresh\n",
   (unsigned long long)p.current.source,(unsigned long long)p.candidate_origin,p.candidate,p.active,p.transition.Weight(p.current.source,p.clock_ms));
  if(p.diagnostic){
   if(!nr_image||!evidence)throw std::runtime_error("cold candidate actual image and exact identity required");
@@ -433,7 +434,7 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
   snapshot.capture_parameters=p.last_capture;snapshot.bank=current_bank;snapshot.count=p.candidate_count;
   if(p.diagnostic->RecordCandidate(scheduler,snapshot))p.Mark(scheduler);
  }
- std::printf("PERSISTENT_HISTORY_CANDIDATE_RECORDED source=%llu origin=%llu links=%zu candidate_bank=%u active_bank=%u status=PENDING_GPU_GUARD\n",(unsigned long long)p.current.source,(unsigned long long)links.front().frame.source,links.size(),p.candidate,p.active);
+ if(VerbosePlayerFrames())std::printf("PERSISTENT_HISTORY_CANDIDATE_RECORDED source=%llu origin=%llu links=%zu candidate_bank=%u active_bank=%u status=PENDING_GPU_GUARD\n",(unsigned long long)p.current.source,(unsigned long long)links.front().frame.source,links.size(),p.candidate,p.active);
  return true;
 }
 vk::ImageView NativePersistentHistory::Apply(Scheduler& scheduler){

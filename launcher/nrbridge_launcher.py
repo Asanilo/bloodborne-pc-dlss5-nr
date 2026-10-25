@@ -385,7 +385,7 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
                    data_dir=None, home_path=None, session=None):
     """Validate the saved selection, then build the shared GUI/--play entry."""
     nr_enabled = bool(settings.get("nrbridge_enabled", True))
-    fg=fg_config.selection(dict(fg_config.discover(home_path or home()), **settings))
+    fg=fg_config.selection(fg_config.resolved(settings,home_path or home()))
     if fg["backend"] in ("dlssg","smooth-motion"):fg_config.availability(fg,home_path or home())
     if fg["backend"]=="dlssg":
         conflicts=nr_conflicts(settings,ini,dimensions=fg['transport']=='gpu-dmabuf-v1')
@@ -405,12 +405,12 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
         if not variable_source:
             raise ValueError("Variable dimensions require native FSR or DLSS GPU mailbox; CPU retains its baseline")
         try:name=tuple(dimension_profile.PRESETS)[int(ini.get("preset","1"))]
-        except (ValueError,IndexError):raise ValueError("M5 requires a supported DLSS SR preset")
-        if str(ini.get("preset","1")) not in ("0","1","2","3","4"):raise ValueError("M5 requires a supported DLSS SR preset")
+        except (ValueError,IndexError):raise ValueError("Select a supported DLSS SR preset")
+        if str(ini.get("preset","1")) not in ("0","1","2","3","4"):raise ValueError("Select a supported DLSS SR preset")
         if ini.get("upscaler")=="off":
             name="native"
         dimensions=dimension_profile.select(argparse.Namespace(nr_sr_preset=name,nr_output=ini.get("output_res","1920x1080"),nr_execution=settings.get("nrbridge_execution","1280x720") or None))
-        if ini.get("aspect_ratio","auto") not in ("auto",dimensions["aspect_ratio"]):raise ValueError("M5 output and aspect ratio must match")
+        if ini.get("aspect_ratio","auto") not in ("auto",dimensions["aspect_ratio"]):raise ValueError("Output resolution and aspect ratio must match")
     if nr_enabled:
         conflicts = nr_conflicts(settings, ini,dimensions=bool(dimensions))
         if conflicts:

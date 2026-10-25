@@ -71,6 +71,7 @@ std::atomic<bool> menu_open{false};
 bool l3_down = false, r3_down = false;
 bool nr_start_requested = false;
 bool nr_start_error = false;
+bool advanced_options = false;
 bool dirty = false; // settings changed while open: saved on close
 float base_scale = 1.0f;
 // The game's text dialog (ImeDialog, the character name), typed on the keyboard: drawn while it
@@ -109,7 +110,7 @@ bool FgCounter() {
     if (Vulkan::FgLifecycle::driver_smooth_motion.load())
         ImGui::Text(BbSettings::MenuText("Real %.0f | Smooth Motion: display FPS unverified",
                                        "Real %.0f | Smooth Motion: display FPS unverified"),real_fps);
-    else ImGui::Text("Real %.0f | FG %.0f | Present %.0f", real_fps, generated_fps, present_fps);
+    else ImGui::Text(BbSettings::MenuText("Real %.0f | FG %.0f | Present %.0f","Реальные %.0f | FG %.0f | Present %.0f"), real_fps, generated_fps, present_fps);
     return true;
 }
 
@@ -266,30 +267,46 @@ void NRGpuSamples(const BbNR::Snapshot& actual,bool compact) {
 
 void NRControls() {
     if (!PersistentNRControlsEnabled()) return;
-    if (!ImGui::CollapsingHeader("NRBridge live controls",ImGuiTreeNodeFlags_DefaultOpen)) return;
+    if (!ImGui::CollapsingHeader(BbSettings::MenuText("Neural rendering","Нейрорендеринг"),ImGuiTreeNodeFlags_DefaultOpen)) return;
     auto request=BbNR::ReadRequest();auto c=request.config;const auto actual=BbNR::ReadSnapshot();
     static std::string error;bool changed=false;
+    const bool developer=std::getenv("BB_DEVELOPER_MODE") && std::strcmp(std::getenv("BB_DEVELOPER_MODE"),"1")==0;
+    if(!developer && !advanced_options){
+        if(actual.status==BbNR::Status::Unavailable && NRStartAvailable() && !nr_start_requested)
+            if(ImGui::Button(BbSettings::MenuText("Enable NR (F8)","Включить NR (F8)")))RequestNRStart();
+        bool enabled=!c.display_bypass;
+        ImGui::BeginDisabled(actual.status==BbNR::Status::Unavailable || actual.status==BbNR::Status::Pending);
+        if(ImGui::Checkbox(BbSettings::MenuText("NR effect (F8)","Эффект NR (F8)"),&enabled)){c.display_bypass=!enabled;changed=true;}
+        ImGui::EndDisabled();
+        changed|=ImGui::SliderFloat(BbSettings::MenuText("NR strength","Сила NR"),&c.display_strength,0.f,1.f);
+        changed|=ImGui::Checkbox(BbSettings::MenuText("Show NR status","Показывать статус NR"),&c.hud);
+        if(changed)BbNR::Submit(c,{},&error);
+        if(actual.status==BbNR::Status::Failed || actual.status==BbNR::Status::Held || nr_start_error)
+            ImGui::TextWrapped("%s",BbSettings::MenuText("NR unavailable. See the game log for details.","NR недоступен. Подробности в журнале игры."));
+        if(!error.empty())ImGui::TextWrapped("%s",BbSettings::MenuText("The NR setting could not be applied.","Не удалось применить настройку NR."));
+        return;
+    }
     ImGui::Text("%s | config %s",BbNR::StatusName(actual.status),actual.applied_revision<request.revision?"pending":"applied");
     if(actual.status==BbNR::Status::Unavailable && NRStartAvailable() && !nr_start_requested) {
         if(ImGui::Button(BbSettings::MenuText("Enable NR", "Включить NR"))) RequestNRStart();
     }
     if(nr_start_error)ImGui::TextUnformatted(BbSettings::MenuText("NR request failed; see menu", "Ошибка запроса NR; см. меню"));
     ImGui::BeginDisabled(actual.status==BbNR::Status::Unavailable || actual.status==BbNR::Status::Pending);
-    changed|=ImGui::Checkbox("Display bypass (F8)",&c.display_bypass);
+    changed|=ImGui::Checkbox(BbSettings::MenuText("Display bypass (F8)","Display bypass (F8)"),&c.display_bypass);
     ImGui::EndDisabled();
-    changed|=ImGui::SliderFloat("Display strength",&c.display_strength,0.f,1.f);
+    changed|=ImGui::SliderFloat(BbSettings::MenuText("Display strength","Display strength"),&c.display_strength,0.f,1.f);
     ImGui::Text("Actual display: %s / %.2f",actual.actual_config.display_bypass?"raw SR":"NR history",actual.actual_config.display_strength);
     ImGui::TextWrapped("Display comparison shares SR history. Fast toggles are not strict same-frame dual-history A/B.");
     int reprojection=static_cast<int>(c.reprojection);
-    if(ImGui::Combo("History reprojection",&reprojection,"Nearest (Alpha/default)\0Clamped cubic (optional)\0")){c.reprojection=static_cast<BbNR::Reprojection>(reprojection);changed=true;}
+    if(ImGui::Combo(BbSettings::MenuText("History reprojection","History reprojection"),&reprojection,"Nearest (Alpha/default)\0Clamped cubic (optional)\0")){c.reprojection=static_cast<BbNR::Reprojection>(reprojection);changed=true;}
     Hint("Changing reprojection clears visual history; it does not rebuild the model.");
     ImGui::Text("Applied reprojection: %s%s",actual.actual_config.reprojection==BbNR::Reprojection::Nearest?"Nearest":"Clamped cubic",c.reprojection!=actual.actual_config.reprojection?" (pending)":"");
-    if(ImGui::TreeNode("History lifetime and confidence")) {
-        int frames=int(c.ttl_frames);if(ImGui::SliderInt("Visual TTL frames",&frames,1,12)){c.ttl_frames=unsigned(frames);changed=true;}
+    if(ImGui::TreeNode(BbSettings::MenuText("History lifetime and confidence","History lifetime and confidence"))) {
+        int frames=int(c.ttl_frames);if(ImGui::SliderInt(BbSettings::MenuText("Visual TTL frames","Visual TTL frames"),&frames,1,12)){c.ttl_frames=unsigned(frames);changed=true;}
         changed|=ImGui::SliderFloat("Visual TTL milliseconds",&c.ttl_ms,1.f,200.f);
         changed|=ImGui::SliderFloat("Depth tolerance",&c.depth_tolerance,.0001f,.25f,"%.4f");
         changed|=ImGui::SliderFloat("Colour tolerance",&c.colour_tolerance,0.f,4.f);
-        changed|=ImGui::SliderFloat("Minimum confidence",&c.min_confidence,0.f,1.f);
+        changed|=ImGui::SliderFloat(BbSettings::MenuText("Minimum confidence","Minimum confidence"),&c.min_confidence,0.f,1.f);
         Hint("Reprojection confidence combines depth, colour and local motion consistency. Default 0.5 preserves the existing valid regions; higher values reject more uncertain edits and may increase raw fallback. Hard occlusion rejection always applies.");
         ImGui::TextWrapped("TTL/threshold changes request visual reset. NR late-result admission remains age <= 4.");
         ImGui::TreePop();
@@ -310,15 +327,15 @@ void NRControls() {
         ImGui::TextWrapped("Dragging stages values only. Apply requests a safe model feature rebuild; failure keeps pending/failed status visible.");
         ImGui::TreePop();
     }
-    changed|=ImGui::Checkbox("NR status HUD",&c.hud);
+    changed|=ImGui::Checkbox(BbSettings::MenuText("NR status HUD","NR status HUD"),&c.hud);
     if(changed)BbNR::Submit(c,{},&error);
-    if(ImGui::Button("Reset visual history"))BbNR::Submit(c,{.reset=true},&error);
+    if(ImGui::Button(BbSettings::MenuText("Reset visual history","Reset visual history")))BbNR::Submit(c,{.reset=true},&error);
     ImGui::SameLine();
     ImGui::BeginDisabled(actual.capture_busy||request.capture_seq!=actual.capture_applied_seq);
-    if(ImGui::Button("Capture current-source chain (F9)"))BbNR::Submit(c,{.capture=true},&error);
+    if(ImGui::Button(BbSettings::MenuText("Capture current-source chain (F9)","Capture current-source chain (F9)")))BbNR::Submit(c,{.capture=true},&error);
     ImGui::EndDisabled();
     ImGui::Text("Capture request %llu / handled %llu%s",(unsigned long long)request.capture_seq,(unsigned long long)actual.capture_applied_seq,actual.capture_busy?" (busy)":"");
-    if(ImGui::Button("Restore exact NR defaults"))BbNR::Submit(BbNR::Config{},{.reset=true},&error);
+    if(ImGui::Button(BbSettings::MenuText("Restore exact NR defaults","Restore exact NR defaults")))BbNR::Submit(BbNR::Config{},{.reset=true},&error);
     Hint("Restores requested defaults. Model changes still require explicit Apply; actual state is shown above.");
     if(!error.empty())ImGui::TextWrapped("Request rejected: %s",error.c_str());
     if(ImGui::TreeNode(BbSettings::MenuText("Detailed NR diagnostics", "Подробная диагностика NR"))) {
@@ -352,6 +369,7 @@ void NRHud() {
     else state=BbSettings::MenuText("NR unavailable", "NR недоступен");
     if(BbSettings::Get().show_fps) {
         if (!FgCounter()) ImGui::Text("%.0f FPS | %s",frame_ms_avg>0.f?1000.f/frame_ms_avg:0.f,state);
+        else ImGui::TextUnformatted(state);
     } else ImGui::TextUnformatted(state);
     ImGui::End();
 }
@@ -573,6 +591,7 @@ void Menu() {
             dirty = true;
         }
     }
+    ImGui::Checkbox(BbSettings::MenuText("Advanced settings","Расширенные настройки"),&advanced_options);
     NRControls();
 #if NRBRIDGE_LEGACY_EXPERIMENTS
     if(const auto p0=BbP0::ReadSnapshot();p0.opt_in) {
@@ -594,7 +613,7 @@ void Menu() {
     // Always readable, even when the rest of the menu is in Russian.
     static const char* languages[] = {"English", "Русский", "简体中文"};
     int language = static_cast<int>(s.menu_language.load());
-    if (ImGui::Combo("Language", &language, languages, 3)) {
+    if (ImGui::Combo(BbSettings::MenuText("Language","Язык"), &language, languages, 3)) {
         s.menu_language =
             static_cast<BbSettings::MenuLanguage>(language);
         s.menu_language_chosen = true;
@@ -776,23 +795,29 @@ void Menu() {
     ImGui::EndDisabled();
     // Keep sealed backend ownership stable until the next managed launch.
     ImGui::SeparatorText(BbSettings::MenuText("Frame generation", "Генерация кадров"));
-    ImGui::Text("FG: %s", Vulkan::FgBackendStatus::Name());
-    static constexpr const char* backend_labels[]={"Off","FSR 3.1 HUDless x2","NVIDIA DLSS FG / MFG",
-        "NVIDIA Smooth Motion (unavailable)","FSR 3.1.6 x2 (Experimental)"};
+    ImGui::Text(BbSettings::MenuText("Current: %s (%s)","Текущий: %s (%s)"),
+        BbSettings::MenuText(Vulkan::FgBackendStatus::Name(),Vulkan::FgBackendStatus::Name()),
+        BbSettings::MenuText(s.frame_generation?"On":"Off",s.frame_generation?"Вкл":"Выкл"));
+    static constexpr const char* backend_labels[]={"Off","AMD FSR 3.1","NVIDIA DLSS",
+        "NVIDIA Smooth Motion (unavailable)","AMD FSR 3.1.6"};
     int next_backend=s.frame_generation_backend.load();
     const int actual_backend=Vulkan::FgSelection::Index(Vulkan::FgBackendStatus::Selected());
-    if(ImGui::BeginCombo(BbSettings::MenuText("FG backend (next launch)","FG (следующий запуск)"),backend_labels[next_backend])){
+    if(ImGui::BeginCombo(BbSettings::MenuText("FG backend","Алгоритм FG"),BbSettings::MenuText(backend_labels[next_backend],backend_labels[next_backend]))){
         for(int i=0;i<5;++i){
             ImGui::BeginDisabled(i==3);
-            if(ImGui::Selectable(backend_labels[i],i==next_backend)){
+            if(ImGui::Selectable(BbSettings::MenuText(backend_labels[i],backend_labels[i]),i==next_backend)){
                 Store(s.frame_generation_backend,i,true);next_backend=i;
+                // Off is a live toggle. Returning to the retained backend is
+                // live too; only a different runtime needs a new process.
+                if(i==0)Store(s.frame_generation,false,true);
+                else if(i==actual_backend)Store(s.frame_generation,true,true);
                 if(i!=2)Store(s.frame_generation_next_multiplier,2,true);
             }
             ImGui::EndDisabled();
         }
         ImGui::EndCombo();
     }
-    if(next_backend!=actual_backend)
+    if(next_backend!=0 && next_backend!=actual_backend)
         Hint(BbSettings::MenuText("FG backend saved for the next launch. Restart normally to apply; NR is independent.",
                                  "FG сохранён для следующего запуска. Перезапустите игру; NR независим."));
     if(next_backend==2){
@@ -806,28 +831,24 @@ void Menu() {
             }
             ImGui::EndCombo();
         }
-        if(actual_backend==2&&s.frame_generation_live_multiplier){
-            Hint(BbSettings::MenuText("Multiplier changes rebuild FG history after retiring the old GPU resources.",
-                                     "Смена множителя пересоздаёт историю FG после освобождения старых ресурсов GPU."));
-        }else{
-            Hint(BbSettings::MenuText("This multiplier change requires a restart. Live switching needs the GPU consumer queue and verified runtime.",
-                                     "Для смены множителя нужен перезапуск. На лету требуется GPU consumer queue и проверенная модель."));
+        if(actual_backend==2 && next_backend==actual_backend && !s.frame_generation_live_multiplier &&
+            unsigned(next_multiplier)!=Vulkan::FgBackendStatus::active_multiplier.load()){
+            Hint(BbSettings::MenuText("Restart the game to apply this multiplier.",
+                                     "Перезапустите игру, чтобы применить множитель."));
         }
     }
     if (Vulkan::FgBackendStatus::Is(Vulkan::FgBackendStatus::Selected(),"smooth-motion")) {
         const auto* status=Vulkan::FgBackendStatus::SmoothMotionStatus();
         ImGui::TextWrapped("%s",BbSettings::MenuText(status,status));
-    } else if (!Vulkan::FgBackendStatus::Application()) {
-        Hint(BbSettings::MenuText("Choose an FG backend in the launcher and restart. NR remains independent.",
-                                 "Выберите FG в лаунчере и перезапустите. NR независим."));
     }
     if (Vulkan::FgBackendStatus::Application()) {
         const char* backend = std::getenv("BB_FRAME_GEN_BACKEND");
         const bool dlssg = backend && std::strcmp(backend, "dlssg") == 0;
         ImGui::BeginDisabled(!s.frame_generation_supported.load(std::memory_order_relaxed));
-        Checkbox(dlssg ? BbSettings::MenuText("DLSS FG enabled (current backend)", "DLSS FG включён (текущий режим)")
-                       : BbSettings::MenuText("Experimental frame generation (FSR 3 x2)", "Экспериментальная генерация кадров (FSR 3 x2)"),
-                 s.frame_generation);
+        const bool was_enabled=s.frame_generation;
+        Checkbox(BbSettings::MenuText("Enable frame generation", "Включить генерацию кадров"),s.frame_generation);
+        if(!was_enabled && s.frame_generation && next_backend==0)
+            Store(s.frame_generation_backend,actual_backend,true);
         ImGui::EndDisabled();
         if (const char* problem = s.frame_generation_problem.load(std::memory_order_relaxed)) {
             Hint(problem);
@@ -837,11 +858,8 @@ void Menu() {
                 "Между реальными кадрами показываются кадры DLSS. Динамические размеры SR, Old/New. NR независим: F8."));
         } else {
             Hint(BbSettings::MenuText(
-                "Shows a frame interpolated by FSR 3 between each two of the game's: twice the frames "
-                "on screen, a little more input lag. Works with every upscaler preset except Off.",
-                "Между каждыми двумя кадрами игры показывается кадр, интерполированный FSR 3: на "
-                "экране вдвое больше кадров, задержка ввода чуть выше. Работает со всеми пресетами "
-                "апскейлера, кроме «Выкл»."));
+                "Generates one intermediate frame between real frames. Supports super resolution and NR-only.",
+                "Генерирует один промежуточный кадр. Поддерживает SR и NR без SR."));
         }
     }
     Checkbox(BbSettings::MenuText("Subpixel jitter", "Субпиксельный сдвиг (jitter)"), s.jitter);
@@ -873,10 +891,14 @@ void Menu() {
     Slider(BbSettings::MenuText("Scale", "Масштаб"), s.reactive_scale, 0.0f, 4.0f);
     Slider(BbSettings::MenuText("Threshold", "Порог"), s.reactive_threshold, 0.0f, 1.0f);
     Slider(BbSettings::MenuText("Maximum", "Максимум"), s.reactive_max, 0.0f, 1.0f);
+    const char* developer_env=std::getenv("BB_DEVELOPER_MODE");
+    const bool developer=advanced_options || (developer_env && std::strcmp(developer_env,"1")==0);
+    if(developer){
     bool show_mask = s.debug_view == BbSettings::DebugReactive;
     if (ImGui::Checkbox(BbSettings::MenuText("Show mask (debug)", "Показать маску (отладка)"),
                         &show_mask)) {
         s.debug_view = show_mask ? BbSettings::DebugReactive : BbSettings::DebugNone;
+    }
     }
     ImGui::EndDisabled();
     ImGui::EndDisabled();
@@ -889,6 +911,7 @@ void Menu() {
         "Точные векторы для анимированных объектов: одежда и оружие меньше рассыпаются "
         "при движении. Статичная сцена не получает дополнительный проход. "
         "Изменение применяется после перезапуска игры."));
+    if(developer){
     bool show_motion = s.debug_view == BbSettings::DebugMotion;
     if (ImGui::Checkbox(BbSettings::MenuText("Show motion vectors (debug)",
                                              "Показать векторы движения (отладка)"),
@@ -904,6 +927,7 @@ void Menu() {
         "Синий: пиксель получил точный вектор объекта, а не только движение камеры. "
         "Движущийся предмет без синего и без красного/зелёного апскейлер считает "
         "неподвижным, отсюда шлейф."));
+    }
     ImGui::EndDisabled(); // upscaler off
 
     ImGui::SeparatorText(BbSettings::MenuText("Output", "Вывод"));
@@ -1010,6 +1034,8 @@ void Menu() {
     }
     for (int e = 0; e < BbSettings::EffectCount; ++e) {
         const auto& effect = BbSettings::Effects[e];
+        if((std::string_view(effect.key)=="debug_camera" || std::string_view(effect.key)=="debug_menu") &&
+           !advanced_options)continue;
         Checkbox(BbSettings::MenuText(effect.label, effect.label_ru), s.effects[e]);
         if (std::string_view(effect.key) == "debug_camera") {
             Hint(BbSettings::MenuText("Hold Cross and press L3 (keyboard: F + Left Ctrl).",
@@ -1316,7 +1342,8 @@ void SaveOnClose() {
 bool HandleEvent(const SDL_Event& event) {
     std::scoped_lock lock{imgui_mutex};
     const bool nr_hotkey = event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
-                          (event.key.key == SDLK_F8 || event.key.key == SDLK_F9);
+                          (event.key.key == SDLK_F8 || (event.key.key == SDLK_F9 &&
+                           (advanced_options || (std::getenv("BB_DEVELOPER_MODE") && std::strcmp(std::getenv("BB_DEVELOPER_MODE"),"1")==0))));
     const unsigned nr_key = nr_hotkey && event.key.key == SDLK_F9 ? 9u : 8u;
     if (!initialized) {
         if (nr_hotkey) std::printf("NR_HOTKEY_OVERLAY key=F%u initialized=0 disposition=ignored_uninitialized\n", nr_key);

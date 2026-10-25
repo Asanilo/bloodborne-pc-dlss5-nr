@@ -27,13 +27,12 @@ key bindings, Chinese settings and save management—all accessible from the ful
 
 <a id="features"></a>
 
-**M4 + M5 are integrated on `nrbridge`: NR-only and multiple NR/SR dimensions,
-plus optional NVIDIA DLSS FG/MFG 2X–6X, share one launcher and runtime.**
-MFG currently uses the verified 1080p Quality / Old profile; new NR sizes use FG Off.
-FSR FG remains an optional HUDless x2 backend. FG is Experimental and opt-in;
-vegetation drift and other temporal artifacts remain outside visual acceptance.
-See the [unified build, mode matrix and launch guide](docs/M4_M5_MAINLINE_INTEGRATION.zh-CN.md).
-No public binary release is included; existing installations stay unchanged.
+**The unified launcher supports independent NR, SR and frame generation.**
+Choose AMD FSR x2 or NVIDIA DLSS FG/MFG 2X–6X, with dynamic resolutions,
+SR presets and Old/New memory. NR-only + FG is also supported. New memory and
+Legacy NR history remain the defaults. Smooth Motion is unavailable pending safe
+shutdown validation. See the [player guide](docs/PLAYER_GUIDE.zh-CN.md).
+This repository does not currently publish a downloadable binary release.
 
 ## A new rendering path for Yharnam
 
@@ -67,8 +66,9 @@ correct stopping, F1 release and recovery from menus.
 
 With a prepared AppImage or installation, open the AppImage or `./launch.sh`:
 
-1. Choose your game and save directories, then configure the local **NR runtime inputs**.
-2. Leave **NR** and **native mouse** enabled; select DLSS Quality and 1920×1080.
+1. Open the installed launcher and keep your existing game and save directories.
+   Source-built installations require local runtime setup; see the developer guide.
+2. Choose NR, SR, resolution and FG independently. 1080p Quality is a useful starting point.
 3. Start the game, enter a controllable scene, then press **F8** to enable NR
    without leaving the game. The launcher's confirmation button remains available.
 4. When finished, let progress finish saving before closing the launcher.
@@ -79,22 +79,20 @@ With a prepared AppImage or installation, open the AppImage or `./launch.sh`:
 | Key | Action |
 | :--- | :--- |
 | F1 | Release mouse capture; click the game to recapture |
-| F6 | Toggle the BBSC cinematic camera, when BBSC is enabled |
+| F6 | Toggle the offline free camera; no multiplayer or BBSC requirement |
 | F8 | First press enables NR in-game; later presses toggle the NR effect |
-| Delete | Open NR controls; select Apply after changing parameters |
+| Delete | Open NR and graphics settings |
 | Insert / L3+R3 | Open bbport settings |
 
-The compact HUD shows FPS and NR status. Open **Delete → Detailed NR diagnostics**
-for the full counters. Toggling the effect keeps the NR service running.
-BBSC can coexist with native mouse look. Its cinematic camera takes keyboard/mouse
-input while active and returns it to normal gameplay when closed.
+The HUD distinguishes real, generated and application Present rates. Display refresh
+can limit the number of frames actually shown. NR's F8 effect toggle and active FG
+on/off are live; DLSS GPU scheduling supports live 2X–6X changes. Only settings that
+need a new process show a restart message, including selecting a different FG runtime.
 
-The stable NR profile uses DLSS Quality, 1920×1080, 16:9 or Auto, jitter and object
-motion enabled. The source-built [M5 experiment](docs/M5_NR_DIMENSIONS.zh-CN.md) adds
-DLAA, Quality, Balanced and Performance with multiple outputs and live SR switching;
-select **Experimental NR dimensions (M5)** and keep FG Off. Upscaler Off selects
-strict NR-only; DLAA keeps same-resolution DLSS reconstruction. Choose Old or Auto memory; under NR, Auto selects the matching old
-model. Turn NR off to use ordinary upscaler settings.
+DLAA, Quality, Balanced and Performance support multiple outputs and aspect ratios.
+Upscaler Off selects NR-only when NR is enabled. NR quality resolution is separate
+from the display resolution. Keep jitter and object motion enabled for NR. Normal
+play disables validation, performance profiling and diagnostic image sampling.
 
 </details>
 
@@ -108,7 +106,7 @@ model. Turn NR off to use ordinary upscaler settings.
   further compatibility work.
 - FSR 4.1.1 DLL conversion is currently unavailable; prepared resources remain selectable.
 
-See [Preview status](docs/NRBRIDGE_PREVIEW_STATUS.md) for details.
+See the [current features and limitations](docs/PC_FEATURES.zh-CN.md).
 
 </details>
 
@@ -128,7 +126,7 @@ graphics to Vulkan. NRBridge adds a division between rendering and model inferen
 Game image & motion → NR Helper → Persistent visual history → Native DLSS SR → Display
 ```
 
-### Experimental Native Linux Vulkan NR Bridge
+### Native Linux Vulkan NR Bridge
 
 NRBridge demonstrates **DLSS 5 Neural Rendering integration in a native Linux
 Vulkan game**, using Bloodborne as a real-world implementation. The game-side
@@ -174,9 +172,9 @@ cd bbport-nrbridge
 | Dependencies, Native and Helper builds | [Developer guide](tools/nr_dev/README.md) |
 | AppImage packaging | [Package guide](packaging/nrbridge/README.md) |
 | Bindings, Chinese UI and saves | [Player guide](docs/PC_FEATURES.zh-CN.md) (Chinese) |
-| Unified NR / SR / FG / MFG selection | [Mainline integration guide](docs/M4_M5_MAINLINE_INTEGRATION.zh-CN.md) |
-| Progress and known issues | [Preview status](docs/NRBRIDGE_PREVIEW_STATUS.md) |
-| Configurable NR execution and SR output | [M5 guide and tested configurations](docs/M5_NR_DIMENSIONS.zh-CN.md) |
+| Unified NR / SR / FG / MFG selection | [Player guide](docs/PLAYER_GUIDE.zh-CN.md) |
+| Progress and known issues | [Current features](docs/PC_FEATURES.zh-CN.md) |
+| Configurable NR execution and SR output | [Current player settings](docs/PC_FEATURES.zh-CN.md) |
 | Workspace and branch layout | [Repository maintenance](docs/WORKSPACE.md) |
 | Changes in bbport 0.6 | [Upstream changelog](docs/CHANGES_0.6.md) |
 

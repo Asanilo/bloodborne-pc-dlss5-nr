@@ -46,7 +46,7 @@ CONFIG_FILE = Path(os.environ.get("BB_LAUNCHER_SETTINGS",
     os.environ.get("NRBRIDGE_LAUNCHER_SETTINGS", CONFIG_DIR / "settings.json")))
 CONFIG_DIR = CONFIG_FILE.parent
 NRBRIDGE = nrbridge.active()
-NR_FSR411_LIMIT = ("FSR 4.1.1 DLL conversion is unavailable in NRBridge Preview because it uses a separate GPU workflow. "
+NR_FSR411_LIMIT = ("FSR 4.1.1 DLL conversion is unavailable in this launcher because it uses a separate GPU workflow. "
                   "With NR off, you can select FSR 3, TAA or FSR 4.1.1 with prepared resources.")
 MAX_LOG_LINES = 5000
 # The memory model (run.sh: BB_PC_MODEL): "auto" is the new one on every GPU (0.6), or either by
@@ -55,8 +55,8 @@ MAX_LOG_LINES = 5000
 PC_MODEL_SUBTITLE = ("Новая: видеокарта работает с памятью игры напрямую, как в игре для ПК, а команды "
                      "графики переводятся, а не эмулируются. Старая — модель памяти 0.3 со всеми "
                      "исправлениями. Если драйвер не проходит проверку при запуске — старая")
-MEMORY_MODELS = [("Авто: новая на любой видеокарте", "auto"), ("Новая", "new"),
-                 ("Старая (как в 0.3)", "old")]
+MEMORY_MODELS = ([("Automatic (uses New)","auto"),("New (recommended)","new"),("Old","old")]
+                 if NRBRIDGE else [("Авто: новая на любой видеокарте", "auto"), ("Новая", "new"), ("Старая (как в 0.3)", "old")])
 # FSR 4.1.1 assets built from the user's AMD DLL (tools/fsr4cap, also in the package).
 FSR4CAP_DIR = PORT_DIR / "tools" / "fsr4cap"
 sys.path.insert(0, str(FSR4CAP_DIR))
@@ -184,6 +184,9 @@ DEFAULTS = {
     "nrbridge_native_mouse": True,
     "nrbridge_dimensions": False,
     "nrbridge_execution": "1280x720",
+    "cinematic_camera": True,
+    "developer_mode": False,
+    "diagnostics_enabled": False,
     "ui_language": "",
     "game_dir": "" if PACKAGED else str(PORT_DIR.parent / "CUSA03173"),
     "user_dir": "",
@@ -209,7 +212,7 @@ DEFAULTS = {
     "frame_stats": False,
     "save_log": False,
     "crash_diag": False,
-    "memory_model": "old" if NRBRIDGE else "auto",
+    "memory_model": "new" if NRBRIDGE else "auto",
     "as_0_3": False,
     "gpu_profile": False,
     "vk_validation": False,
@@ -273,6 +276,7 @@ def load_settings():
         sys.path.insert(0,str(nrbridge.app_dir()/'tools/nr_dev'))
         import fg_preferences
         settings.update(fg_preferences.read(CONFIG_FILE, DATA_DIR))
+    settings['developer_mode']=os.environ.get('BB_DEVELOPER_MODE')=='1' or settings.get('diagnostics_enabled',False)
     return settings
 
 
@@ -697,32 +701,33 @@ class LauncherWindow(Adw.ApplicationWindow):
     # --- settings page -------------------------------------------------------------------
 
     def build_nrbridge_group(self):
-        group = Adw.PreferencesGroup(title="NRBridge", description=tr(
-            "NR uses the selected SR profile with a matching Helper, object motion and jitter. Old/New are supported. DLSS GPU FG accepts dynamic sizes; NR-only + FG is not yet available."))
+        developer=self.settings.get('developer_mode',False)
+        group = Adw.PreferencesGroup(title=tr("Neural rendering and frame generation"), description=tr(
+            "NR, super resolution and frame generation can be selected independently."))
         self.nr_enabled_row = Adw.SwitchRow(title=tr("Enable neural rendering (NR)"),
             active=self.settings.get("nrbridge_enabled", True))
         group.add(self.nr_enabled_row)
-        self.nr_dimensions_row=Adw.SwitchRow(title=tr("Experimental NR dimensions (M5)"),
-            subtitle=tr("Use the graphics page preset, output and aspect. Requires a matching NR Helper and a compatible FG backend."),
+        self.nr_preset_row=combo_row(tr("NR preset"),None,[("Preset B","B"),("Preset A","A"),("Default","Default")],self.settings.get('nr_preset','B'))
+        group.add(self.nr_preset_row)
+        self.nr_dimensions_row=Adw.SwitchRow(title=tr("Explicit render dimensions"),
             active=self.settings.get("nrbridge_dimensions",False))
-        group.add(self.nr_dimensions_row)
-        self.nr_execution_row=combo_row(tr("NR execution size"),tr("Changing this size requires a normal exit and a new session."),
-            [("1280×720 (8 GB)","1280x720"),("1920×1080 (higher VRAM)","1920x1080"),("Match SR render, capped at 1080p pixels","")],
+        self.nr_execution_row=combo_row(tr("NR quality resolution"),tr("Higher values use more video memory. Applies when starting the game."),
+            [("1280×720 (recommended)","1280x720"),("1920×1080 (higher VRAM)","1920x1080"),("Automatic","")],
             self.settings.get("nrbridge_execution","1280x720"))
         group.add(self.nr_execution_row)
-        self.settings = dict(nrbridge.fg_config.discover(nrbridge.home()), **self.settings)
+        self.settings = nrbridge.fg_config.resolved(self.settings,nrbridge.home())
         fg=nrbridge.fg_config.selection(self.settings)
         choices=list(zip(nrbridge.fg_config.LABELS,nrbridge.fg_config.BACKENDS))
-        self.nr_fg_row=combo_row(tr("Frame generation backend"),tr("Backend changes apply on the next launch; NR remains independent."),choices,fg['backend'])
+        self.nr_fg_row=combo_row(tr("Frame generation"),None,choices,fg['backend'])
         group.add(self.nr_fg_row)
         advanced=Adw.ExpanderRow(title=tr("Advanced FG settings"),expanded=False)
-        self.nr_fg_pipeline=combo_row(tr("DLSS GPU pipeline"),None,
-            [("Stable (submit-ready-v1)","submit-ready-v1"),("Experimental Q1 (consumer-queue-v1)","consumer-queue-v1")],
-            self.settings.get('fg_dlss_pipeline','submit-ready-v1'))
+        self.nr_fg_pipeline=combo_row(tr("DLSS scheduling"),None,
+            [("Standard","consumer-queue-v1"),("Compatibility","submit-ready-v1")],
+            self.settings.get('fg_dlss_pipeline','consumer-queue-v1'))
         self.nr_fg_transport=combo_row(tr("DLSS transport"),tr("CPU fallback uses synchronous processing."),
             [("GPU DMA-BUF","gpu-dmabuf-v1"),("CPU shared memory fallback","mapped-v1"),("CPU file fallback","files-v1")],fg['transport'])
-        self.nr_fg_multiplier=combo_row(tr('DLSS frame multiplier'),tr('3X–6X requires GPU DMA-BUF and Experimental Q1; restart required.'),[(str(m)+'X',m) for m in range(2,7)],fg['multiplier'])
-        advanced.add_row(self.nr_fg_multiplier)
+        self.nr_fg_multiplier=combo_row(tr('DLSS frame multiplier'),None,[(str(m)+'X',m) for m in range(2,7)],fg['multiplier'])
+        group.add(self.nr_fg_multiplier)
         self.nr_fg_multiplier.connect('notify::selected',self.update_fg_status)
         advanced.add_row(self.nr_fg_pipeline);advanced.add_row(self.nr_fg_transport)
         self.nr_fg_fields={}
@@ -743,13 +748,16 @@ class LauncherWindow(Adw.ApplicationWindow):
             subtitle=tr("Turn off to use the joystick mouse compatibility path"),
             active=self.settings.get("nrbridge_native_mouse", True))
         group.add(self.nr_mouse_row)
-        group.add(Adw.ActionRow(title=tr("FSR 4.1.1 DLL conversion unavailable"),
-            subtitle=tr(NR_FSR411_LIMIT)))
+        camera=Adw.SwitchRow(title=tr("F6 free camera"),
+            subtitle=tr("F6 toggles the camera; right mouse button looks around, WASD moves, E/Q moves vertically."),
+            active=self.settings.get('cinematic_camera',True))
+        self.nr_cinematic_row=camera;group.add(camera)
         self.nr_dependency_rows = {}
         runtime = nrbridge.read_runtime()
         values = nrbridge.dependency_values(runtime, self.settings)
         self.nr_dependency_values = values
         inputs = Adw.ExpanderRow(title=tr("NR runtime inputs"), expanded=False)
+        inputs.add_row(self.nr_dimensions_row)
         for key, title, folder in (
                 ("ge_files", "Wine / GE files", True),
                 ("model", "NR model (nvngx_dlssnr.dll)", False),
@@ -781,7 +789,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def choose_nr_dependency(self, key, title, folder):
         if self.process or nrbridge.result_is_hold(self.nr_result) or self.nr_setup_working:
-            self.alert("NRBridge", tr("Close the game normally and wait for retirement before closing the launcher."))
+            self.alert("Bloodborne", tr("Close the game normally and wait for retirement before closing the launcher."))
             return
         if folder:
             self.choose_folder(tr(title), self.nr_dependency_values.get(key) or nrbridge.home(),
@@ -820,7 +828,7 @@ class LauncherWindow(Adw.ApplicationWindow):
             self.nr_apply_button.set_sensitive(True)
             self.update_launch_button()
             if error is not None:
-                self.alert("NRBridge", tr("Could not save NR inputs: {} ").format(error))
+                self.alert("Bloodborne", tr("Could not save NR inputs: {} ").format(error))
             else:
                 self.nr_dependency_values = nrbridge.dependency_values(nrbridge.read_runtime(), self.settings)
                 for key, row in self.nr_dependency_rows.items():
@@ -837,21 +845,30 @@ class LauncherWindow(Adw.ApplicationWindow):
     def update_fg_status(self,*_):
         if not hasattr(self,'nr_fg_status'):return
         prefs=self.fg_preferences()
+        self.nr_fg_multiplier.set_visible(prefs['fg_backend']=='dlssg')
         self.nr_fg_pipeline.set_sensitive(prefs['fg_backend']=='dlssg' and prefs['fg_dlss_transport']=='gpu-dmabuf-v1')
-        try:message=nrbridge.fg_config.availability(nrbridge.fg_config.selection(prefs),nrbridge.home())
-        except ValueError as error:message=str(error)
+        try:
+            message=nrbridge.fg_config.availability(nrbridge.fg_config.selection(prefs),nrbridge.home())
+            if not self.settings.get('developer_mode',False):message="Ready"
+        except ValueError as error:
+            message=str(error)
+            if not self.settings.get('developer_mode',False):
+                if prefs['fg_backend']=='smooth-motion':message="Smooth Motion is unavailable until safe shutdown is verified. Choose another frame generation option."
+                elif 'model' in message:message="The frame generation model is missing or invalid."
+                elif 'prefix' in message:message="The frame generation runtime is not ready."
+                else:message="The selected frame generation option is unavailable. See the log for details."
         self.nr_fg_status.set_subtitle(tr(message))
 
     def start_nrbridge(self):
         if self.nr_setup_working or nrbridge.result_is_hold(self.nr_result):
-            self.alert("NRBridge", tr("Session is on HOLD; keep this launcher open for safe recovery."))
+            self.alert("Bloodborne", tr("Session is on HOLD; keep this launcher open for safe recovery."))
             return
         session = nrbridge.session_name()
         try:
             command = nrbridge.player_command(self.settings, self.ini, session=session,
                 settings_path=CONFIG_FILE, ini_path=ini_path(), data_dir=DATA_DIR)
         except ValueError as error:
-            self.alert("NRBridge", str(error))
+            self.alert("Bloodborne", str(error))
             return
         launcher = Gio.SubprocessLauncher.new(Gio.SubprocessFlags.STDOUT_PIPE |
             Gio.SubprocessFlags.STDERR_MERGE | Gio.SubprocessFlags.STDIN_PIPE)
@@ -862,7 +879,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         try:
             self.process = launcher.spawnv(command)
         except GLib.Error as error:
-            self.alert("NRBridge", tr("Не удалось запустить: {}").format(error.message))
+            self.alert("Bloodborne", tr("Не удалось запустить: {}").format(error.message))
             return
         self.nr_session = session
         self.nr_result = None
@@ -873,7 +890,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         self.read_line()
         self.process.wait_async(None, self.on_exit)
         self.update_launch_button()
-        self.stack.set_visible_child_name("log")
+        if self.settings.get('developer_mode',False):self.stack.set_visible_child_name("log")
 
     def on_nr_scene_ready(self, _button):
         if not self.process or not self.nr_waiting_scene or self.nr_stopping:
@@ -888,7 +905,7 @@ class LauncherWindow(Adw.ApplicationWindow):
             try:
                 self.process.get_stdin_pipe().write_all(b"\n", None)
             except GLib.Error as error:
-                self.alert("NRBridge", str(error))
+                self.alert("Bloodborne", str(error))
                 return
             self.nr_waiting_scene = False
             self.update_launch_button()
@@ -906,7 +923,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         try:
             request = launcher.spawnv(nrbridge.stop_command(self.nr_session))
         except GLib.Error as error:
-            self.alert("NRBridge", str(error))
+            self.alert("Bloodborne", str(error))
             return
         self.nr_stop_request = request
         self.nr_stopping = True
@@ -982,7 +999,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
         # Auto: the new memory model on every GPU; or either by hand.
         mode = Adw.PreferencesGroup(title=tr("Режим работы"))
-        self.memory_model_row = combo_row(tr("Модель памяти и трансляции"), tr(PC_MODEL_SUBTITLE),
+        self.memory_model_row = combo_row(tr("Модель памяти и трансляции"), tr("New is the default. Old remains available for compatibility; performance depends on the scene." if NRBRIDGE else PC_MODEL_SUBTITLE),
                                           MEMORY_MODELS, self.settings.get("memory_model", "auto"))
         mode.add(self.memory_model_row)
         # The GPU the game runs on, as in shadPS4 (laptops with two GPUs).
@@ -1190,6 +1207,8 @@ class LauncherWindow(Adw.ApplicationWindow):
                                     "dvdroot_ps4 игры или модом; без неё патч не применяется"))
             self.effect_rows[key] = row
             effects.add(row)
+            if key in ('debug_camera','debug_menu'):
+                row.set_visible(self.settings.get('developer_mode',False))
         # The title's "play online / play offline": the port has no PSN.
         self.skip_network_row = Adw.SwitchRow(
             title=tr("Пропускать выбор «по сети / вне сети»"),
@@ -1225,39 +1244,47 @@ class LauncherWindow(Adw.ApplicationWindow):
         perf.add(self.preupload_row)
         page.add(perf)
 
-        dev = Adw.PreferencesGroup(title=tr("Для разработчика"))
+        dev = Adw.PreferencesGroup(title=tr("Advanced settings"))
+        details=Adw.ExpanderRow(title=tr("Diagnostics and debug options"),expanded=False)
+        dev.add(details)
+        self.diagnostics_row=Adw.SwitchRow(title=tr("Enable selected diagnostics"),
+            subtitle=tr("Only explicitly enabled diagnostics run. They may reduce performance."),
+            active=self.settings.get('diagnostics_enabled',False))
+        details.add_row(self.diagnostics_row)
+        for key in ('debug_camera','debug_menu'):
+            row=self.effect_rows[key];effects.remove(row);row.set_visible(True);details.add_row(row)
         self.mangohud_row = Adw.SwitchRow(title="MangoHud", active=self.settings["mangohud"])
-        dev.add(self.mangohud_row)
+        details.add_row(self.mangohud_row)
         self.save_log_row = Adw.SwitchRow(
             title=tr("Сохранять журнал и статистику в файл"),
             subtitle=tr("В папку logs в каталоге данных: для разбора рывков и вылетов"),
             active=self.settings.get("save_log", False))
-        dev.add(self.save_log_row)
+        details.add_row(self.save_log_row)
         self.crash_diag_row = Adw.SwitchRow(
             title=tr("Диагностика вылетов"),
             subtitle=tr("Проверяет кучу игры и записывает записи в её память; немного медленнее"),
             active=self.settings.get("crash_diag", False))
-        dev.add(self.crash_diag_row)
+        details.add_row(self.crash_diag_row)
         self.as_0_3_row = Adw.SwitchRow(
             title=tr("Синхронизация как в 0.3"),
             subtitle=tr("Для поиска регрессий: старая модель памяти и ожидания копий как в релизе 0.3"),
             active=self.settings.get("as_0_3", False))
-        dev.add(self.as_0_3_row)
+        details.add_row(self.as_0_3_row)
         self.stats_row = Adw.SwitchRow(title=tr("Статистика кадров в журнале"),
                                        subtitle="BB_FRAME_STATS",
                                        active=self.settings["frame_stats"])
-        dev.add(self.stats_row)
+        details.add_row(self.stats_row)
         self.profile_row = Adw.SwitchRow(title=tr("Профиль GPU в журнале"),
                                          subtitle="BB_GPU_PROFILE",
                                          active=self.settings["gpu_profile"])
-        dev.add(self.profile_row)
+        details.add_row(self.profile_row)
         self.validation_row = Adw.SwitchRow(title=tr("Слои валидации Vulkan"),
                                             subtitle=tr("Сильно замедляет"),
                                             active=self.settings["vk_validation"])
-        dev.add(self.validation_row)
+        details.add_row(self.validation_row)
         self.extra_row = Adw.EntryRow(title=tr("Доп. переменные (ИМЯ=значение через пробел)"),
                                       text=self.settings["extra_env"])
-        dev.add(self.extra_row)
+        details.add_row(self.extra_row)
         page.add(dev)
         return page
 
@@ -1561,6 +1588,8 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def store(self):
         s = self.settings
+        s['diagnostics_enabled']=self.diagnostics_row.get_active()
+        s['developer_mode']=os.environ.get('BB_DEVELOPER_MODE')=='1' or s['diagnostics_enabled']
         s["gamepad"] = combo_value(self.gamepad_row)
         s["gamepad_name"] = self.gamepad_row.names[self.gamepad_row.get_selected()]
         s["display"] = combo_value(self.display_row)
@@ -1568,11 +1597,13 @@ class LauncherWindow(Adw.ApplicationWindow):
         if NRBRIDGE:
             s["nrbridge_gpu_id"] = self.nr_gpu_indices.get(s["gpu"]) if s["gpu"] else None
             s["nrbridge_enabled"] = self.nr_enabled_row.get_active()
+            s['nr_preset']=combo_value(self.nr_preset_row)
             s["nrbridge_dimensions"] = self.nr_dimensions_row.get_active()
             s["nrbridge_execution"] = combo_value(self.nr_execution_row)
             s.update(self.fg_preferences())
             s.pop("nrbridge_fsr_fg",None)
             s["nrbridge_native_mouse"] = self.nr_mouse_row.get_active()
+            s['cinematic_camera']=self.nr_cinematic_row.get_active()
         s["skip_network_choice"] = self.skip_network_row.get_active()
         s["language"] = combo_value(self.language_row)
         s["fullscreen"] = self.fullscreen_row.get_active()
@@ -2163,7 +2194,7 @@ class LauncherWindow(Adw.ApplicationWindow):
             self.nr_waiting_scene = False
             self.nr_stopping = False
             if nrbridge.result_is_hold(self.nr_result):
-                self.alert("NRBridge", tr("Session is on HOLD; keep this launcher open for safe recovery."))
+                self.alert("Bloodborne", tr("Session is on HOLD; keep this launcher open for safe recovery."))
         self.update_launch_button()
         self.update_game_status()
         self.refresh_backups()
@@ -2171,7 +2202,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def on_close(self, _window):
         if NRBRIDGE and (self.nr_setup_working or self.nr_stop_request is not None or not nrbridge.can_close(self.process is not None, self.nr_result)):
-            self.alert("NRBridge", tr("Close the game normally and wait for retirement before closing the launcher."))
+            self.alert("Bloodborne", tr("Close the game normally and wait for retirement before closing the launcher."))
             return True
         self.store()
         if self.process:
@@ -2184,7 +2215,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def update_fsr411_row(self, progress=None):
         if NRBRIDGE:
-            self.fsr411_button.set_label(tr("Unavailable in Preview"))
+            self.fsr411_button.set_label(tr("Unavailable"))
             self.fsr411_button.set_sensitive(False)
             self.fsr411_row.set_subtitle(tr(NR_FSR411_LIMIT))
             return
@@ -2304,7 +2335,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def on_fsr411_button(self, _button):
         if NRBRIDGE:
-            self.alert("NRBridge", tr(NR_FSR411_LIMIT))
+            self.alert("Bloodborne", tr(NR_FSR411_LIMIT))
             return
         if self.fsr411_build:
             self.stop_fsr411_build()
@@ -2314,7 +2345,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def on_fsr411_dll(self, upscaler, loader=None):
         if NRBRIDGE:
-            self.alert("NRBridge", tr(NR_FSR411_LIMIT))
+            self.alert("Bloodborne", tr(NR_FSR411_LIMIT))
             return
         import dll_info
         self.settings["fsr411_dll_dir"] = str(Path(upscaler).parent)
@@ -2367,7 +2398,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def start_fsr411_build(self, upscaler, loader):
         if NRBRIDGE:
-            self.alert("NRBridge", tr(NR_FSR411_LIMIT))
+            self.alert("Bloodborne", tr(NR_FSR411_LIMIT))
             return
         command, env = fsr411_build_command(upscaler, loader)
         launcher = Gio.SubprocessLauncher.new(
@@ -2405,7 +2436,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def stop_fsr411_build(self):
         if NRBRIDGE:
-            self.alert("NRBridge", tr(NR_FSR411_LIMIT))
+            self.alert("Bloodborne", tr(NR_FSR411_LIMIT))
             return
         pid = int(self.fsr411_build.get_identifier())
         self.fsr411_cancelled = True
@@ -2498,6 +2529,8 @@ def build_fsr411(arguments):
 
 
 if __name__ == "__main__":
+    if '--developer' in sys.argv:
+        os.environ['BB_DEVELOPER_MODE']='1';sys.argv.remove('--developer')
     if "--play" in sys.argv[1:]:
         sys.exit(play())
     if "--build-fsr411" in sys.argv[1:]:
