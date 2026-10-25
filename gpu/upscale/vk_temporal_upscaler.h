@@ -176,6 +176,9 @@ public:
         u64 source_game_frame = 0; ///< Actual display content; independent of NR admission.
     };
     bool DisplayOverride(VAddr address, Display& display);
+    /// Actual unredirected VideoOut image content, independent of NR admission.
+    u64 TakeNativeFgDisplaySource(VAddr address,u64 image_generation,u32 width,u32 height,
+                                  u64 gpu_frame_at_prepare,u64 prepare_tick);
     /// The game's display pass of `address` begins (recording thread): frame generation
     /// interpolates this frame now, its scene with the UI complete.
     void OnDisplayPassStart(VAddr address, std::span<const VAddr> sampled_addresses);
