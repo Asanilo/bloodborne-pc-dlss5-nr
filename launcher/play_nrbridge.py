@@ -35,6 +35,7 @@ def arguments(argv=None):
     p.add_argument('--multiplier', type=int, choices=range(2, 7), default=None)
     p.add_argument('--gpu-validation', action='store_true')
     p.add_argument('--fg-profile', action='store_true', help='bounded FG stage timings and capture diagnostics')
+    p.add_argument('--developer',action='store_true',help='enable explicitly selected developer diagnostics')
     p.add_argument('--cinematic-camera',choices=('on','off'),default='on',help='offline F6 free camera; off retains older Native compatibility')
     p.add_argument('--check', action='store_true', help='validate launch without starting GPU work')
     p.add_argument('--session', help=argparse.SUPPRESS)
@@ -87,6 +88,7 @@ def prepare(a):
                 nrbridge_execution=a.execution, online=False, extra_env='')
     base['fg_preferences_owner']=str(profile)
     base['cinematic_camera']=a.cinematic_camera=='on'
+    base['developer_mode']=a.developer
     base['fg_enabled']=not standby and (preferences.get('fg_enabled',True) if not explicit_fg else a.fg!='off')
     for key in ('backend', 'multiplier', 'pipeline', 'transport', 'model', 'runtime', 'prefix_session'):
         target = 'fg_backend' if key == 'backend' else 'fg_dlss_' + key

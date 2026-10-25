@@ -208,3 +208,44 @@ ZH = {
     "reachable": "可连接",
     "Bloom": "泛光",
 }
+
+# Player interface.
+ZH.update({
+    "Neural rendering and frame generation": "神经渲染与帧生成",
+    "NR, super resolution and frame generation can be selected independently.": "NR、超分辨率与帧生成可独立选择。",
+    "Explicit render dimensions": "手动渲染尺寸",
+    "NR quality resolution": "NR 处理分辨率",
+    "Higher values use more video memory. Applies when starting the game.": "更高的分辨率需要更多显存，下次启动游戏时应用。",
+    "1280×720 (recommended)": "1280×720（推荐）",
+    "1920×1080 (higher VRAM)": "1920×1080（需要更多显存）",
+    "Automatic": "自动",
+    "Frame generation": "帧生成",
+    "Advanced FG settings": "帧生成开发选项",
+    "DLSS scheduling": "DLSS 调度方式",
+    "Standard": "标准",
+    "Compatibility": "兼容",
+    "DLSS frame multiplier": "DLSS 帧生成倍率",
+    "F6 free camera": "F6 自由相机",
+    "F6 toggles the camera; right mouse button looks around, WASD moves, E/Q moves vertically.": "按 F6 开关自由相机；按住右键转动，WASD 移动，E/Q 升降。",
+    "Ready": "就绪",
+    "Smooth Motion is unavailable with this driver. Choose another frame generation option.": "当前驱动下 Smooth Motion 尚不可用，请选择其他帧生成方式。",
+    "The frame generation model is missing or invalid.": "帧生成模型缺失或校验未通过。",
+    "The frame generation runtime is not ready.": "帧生成运行环境尚未就绪。",
+    "The selected frame generation option is unavailable. See the log for details.": "所选帧生成暂不可用，请在日志中查看原因。",
+    "NVIDIA Smooth Motion (unavailable)": "NVIDIA Smooth Motion（不可用）",
+    "Neural rendering": "神经渲染",
+    "Enable NR (F8)": "开启 NR（F8）",
+    "NR effect (F8)": "NR 效果（F8）",
+    "NR strength": "NR 效果强度",
+    "Show NR status": "显示 NR 状态",
+    "NR unavailable. See the game log for details.": "NR 暂不可用，请在游戏日志中查看原因。",
+    "The NR setting could not be applied.": "NR 设置未能应用。",
+    "Current: %s (%s)": "当前：%s（%s）",
+    "FG backend": "帧生成算法",
+    "Enable frame generation": "启用帧生成",
+    "Restart the game to apply this multiplier.": "请重启游戏以应用此倍率。",
+    "Generates one intermediate frame between real frames. Supports super resolution and NR-only.": "在真实帧之间生成一张中间帧，支持超分辨率与仅 NR 模式。",
+    "FG backend saved for the next launch. Restart normally to apply; NR is independent.": "请正常退出并重启游戏以切换帧生成算法。NR 保持独立控制。"
+})
+
+ZH.update({"NR preset": "NR 预设", "Preset B": "预设 B", "Preset A": "预设 A", "Automatic (uses Old)": "自动（使用 Old）", "New": "New（新内存模型）", "Old (recommended)": "Old（推荐）", "Old is the default. New may use more video memory; performance depends on the scene.": "默认使用 Old。New 可能占用更多显存，性能取决于场景。", "Real %.0f | FG %.0f | Present %.0f": "真实 %.0f | 生成 %.0f | 呈现 %.0f", "Unavailable":"暂不可用", "FSR 4.1.1 DLL conversion is unavailable in this launcher because it uses a separate GPU workflow. With NR off, you can select FSR 3, TAA or FSR 4.1.1 with prepared resources.":"启动器暂不支持转换 FSR 4.1.1 DLL，该功能使用独立的 GPU 流程。关闭 NR 后，可以选择 FSR 3、TAA 或使用已准备好资源的 FSR 4.1.1。"})

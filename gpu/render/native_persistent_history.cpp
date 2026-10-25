@@ -90,7 +90,7 @@ struct NativePersistentHistory::Impl {
  VisualTransition transition;
  BbNR::Request pending_controls{},applied_controls{};
  NativePersistentHistory::RuntimeSample latest_sample;
- unsigned runtime_samples_logged=0,sample_interval=30;
+ unsigned runtime_samples_logged=0,sample_interval=0;
  vk::UniqueQueryPool queries;float timestamp_period=0;unsigned timestamp_bits=0;
  bool initialized=false,prepared=false,applied=false,history=false,unknown=false,candidate_recorded=false;
  vk::Image return_image{};
@@ -126,10 +126,10 @@ NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.Ge
  }
  if(const auto* interval=std::getenv("BB_NR_HISTORY_SAMPLE_INTERVAL")){
   char* end=nullptr;const auto value=std::strtoul(interval,&end,10);
-  if(end==interval||*end||value<1||value>120)throw std::runtime_error("BB_NR_HISTORY_SAMPLE_INTERVAL requires 1..120");
+  if(end==interval||*end||value>120)throw std::runtime_error("BB_NR_HISTORY_SAMPLE_INTERVAL requires 0..120");
   sample_interval=unsigned(value);
  }
- std::printf("NR_HISTORY_EXPERIMENT capability=NRBRIDGE_NATIVE_HISTORY_FADE_V1 transition=%s sample_interval=%u admission_policy=unchanged diagnostics=%u\n",transition.fade_new_only?"fade-new":"legacy",sample_interval,unsigned(sample_interval==1));
+ std::printf("NR_HISTORY_EXPERIMENT capability=NRBRIDGE_NATIVE_HISTORY_FADE_V1 transition=%s sample_interval=%u admission_policy=unchanged diagnostics=%u sampling_off_capability=NRBRIDGE_NATIVE_HISTORY_SAMPLING_OFF_V1\n",transition.fade_new_only?"fade-new":"legacy",sample_interval,unsigned(sample_interval==1));
  if(!instance.GetPhysicalDevice().getFeatures().shaderStorageImageExtendedFormats)throw std::runtime_error("persistent history extended image formats unavailable");
  for(const auto f:{vk::Format::eR16G16B16A16Sfloat,vk::Format::eR32G32B32A32Sfloat,vk::Format::eR32Sfloat,vk::Format::eR32G32Sfloat}){
   const auto need=vk::FormatFeatureFlagBits::eStorageImage|vk::FormatFeatureFlagBits::eSampledImage|vk::FormatFeatureFlagBits::eTransferDst|vk::FormatFeatureFlagBits::eTransferSrc;
@@ -376,7 +376,7 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  frame.history==p.last.history&&frame.params==p.last.params&&!frame.sr_reset;
  if(!continuous){p.history=false;p.transition.Clear();}
  p.slot=next;s.used=0;s.source_id=frame.source;s.borrowed.clear();p.current=frame;p.current_raw=raw[0];
- s.sampled=p.applied_controls.config.hud&&frame.source%p.sample_interval==0;s.stats_pending=false;s.sample_revision=p.applied_controls.revision;s.sample_generation=p.reset_window.generation;
+ s.sampled=p.sample_interval&&p.applied_controls.config.hud&&frame.source%p.sample_interval==0;s.stats_pending=false;s.sample_revision=p.applied_controls.revision;s.sample_generation=p.reset_window.generation;
  auto cmd=scheduler.CommandBuffer();if(s.sampled&&p.queries)cmd.resetQueryPool(*p.queries,p.slot*QueriesPerSlot,QueriesPerSlot);if(!p.initialized)p.Init(cmd);p.Convert(scheduler,raw);
  const auto views=p.Converted();const unsigned next_bank=1-p.active;
  p.Pass(scheduler,PHAdvance,p.active,next_bank,views,p.banks[p.active].edit.View(),p.banks[p.active].meta.View(),frame,p.history,1,float(p.current_dt_ms));

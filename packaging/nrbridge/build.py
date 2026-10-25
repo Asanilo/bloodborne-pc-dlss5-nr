@@ -173,12 +173,14 @@ def verify_helper(exe: Path) -> dict:
     if type(protocol.get("interface_revision")) is not int or protocol["interface_revision"] not in (3, 4):
         fail("Helper protocol interface_revision must be 3 or 4")
     exports = protocol.get("exports")
-    if not isinstance(exports, dict) or set(exports) != {
+    required_exports = {
         "native_runtime_model.h",
         "pre_sr_wire.h",
         "pre_sr_spec.h",
         "effective-spec.json",
-    }:
+    }
+    if (not isinstance(exports, dict) or not required_exports <= set(exports)
+            or set(exports) - required_exports - {'nr_dimensions.h'}):
         fail("Helper protocol export set is incomplete")
     export_dir = exe.parent / "protocol"
     for name, export_digest in exports.items():
@@ -330,6 +332,26 @@ def stage_code(app: Path, bundle: dict) -> None:
     )
 
 
+def stage_fg(app: Path, runtime: Path) -> None:
+    """Ship the sealed FG binary and its small source receipt, not an SDK/tree."""
+    share=app/'usr/share/bbport'
+    record=json.loads((runtime/'m2-wine-probe-build.json').read_text())
+    if record.get('schema')!='dlssg-wine-probe-build-v1':fail('Invalid FG runtime manifest')
+    for name, identity in record['inputs'].items():
+        rel=Path(name)
+        if rel.is_absolute() or '..' in rel.parts:fail('Invalid FG source receipt path')
+        source=ROOT/rel
+        if source.stat().st_size!=identity['bytes'] or sha256(source)!=identity['sha256']:
+            fail('FG runtime source receipt mismatch: '+name)
+        stage_file(source,share/rel)
+    stage_file(ROOT/'tools/fg_dev/build_wine_probe.py',share/'tools/fg_dev/build_wine_probe.py')
+    for name,identity in record['artifacts'].items():
+        if Path(name).name!=name or sha256(runtime/name)!=identity['sha256']:fail('FG artifact mismatch')
+        stage_file(runtime/name,share/'fg-runtime'/name)
+    for name in ('m2-wine-probe-build.json','nvcuda.dll'):
+        stage_file(runtime/name,share/'fg-runtime'/name)
+
+
 def stage_native(app: Path, build: Path, artifacts: dict[str, str]) -> dict[str, str]:
     share = app / "usr/share/bbport"
     bin_dir = share / "bin"
@@ -350,6 +372,8 @@ def stage_native(app: Path, build: Path, artifacts: dict[str, str]) -> dict[str,
     # Provenance is rewritten to in-tree relative paths because the runtime
     # copy is created under NRBRIDGE_HOME and checked by checked_native_build.
     stage_file(build / "source-head.txt", share / "build-provenance/source-head.txt")
+    if (build/'build-inputs.json').is_file():
+        stage_file(build/'build-inputs.json',share/'build-provenance/build-inputs.json')
     (share / "build-provenance/source-diff.patch").write_text("")
     staged = {
         name: sha256(bin_dir / name) for name in artifacts
@@ -860,6 +884,8 @@ def main(argv=None) -> int:
     parser.add_argument("--appimagetool", type=Path, default=ROOT / "out/tools/appimagetool-x86_64.AppImage")
     parser.add_argument("--patchelf", type=Path, default=ROOT / "out/tools/patchelf-venv/bin/patchelf")
     parser.add_argument("--skip-appimage", action="store_true")
+    parser.add_argument("--reuse-appdir", type=Path, help="Reuse an installed GTK/Python closure with copy-on-write; never modify its files")
+    parser.add_argument("--fg-runtime", type=Path, help="Existing sealed Wine FG runtime, packaged without a Wine prefix")
     parser.add_argument("--keep-appdir", action="store_true")
     args = parser.parse_args(argv)
 
@@ -905,14 +931,24 @@ def main(argv=None) -> int:
             fail(f"refusing to remove unexpected AppDir {app} (expected {expected})")
         shutil.rmtree(app)
     app.mkdir(parents=True)
+    if args.reuse_appdir:
+        prior=args.reuse_appdir.resolve()
+        if not (prior/'usr/share/bbport/nrbridge-bundle.json').is_file():fail('Not a reusable bbport AppDir')
+        if app==prior or app in prior.parents or prior in app.parents:fail('AppDir paths must be separate')
+        run(['cp','-a','--reflink=auto',str(prior)+'/.' ,str(app)])
+        shutil.rmtree(app/'usr/share/bbport')
+        for name in ('appdir-manifest.json','nrbridge-preview.json','BUILD_ONLY'):
+            (app/'usr/share/doc/bbport'/name).unlink(missing_ok=True)
     staged = stage_native(app, args.native_build, native["artifacts"])
     bundle["native"]["original_artifacts"] = native["artifacts"]
     bundle["native"]["staged_artifacts"] = staged
     stage_code(app, bundle)
     stage_helper(app, args.helper, bundle)
-    stage_fonts(app)
-    stage_gtk_resources(app)
-    stage_python(app)
+    if args.fg_runtime:stage_fg(app,args.fg_runtime)
+    if not args.reuse_appdir:
+        stage_fonts(app)
+        stage_gtk_resources(app)
+        stage_python(app)
     build_closure(app, str(args.patchelf), args.native_build, args.online_deps)
     refresh_native_provenance(app, bundle)
     write_apprun(app)

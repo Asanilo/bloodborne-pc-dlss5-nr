@@ -696,11 +696,13 @@ def validate_history_experiment_env():
  if policy is not None and policy not in ('legacy','fade-new'):
   raise ValueError('BB_NR_VISUAL_TRANSITION requires legacy or fade-new; cadence A2a was rejected')
  interval=os.environ.get('BB_NR_HISTORY_SAMPLE_INTERVAL')
- if interval is not None and (not re.fullmatch('[1-9][0-9]{0,2}',interval) or not 1<=int(interval)<=120):
-  raise ValueError('BB_NR_HISTORY_SAMPLE_INTERVAL requires canonical integer 1..120')
+ if interval is not None and (not re.fullmatch('0|[1-9][0-9]{0,2}',interval) or not 0<=int(interval)<=120):
+  raise ValueError('BB_NR_HISTORY_SAMPLE_INTERVAL requires canonical integer 0..120')
 
 def check_history_capability(build):
  validate_history_experiment_env()
+ if os.environ.get('BB_NR_HISTORY_SAMPLE_INTERVAL')=='0' and b'NRBRIDGE_NATIVE_HISTORY_SAMPLING_OFF_V1' not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
+  raise ValueError('Disabled NR diagnostics requires the current Native runtime')
  if os.environ.get('BB_NR_VISUAL_TRANSITION','legacy')=='fade-new':
   marker=b'NRBRIDGE_NATIVE_HISTORY_FADE_V1'
   if marker not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
@@ -997,6 +999,17 @@ def launch_supervised(args,signals):
      except (OSError,ValueError,KeyError,TypeError) as error:
       result['fg_preferences']={'status':'not_saved','reason':str(error)}
       print('FG settings were not saved: '+str(error),flush=True)
+     atomic(run/'result.json',result)
+     import player_preferences
+     try:result['player_preferences']=player_preferences.commit(run,result)
+     except (OSError,ValueError,KeyError,TypeError) as error:
+      result['player_preferences']={'status':'not_saved','reason':str(error)}
+      print('Game settings were not saved: '+str(error),flush=True)
+     try:
+      result['player_run_cleanup_plan']=player_preferences.prune_save_copies(run.parent,run)
+      result['player_run_cleanup']=player_preferences.prune_save_copies(run.parent,run,apply=True)
+     except (OSError,ValueError,KeyError,TypeError) as error:
+      result['player_run_cleanup']={'status':'retained','reason':str(error)}
      atomic(run/'result.json',result)
     return 4 if result.get('player_save_sync',{}).get('status')=='error' else 0
    return 3

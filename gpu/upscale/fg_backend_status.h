@@ -17,8 +17,8 @@ inline const char* Selected(){
 inline const char* Name(){
     const auto* v=Selected();
     if(Is(v,"off"))return "Off";
-    if(Is(v,"fsr31"))return Is(std::getenv("BB_FRAME_GEN_HUDLESS"),"1")?"FSR 3.1 HUDless x2":"FSR 3.1 x2";
-    if(Is(v,"fsr316"))return "FSR 3.1.6 x2 (Experimental)";
+    if(Is(v,"fsr31"))return "AMD FSR 3.1 2X";
+    if(Is(v,"fsr316"))return "AMD FSR 3.1.6 2X";
     if(Is(v,"dlssg")){
         static constexpr const char* labels[]={"NVIDIA DLSS FG 2X","NVIDIA DLSS MFG 3X","NVIDIA DLSS MFG 4X","NVIDIA DLSS MFG 5X","NVIDIA DLSS MFG 6X"};
         const unsigned count=active_multiplier.load();return labels[count>=2&&count<=6?count-2:0];

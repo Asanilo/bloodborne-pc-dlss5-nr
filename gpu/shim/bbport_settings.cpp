@@ -66,7 +66,8 @@ void Set(Values& v, const std::string& key, const std::string& value) {
     } else if (key == "reactive_max") {
         v.reactive_max = Clamp(f, 0.0f, 1.0f);
     } else if (key == "debug_view") {
-        v.debug_view = std::clamp(i, 0, DebugViewCount - 1);
+        const char* developer=std::getenv("BB_DEVELOPER_MODE");
+        v.debug_view = developer && std::strcmp(developer,"1")==0 ? std::clamp(i,0,DebugViewCount-1) : DebugNone;
     } else if (key == "mouse_capture") {
         v.mouse_capture = i != 0;
     } else if (key == "show_fps") {
@@ -401,7 +402,9 @@ void Save() {
     put("output_res", SizeText(CurrentOutput()));
     // Read by run.sh at start.
     put("live_resolution", v.live_resolution < 0 ? "auto" : flag(v.live_resolution != 0));
-    put("frame_generation", flag(v.frame_generation));
+    const int actual_fg=Vulkan::FgSelection::Index(Vulkan::FgBackendStatus::Selected());
+    const int requested_fg=v.frame_generation_backend.load();
+    put("frame_generation", flag(requested_fg!=0 && (requested_fg!=actual_fg || v.frame_generation.load())));
     put("frame_generation_backend", Vulkan::FgSelection::Token(v.frame_generation_backend));
     put("frame_generation_multiplier", std::to_string(v.frame_generation_next_multiplier.load()));
     if (v.menu_x >= 0.0f && v.menu_y >= 0.0f) {

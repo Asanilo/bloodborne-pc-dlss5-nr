@@ -38,9 +38,21 @@ class PlayerSettingsTest(unittest.TestCase):
         self.assertEqual((e['BB_UPSCALER'], e['BB_PC_MODEL']), ('dlss', '0'))
         self.assertEqual(self.settings.read_text(), json.dumps(self.obj))
 
+    def test_normal_play_disables_stored_diagnostics_and_keeps_persistent_shader_cache(self):
+        self.obj.update(frame_stats=True,gpu_profile=True,vk_validation=True,crash_diag=True);self.write()
+        e=p.load_request(self.args)['environment']
+        for key in ('BB_FRAME_STATS','BB_GPU_PROFILE','BB_VK_VALIDATION'):
+            self.assertEqual(e[key],'0')
+        self.assertEqual(e['BB_NR_HISTORY_SAMPLE_INTERVAL'],'0')
+        self.assertEqual(e['BB_NR_VISUAL_TRANSITION'],'legacy')
+        self.assertEqual(e['BB_GPU_USER_DIR'],str(self.root/'saves'))
+        self.obj['developer_mode']=True;self.write()
+        e=p.load_request(self.args)['environment']
+        self.assertEqual(e['BB_FRAME_STATS'],'1');self.assertEqual(e['BB_GPU_PROFILE'],'1')
+
     def test_offline_camera_requires_matching_native_without_changing_online_mode(self):
         build=self.root/'native';(build/'gpu').mkdir(parents=True)
-        library=build/'gpu/libbbgpu.so';library.write_bytes(b'older-native')
+        library=build/'gpu/libbbgpu.so';library.write_bytes(b'NRBRIDGE_NATIVE_HISTORY_SAMPLING_OFF_V1')
         request=p.load_request(self.args)
         self.assertEqual(request['environment']['BB_CINEMATIC_CAMERA'],'0')
         p.validate_native(request,build)
@@ -50,7 +62,7 @@ class PlayerSettingsTest(unittest.TestCase):
         self.assertNotIn('BB_ONLINE',request['environment'])
         with self.assertRaisesRegex(ValueError,'rebuilt offline-camera Native'):
             p.validate_native(request,build)
-        library.write_bytes(b'BBPORT_CINEMATIC_OFFLINE_V1')
+        library.write_bytes(b'BBPORT_CINEMATIC_OFFLINE_V1 NRBRIDGE_NATIVE_HISTORY_SAMPLING_OFF_V1')
         p.validate_native(request,build)
 
     def test_explicit_dimensions_preserve_matching_player_profile(self):
@@ -139,7 +151,7 @@ class PlayerSettingsTest(unittest.TestCase):
         self.assertIsNone(p.load_request(argparse.Namespace(daily=True)))
 
     def test_stdout_statistics_use_bounded_log_without_csv(self):
-        self.obj['frame_stats'] = True; self.obj['mangohud'] = True; self.write()
+        self.obj['frame_stats'] = True; self.obj['mangohud'] = True; self.obj['developer_mode']=True; self.write()
         e = p.load_request(self.args)['environment']
         self.assertEqual(e['BB_FRAME_STATS'], '1'); self.assertNotIn('BB_FRAME_LOG', e)
         self.assertEqual((e['MANGOHUD'], e['DISABLE_MANGOHUD']), ('1', '0'))

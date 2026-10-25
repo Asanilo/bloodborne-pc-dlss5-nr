@@ -274,7 +274,7 @@ class FrontendLifecycleTests(unittest.TestCase):
     def test_preview_fsr_cli_refuses_without_spawning_and_source_behavior_remains(self):
         with contextlib.redirect_stderr(io.StringIO()) as error:
             self.assertEqual(self.ns['build_fsr411'](['/tmp/fixture.dll']), 2)
-        self.assertIn('unavailable in NRBridge Preview', error.getvalue())
+        self.assertIn('unavailable in this launcher', error.getvalue())
         self.ns['fsr411_build_command'].assert_not_called()
         self.ns['subprocess'].call.assert_not_called()
         self.ns['NRBRIDGE'] = False

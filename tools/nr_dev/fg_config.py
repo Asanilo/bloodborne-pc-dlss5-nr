@@ -1,10 +1,11 @@
 """One managed FG selection. Legacy flags are derived compatibility inputs only."""
 import json
+import os
 import re
 from pathlib import Path
 
 BACKENDS = ('off', 'fsr31', 'dlssg', 'smooth-motion', 'fsr316')
-LABELS = ('Off', 'FSR 3.1 x2 (HUDless)', 'NVIDIA DLSS FG / MFG', 'NVIDIA Smooth Motion', 'FSR 3.1.6 x2 (Experimental)')
+LABELS = ('Off', 'AMD FSR 3.1', 'NVIDIA DLSS', 'NVIDIA Smooth Motion (unavailable)', 'AMD FSR 3.1.6')
 PIPELINES = ('submit-ready-v1', 'consumer-queue-v1')
 SM_UNAVAILABLE = ('Smooth Motion temporarily unavailable: M3 exit produced ErrorDeviceLost; '
                   'normal GPU retirement is unverified. Use Off, FSR or DLSS FG.')
@@ -47,6 +48,18 @@ def discover(home):
             return dict(fg_dlss_model=c['model'],fg_dlss_runtime=str(Path(c['executable']).parent),fg_dlss_prefix_session=name)
         except (OSError,ValueError,KeyError,TypeError):continue
     return {}
+
+
+def resolved(settings, home):
+    """Installed runtime owns artifact paths; player settings own algorithm choices."""
+    merged=dict(discover(home),**settings)
+    path=os.environ.get('BB_PLAYER_RUNTIME')
+    if path and not settings.get('developer_mode',False):
+        record=json.loads(Path(path).read_text())
+        if record.get('schema')!='bbport-player-runtime-v1':raise ValueError('Invalid installed runtime')
+        for key in ('fg_dlss_model','fg_dlss_runtime','fg_dlss_prefix_session'):
+            merged[key]=record['fg'][key]
+    return merged
 
 
 def command_options(config):

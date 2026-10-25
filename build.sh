@@ -63,7 +63,7 @@ else
     atrac_source=third_party/LibAtrac9
 fi
 includes+=("-I$atrac_source/C/src")
-cmake -S gpu -B "$BUILD"/gpu -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBB_PGO="$pgo" \
+cmake -S gpu -B "$BUILD"/gpu -G Ninja -DCMAKE_BUILD_TYPE="${BB_BUILD_TYPE:-RelWithDebInfo}" -DBB_PGO="$pgo" \
     -DBB_ONLINE_DEPS_ROOT="${BB_ONLINE_DEPS_ROOT:-}" -DBB_LTO="${BB_LTO:-ON}" -DBB_PGO_DIR="$BUILD/pgo" -DBB_PREPARED_SOURCE_DEPS_ROOT="$prepared" > "$BUILD"/gpu-cmake.log
 grep '^-- Online module' "$BUILD"/gpu-cmake.log || true
 echo "GPU library: PGO $pgo, LTO ${BB_LTO:-ON}"
