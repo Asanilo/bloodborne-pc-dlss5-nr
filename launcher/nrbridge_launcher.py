@@ -396,7 +396,10 @@ def player_command(settings: dict, ini: dict, *, settings_path=None, ini_path=No
     # FSR and CPU-bridge retain their actual fixed-source constraints.
     variable_source = fg['backend']=='off' or (fg['backend']=='dlssg' and fg['transport']=='gpu-dmabuf-v1')
     nonbaseline = any(str(ini.get(k,v))!=v for k,v in NR_INI.items() if k in ('upscaler','preset','output_res','aspect_ratio'))
-    if settings.get("nrbridge_dimensions",False) or (nr_enabled and variable_source and nonbaseline):
+    # GPU FG consumes the actual SR extent even when no NR Helper is requested.
+    # The dimensions protocol describes renderer inputs; it must not depend on F8/NR.
+    dynamic_fg = fg['backend']=='dlssg' and fg['transport']=='gpu-dmabuf-v1'
+    if settings.get("nrbridge_dimensions",False) or (variable_source and nonbaseline and (nr_enabled or dynamic_fg)):
         if fg["backend"]!="off" and not(fg["backend"]=="dlssg" and fg['transport']=='gpu-dmabuf-v1'):
             raise ValueError("Variable dimensions require Off or DLSS GPU mailbox; FSR/CPU keep their baseline")
         try:name=tuple(dimension_profile.PRESETS)[int(ini.get("preset","1"))]
