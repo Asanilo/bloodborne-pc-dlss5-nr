@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
+#include "render/player_diagnostics.h"
 #include "render/presenter.h"
 
 #include <algorithm>
@@ -864,7 +865,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         for(unsigned i=0;i<frame->interp_count;++i){
             frame->generated_index=i+1;const auto gen_start=Clock::now();
             if(!PresentImage(frame,frame->interp[i].image,false,false,is_reusing_frame))break;
-            if(frame->interp_count>1)std::printf("DLSSG_MFG_PRESENT source=%llu epoch=%llu index=%u count=%u phase_denominator=%u\n",
+            if(frame->interp_count>1 && VerbosePlayerFrames())std::printf("DLSSG_MFG_PRESENT source=%llu epoch=%llu index=%u count=%u phase_denominator=%u\n",
                 (unsigned long long)frame->fg_real_source,(unsigned long long)frame->fg_epoch,i+1,frame->interp_count,frame->interp_count+1);
             const auto pace_start=Clock::now();generated_present_ms+=profile_ms(gen_start,pace_start);
             // Absolute batch deadlines, with a minimum gap after a late submission.
@@ -1055,9 +1056,9 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
                 (long long)c4_now_ns, (unsigned long long)BbStats::frame_number.load(), presented);
         if(presented&&is_game_frame&&!is_reusing_frame&&frame->audit_stage=="NATIVE_ASYNC_PRE_SR"&&frame->c1_source_game_frame)
             BbNR::NotifyPresent(frame->c1_source_game_frame,frame->c1_present_frame_number,c4_now_ns);
-        if(is_game_frame&&!is_reusing_frame&&frame->audit_stage=="NATIVE_ASYNC_PRE_SR"&&frame->c1_source_game_frame)
+        if(VerbosePlayerFrames()&&is_game_frame&&!is_reusing_frame&&frame->audit_stage=="NATIVE_ASYNC_PRE_SR"&&frame->c1_source_game_frame)
             std::printf("NATIVE_ASYNC_PRE_SR_CURRENT_PRESENT session=%s source_game_frame=%llu present_frame_number=%llu merge_tick=%llu prepare_tick=%llu ready_tick=%llu swapchain_present=%u cpu_monotonic_ns=%lld raw_or_cache720_SR1080=1 cache_selected=%u job=%u current_NR_inference_claim=0 pixel_change=NOT_MEASURED_HOT\n",frame->audit_session.c_str(),(unsigned long long)frame->c1_source_game_frame,(unsigned long long)frame->c1_present_frame_number,(unsigned long long)frame->c1_merge_tick,(unsigned long long)frame->c1_guest_prepare_tick,(unsigned long long)frame->ready_tick,presented,(long long)c4_now_ns,frame->audit_selected_output,frame->audit_nr_frame);
-        if(is_game_frame&&!is_reusing_frame&&frame->audit_stage=="NATIVE_ASYNC"&&frame->c1_source_game_frame)
+        if(VerbosePlayerFrames()&&is_game_frame&&!is_reusing_frame&&frame->audit_stage=="NATIVE_ASYNC"&&frame->c1_source_game_frame)
             std::printf("NATIVE_ASYNC_CURRENT_PRESENT session=%s snapshot_scope=%s source_game_frame=%llu present_frame_number=%llu merge_tick=%llu prepare_tick=%llu ready_tick=%llu swapchain_present=%u cpu_monotonic_ns=%lld current_SR=1 cache_selected=%u effect_applied=%u sparse_job=%u source_edited=0 current_NR_inference_claim=0\n",
                 frame->audit_session.c_str(),frame->audit_mode.c_str(),(unsigned long long)frame->c1_source_game_frame,
                 (unsigned long long)frame->c1_present_frame_number,(unsigned long long)frame->c1_merge_tick,

@@ -1022,7 +1022,7 @@ RU_PLAYER = {
     'Free camera (F6)':'Свободная камера (F6)',
     'F6 toggles the free camera; WASD moves, mouse looks, Shift changes speed.':'F6 — свободная камера; WASD — движение, мышь — обзор, Shift — скорость.',
     'NVIDIA Smooth Motion (unavailable)':'NVIDIA Smooth Motion (недоступно)',
-    'Smooth Motion is unavailable with this driver. Choose another frame generation option.':'Smooth Motion недоступен с этим драйвером. Выберите другой режим.',
+    'Smooth Motion is unavailable until safe shutdown is verified. Choose another frame generation option.':'Smooth Motion недоступен до проверки безопасного завершения. Выберите другой режим.',
     'The frame generation model is missing or invalid.':'Модель генерации кадров отсутствует или повреждена.',
     'The frame generation runtime is not ready.':'Среда генерации кадров не готова.',
     'The selected frame generation option is unavailable. See the log for details.':'Выбранная генерация кадров недоступна. Подробности в журнале.',

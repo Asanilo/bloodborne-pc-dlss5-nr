@@ -818,6 +818,9 @@ def static_verify(app: Path, development_roots=()) -> None:
         if result.returncode != 0 or "not found" in result.stdout:
             fail(f"{rel}: unresolved runtime library\n{result.stdout}{result.stderr}")
         for line in result.stdout.splitlines():
+            resolved=re.search(r'=> (/\S+)',line)
+            if resolved and Path(resolved[1]).resolve().is_relative_to(app.resolve()):
+                continue  # A staged AppDir may itself be inside native-build/out.
             if any(needle in line for needle in forbidden):
                 fail(f"{rel}: resolves into a historical build path: {line.strip()}")
         # The Native loader and its online modules must resolve from the

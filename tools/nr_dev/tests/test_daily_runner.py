@@ -188,6 +188,20 @@ class DailyRunner(unittest.TestCase):
             recheck.side_effect = ValueError('pins drift')
             self.assertRaisesRegex(ValueError, 'pins drift', r.control, args)
 
+    def test_player_gpu_cache_path_requires_exact_snapshot_binding(self):
+        run=self.root/'runs/cache-test';(run/'profile/user').mkdir(parents=True)
+        env=dict(BB_NR_DAILY='1',NRBRIDGE_HOME=str(self.root),BB_NR_NATIVE_ASYNC_SOURCE_LIMIT='0',
+                 BB_DATA_DIR=str(run/'profile'),BB_USER_DIR=str(run/'profile/user'),
+                 BB_GPU_USER_DIR=str(self.root/'player-user'),BB_NATIVE_MOUSE='1',BB_FRAME_STATS='0')
+        snapshot=dict(schema='nrbridge-player-settings-v1',nr_enabled=True,environment=dict(env))
+        path=run/'player-settings.json';path.write_text(json.dumps(snapshot))
+        manifest=dict(schema='nr-dev-session-v1',session=run.name,daily=True,planned_seconds=0,
+                      watchdog_seconds=0,runtime_inputs={'bound':True},host_safety={'daily':True},environment=env,
+                      player_settings=dict(path=str(path),sha256=r.sha(path),nr_enabled=True))
+        r.validate_daily_manifest(run,manifest)
+        env['BB_GPU_USER_DIR']=str(self.root/'unbound-user')
+        self.assertRaisesRegex(ValueError,'selected option drift',r.validate_daily_manifest,run,manifest)
+
 
 if __name__ == '__main__':
     unittest.main()

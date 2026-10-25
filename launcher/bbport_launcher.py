@@ -856,7 +856,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         except ValueError as error:
             message=str(error)
             if not self.settings.get('developer_mode',False):
-                if prefs['fg_backend']=='smooth-motion':message="Smooth Motion is unavailable with this driver. Choose another frame generation option."
+                if prefs['fg_backend']=='smooth-motion':message="Smooth Motion is unavailable until safe shutdown is verified. Choose another frame generation option."
                 elif 'model' in message:message="The frame generation model is missing or invalid."
                 elif 'prefix' in message:message="The frame generation runtime is not ready."
                 else:message="The selected frame generation option is unavailable. See the log for details."

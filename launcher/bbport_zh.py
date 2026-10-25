@@ -228,7 +228,7 @@ ZH.update({
     "F6 free camera": "F6 自由相机",
     "F6 toggles the camera; right mouse button looks around, WASD moves, E/Q moves vertically.": "按 F6 开关自由相机；按住右键转动，WASD 移动，E/Q 升降。",
     "Ready": "就绪",
-    "Smooth Motion is unavailable with this driver. Choose another frame generation option.": "当前驱动下 Smooth Motion 尚不可用，请选择其他帧生成方式。",
+    "Smooth Motion is unavailable until safe shutdown is verified. Choose another frame generation option.": "当前驱动下 Smooth Motion 尚不可用，请选择其他帧生成方式。",
     "The frame generation model is missing or invalid.": "帧生成模型缺失或校验未通过。",
     "The frame generation runtime is not ready.": "帧生成运行环境尚未就绪。",
     "The selected frame generation option is unavailable. See the log for details.": "所选帧生成暂不可用，请在日志中查看原因。",

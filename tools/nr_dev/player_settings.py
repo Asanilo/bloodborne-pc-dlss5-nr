@@ -167,6 +167,7 @@ def load_request(args):
         key, value = item.split('=', 1)
         if key not in permitted:
             raise ValueError('player settings: extra variable is not supported by the managed launcher: ' + key)
+        if not developer and key=='BB_MEMORY_PROFILE':continue
         env[key] = _text(value)
     # GPU selection is already enumerated by the launcher; use its saved index only.
     gpu_id = source.get('nrbridge_gpu_id')
