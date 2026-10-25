@@ -98,4 +98,27 @@ R16的另一组旧读回虽然像素保存完整，但对应Native映射未及�
 游戏内截图 `out/fg-ui-r16-*.png`；R16/R17完整结果在公共 NRHOME 的同名 runs 下。
 以上仍为 HDMI 最终 encoded1920×1080，未扩大物理显示尺寸验收范围。
 
-F6离线相机、FSR多尺寸、NR-only+FG与进一步延迟优化继续独立推进，未由本批宣布完成。
+FSR多尺寸、NR-only+FG与进一步延迟优化继续独立推进，未由本批宣布完成。
+
+## 第三批：新玩家入口的离线 F6 相机
+
+`a08b17e` 将已有 BBSC 的相机输入和运动数学接到 Native 字节校验 hook，
+不加载联机模块。输入实现使用独立命名空间，继续调用既有鼠标所有权/epoch 机制。
+退出相机恢复 director 的原调试相机指针和开关；失效映射会退出并释放输入。
+新玩家入口默认开启，`--cinematic-camera off` 可使用较旧 Native。
+运行前检查 Native 相机能力；不把不能工作的 F6 静默当成已启用。
+
+CPU：9项 preview、17项 player settings、实际输入实现五种构建变体、现有捕获恢复、
+新增实际相机驱动移动/原游戏相机隔离/指针恢复/失效映射，以及 Native `--test` 通过。
+驱动测试的自身进程 `process_vm_readv/writev` 需在允许这些系统调用的环境运行。
+
+实际 `fg-f6-new1080q-r18-live`：Native `a08b17e`，New / 1080Q / DLSS FG2X，
+NR 全程关闭且未租借 NR prefix。F6后 E 升高，实际相机 Y 从 -27.226 到 -23.970；
+方向键转镜有效，再次 F6 返回原镜头，前后截图角色位置一致，HUD正常。
+真实生成帧持续 Present；截图已有计数约54–56真实/同数量生成，不作为正式性能比较。
+本场不宣称 NR ON、物理扫描输出、输入到屏幕延迟或全部相机功能均完成验收。
+
+正常关闭 rc0、PASS_NORMAL_TEARDOWN、Native lastuse=true、residuals=[]、
+FG draw/Present GPU complete与资源释放证明齐全、receipt retired。
+本机 `out/fg-f6-r18-{start,raised,turned,returned}.png` 和 `out/fg-f6-r18-stop.log`
+保留视觉及退休证据；未创建新 prefix、依赖树或 AppImage。
