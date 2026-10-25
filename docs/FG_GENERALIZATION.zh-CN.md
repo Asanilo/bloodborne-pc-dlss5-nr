@@ -18,7 +18,8 @@ CPU 回归覆盖 NR OFF、无 NR 尺寸 opt-in 的 1080 Balanced、1440 Quality�
 FG Native 封存 `0c92436`，复用既有匹配 FG Helper、DLL、prefix 和私有测试存档。
 会话 `fg-independent-new1440b-3x-r15`：New Memory、1440p Balanced、DLSS MFG 3X，
 **NR 完全关闭，nrbridge_dimensions=False**，自动转发实际动态输入契约。
-实际 guides 1506×848 → FG output 2560×1440；最终 HDMI encoded 图像仍为1920×1080。
+实际 guides 1506×848 → FG output 2560×1440；此场窗口的最终 encoded 图像实际为1243×699，
+不是内部1440p图像或物理扫描输出的尺寸。
 
 - 未创建 NR Helper、未借用 NR prefix；FG Helper 实际生成并进入 Native Present。
 - 8 秒窗口：282 真实 / 553 生成 Present，完整批次顺序错误0、失败 Present0。
