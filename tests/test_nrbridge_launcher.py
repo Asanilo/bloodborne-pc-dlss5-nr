@@ -137,6 +137,22 @@ class AdapterTests(unittest.TestCase):
         c=bridge.player_command(dict(nrbridge_dimensions=True,fg_backend='off'),dict(bridge.NR_INI,upscaler='off',preset='3'))
         self.assertEqual(c[c.index('--nr-sr-preset')+1],'native');self.assertNotIn('--sr-only',c)
 
+    def test_nr_off_gpu_fg_derives_saved_dimensions_without_nr_opt_in(self):
+        # A normal saved launcher configuration has no nrbridge_dimensions key.
+        # Changing only NR must never revert a variable FG input to fixed 720p.
+        for preset, output, aspect, name in [('2','1920x1080','16:9','balanced'),
+                                             ('1','2560x1440','16:9','quality'),
+                                             ('3','1920x1200','16:10','performance'),
+                                             ('0','2560x1440','16:9','dlaa')]:
+            settings=dict(nrbridge_enabled=False,fg_backend='dlssg',fg_dlss_multiplier=3)
+            ini=dict(bridge.NR_INI,preset=preset,output_res=output,aspect_ratio=aspect)
+            with mock.patch.object(bridge.fg_config,'availability',return_value='GPU available'):
+                command=bridge.player_command(settings,ini)
+            self.assertIn('--sr-only',command)
+            self.assertEqual(command[command.index('--nr-output')+1],output)
+            self.assertEqual(command[command.index('--nr-sr-preset')+1],name)
+            self.assertNotIn('nrbridge_dimensions',settings)
+
     def test_nr_off_keeps_upstream_options_but_still_managed(self):
         command = bridge.player_command({'nrbridge_enabled': False, 'memory_model': 'new'},
                                         {'upscaler': 'taa', 'preset': '0'})
