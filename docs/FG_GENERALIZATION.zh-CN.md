@@ -218,3 +218,42 @@ prefix RETURNED、receipt retired，FG draw/Present实际完成及资源释放�
 本机证据 `out/fg-native-dlss-r21-checks.json`、`out/fg-native-dlss-r21-mapping.log`、
 `out/fg-next-evidence/r21-native-mfg3/`、`out/fg-native-r22-check.log`。
 仍需玩家确认长期游玩、快速转镜画质及主观操作手感；不重新承诺FSR植被伪影已消失。
+
+## 公共默认 Old Memory 的补验
+
+`fg-old-fsr-r23`、`fg-old-dlss-r24` 直接使用公共 Native `8823aeb`，
+本线私有存档、Old（BB_PC_MODEL=0），不是只验证另一工作树或New模式。
+统一60限帧、3秒短窗口；NR执行1280×720，未开validation。
+
+| Old模式 | 真实FPS | Present/s | 真实间隔P95 / P99 ms |
+|---|---:|---:|---:|
+| FSR 1440Q，NR未启动 | 53.67 | 107.00 | 19.44 / 20.52 |
+| NR+SR+FSR 1440Q | 47.33 | 95.00 | 25.45 / 25.76 |
+| NR+SR+FSR 1440Balanced | 49.33 | 99.00 | 24.53 / 25.39 |
+| NR+SR+FSR 1920×1200 Performance | 58.67 | 117.00 | 21.12 / 22.79 |
+| NR-only+FSR 1080 | 52.00 | 104.00 | 23.60 / 24.24 |
+| DLSS2X 1080Q，NR未启动 | 54.33 | 109.00 | 22.87 / 23.52 |
+| NR+SR+DLSS2X 1080Q | 48.33 | 96.33 | 24.15 / 25.19 |
+| NR+SR+DLSS3X 1080Q | 41.67 | 125.33 | 29.44 / 30.36 |
+| NR+SR+DLSS3X 1440Balanced | 35.00 | 105.00 | 36.34 / 36.88 |
+| NR-only+DLSS3X 1080 | 40.00 | 119.66 | 30.17 / 31.21 |
+| NR-only+DLSS2X 1080 | 46.33 | 92.33 | 24.56 / 25.47 |
+
+各窗口实际生成顺序错误/失败Present均0，开启NR时每个采样真实帧均有NR实际选用记录。
+FSR的NR-only关闭FG后约60真实/60Present，恢复后52/约104；短窗计数边界可相差一帧。
+DLSS资源代g1–g5依次为1080Q2X、1080Q3X、1440Balanced3X、Native1080 3X/2X，
+全部正常退休。Old中的F6也实际升高/返回。
+1440Balanced3X转镜捕获16张实际读回，保留Native源/index/epoch/Present映射，
+四个完整组全部图像不同；示例生成1/生成2/真实位移约8.11/16.76/25.10px。
+本场encoded读回1920×1080，仍不声明物理1440p或扫描输出帧率。
+采样设备总显存最高R23为4603、R24为5301MiB / 8188MiB。
+
+两场rc0、PASS_NORMAL_TEARDOWN、Native lastuse=true、residuals=[]、
+prefix RETURNED、FG draw/Present GPU完成及资源释放证明、receipt retired。
+公共 `out/bbport-play --check` 另确认 NR-only+DLSS3X 与 NR关闭+1440Balanced FSR
+均通过准入。主线功能可用范围已包含Old与New代表性组合，未穷举所有倍率/输出。
+
+本机 `out/fg-old-{fsr-r23,dlss-r24}-checks.json`、
+`out/fg-next-evidence/r24-old-1440b-mfg3/` 保存统计和图像。
+去重仅删除本线已正常退休、PNG还原SHA与raw/capture原始SHA完全一致的重复raw；
+保留capture元数据、PNG、实际源映射和退休结果，不清理其他线的环境或正式存档。
