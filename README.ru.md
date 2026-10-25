@@ -30,11 +30,14 @@
 
 **NR, масштабирование и генерация кадров доступны независимо в одном лаунчере.**
 Поддерживаются AMD FSR x2, NVIDIA DLSS FG/MFG 2X–6X, разные разрешения,
-пресеты SR, Old/New и NR-only + FG. По умолчанию используются New и Legacy NR.
+пресеты SR, Old/New и NR-only + FG. По умолчанию используется Old (из `auto`)
+и Legacy NR; New включается явно.
 Smooth Motion недоступен до проверки безопасного завершения.
 Локальная установка отделена от разработки; обновление сохраняет настройки,
 сохранения и предыдущую версию. Публичный бинарный выпуск пока не публикуется.
-[Руководство игрока](docs/PLAYER_GUIDE.zh-CN.md).
+[Руководство игрока](docs/PLAYER_GUIDE.zh-CN.md) ·
+[Состояние проекта](docs/PROJECT_STATUS.zh-CN.md) ·
+[План развития](docs/NRBRIDGE_ROADMAP.zh-CN.md).
 
 ## Новый путь рендеринга для Ярнама
 
@@ -153,7 +156,8 @@ cd bbport-nrbridge
 | Зависимости и сборка Native/Helper | [Руководство разработчика](tools/nr_dev/README.md) |
 | Создание AppImage | [Упаковка](packaging/nrbridge/README.md) |
 | Клавиши, китайский интерфейс и сохранения | [Руководство игрока](docs/PC_FEATURES.zh-CN.md) (китайский) |
-| Прогресс и известные проблемы | [Состояние Preview](docs/NRBRIDGE_PREVIEW_STATUS.md) |
+| Прогресс и известные проблемы | [Состояние проекта](docs/PROJECT_STATUS.zh-CN.md) (китайский) |
+| Направления развития и предпосылки | [План развития](docs/NRBRIDGE_ROADMAP.zh-CN.md) (китайский) |
 | Рабочие каталоги и ветки | [Организация репозитория](docs/WORKSPACE.md) |
 | Изменения bbport 0.6 | [Upstream changelog](docs/CHANGES_0.6.md) |
 

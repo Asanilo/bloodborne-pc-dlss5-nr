@@ -1,5 +1,8 @@
 # Нативный порт Bloodborne: что сделано и что дальше
 
+> Исторический документ апстрима (состояние на 2026-09-30).
+> Текущее состояние и планы NRBridge: [PROJECT_STATUS.zh-CN.md](PROJECT_STATUS.zh-CN.md), [NRBRIDGE_ROADMAP.zh-CN.md](NRBRIDGE_ROADMAP.zh-CN.md).
+
 Основной текст — состояние на 2026-09-26; ниже первым разделом — что изменилось к 30.09.
 Самый подробный срез: [CURRENT_STATUS_2026-09-29.md](history/CURRENT_STATUS_2026-09-29.md).
 Отчёт о работе 30.09–01.10 (конвейер GPU, апскейлер, падение, лаунчер, AppImage):

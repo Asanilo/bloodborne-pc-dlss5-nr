@@ -29,9 +29,11 @@ key bindings, Chinese settings and save management—all accessible from the ful
 
 **The unified launcher supports independent NR, SR and frame generation.**
 Choose AMD FSR x2 or NVIDIA DLSS FG/MFG 2X–6X, with dynamic resolutions,
-SR presets and Old/New memory. NR-only + FG is also supported. New memory and
-Legacy NR history remain the defaults. Smooth Motion is unavailable pending safe
-shutdown validation. See the [player guide](docs/PLAYER_GUIDE.zh-CN.md).
+SR presets and Old/New memory. NR-only + FG is also supported. Old memory
+(resolved from `auto`) and Legacy NR history remain the defaults; New is opt-in.
+Smooth Motion is unavailable pending safe shutdown validation. See the
+[player guide](docs/PLAYER_GUIDE.zh-CN.md), [project status](docs/PROJECT_STATUS.zh-CN.md)
+and [roadmap](docs/NRBRIDGE_ROADMAP.zh-CN.md).
 This repository does not currently publish a downloadable binary release.
 
 ## A new rendering path for Yharnam
@@ -173,7 +175,9 @@ cd bbport-nrbridge
 | AppImage packaging | [Package guide](packaging/nrbridge/README.md) |
 | Bindings, Chinese UI and saves | [Player guide](docs/PC_FEATURES.zh-CN.md) (Chinese) |
 | Unified NR / SR / FG / MFG selection | [Player guide](docs/PLAYER_GUIDE.zh-CN.md) |
-| Progress and known issues | [Current features](docs/PC_FEATURES.zh-CN.md) |
+| Progress and known issues | [Project status](docs/PROJECT_STATUS.zh-CN.md) (Chinese) |
+| Planned directions and prerequisites | [Roadmap](docs/NRBRIDGE_ROADMAP.zh-CN.md) (Chinese) |
+| Current player features and limits | [Current features](docs/PC_FEATURES.zh-CN.md) |
 | Configurable NR execution and SR output | [Current player settings](docs/PC_FEATURES.zh-CN.md) |
 | Workspace and branch layout | [Repository maintenance](docs/WORKSPACE.md) |
 | Changes in bbport 0.6 | [Upstream changelog](docs/CHANGES_0.6.md) |

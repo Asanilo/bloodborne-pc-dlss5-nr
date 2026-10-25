@@ -29,10 +29,11 @@
 
 **NR、超分辨率与帧生成已统一到完整启动器，并可独立控制。**
 支持 AMD FSR x2、NVIDIA DLSS FG/MFG 2X–6X、多分辨率、多 SR 档位及 Old/New 内存。
-可使用 NR-only + FG。内存默认 New，NR 画质策略默认 Legacy。
+可使用 NR-only + FG。内存默认 `auto`（解析为 Old），New 显式可选；NR 画质策略默认 Legacy。
 Smooth Motion 暂不开放，尚未完成安全退出验收。
 本机安装与开发工作树分离，更新保留上一版、设置和存档；目前不公开发布二进制。
-参见[玩家指南](docs/PLAYER_GUIDE.zh-CN.md)与[当前功能](docs/PC_FEATURES.zh-CN.md)。
+参见[玩家指南](docs/PLAYER_GUIDE.zh-CN.md)、[当前功能](docs/PC_FEATURES.zh-CN.md)、
+[项目现状](docs/PROJECT_STATUS.zh-CN.md)与[路线图](docs/NRBRIDGE_ROADMAP.zh-CN.md)。
 
 ## 为亚楠加上 NR
 
@@ -148,8 +149,9 @@ cd bbport-nrbridge
 | :--- | :--- |
 | 准备依赖、构建 Native 与 Helper | [开发指南](tools/nr_dev/README.md) |
 | 制作 AppImage | [打包说明](packaging/nrbridge/README.md) |
+| 当前进展、功能与已知限制 | [项目现状](docs/PROJECT_STATUS.zh-CN.md) |
+| 未来方向、优先级与前置条件 | [路线图](docs/NRBRIDGE_ROADMAP.zh-CN.md) |
 | 改键、中文与存档 | [玩家使用说明](docs/PC_FEATURES.zh-CN.md) |
-| 当前进展与已知问题 | [当前功能](docs/PC_FEATURES.zh-CN.md) |
 | 工作空间和分支布局 | [仓库维护说明](docs/WORKSPACE.md) |
 | bbport 0.6 的更新 | [上游更新记录](docs/CHANGES_0.6.md) |
 
