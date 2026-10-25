@@ -1003,6 +1003,9 @@ def language():
 
 
 RU_PLAYER = {
+    'Advanced settings':'Расширенные настройки','Diagnostics and debug options':'Диагностика и отладка',
+    'Enable selected diagnostics':'Включить выбранную диагностику',
+    'Only explicitly enabled diagnostics run. They may reduce performance.':'Запускается только включённая диагностика. Она может снизить производительность.',
     'F6 free camera':'Свободная камера (F6)',
     'F6 toggles the camera; right mouse button looks around, WASD moves, E/Q moves vertically.':'F6 — свободная камера; правая кнопка мыши — обзор, WASD — движение, E/Q — вверх/вниз.',
     'Old is the default. New may use more video memory; performance depends on the scene.':'По умолчанию Old. New может расходовать больше видеопамяти; результат зависит от сцены.',

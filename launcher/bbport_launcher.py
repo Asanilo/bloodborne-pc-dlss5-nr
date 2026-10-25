@@ -186,6 +186,7 @@ DEFAULTS = {
     "nrbridge_execution": "1280x720",
     "cinematic_camera": True,
     "developer_mode": False,
+    "diagnostics_enabled": False,
     "ui_language": "",
     "game_dir": "" if PACKAGED else str(PORT_DIR.parent / "CUSA03173"),
     "user_dir": "",
@@ -275,7 +276,7 @@ def load_settings():
         sys.path.insert(0,str(nrbridge.app_dir()/'tools/nr_dev'))
         import fg_preferences
         settings.update(fg_preferences.read(CONFIG_FILE, DATA_DIR))
-    settings['developer_mode']=os.environ.get('BB_DEVELOPER_MODE')=='1'
+    settings['developer_mode']=os.environ.get('BB_DEVELOPER_MODE')=='1' or settings.get('diagnostics_enabled',False)
     return settings
 
 
@@ -710,8 +711,6 @@ class LauncherWindow(Adw.ApplicationWindow):
         group.add(self.nr_preset_row)
         self.nr_dimensions_row=Adw.SwitchRow(title=tr("Explicit render dimensions"),
             active=self.settings.get("nrbridge_dimensions",False))
-        group.add(self.nr_dimensions_row)
-        self.nr_dimensions_row.set_visible(developer)
         self.nr_execution_row=combo_row(tr("NR quality resolution"),tr("Higher values use more video memory. Applies when starting the game."),
             [("1280×720 (recommended)","1280x720"),("1920×1080 (higher VRAM)","1920x1080"),("Automatic","")],
             self.settings.get("nrbridge_execution","1280x720"))
@@ -739,7 +738,6 @@ class LauncherWindow(Adw.ApplicationWindow):
             self.nr_fg_fields[key]=row;advanced.add_row(row)
             row.connect('changed',self.update_fg_status)
         group.add(advanced)
-        advanced.set_visible(developer)
         self.nr_fg_status=Adw.ActionRow(title=tr("FG availability"))
         group.add(self.nr_fg_status)
         self.nr_fg_row.connect('notify::selected',self.update_fg_status)
@@ -759,6 +757,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         values = nrbridge.dependency_values(runtime, self.settings)
         self.nr_dependency_values = values
         inputs = Adw.ExpanderRow(title=tr("NR runtime inputs"), expanded=False)
+        inputs.add_row(self.nr_dimensions_row)
         for key, title, folder in (
                 ("ge_files", "Wine / GE files", True),
                 ("model", "NR model (nvngx_dlssnr.dll)", False),
@@ -776,7 +775,6 @@ class LauncherWindow(Adw.ApplicationWindow):
         apply_row.add_suffix(self.nr_apply_button)
         inputs.add_row(apply_row)
         group.add(inputs)
-        inputs.set_visible(developer)
         identity = Adw.ExpanderRow(title=tr("Advanced runtime identity"), expanded=False)
         try:
             manifest = json.loads(nrbridge.bundle_manifest().read_text())
@@ -787,7 +785,6 @@ class LauncherWindow(Adw.ApplicationWindow):
             text = record.get("source") or record.get("source_commit") or record.get("build_id") or "—"
             identity.add_row(Adw.ActionRow(title=key.title(), subtitle=str(text)))
         group.add(identity)
-        identity.set_visible(developer)
         return group
 
     def choose_nr_dependency(self, key, title, folder):
@@ -1247,40 +1244,48 @@ class LauncherWindow(Adw.ApplicationWindow):
         perf.add(self.preupload_row)
         page.add(perf)
 
-        dev = Adw.PreferencesGroup(title=tr("Для разработчика"))
+        dev = Adw.PreferencesGroup(title=tr("Advanced settings"))
+        details=Adw.ExpanderRow(title=tr("Diagnostics and debug options"),expanded=False)
+        dev.add(details)
+        self.diagnostics_row=Adw.SwitchRow(title=tr("Enable selected diagnostics"),
+            subtitle=tr("Only explicitly enabled diagnostics run. They may reduce performance."),
+            active=self.settings.get('diagnostics_enabled',False))
+        details.add_row(self.diagnostics_row)
+        for key in ('debug_camera','debug_menu'):
+            row=self.effect_rows[key];effects.remove(row);row.set_visible(True);details.add_row(row)
         self.mangohud_row = Adw.SwitchRow(title="MangoHud", active=self.settings["mangohud"])
-        dev.add(self.mangohud_row)
+        details.add_row(self.mangohud_row)
         self.save_log_row = Adw.SwitchRow(
             title=tr("Сохранять журнал и статистику в файл"),
             subtitle=tr("В папку logs в каталоге данных: для разбора рывков и вылетов"),
             active=self.settings.get("save_log", False))
-        dev.add(self.save_log_row)
+        details.add_row(self.save_log_row)
         self.crash_diag_row = Adw.SwitchRow(
             title=tr("Диагностика вылетов"),
             subtitle=tr("Проверяет кучу игры и записывает записи в её память; немного медленнее"),
             active=self.settings.get("crash_diag", False))
-        dev.add(self.crash_diag_row)
+        details.add_row(self.crash_diag_row)
         self.as_0_3_row = Adw.SwitchRow(
             title=tr("Синхронизация как в 0.3"),
             subtitle=tr("Для поиска регрессий: старая модель памяти и ожидания копий как в релизе 0.3"),
             active=self.settings.get("as_0_3", False))
-        dev.add(self.as_0_3_row)
+        details.add_row(self.as_0_3_row)
         self.stats_row = Adw.SwitchRow(title=tr("Статистика кадров в журнале"),
                                        subtitle="BB_FRAME_STATS",
                                        active=self.settings["frame_stats"])
-        dev.add(self.stats_row)
+        details.add_row(self.stats_row)
         self.profile_row = Adw.SwitchRow(title=tr("Профиль GPU в журнале"),
                                          subtitle="BB_GPU_PROFILE",
                                          active=self.settings["gpu_profile"])
-        dev.add(self.profile_row)
+        details.add_row(self.profile_row)
         self.validation_row = Adw.SwitchRow(title=tr("Слои валидации Vulkan"),
                                             subtitle=tr("Сильно замедляет"),
                                             active=self.settings["vk_validation"])
-        dev.add(self.validation_row)
+        details.add_row(self.validation_row)
         self.extra_row = Adw.EntryRow(title=tr("Доп. переменные (ИМЯ=значение через пробел)"),
                                       text=self.settings["extra_env"])
-        dev.add(self.extra_row)
-        if self.settings.get('developer_mode',False):page.add(dev)
+        details.add_row(self.extra_row)
+        page.add(dev)
         return page
 
     def on_ui_language(self, row, _param):
@@ -1583,6 +1588,8 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def store(self):
         s = self.settings
+        s['diagnostics_enabled']=self.diagnostics_row.get_active()
+        s['developer_mode']=os.environ.get('BB_DEVELOPER_MODE')=='1' or s['diagnostics_enabled']
         s["gamepad"] = combo_value(self.gamepad_row)
         s["gamepad_name"] = self.gamepad_row.names[self.gamepad_row.get_selected()]
         s["display"] = combo_value(self.display_row)

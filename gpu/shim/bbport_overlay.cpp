@@ -71,6 +71,7 @@ std::atomic<bool> menu_open{false};
 bool l3_down = false, r3_down = false;
 bool nr_start_requested = false;
 bool nr_start_error = false;
+bool advanced_options = false;
 bool dirty = false; // settings changed while open: saved on close
 float base_scale = 1.0f;
 // The game's text dialog (ImeDialog, the character name), typed on the keyboard: drawn while it
@@ -270,7 +271,7 @@ void NRControls() {
     auto request=BbNR::ReadRequest();auto c=request.config;const auto actual=BbNR::ReadSnapshot();
     static std::string error;bool changed=false;
     const bool developer=std::getenv("BB_DEVELOPER_MODE") && std::strcmp(std::getenv("BB_DEVELOPER_MODE"),"1")==0;
-    if(!developer){
+    if(!developer && !advanced_options){
         if(actual.status==BbNR::Status::Unavailable && NRStartAvailable() && !nr_start_requested)
             if(ImGui::Button(BbSettings::MenuText("Enable NR (F8)","Включить NR (F8)")))RequestNRStart();
         bool enabled=!c.display_bypass;
@@ -291,21 +292,21 @@ void NRControls() {
     }
     if(nr_start_error)ImGui::TextUnformatted(BbSettings::MenuText("NR request failed; see menu", "Ошибка запроса NR; см. меню"));
     ImGui::BeginDisabled(actual.status==BbNR::Status::Unavailable || actual.status==BbNR::Status::Pending);
-    changed|=ImGui::Checkbox("Display bypass (F8)",&c.display_bypass);
+    changed|=ImGui::Checkbox(BbSettings::MenuText("Display bypass (F8)","Display bypass (F8)"),&c.display_bypass);
     ImGui::EndDisabled();
-    changed|=ImGui::SliderFloat("Display strength",&c.display_strength,0.f,1.f);
+    changed|=ImGui::SliderFloat(BbSettings::MenuText("Display strength","Display strength"),&c.display_strength,0.f,1.f);
     ImGui::Text("Actual display: %s / %.2f",actual.actual_config.display_bypass?"raw SR":"NR history",actual.actual_config.display_strength);
     ImGui::TextWrapped("Display comparison shares SR history. Fast toggles are not strict same-frame dual-history A/B.");
     int reprojection=static_cast<int>(c.reprojection);
-    if(ImGui::Combo("History reprojection",&reprojection,"Nearest (Alpha/default)\0Clamped cubic (optional)\0")){c.reprojection=static_cast<BbNR::Reprojection>(reprojection);changed=true;}
+    if(ImGui::Combo(BbSettings::MenuText("History reprojection","History reprojection"),&reprojection,"Nearest (Alpha/default)\0Clamped cubic (optional)\0")){c.reprojection=static_cast<BbNR::Reprojection>(reprojection);changed=true;}
     Hint("Changing reprojection clears visual history; it does not rebuild the model.");
     ImGui::Text("Applied reprojection: %s%s",actual.actual_config.reprojection==BbNR::Reprojection::Nearest?"Nearest":"Clamped cubic",c.reprojection!=actual.actual_config.reprojection?" (pending)":"");
-    if(ImGui::TreeNode("History lifetime and confidence")) {
-        int frames=int(c.ttl_frames);if(ImGui::SliderInt("Visual TTL frames",&frames,1,12)){c.ttl_frames=unsigned(frames);changed=true;}
+    if(ImGui::TreeNode(BbSettings::MenuText("History lifetime and confidence","History lifetime and confidence"))) {
+        int frames=int(c.ttl_frames);if(ImGui::SliderInt(BbSettings::MenuText("Visual TTL frames","Visual TTL frames"),&frames,1,12)){c.ttl_frames=unsigned(frames);changed=true;}
         changed|=ImGui::SliderFloat("Visual TTL milliseconds",&c.ttl_ms,1.f,200.f);
         changed|=ImGui::SliderFloat("Depth tolerance",&c.depth_tolerance,.0001f,.25f,"%.4f");
         changed|=ImGui::SliderFloat("Colour tolerance",&c.colour_tolerance,0.f,4.f);
-        changed|=ImGui::SliderFloat("Minimum confidence",&c.min_confidence,0.f,1.f);
+        changed|=ImGui::SliderFloat(BbSettings::MenuText("Minimum confidence","Minimum confidence"),&c.min_confidence,0.f,1.f);
         Hint("Reprojection confidence combines depth, colour and local motion consistency. Default 0.5 preserves the existing valid regions; higher values reject more uncertain edits and may increase raw fallback. Hard occlusion rejection always applies.");
         ImGui::TextWrapped("TTL/threshold changes request visual reset. NR late-result admission remains age <= 4.");
         ImGui::TreePop();
@@ -326,15 +327,15 @@ void NRControls() {
         ImGui::TextWrapped("Dragging stages values only. Apply requests a safe model feature rebuild; failure keeps pending/failed status visible.");
         ImGui::TreePop();
     }
-    changed|=ImGui::Checkbox("NR status HUD",&c.hud);
+    changed|=ImGui::Checkbox(BbSettings::MenuText("NR status HUD","NR status HUD"),&c.hud);
     if(changed)BbNR::Submit(c,{},&error);
-    if(ImGui::Button("Reset visual history"))BbNR::Submit(c,{.reset=true},&error);
+    if(ImGui::Button(BbSettings::MenuText("Reset visual history","Reset visual history")))BbNR::Submit(c,{.reset=true},&error);
     ImGui::SameLine();
     ImGui::BeginDisabled(actual.capture_busy||request.capture_seq!=actual.capture_applied_seq);
-    if(ImGui::Button("Capture current-source chain (F9)"))BbNR::Submit(c,{.capture=true},&error);
+    if(ImGui::Button(BbSettings::MenuText("Capture current-source chain (F9)","Capture current-source chain (F9)")))BbNR::Submit(c,{.capture=true},&error);
     ImGui::EndDisabled();
     ImGui::Text("Capture request %llu / handled %llu%s",(unsigned long long)request.capture_seq,(unsigned long long)actual.capture_applied_seq,actual.capture_busy?" (busy)":"");
-    if(ImGui::Button("Restore exact NR defaults"))BbNR::Submit(BbNR::Config{},{.reset=true},&error);
+    if(ImGui::Button(BbSettings::MenuText("Restore exact NR defaults","Restore exact NR defaults")))BbNR::Submit(BbNR::Config{},{.reset=true},&error);
     Hint("Restores requested defaults. Model changes still require explicit Apply; actual state is shown above.");
     if(!error.empty())ImGui::TextWrapped("Request rejected: %s",error.c_str());
     if(ImGui::TreeNode(BbSettings::MenuText("Detailed NR diagnostics", "Подробная диагностика NR"))) {
@@ -590,6 +591,7 @@ void Menu() {
             dirty = true;
         }
     }
+    ImGui::Checkbox(BbSettings::MenuText("Advanced settings","Расширенные настройки"),&advanced_options);
     NRControls();
 #if NRBRIDGE_LEGACY_EXPERIMENTS
     if(const auto p0=BbP0::ReadSnapshot();p0.opt_in) {
@@ -611,7 +613,7 @@ void Menu() {
     // Always readable, even when the rest of the menu is in Russian.
     static const char* languages[] = {"English", "Русский", "简体中文"};
     int language = static_cast<int>(s.menu_language.load());
-    if (ImGui::Combo("Language", &language, languages, 3)) {
+    if (ImGui::Combo(BbSettings::MenuText("Language","Язык"), &language, languages, 3)) {
         s.menu_language =
             static_cast<BbSettings::MenuLanguage>(language);
         s.menu_language_chosen = true;
@@ -890,7 +892,7 @@ void Menu() {
     Slider(BbSettings::MenuText("Threshold", "Порог"), s.reactive_threshold, 0.0f, 1.0f);
     Slider(BbSettings::MenuText("Maximum", "Максимум"), s.reactive_max, 0.0f, 1.0f);
     const char* developer_env=std::getenv("BB_DEVELOPER_MODE");
-    const bool developer=developer_env && std::strcmp(developer_env,"1")==0;
+    const bool developer=advanced_options || (developer_env && std::strcmp(developer_env,"1")==0);
     if(developer){
     bool show_mask = s.debug_view == BbSettings::DebugReactive;
     if (ImGui::Checkbox(BbSettings::MenuText("Show mask (debug)", "Показать маску (отладка)"),
@@ -1033,7 +1035,7 @@ void Menu() {
     for (int e = 0; e < BbSettings::EffectCount; ++e) {
         const auto& effect = BbSettings::Effects[e];
         if((std::string_view(effect.key)=="debug_camera" || std::string_view(effect.key)=="debug_menu") &&
-           !(std::getenv("BB_DEVELOPER_MODE") && std::strcmp(std::getenv("BB_DEVELOPER_MODE"),"1")==0))continue;
+           !advanced_options)continue;
         Checkbox(BbSettings::MenuText(effect.label, effect.label_ru), s.effects[e]);
         if (std::string_view(effect.key) == "debug_camera") {
             Hint(BbSettings::MenuText("Hold Cross and press L3 (keyboard: F + Left Ctrl).",
@@ -1341,7 +1343,7 @@ bool HandleEvent(const SDL_Event& event) {
     std::scoped_lock lock{imgui_mutex};
     const bool nr_hotkey = event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
                           (event.key.key == SDLK_F8 || (event.key.key == SDLK_F9 &&
-                           std::getenv("BB_DEVELOPER_MODE") && std::strcmp(std::getenv("BB_DEVELOPER_MODE"),"1")==0));
+                           (advanced_options || (std::getenv("BB_DEVELOPER_MODE") && std::strcmp(std::getenv("BB_DEVELOPER_MODE"),"1")==0))));
     const unsigned nr_key = nr_hotkey && event.key.key == SDLK_F9 ? 9u : 8u;
     if (!initialized) {
         if (nr_hotkey) std::printf("NR_HOTKEY_OVERLAY key=F%u initialized=0 disposition=ignored_uninitialized\n", nr_key);

@@ -9,7 +9,7 @@ import shutil
 KEYS = set('menu_language upscaler preset sharpen sharpness jitter reactive object_motion '
            'reactive_scale reactive_threshold reactive_max show_fps mouse_capture '
            'fsr4_auto_exposure fsr4_invert_jitter model_lod aspect_ratio output_res '
-           'live_resolution menu_pos skip_intro'.split()) | {
+           'live_resolution menu_pos skip_intro debug_camera debug_menu'.split()) | {
     'effect_' + name for name in ('chromatic_aberration','dof','motion_blur','ssao',
                                 'game_aa','dynamic_shadows','ssr','bloom')}
 

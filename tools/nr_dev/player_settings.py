@@ -108,6 +108,9 @@ def load_request(args):
     selected = {}
     developer=source.get('developer_mode',False)
     if type(developer) is not bool:raise ValueError('player settings: boolean required for developer_mode')
+    diagnostics=source.get('diagnostics_enabled',False)
+    if type(diagnostics) is not bool:raise ValueError('player settings: boolean required for diagnostics_enabled')
+    developer=developer or diagnostics
     env['BB_DEVELOPER_MODE']='1' if developer else '0'
     if not developer:env.update(BB_NR_HISTORY_SAMPLE_INTERVAL='0',BB_NR_VISUAL_TRANSITION='legacy')
     # Pipeline/shader caches belong to the player's persistent GPU directory,

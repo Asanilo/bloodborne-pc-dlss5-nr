@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "native_persistent_history.h"
+#include "render/player_diagnostics.h"
 #include "nr_dimensions.h"
 #include "native_persistent_history_diagnostic.h"
 #include "native_history_capture_admission.h"
@@ -259,7 +260,7 @@ void NativePersistentHistory::Impl::FinishTransition(Scheduler& scheduler){
  const unsigned to=1-active;
  Pass(scheduler,PHAdopt,candidate,to,Converted(),banks[active].edit.View(),banks[active].meta.View(),current,true,0,0);
  active=to;history=true;
- std::printf("PERSISTENT_HISTORY_TRANSITION_FINISH source=%llu origin=%llu target_bank=%u active_bank=%u start_source=%llu scope=GPU_conditional_target_or_old_fallback\n",
+ if(VerbosePlayerFrames())std::printf("PERSISTENT_HISTORY_TRANSITION_FINISH source=%llu origin=%llu target_bank=%u active_bank=%u start_source=%llu scope=GPU_conditional_target_or_old_fallback\n",
   (unsigned long long)current.source,(unsigned long long)candidate_origin,candidate,active,(unsigned long long)transition.source);
  transition.Clear();
 }
@@ -423,7 +424,7 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
  // of old active until the short display transition ends; GPU guards decide per pixel.
  p.candidate=current_bank;p.history=true;p.candidate_recorded=true;p.candidate_origin=links.front().frame.source;p.candidate_current=p.current.source;++p.candidate_count;
  if(!p.transition.Begin(p.current.source,p.clock_ms))throw std::runtime_error("invalid visual transition clock after candidate recording");
- std::printf("PERSISTENT_HISTORY_TRANSITION_BEGIN source=%llu origin=%llu target_bank=%u active_bank=%u weight=%.6f scope=GPU_guard_pending_no_age_refresh\n",
+ if(VerbosePlayerFrames())std::printf("PERSISTENT_HISTORY_TRANSITION_BEGIN source=%llu origin=%llu target_bank=%u active_bank=%u weight=%.6f scope=GPU_guard_pending_no_age_refresh\n",
   (unsigned long long)p.current.source,(unsigned long long)p.candidate_origin,p.candidate,p.active,p.transition.Weight(p.current.source,p.clock_ms));
  if(p.diagnostic){
   if(!nr_image||!evidence)throw std::runtime_error("cold candidate actual image and exact identity required");
@@ -433,7 +434,7 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
   snapshot.capture_parameters=p.last_capture;snapshot.bank=current_bank;snapshot.count=p.candidate_count;
   if(p.diagnostic->RecordCandidate(scheduler,snapshot))p.Mark(scheduler);
  }
- std::printf("PERSISTENT_HISTORY_CANDIDATE_RECORDED source=%llu origin=%llu links=%zu candidate_bank=%u active_bank=%u status=PENDING_GPU_GUARD\n",(unsigned long long)p.current.source,(unsigned long long)links.front().frame.source,links.size(),p.candidate,p.active);
+ if(VerbosePlayerFrames())std::printf("PERSISTENT_HISTORY_CANDIDATE_RECORDED source=%llu origin=%llu links=%zu candidate_bank=%u active_bank=%u status=PENDING_GPU_GUARD\n",(unsigned long long)p.current.source,(unsigned long long)links.front().frame.source,links.size(),p.candidate,p.active);
  return true;
 }
 vk::ImageView NativePersistentHistory::Apply(Scheduler& scheduler){

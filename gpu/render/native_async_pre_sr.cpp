@@ -303,7 +303,7 @@ vk::ImageView NativeAsyncPreSr::RecordPersistentAdvanceAndApply(Scheduler& sched
  TrackUse(scheduler);
  // Selection is only a host potential: validity, contribution age and fallback
  // are per pixel on GPU. This log never claims actual changed-pixel coverage.
- std::printf("PERSISTENT_HISTORY_CURRENT source=%llu host_history_potential=%u request_origin=%llu last_candidate_job=%u phase=GPU_PIXEL_VALIDITY_NOT_READ_BACK\n",(unsigned long long)source,effect_selected,(unsigned long long)OriginSource(),effect_job);
+ if(Vulkan::VerbosePlayerFrames())std::printf("PERSISTENT_HISTORY_CURRENT source=%llu host_history_potential=%u request_origin=%llu last_candidate_job=%u phase=GPU_PIXEL_VALIDITY_NOT_READ_BACK\n",(unsigned long long)source,effect_selected,(unsigned long long)OriginSource(),effect_job);
  return view;
 }
 

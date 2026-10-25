@@ -126,7 +126,7 @@ graphics to Vulkan. NRBridge adds a division between rendering and model inferen
 Game image & motion → NR Helper → Persistent visual history → Native DLSS SR → Display
 ```
 
-### Experimental Native Linux Vulkan NR Bridge
+### Native Linux Vulkan NR Bridge
 
 NRBridge demonstrates **DLSS 5 Neural Rendering integration in a native Linux
 Vulkan game**, using Bloodborne as a real-world implementation. The game-side

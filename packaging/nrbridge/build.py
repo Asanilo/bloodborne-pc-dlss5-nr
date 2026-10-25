@@ -289,6 +289,9 @@ def stage_code(app: Path, bundle: dict) -> None:
     # Development READMEs/templates name private workspace roots; they are
     # not runtime inputs and do not belong in the image.
     stage_file(ROOT / "LICENSE", app / "usr/share/doc/bbport/LICENSE")
+    for name in ('PLAYER_GUIDE.zh-CN.md','PC_FEATURES.zh-CN.md'):
+        guide=ROOT/'docs'/name
+        if guide.is_file():stage_file(guide,app/'usr/share/doc/bbport'/name)
     (app / "usr/share/doc/bbport/BUILD_ONLY").write_text(
         "BUILD_ONLY: CPU/static packaging candidate; not a GPU exit or online acceptance.\n"
     )

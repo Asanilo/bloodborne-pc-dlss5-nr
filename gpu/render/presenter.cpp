@@ -485,7 +485,7 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
                     static_cast<unsigned long long>(frame->c1_present_frame_number),
                     static_cast<unsigned long long>(frame->c1_guest_prepare_tick),
                     static_cast<unsigned long long>(frame->ready_tick));
-    } else if (frame->c1_source_game_frame != 0) {
+    } else if (VerbosePlayerFrames() && frame->c1_source_game_frame != 0) {
         std::printf("C1_PRESENT_PREPARED route=nonupscaled_videoout source_game_frame=%llu merge_tick=%llu "
                     "guest_buffer_address=0x%llx gpu_frame_at_prepare=%llu "
                     "frame_counter_before=%llu present_frame_number=%llu "

@@ -228,7 +228,7 @@ ZH.update({
     "F6 free camera": "F6 自由相机",
     "F6 toggles the camera; right mouse button looks around, WASD moves, E/Q moves vertically.": "按 F6 开关自由相机；按住右键转动，WASD 移动，E/Q 升降。",
     "Ready": "就绪",
-    "Smooth Motion is unavailable until safe shutdown is verified. Choose another frame generation option.": "当前驱动下 Smooth Motion 尚不可用，请选择其他帧生成方式。",
+    "Smooth Motion is unavailable until safe shutdown is verified. Choose another frame generation option.": "Smooth Motion 尚未通过安全退出验证，请选择其他帧生成方式。",
     "The frame generation model is missing or invalid.": "帧生成模型缺失或校验未通过。",
     "The frame generation runtime is not ready.": "帧生成运行环境尚未就绪。",
     "The selected frame generation option is unavailable. See the log for details.": "所选帧生成暂不可用，请在日志中查看原因。",
@@ -249,3 +249,10 @@ ZH.update({
 })
 
 ZH.update({"NR preset": "NR 预设", "Preset B": "预设 B", "Preset A": "预设 A", "Automatic (uses Old)": "自动（使用 Old）", "New": "New（新内存模型）", "Old (recommended)": "Old（推荐）", "Old is the default. New may use more video memory; performance depends on the scene.": "默认使用 Old。New 可能占用更多显存，性能取决于场景。", "Real %.0f | FG %.0f | Present %.0f": "真实 %.0f | 生成 %.0f | 呈现 %.0f", "Unavailable":"暂不可用", "FSR 4.1.1 DLL conversion is unavailable in this launcher because it uses a separate GPU workflow. With NR off, you can select FSR 3, TAA or FSR 4.1.1 with prepared resources.":"启动器暂不支持转换 FSR 4.1.1 DLL，该功能使用独立的 GPU 流程。关闭 NR 后，可以选择 FSR 3、TAA 或使用已准备好资源的 FSR 4.1.1。"})
+
+ZH.update({
+    "Advanced settings":"高级设置", "Diagnostics and debug options":"诊断与调试选项",
+    "Enable selected diagnostics":"启用所选诊断功能",
+    "Only explicitly enabled diagnostics run. They may reduce performance.":"仅运行明确开启的诊断项，可能降低性能。",
+    "FPS counter":"FPS HUD", "Show FPS":"显示 FPS", "FPS limit":"FPS 上限",
+})
