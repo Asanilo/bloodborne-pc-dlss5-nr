@@ -2761,10 +2761,20 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
     if(NrWithoutSr())RecordNrDimensionPresent(true);
     // A native scene still needs FG guides even though no SR Feature is used.
     // Title/loading frames retain the existing reset and cannot enter FG.
-    reset = !CaptureUiOnlyFrameGenScene(depth_id,source_width,source_height);
+    // `depth_id` belongs to the UI draw (often null or a small stencil target).
+    // FG must use the scene depth tracked with this camera, as RunScaled does.
+    reset = !(ldr_target==color_id &&
+        CaptureUiOnlyFrameGenScene(camera_motion.Depth(),source_width,source_height));
 }
 
 bool TemporalUpscaler::CaptureUiOnlyFrameGenScene(VideoCore::ImageId depth_id,u32 w,u32 h) {
+    if(NrWithoutSr() && frame_generation && frame_generation->Wanted() && std::getenv("BB_FG_PROFILE")){
+        static u64 checks=0;
+        if(++checks<=3 || (checks&(checks-1))==0)
+            std::printf("FG_WITHOUT_SR_DOMAIN source_game_frame=%llu camera_ready=%u scene_depth=%u source=%ux%u ui=%ux%u\n",
+                (unsigned long long)BbStats::gpu_frames.load(std::memory_order_relaxed),
+                unsigned(camera_motion.Ready()),unsigned(bool(depth_id)),w,h,ui_width,ui_height);
+    }
     if(!NrWithoutSr() || !frame_generation || !frame_generation->Wanted() ||
        !camera_motion.Ready() || !depth_id || !w || !h || w!=ui_width || h!=ui_height)
         return false;
