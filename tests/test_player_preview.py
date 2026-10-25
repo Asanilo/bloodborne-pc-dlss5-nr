@@ -77,3 +77,10 @@ class PlayerPreview(unittest.TestCase):
         c=self.prepare('--fg-profile')
         self.assertIn('--fg-profile',c)
         self.assertNotIn('--gpu-validation',c)
+
+    def test_sr_only_coordinator_drops_inherited_nr_prefix_dependency(self):
+        import runner
+        args=runner.parse_args(['start','cpu-no-nr','--daily','--local-inputs','/fixture-inputs','--sr-only','--reuse-nr-prefix','unavailable-nr-prefix'])
+        self.assertIsNone(args.reuse_nr_prefix)
+        args=runner.parse_args(['start','cpu-with-nr','--daily','--local-inputs','/fixture-inputs','--reuse-nr-prefix','retired-nr-prefix'])
+        self.assertEqual(args.reuse_nr_prefix,'retired-nr-prefix')

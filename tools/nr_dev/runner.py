@@ -689,6 +689,7 @@ def validate_daily_args(args):
 
 def configure_daily_args(args):
  if getattr(args,'joystick_mouse',False) and getattr(args,'native_mouse',False):raise ValueError('choose one mouse route')
+ if getattr(args,'sr_only',False):args.reuse_nr_prefix=None
  if getattr(args,'daily',False):
   args.seconds=args.watchdog_seconds=args.source_limit=0;args.native_mouse=not args.joystick_mouse
  validate_daily_args(args)
