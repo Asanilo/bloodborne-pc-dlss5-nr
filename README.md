@@ -29,7 +29,7 @@ key bindings, Chinese settings and save management—all accessible from the ful
 
 **The unified launcher supports independent NR, SR and frame generation.**
 Choose AMD FSR x2 or NVIDIA DLSS FG/MFG 2X–6X, with dynamic resolutions,
-SR presets and Old/New memory. NR-only + FG is also supported. Old memory and
+SR presets and Old/New memory. NR-only + FG is also supported. New memory and
 Legacy NR history remain the defaults. Smooth Motion is unavailable pending safe
 shutdown validation. See the [player guide](docs/PLAYER_GUIDE.zh-CN.md).
 This repository does not currently publish a downloadable binary release.

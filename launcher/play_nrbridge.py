@@ -25,7 +25,7 @@ def arguments(argv=None):
     p = argparse.ArgumentParser(description='Bloodborne private player preview (managed NR/SR/FG)')
     p.add_argument('--profile', type=Path, default=Path(os.environ.get(
         'NRBRIDGE_PLAYER_PROFILE', APP / 'out/player-preview/profile.json')))
-    p.add_argument('--memory-model', choices=('old', 'new'), default='old')
+    p.add_argument('--memory-model', choices=('old', 'new'), default='new')
     p.add_argument('--nr', choices=('on', 'off'), default='on')
     p.add_argument('--sr', choices=tuple(dimension_profile.PRESETS), default='quality')
     p.add_argument('--output', default='1920x1080')

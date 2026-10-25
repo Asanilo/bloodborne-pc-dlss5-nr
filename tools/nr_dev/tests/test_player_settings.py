@@ -35,7 +35,7 @@ class PlayerSettingsTest(unittest.TestCase):
         self.assertEqual((e['BB_FPS'], e['BB_FPS_LIMIT'], e['BB_FULLSCREEN']), ('60', '60', '1'))
         self.assertEqual(e['BB_MODS_ENABLED'], '1'); self.assertEqual(e['BB_GAMEPAD'], 'controller-guid')
         self.assertEqual(e['BB_MODS_CONFIG'], str(self.data / 'mods.json'))
-        self.assertEqual((e['BB_UPSCALER'], e['BB_PC_MODEL']), ('dlss', '0'))
+        self.assertEqual((e['BB_UPSCALER'], e['BB_PC_MODEL']), ('dlss', '1'))
         self.assertEqual(self.settings.read_text(), json.dumps(self.obj))
 
     def test_normal_play_disables_stored_diagnostics_and_keeps_persistent_shader_cache(self):
@@ -116,6 +116,11 @@ class PlayerSettingsTest(unittest.TestCase):
         self.args.sr_only = False; self.obj['memory_model'] = 'old'; self.obj['as_0_3'] = True; self.write()
         with self.assertRaisesRegex(ValueError, 'synchronization'):
             p.load_request(self.args)
+
+    def test_new_memory_default_auto_and_explicit_old_fallback(self):
+        for mode, expected in [('auto','1'),('new','1'),('old','0')]:
+            self.obj['memory_model']=mode;self.write()
+            self.assertEqual(p.load_request(self.args)['environment']['BB_PC_MODEL'],expected)
 
     def test_unknown_memory_model_cannot_silently_select_old(self):
         self.obj['memory_model'] = 'typo'; self.write()

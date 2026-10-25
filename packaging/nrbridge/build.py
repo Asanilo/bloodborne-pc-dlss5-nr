@@ -708,8 +708,8 @@ exec "$APPDIR/usr/bin/python3.14" "$APPDIR/usr/share/bbport/launcher/nrbridge_en
     (app / "bbport.desktop").write_text(
         """[Desktop Entry]
 Type=Application
-Name=bbport NRBridge Preview
-Comment=Private Bloodborne NRBridge preview; select your own Wine/GE and NR model
+Name=Bloodborne
+Comment=Bloodborne for Linux with neural rendering, super resolution and frame generation
 Exec=AppRun
 Icon=bbport
 Terminal=false

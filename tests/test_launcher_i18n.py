@@ -52,7 +52,7 @@ class LauncherTranslations(unittest.TestCase):
                         labels.add(entry[1] if node.targets[0].id in ('CONTROLS', 'EFFECTS') else entry[0])
         # Names/abbreviations remain recognizable in every language.
         names = {'Steam / Lutris', "The Hunter's Dream", 'L3', 'SSAO', 'MangoHud',
-                 'DLSS (NVIDIA RTX)', 'FSR 4', 'FSR 4.1.1', 'FSR 3', 'Vulkan', 'NRBridge'}
+                 'DLSS (NVIDIA RTX)', 'FSR 4', 'FSR 4.1.1', 'FSR 3', 'Vulkan', 'NRBridge', 'Old'}
         previous = i18n.language()
         try:
             i18n.set_language('zh_CN')

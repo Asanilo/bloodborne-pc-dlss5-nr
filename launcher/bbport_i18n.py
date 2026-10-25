@@ -1003,6 +1003,8 @@ def language():
 
 
 RU_PLAYER = {
+    "Automatic (uses New)":"Автоматически (New)","New (recommended)":"New (рекомендуется)","Old":"Old",
+    "New is the default. Old remains available for compatibility; performance depends on the scene.":"По умолчанию New. Old доступен для совместимости; результат зависит от сцены.",
     'Advanced settings':'Расширенные настройки','Diagnostics and debug options':'Диагностика и отладка',
     'Enable selected diagnostics':'Включить выбранную диагностику',
     'Only explicitly enabled diagnostics run. They may reduce performance.':'Запускается только включённая диагностика. Она может снизить производительность.',

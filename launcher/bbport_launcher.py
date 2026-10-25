@@ -55,7 +55,7 @@ MAX_LOG_LINES = 5000
 PC_MODEL_SUBTITLE = ("Новая: видеокарта работает с памятью игры напрямую, как в игре для ПК, а команды "
                      "графики переводятся, а не эмулируются. Старая — модель памяти 0.3 со всеми "
                      "исправлениями. Если драйвер не проходит проверку при запуске — старая")
-MEMORY_MODELS = ([("Automatic (uses Old)","auto"),("New","new"),("Old (recommended)","old")]
+MEMORY_MODELS = ([("Automatic (uses New)","auto"),("New (recommended)","new"),("Old","old")]
                  if NRBRIDGE else [("Авто: новая на любой видеокарте", "auto"), ("Новая", "new"), ("Старая (как в 0.3)", "old")])
 # FSR 4.1.1 assets built from the user's AMD DLL (tools/fsr4cap, also in the package).
 FSR4CAP_DIR = PORT_DIR / "tools" / "fsr4cap"
@@ -212,7 +212,7 @@ DEFAULTS = {
     "frame_stats": False,
     "save_log": False,
     "crash_diag": False,
-    "memory_model": "old" if NRBRIDGE else "auto",
+    "memory_model": "new" if NRBRIDGE else "auto",
     "as_0_3": False,
     "gpu_profile": False,
     "vk_validation": False,
@@ -999,7 +999,7 @@ class LauncherWindow(Adw.ApplicationWindow):
 
         # Auto: the new memory model on every GPU; or either by hand.
         mode = Adw.PreferencesGroup(title=tr("Режим работы"))
-        self.memory_model_row = combo_row(tr("Модель памяти и трансляции"), tr("Old is the default. New may use more video memory; performance depends on the scene." if NRBRIDGE else PC_MODEL_SUBTITLE),
+        self.memory_model_row = combo_row(tr("Модель памяти и трансляции"), tr("New is the default. Old remains available for compatibility; performance depends on the scene." if NRBRIDGE else PC_MODEL_SUBTITLE),
                                           MEMORY_MODELS, self.settings.get("memory_model", "auto"))
         mode.add(self.memory_model_row)
         # The GPU the game runs on, as in shadPS4 (laptops with two GPUs).

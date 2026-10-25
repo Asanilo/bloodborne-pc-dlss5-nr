@@ -31,7 +31,7 @@ class PlayerPreview(unittest.TestCase):
     def test_default_old_nr_quality_standby_x2(self):
         c=self.prepare();self.assertIn('--fg-start-off',c);self.assertNotIn('--sr-only',c)
         s=json.loads(Path(c[c.index('--launcher-settings')+1]).read_text())
-        self.assertEqual(s['memory_model'],'old');self.assertTrue(s['nrbridge_native_mouse'])
+        self.assertEqual(s['memory_model'],'new');self.assertTrue(s['nrbridge_native_mouse'])
         self.assertEqual(c[c.index('--dlssg-multiplier')+1],'2')
 
     def test_offline_camera_defaults_on_with_explicit_older_runtime_fallback(self):

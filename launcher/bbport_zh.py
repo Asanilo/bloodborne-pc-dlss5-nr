@@ -256,3 +256,6 @@ ZH.update({
     "Only explicitly enabled diagnostics run. They may reduce performance.":"仅运行明确开启的诊断项，可能降低性能。",
     "FPS counter":"FPS HUD", "Show FPS":"显示 FPS", "FPS limit":"FPS 上限",
 })
+
+ZH.update({"Automatic (uses New)":"自动（使用 New）","New (recommended)":"New（推荐）","Old":"Old",
+"New is the default. Old remains available for compatibility; performance depends on the scene.":"默认使用 New，Old 保留用于兼容与对照；性能取决于场景。"})

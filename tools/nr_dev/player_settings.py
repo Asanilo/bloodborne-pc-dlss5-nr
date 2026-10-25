@@ -95,13 +95,13 @@ def load_request(args):
             raise ValueError('NR requires matching SR profile, DLSS, jitter/object motion on; change: ' + ', '.join(mismatched))
         if source.get('as_0_3', False):
             raise ValueError('NR requires current synchronization')
-    memory_model = source.get('memory_model', 'auto')
+    memory_model = source.get('memory_model', 'new')
     if memory_model not in ('auto', 'old', 'new'):
         raise ValueError('player settings: unsupported memory model')
     upscaler = ini.get('upscaler', 'dlss')
     if upscaler not in ('dlss', 'fsr3', 'fsr4', 'fsr411', 'taa', 'off'):
         raise ValueError('player settings: unsupported upscaler')
-    env = {'BB_GAME_DIR': str(game), 'BB_PC_MODEL': '1' if source.get('memory_model') == 'new' else '0',
+    env = {'BB_GAME_DIR': str(game), 'BB_PC_MODEL': '0' if source.get('memory_model') == 'old' else '1',
            'BB_UPSCALER': upscaler, 'BB_DLSS': '1' if upscaler == 'dlss' or nr and getattr(args,'nr_sr_preset',None)=='native' else '0',
            'BB_UPSCALE_PRESET': ini.get('preset', '1'), 'BB_JITTER': ini.get('jitter', '1'),
            'BB_OBJECT_MOTION': ini.get('object_motion', '1')}
@@ -154,7 +154,7 @@ def load_request(args):
         raise ValueError('player settings: invalid FPS option')
     env.update(BB_FPS=fps, BB_FPS_LIMIT=str(limit))
     selected.update(language=language, ui_language=ui, fps_mode=fps, fps_limit=limit,
-                    memory_model=source.get('memory_model', 'auto'))
+                    memory_model=source.get('memory_model', 'new'))
     for key, target, default in [('mods_dir', 'BB_MODS_DIR', data / 'mods'), ('patches_dir', 'BB_PATCHES_DIR', data / 'patches')]:
         env[target] = str(canonical(source.get(key) or str(default)))
     env.update(BB_MODS_CONFIG=str(data / 'mods.json'), BB_PATCHES_CONFIG=str(data / 'patches.json'),
