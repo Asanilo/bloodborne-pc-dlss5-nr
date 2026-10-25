@@ -40,7 +40,7 @@
 
 **关系**：源码 → 编译 Native 与 Helper → 打包 AppImage → 解包进 `runtime/releases/` → 玩家入口启动。玩家安装自包含，不加载研发目录里的任何文件。
 
-**已退役**：`/home/arinp/Code/nrbridge-dev` 已于 2026-10-26 整体删除（回收约 17.7 GiB 独占空间）。其中仍被引用的输入、私有配置、seed 与 Helper/forwarder 构建产物已迁到 `nr-home`；`build.sh`、`runner.py`、`prepare_helper.py`、`prepare_runtime_inputs.py`、打包脚本与本机路径头文件的所有默认值改为从 `$HOME` 推导，不再硬编码个人目录。
+**已退役**：`/home/arinp/Code/nrbridge-dev` 已于 2026-10-26 整体删除（表观 53 GiB，其中独占约 17.7 GiB；其余是与游戏资产共享的 reflink 数据块）。其中仍被引用的输入、私有配置、seed 与 Helper/forwarder 构建产物已迁到 `nr-home`；`build.sh`、`runner.py`、`prepare_helper.py`、`prepare_runtime_inputs.py`、打包脚本与本机路径头文件的所有默认值改为从 `$HOME` 推导，不再硬编码个人目录。
 
 ## 3. 已有功能
 
@@ -96,7 +96,7 @@
 
 | 问题 | 现状 | 证据 |
 |---|---|---|
-| NR 着色闪烁 / 有效历史骤降 / 亮尾 | 未解决，主线保留现场 | `out/nr-dev/runs/` 中 2026-10-25 与已标记失败轮次 |
+| NR 着色闪烁 / 有效历史骤降 / 亮尾 | 未解决，主线保留现场 | `.worktree/nrbridge/out/nr-dev/runs/` 中 2026-10-25 与已标记失败轮次 |
 | NR 时域画质（分数运动、深度边缘） | 实验策略 `fade-new`，默认关闭 | [NR 时域稳定性](NR_TEMPORAL_STABILITY.zh-CN.md) |
 | FSR FG 植被错位 | 未解决，未承诺修复 | [FG 通用化](FG_GENERALIZATION.zh-CN.md) |
 | Smooth Motion | 不可用（安全退出未验收） | 同上，及第 2 节路线图 |
