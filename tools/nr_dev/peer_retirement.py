@@ -219,6 +219,8 @@ def rows(text,event):
 def audit_dlssg_gpu(run,session,text,expected_split=False):
  ledger_path=run/'dlssg-generations.json'
  if ledger_path.exists():
+  parent=load(run/'dlssg-config.json')
+  allowed=parent.get('allowed_multipliers',[parent.get('multiplier',2)])
   ledger=load(ledger_path);need(ledger.get('schema')=='dlssg-layout-generations-v1' and ledger.get('session')==session and type(ledger.get('active')) is int and ledger['active']==0,'all FG layout generations normally retired')
   entries=ledger.get('entries');need(type(entries) is list and 1<=len(entries)<=256,'bounded FG generation ledger')
   directory_root=run/'dlssg-generations'
@@ -229,6 +231,10 @@ def audit_dlssg_gpu(run,session,text,expected_split=False):
    generation=run/directory;need(generation.resolve()==generation and not generation.is_symlink(),'canonical FG generation directory')
    need(not (generation/'dlssg-generations.json').exists() and not (generation/'dlssg-generations').exists(),'no nested FG owner ledger')
    cfg=load(generation/'dlssg-config.json');need(cfg.get('resource_epoch')==n and exact_typed(cfg.get('layout'),entry.get('layout')),'sealed generation layout')
+   multiplier=cfg.get('multiplier',2)
+   need(type(multiplier) is int and multiplier in allowed,'generation multiplier allowed by sealed parent')
+   need(exact_typed(cfg.get('allowed_multipliers',allowed),allowed),'generation retains parent multiplier policy')
+   if 'multiplier' in entry:need(exact_typed(entry['multiplier'],multiplier),'generation ledger actual multiplier')
    audit_dlssg_gpu(generation,session,(generation/'native-proof.log').read_text(),expected_split)
   proof=rows(text,'DLSSG_GPU_BRIDGE_RETIRED');need(len(proof)==1 and proof==rows((generation/'native-proof.log').read_text(),'DLSSG_GPU_BRIDGE_RETIRED'),'one matching final FG owner retirement')
   return

@@ -23,6 +23,8 @@ void Init(const Vulkan::Instance& instance, vk::Format format, u32 image_count);
 
 /// Window thread, for every SDL event: true when the menu consumed it.
 bool HandleEvent(const SDL_Event& event);
+/// Window thread: flush pending menu changes before the normal close bypasses input dispatch.
+void SaveOnClose();
 /// Turns SDL text input on while the menu edits a value (window thread, once per poll).
 void UpdateTextInput(SDL_Window* window);
 

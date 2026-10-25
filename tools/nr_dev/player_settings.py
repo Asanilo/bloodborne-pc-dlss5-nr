@@ -162,7 +162,10 @@ def load_request(args):
         if type(gpu_id) is not int or not 0 <= gpu_id <= 31:
             raise ValueError('player settings: invalid GPU index')
         env['BB_GPU_ID'] = str(gpu_id)
+    owner = canonical(source.get('fg_preferences_owner', str(settings_path)), 'file')
     return {'schema': 'nrbridge-player-settings-v1', 'settings_path': str(settings_path),
+            'fg_preferences_owner':str(owner),
+            'fg_preferences_owner_sha256':hashlib.sha256(owner.read_bytes()).hexdigest(),
             'ini_path': str(ini_path), 'data_dir': str(data), 'game_dir': str(game),
             'user_dir': str(user), 'nr_enabled': nr, 'settings': selected,
             'ini_text': ini_text, 'environment': env}

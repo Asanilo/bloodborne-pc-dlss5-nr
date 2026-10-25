@@ -967,6 +967,14 @@ def launch_supervised(args,signals):
      result.update(status='HOLD',boot_session_receipt_error=str(error));normal=False
     atomic(run/'result.json',result)
    if normal and not held and not signals.interrupted:
+    # Settings are CPU-only and may persist only after the real owner/boot retirement.
+    if daily and result.get('status')=='PASS_NORMAL_TEARDOWN':
+     import fg_preferences
+     try:result['fg_preferences']=fg_preferences.commit(run,result)
+     except (OSError,ValueError,KeyError,TypeError) as error:
+      result['fg_preferences']={'status':'not_saved','reason':str(error)}
+      print('FG settings were not saved: '+str(error),flush=True)
+     atomic(run/'result.json',result)
     return 4 if result.get('player_save_sync',{}).get('status')=='error' else 0
    return 3
 

@@ -4,6 +4,14 @@
 #include <utility>
 inline const char* BbChinese(const char* text) {
     static constexpr std::pair<std::string_view, const char*> entries[] = {
+        {"Frame generation","帧生成"},
+        {"FG backend (next launch)","帧生成后端（下次启动）"},
+        {"DLSS FG multiplier","DLSS 帧生成倍率"},
+        {"DLSS FG enabled (current backend)","启用 DLSS 帧生成（当前后端）"},
+        {"FG backend saved for the next launch. Restart normally to apply; NR is independent.","后端选择将在正常退出后保存，下次启动生效；NR 独立控制。"},
+        {"Multiplier changes rebuild FG history after retiring the old GPU resources.","倍率变化将在旧 GPU 资源安全退休后重建帧生成历史。"},
+        {"This multiplier change requires a restart. Live switching needs the GPU consumer queue and verified runtime.","此配置更改倍率需要重启；运行时切换需要 GPU consumer queue 与已验证的运行时。"},
+        {"Displays DLSS-generated frames between real game frames. Dynamic SR dimensions and Old/New memory are supported. NR is controlled separately with F8.","在真实帧之间显示 DLSS 生成帧，支持动态 SR 尺寸及 Old/New 内存模型。F8 独立控制 NR。"},
         {"Real %.0f | Smooth Motion: display FPS unverified","真实 %.0f | Smooth Motion：显示帧率未独立验证"},
         {"Choose an FG backend in the launcher and restart. NR remains independent.","在启动器选择帧生成后端后重启游戏。NR 独立控制。"},
         {"Driver layer loaded and reports enabled. Display-frame count unverified. Restart to change backend.","驱动 Layer 已加载并报告启用。最终显示帧数尚未独立验证。更换后端需要重启。"},

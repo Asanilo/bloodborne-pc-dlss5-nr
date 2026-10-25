@@ -268,6 +268,11 @@ def load_settings():
     for key, old_values in online.OLD_DEFAULTS.items():
         if str(settings.get(key, '')).strip() in old_values:
             settings[key] = DEFAULTS[key]
+    if nrbridge.active():
+        import sys
+        sys.path.insert(0,str(nrbridge.app_dir()/'tools/nr_dev'))
+        import fg_preferences
+        settings.update(fg_preferences.read(CONFIG_FILE, DATA_DIR))
     return settings
 
 
@@ -693,12 +698,12 @@ class LauncherWindow(Adw.ApplicationWindow):
 
     def build_nrbridge_group(self):
         group = Adw.PreferencesGroup(title="NRBridge", description=tr(
-            "Stable NR uses 1080p DLSS Quality. Experimental M5 dimensions use the selected DLSS preset, output and aspect ratio with FG Off; choose Upscaler Off for NR-only. Object motion, jitter and Old/Auto memory are required."))
+            "NR uses the selected SR profile with a matching Helper, object motion and jitter. Old/New are supported. DLSS GPU FG accepts dynamic sizes; NR-only + FG is not yet available."))
         self.nr_enabled_row = Adw.SwitchRow(title=tr("Enable neural rendering (NR)"),
             active=self.settings.get("nrbridge_enabled", True))
         group.add(self.nr_enabled_row)
         self.nr_dimensions_row=Adw.SwitchRow(title=tr("Experimental NR dimensions (M5)"),
-            subtitle=tr("Use the graphics page preset, output and aspect. Requires a matching M5 Helper; FG must be Off."),
+            subtitle=tr("Use the graphics page preset, output and aspect. Requires a matching NR Helper and a compatible FG backend."),
             active=self.settings.get("nrbridge_dimensions",False))
         group.add(self.nr_dimensions_row)
         self.nr_execution_row=combo_row(tr("NR execution size"),tr("Changing this size requires a normal exit and a new session."),

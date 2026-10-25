@@ -205,11 +205,16 @@ void FrameGeneration::OnFrameStart() {
     static const char* control = std::getenv("BB_FRAME_GEN_CONTROL");
     if (control) {
         if (FILE* file = std::fopen(control, "r")) {
-            int value = -1;
-            const bool valid = std::fscanf(file, "%d", &value) == 1 && (value == 0 || value == 1);
+            int value = -1, multiplier = 0;
+            const int fields = std::fscanf(file, "%d %d", &value, &multiplier);
+            auto& settings=BbSettings::Get();
+            const bool valid = fields>=1 && (value==0||value==1) &&
+                (fields==1 || (settings.frame_generation_live_multiplier && multiplier>=2&&multiplier<=6));
             std::fclose(file);
-            if (valid && std::remove(control) == 0)
-                BbSettings::Get().frame_generation.store(value == 1, std::memory_order_relaxed);
+            if (valid && std::remove(control) == 0) {
+                if(fields==2)settings.frame_generation_multiplier=multiplier;
+                settings.frame_generation.store(value == 1, std::memory_order_relaxed);
+            }
         }
     }
     const u64 now = std::chrono::duration_cast<std::chrono::nanoseconds>(

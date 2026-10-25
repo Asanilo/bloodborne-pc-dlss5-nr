@@ -123,6 +123,11 @@ struct Values {
     /// FSR 3 frame generation (upscale/vk_frame_generation): a frame interpolated between each
     /// two of the game's, shown between them (needs the upscaler's scaled path). Live.
     std::atomic<bool> frame_generation{false};
+    // Backend changes apply on the next managed launch. Multiplier is a renderer
+    // request; only the GPU owner may publish a new actual multiplier after rebuilding.
+    std::atomic<int> frame_generation_backend{0}, frame_generation_multiplier{2};
+    std::atomic<int> frame_generation_next_multiplier{2};
+    std::atomic<bool> frame_generation_live_multiplier{false};
     /// Whether the GPU can (set by the renderer), or why not.
     std::atomic<bool> frame_generation_supported{false};
     std::atomic<const char*> frame_generation_problem{nullptr};
