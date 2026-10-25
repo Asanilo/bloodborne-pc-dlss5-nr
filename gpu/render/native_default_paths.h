@@ -42,7 +42,7 @@ inline std::string DirectoryBelowHome(const char* suffix) {
  return CanonicalDirectory(path)?path:std::string{};
 }
 inline std::string DevRoot() {
- return DirectoryBelowHome("/Code/nrbridge-dev");
+ return DirectoryBelowHome("/Code/nr-home");
 }
 inline std::string LegacyPocRoot() {
  return DirectoryBelowHome("/Code/nrbridge-design/game-poc-20261011/bbport");

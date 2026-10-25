@@ -38,7 +38,7 @@ APPIMAGE_NAME = "bbport-NRBridge-preview-x86_64.AppImage"
 
 # Build inputs stay outside the image; runtime paths are selected on first run.
 DEV_ROOT = Path(os.environ.get("NR_DEV_ROOT", os.environ.get(
-    "NRBRIDGE_HOME", str(Path.home() / "Code/nrbridge-dev"))))
+    "NRBRIDGE_HOME", "/home/arinp/Code/nr-home")))
 DEFAULT_NATIVE = DEV_ROOT / "build/baselines" / DEFAULT_NATIVE_SHA
 DEFAULT_HELPER = DEV_ROOT / "build/helper-runtime-model" / DEFAULT_HELPER_BUILD / "wine_runtime_model.exe"
 DEFAULT_FORWARDER = DEV_ROOT / "build/convergence/forwarder" / DEFAULT_FORWARDER_BUILD / "nvngx.dll_dlssnr.dll"
