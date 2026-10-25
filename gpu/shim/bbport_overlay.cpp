@@ -600,7 +600,7 @@ void Menu() {
         s.menu_language_chosen = true;
         BbSettings::Save();
     }
-    ImGui::Text(BbSettings::MenuText("%.0f FPS  (%.1f ms)", "%.0f FPS  (%.1f мс)"),
+    if(!FgCounter())ImGui::Text(BbSettings::MenuText("%.0f FPS  (%.1f ms)", "%.0f FPS  (%.1f мс)"),
                 frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg);
     ToyPadSection();
 
