@@ -11,7 +11,7 @@ from pathlib import Path
 import runtime_inputs as inputs
 
 def workspace_root():
-    value = os.environ.get('NRBRIDGE_HOME', str(Path.home() / 'Code/nrbridge-dev'))
+    value = os.environ.get('NRBRIDGE_HOME', str(Path('/home/arinp/Code/nr-home')))
     path = Path(value)
     inputs.need(bool(value) and not any(c in value for c in ('\x00', '\n', ':'))
                 and path.is_absolute() and str(path) == value and path.resolve() == path

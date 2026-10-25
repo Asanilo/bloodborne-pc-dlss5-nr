@@ -62,7 +62,7 @@ class PortableBuildDefaultsTest(unittest.TestCase):
             fallback = subprocess.run([sys.executable, '-c', code], cwd=package,
                                       env=environment, capture_output=True, text=True)
             self.assertEqual(fallback.returncode, 0, fallback.stderr)
-            self.assertTrue(Path(json.loads(fallback.stdout)[0]).is_relative_to(root / 'home/Code/nrbridge-dev/build'))
+            self.assertTrue(Path(json.loads(fallback.stdout)[0]).is_relative_to(Path('/home/arinp/Code/nr-home/build')))
             environment.pop('BB_ONLINE_DEPS_ROOT')
             missing = subprocess.run([sys.executable, str(package / 'build.py')],
                                      env=environment, capture_output=True, text=True)

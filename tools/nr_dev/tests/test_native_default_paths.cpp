@@ -10,7 +10,7 @@ int main(int argc,char** argv) {
  namespace P=BbNativeAsyncPreSr;
  namespace fs=std::filesystem;
  const fs::path scratch=argv[1],home=scratch/"relocated-user";
- const auto dev=home/"Code/nrbridge-dev";
+ const auto dev=home/"Code/nr-home";
  const auto legacy=home/"Code/nrbridge-design/game-poc-20261011/bbport";
  const auto ge=home/".local/share/Steam/compatibilitytools.d/GE-Proton11-7-x86_64/files";
  fs::create_directories(home);

@@ -8,7 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 
-ROOT = Path(os.environ.get('NR_DEV_ROOT', os.environ.get('NRBRIDGE_HOME', str(Path.home() / 'Code/nrbridge-dev'))))
+ROOT = Path(os.environ.get('NR_DEV_ROOT', os.environ.get('NRBRIDGE_HOME', str(Path('/home/arinp/Code/nr-home')))))
 HELPER = Path(os.environ['NR_HELPER_ROOT']) if os.environ.get('NR_HELPER_ROOT') else Path(__file__).resolve().parents[2]
 
 
