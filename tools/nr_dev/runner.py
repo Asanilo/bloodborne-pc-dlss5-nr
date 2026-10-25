@@ -687,7 +687,23 @@ def validate_daily_args(args):
  if any(getattr(args,k,None) for k in ('runtime_model_helper','runtime_model_build_sha256')):raise ValueError('daily mode selects Helper from local inputs')
  if any(type(getattr(args,k,None)) is not int or getattr(args,k)!=0 for k in ('seconds','watchdog_seconds','source_limit')):raise ValueError('daily mode has no total time/source budget')
 
+def validate_history_experiment_env():
+ policy=os.environ.get('BB_NR_VISUAL_TRANSITION')
+ if policy is not None and policy not in ('legacy','fade-new'):
+  raise ValueError('BB_NR_VISUAL_TRANSITION requires legacy or fade-new; cadence A2a was rejected')
+ interval=os.environ.get('BB_NR_HISTORY_SAMPLE_INTERVAL')
+ if interval is not None and (not re.fullmatch('[1-9][0-9]{0,2}',interval) or not 1<=int(interval)<=120):
+  raise ValueError('BB_NR_HISTORY_SAMPLE_INTERVAL requires canonical integer 1..120')
+
+def check_history_capability(build):
+ validate_history_experiment_env()
+ if os.environ.get('BB_NR_VISUAL_TRANSITION','legacy')=='fade-new':
+  marker=b'NRBRIDGE_NATIVE_HISTORY_FADE_V1'
+  if marker not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
+   raise ValueError('fade-new requires its source-built Native; refusing before GPU launch')
+
 def configure_daily_args(args):
+ validate_history_experiment_env()
  if getattr(args,'joystick_mouse',False) and getattr(args,'native_mouse',False):raise ValueError('choose one mouse route')
  if getattr(args,'daily',False):
   args.seconds=args.watchdog_seconds=args.source_limit=0;args.native_mouse=not args.joystick_mouse
@@ -759,6 +775,7 @@ def launch_supervised(args,signals):
  native_mouse_scope.requested(args)
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
+ check_history_capability(build)
  check_fg_capability(args,build)
  dimension_contract=dimension_profile.select(args)
  binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None

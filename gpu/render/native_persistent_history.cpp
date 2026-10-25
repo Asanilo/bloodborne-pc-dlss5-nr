@@ -121,16 +121,15 @@ HistoryImage NativePersistentHistory::Impl::Make(vk::Format format){
 NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.GetDevice()),allocator(instance.GetAllocator()),returned(instance){
  this->instance=&instance;
  if(const auto* policy=std::getenv("BB_NR_VISUAL_TRANSITION")){
-  if(std::strcmp(policy,"cadence")==0)transition.cadence=true;
-  else if(std::strcmp(policy,"fade-new")==0)transition.fade_new_only=true;
-  else if(std::strcmp(policy,"legacy")!=0)throw std::runtime_error("BB_NR_VISUAL_TRANSITION requires legacy, cadence or fade-new");
+  if(std::strcmp(policy,"fade-new")==0)transition.fade_new_only=true;
+  else if(std::strcmp(policy,"legacy")!=0)throw std::runtime_error("BB_NR_VISUAL_TRANSITION requires legacy or fade-new");
  }
  if(const auto* interval=std::getenv("BB_NR_HISTORY_SAMPLE_INTERVAL")){
   char* end=nullptr;const auto value=std::strtoul(interval,&end,10);
   if(end==interval||*end||value<1||value>120)throw std::runtime_error("BB_NR_HISTORY_SAMPLE_INTERVAL requires 1..120");
   sample_interval=unsigned(value);
  }
- std::printf("NR_HISTORY_EXPERIMENT transition=%s sample_interval=%u admission_policy=unchanged diagnostics=%u\n",transition.fade_new_only?"fade-new":transition.cadence?"cadence":"legacy",sample_interval,unsigned(sample_interval==1));
+ std::printf("NR_HISTORY_EXPERIMENT capability=NRBRIDGE_NATIVE_HISTORY_FADE_V1 transition=%s sample_interval=%u admission_policy=unchanged diagnostics=%u\n",transition.fade_new_only?"fade-new":"legacy",sample_interval,unsigned(sample_interval==1));
  if(!instance.GetPhysicalDevice().getFeatures().shaderStorageImageExtendedFormats)throw std::runtime_error("persistent history extended image formats unavailable");
  for(const auto f:{vk::Format::eR16G16B16A16Sfloat,vk::Format::eR32G32B32A32Sfloat,vk::Format::eR32Sfloat,vk::Format::eR32G32Sfloat}){
   const auto need=vk::FormatFeatureFlagBits::eStorageImage|vk::FormatFeatureFlagBits::eSampledImage|vk::FormatFeatureFlagBits::eTransferDst|vk::FormatFeatureFlagBits::eTransferSrc;
@@ -410,13 +409,6 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
  // Reserve Compose and sampled Stats too; early arrival and expiry share ONE finalize.
  const unsigned required=unsigned(links.size())+unsigned(p.transition.active)+1u+unsigned(s.sampled);
  if(s.used+required>Passes)return false;
- // Cadence experiment: return obsolete through the existing exact completion /
- // CONSUMED path. Do not capture, restart the blend, refresh age or reuse leases.
- if(p.transition.active&&p.transition.cadence){
-  std::printf("PERSISTENT_HISTORY_CANDIDATE_DEFERRED source=%llu origin=%llu transition_start=%llu reason=cadence_transition_in_progress action=obsolete_discard\n",
-   (unsigned long long)p.current.source,(unsigned long long)links.front().frame.source,(unsigned long long)p.transition.source);
-  return false;
- }
  if(p.transition.active)p.FinishTransition(scheduler);
  // Preserve all imported image views until this slot's real last SR/merge use.
  // The caller separately owns the NR view and converted origin packet leases.
