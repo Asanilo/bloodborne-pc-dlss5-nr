@@ -28,7 +28,7 @@
 
 /home/arinp/Code/bloodborne_pc/    研发源码（多 worktree）
   .worktree/nrbridge/              当前主线开发检出
-  .worktree/fg/  .worktree/m5-nr/  FG / NR 独立线检出（待退役，见第 6 节）
+  .worktree/fg/  .worktree/m5-nr/  FG / NR 独立线检出（分支已删，工作树以 detached HEAD 保留，见第 6 节）
   out/  dist/                      被忽略的构建与本地打包产物
 
 /home/arinp/Code/nr-home/          开发数据根（NR_DEV_ROOT / NRBRIDGE_HOME）
@@ -54,7 +54,7 @@
 | FG（帧生成） | 已实测：AMD FSR x2、NVIDIA DLSS 2X–6X；互斥；倍率可运行时切换 | 关闭 |
 | NR-only + FG | 已实测：`--sr native` 关闭超分后 NR 与 FSR／DLSS FG 联动 | 否 |
 | 动态尺寸 | 已实测：1080p／1440p／16:10／超宽，按真实 Color/Depth/Motion/HUDless 创建资源 | 依输出设置 |
-| Old / New 内存模型 | Old 已实测为公共默认；New 显式可选（`--memory-model new`） | `auto` → 解析为 **Old** |
+| Old / New 内存模型 | 两模型均已实机验收；New 为默认，Old 可选对照（`BB_PC_MODEL=0` 或菜单） | **New**（`auto` 也选择 New） |
 | 原生鼠标 | 已实测：直接控制相机，停鼠、F1 释放、菜单恢复正常 | 关闭（可选开启） |
 | 菜单指针 / 输入捕获 | 已实测：菜单内鼠标指针与 F1／点击捕获 | 匹配站点后开启 |
 | 复合键 / 滚轮 / 提示图标 | 可用未验收：CPU 输入与录入回归通过 | 启用手柄/键盘提示 |
@@ -110,12 +110,13 @@
 |---|---|---|
 | `nrbridge` | **主力**，默认分支 | 当前全部合流工作的主线 |
 | `master` | 保留 | Fork 旧主线，未自动合入 NRBridge，历史对照用 |
-| `m9/dlss-fg-dynamic` | **待退役** | FG 独立线，内容已合入主线；工作树 `.worktree/fg` 暂留 |
-| `nr/temporal-stability` | **待退役** | NR 时域独立线，实验部分未合流；工作树 `.worktree/m5-nr` 暂留 |
+| `m9/dlss-fg-dynamic` | **已删除**（2026-10-26） | 内容早已在主线；工作树 `.worktree/fg` 以 detached HEAD 保留，作为本地证据 |
+| `nr/temporal-stability` | **已删除**（2026-10-26） | 实验部分未进入主线（fade-new 仍为可选策略）；工作树 `.worktree/m5-nr` 以 detached HEAD 保留 |
 | `m10/nr-quality` | 保留（仅本地） | 未推送的画质实验，避免丢失 |
 | `m2/dlss-fg`、`m4/dlss-mfg`、`m5/nr-dimensions`、`testing` | **已删除**（2026-10-26） | 均已是 `nrbridge` 祖先，本地与远端引用一并清理 |
 
-退役顺序建议：先确认工作树无独有提交与脏文件 → 归档必要证据 → 删除工作树与分支引用 → 更新本文与 [工作空间说明](WORKSPACE.md)。
+分支引用已清理，工作树暂时保留：它们仍持有本地证据与私有 `out/` 产物，但 HEAD 为 detached，不再接收新提交。
+如果确认这些证据不再需要，可直接删除两个工作树目录（`git worktree prune` 后清理 `.git/worktrees` 记录）；在此之前不要对其执行 `git gc --prune`，以免 detached 提交被回收。
 
 ## 7. 文档地图
 

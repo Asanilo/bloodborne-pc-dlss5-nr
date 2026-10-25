@@ -9,8 +9,8 @@ Factual layout as of 2026-10-26. For player-facing state and roadmap see
 |---|---|
 | bloodborne-pc-dlss5-nr: `nrbridge` | Default branch; current NRBridge/0.6 development and Preview source |
 | bloodborne-pc-dlss5-nr: `master` | Retained fork mainline; not merged into NRBridge |
-| bloodborne-pc-dlss5-nr: `m9/dlss-fg-dynamic` | FG independent line; **pending retirement** (`.worktree/fg`) |
-| bloodborne-pc-dlss5-nr: `nr/temporal-stability` | NR temporal independent line; **pending retirement** (`.worktree/m5-nr`) |
+| *retired 2026-10-26:* `m9/dlss-fg-dynamic` | FG independent line; branch deleted, worktree kept detached (`.worktree/fg`) |
+| *retired 2026-10-26:* `nr/temporal-stability` | NR temporal independent line; branch deleted, worktree kept detached (`.worktree/m5-nr`) |
 | local only: `m10/nr-quality` | Unpushed NR quality experiment; kept to avoid losing work |
 | `nrbridge/` | Standalone Helper/forwarder and canonical protocol source, frozen import from OptiScaler |
 | `upstream` remote | Original bbport history; retained for future normal merges |
@@ -20,9 +20,12 @@ Fork remote: `m2/dlss-fg`, `m4/dlss-mfg`, `m5/nr-dimensions`, `testing`. Their
 FSR 3.1.6 path and original authorship remain in `nrbridge`. No force push or
 history rewrite was involved. `master` is retained because it is not an ancestor.
 
-Retirement order for the two remaining development lines: confirm no unique
-commits or dirty files → archive the evidence that still matters → remove the
-worktree and the branch reference → update this file.
+The two remaining development lines were retired on 2026-10-26: their branch
+references were deleted locally and on the Fork remote, while the worktree
+directories are kept at a detached HEAD because they still hold local evidence
+and private `out/` products. Do not run `git gc --prune` before those worktrees
+are removed, or the detached commits can be collected. Removing a worktree later
+only needs the directory plus `git worktree prune`.
 
 In a multi-worktree checkout, keep the primary checkout and one active NRBridge
 worktree (`.worktree/nrbridge`). A retired detached native-mouse worktree is no
