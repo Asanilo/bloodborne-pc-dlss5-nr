@@ -29,6 +29,7 @@ constexpr unsigned Passes=10;
 static_assert(RequiredTransitionPasses(true,BbNativeAsync::NodeCount,true)<=Passes);
 const uint64_t GroupCount=((Width+7)/8)*((Height+7)/8),GroupBytes=GroupCount*6*4;
 constexpr unsigned QueriesPerSlot=Passes*2;
+const uint64_t BankSampleOffset=GroupBytes+QueriesPerSlot*16,SampleBytes=BankSampleOffset+36;
 struct HistoryImage {
  VideoCore::HostImage image; vk::UniqueImageView view;
  vk::ImageView View() const noexcept{return view?*view:vk::ImageView{};}
@@ -56,6 +57,8 @@ struct NativePersistentHistory::Impl {
   vk::DescriptorSet conversion{};
   std::shared_ptr<Proof> proof=std::make_shared<Proof>();
   unsigned used=0; uint64_t source_id=0;
+  unsigned sample_active=0,sample_candidate=0;bool sample_transition=false;
+  float sample_weight=1;double sample_clock=0;uint64_t sample_origin=0;
   std::unique_ptr<VideoCore::Buffer> stats;bool sampled=false,stats_pending=false;
   std::array<unsigned,Passes> modes{};uint64_t sample_revision=0,sample_generation=0;
  };
@@ -86,7 +89,7 @@ struct NativePersistentHistory::Impl {
  VisualTransition transition;
  BbNR::Request pending_controls{},applied_controls{};
  NativePersistentHistory::RuntimeSample latest_sample;
- unsigned runtime_samples_logged=0;
+ unsigned runtime_samples_logged=0,sample_interval=30;
  vk::UniqueQueryPool queries;float timestamp_period=0;unsigned timestamp_bits=0;
  bool initialized=false,prepared=false,applied=false,history=false,unknown=false,candidate_recorded=false;
  vk::Image return_image{};
@@ -116,6 +119,16 @@ HistoryImage NativePersistentHistory::Impl::Make(vk::Format format){
 }
 NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.GetDevice()),allocator(instance.GetAllocator()),returned(instance){
  this->instance=&instance;
+ if(const auto* policy=std::getenv("BB_NR_VISUAL_TRANSITION")){
+  if(std::strcmp(policy,"cadence")==0)transition.cadence=true;
+  else if(std::strcmp(policy,"legacy")!=0)throw std::runtime_error("BB_NR_VISUAL_TRANSITION requires legacy or cadence");
+ }
+ if(const auto* interval=std::getenv("BB_NR_HISTORY_SAMPLE_INTERVAL")){
+  char* end=nullptr;const auto value=std::strtoul(interval,&end,10);
+  if(end==interval||*end||value<1||value>120)throw std::runtime_error("BB_NR_HISTORY_SAMPLE_INTERVAL requires 1..120");
+  sample_interval=unsigned(value);
+ }
+ std::printf("NR_HISTORY_EXPERIMENT transition=%s sample_interval=%u default_shader=1\n",transition.cadence?"cadence":"legacy",sample_interval);
  if(!instance.GetPhysicalDevice().getFeatures().shaderStorageImageExtendedFormats)throw std::runtime_error("persistent history extended image formats unavailable");
  for(const auto f:{vk::Format::eR16G16B16A16Sfloat,vk::Format::eR32G32B32A32Sfloat,vk::Format::eR32Sfloat,vk::Format::eR32G32Sfloat}){
   const auto need=vk::FormatFeatureFlagBits::eStorageImage|vk::FormatFeatureFlagBits::eSampledImage|vk::FormatFeatureFlagBits::eTransferDst|vk::FormatFeatureFlagBits::eTransferSrc;
@@ -152,7 +165,7 @@ NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.Ge
  const auto family=instance.GetPhysicalDevice().getQueueFamilyProperties()[instance.GetGraphicsQueueFamilyIndex()];
  timestamp_bits=family.timestampValidBits;timestamp_period=instance.GetPhysicalDevice().getProperties().limits.timestampPeriod;
  if(timestamp_bits&&timestamp_period>0)queries=device.createQueryPoolUnique({.queryType=vk::QueryType::eTimestamp,.queryCount=QueriesPerSlot*2}).value;
- for(auto& s:slots){s.stats=std::make_unique<VideoCore::Buffer>(instance,0,GroupBytes+QueriesPerSlot*16,VideoCore::MemoryType::HostCached,"Bounded persistent HUD GPU sample");s.conversion=device.allocateDescriptorSets({.descriptorPool=*pool,.descriptorSetCount=1,.pSetLayouts=&*conversion_layout}).value.front();
+ for(auto& s:slots){s.stats=std::make_unique<VideoCore::Buffer>(instance,0,SampleBytes,VideoCore::MemoryType::HostCached,"Bounded persistent HUD GPU sample");s.conversion=device.allocateDescriptorSets({.descriptorPool=*pool,.descriptorSetCount=1,.pSetLayouts=&*conversion_layout}).value.front();
   for(unsigned k=0;k<Passes;k++){s.cb[k]=std::make_unique<VideoCore::Buffer>(instance,0,sizeof(PersistentHistoryConstants),VideoCore::MemoryType::HostCached,"Persistent history tick owned constants");s.sets[k]=device.allocateDescriptorSets({.descriptorPool=*pool,.descriptorSetCount=1,.pSetLayouts=&*layout}).value.front();}
  }
  env_capture_pending=NativePersistentHistoryDiagnostic::Enabled();
@@ -243,7 +256,7 @@ void NativePersistentHistory::Impl::FinishTransition(Scheduler& scheduler){
 void NativePersistentHistory::Impl::ReadSample(Slot& s){
  if(!s.stats_pending||!Free(s)||s.source_id<=latest_sample.source)return;
  if(s.sample_revision!=applied_controls.revision||s.sample_generation!=reset_window.generation){s.stats_pending=false;return;}
- s.stats->Invalidate(0,GroupBytes+QueriesPerSlot*16);std::array<uint64_t,4> sums{};uint32_t max_frames=0,max_ms=0;
+ s.stats->Invalidate(0,SampleBytes);std::array<uint64_t,4> sums{};uint32_t max_frames=0,max_ms=0;
  const auto* data=reinterpret_cast<const uint32_t*>(s.stats->mapped_data.data());
  for(uint64_t group=0;group<GroupCount;group++){for(unsigned k=0;k<4;k++)sums[k]+=data[group*6+k];max_frames=std::max(max_frames,data[group*6+4]);max_ms=std::max(max_ms,data[group*6+5]);}
  NativePersistentHistory::RuntimeSample result;result.available=true;result.source=s.source_id;result.revision=s.sample_revision;result.target_tick=s.proof->last;result.observed_tick=s.proof->observed.load(std::memory_order_acquire);result.monotonic_ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -260,6 +273,9 @@ void NativePersistentHistory::Impl::ReadSample(Slot& s){
   std::printf("NR_HISTORY_GPU_SAMPLE source=%llu revision=%llu target_tick=%llu observed_tick=%llu monotonic_ns=%llu timing_available=%u clear_ms=%.6f capture_ms=%.6f advance_ms=%.6f adopt_ms=%.6f compose_ms=%.6f stats_ms=%.6f valid=%.6f edited_buffer_changed=%.6f mean_age_frames=%.4f mean_age_ms=%.4f scope=history_dispatch_only\n",
    (unsigned long long)result.source,(unsigned long long)result.revision,(unsigned long long)result.target_tick,(unsigned long long)result.observed_tick,(unsigned long long)result.monotonic_ns,unsigned(result.timing_available),
    result.pass_ms[0],result.pass_ms[1],result.pass_ms[2],result.pass_ms[3],result.pass_ms[4],result.pass_ms[5],double(result.valid_fraction),double(result.changed_fraction),double(result.mean_age_frames),double(result.mean_age_ms));
+  const auto* bank=reinterpret_cast<const uint32_t*>(s.stats->mapped_data.data()+BankSampleOffset);
+  std::printf("NR_HISTORY_BANK_SAMPLE source=%llu clock_ms=%.4f origin=%llu active=%u candidate=%u transition=%u weight=%.6f invalid0=%u invalid1=%u invalid2=%u invalid3=%u return_guard=%u max_age_frames=%.4f max_age_ms=%.4f scope=completed_current_source_GPU_state\n",
+   (unsigned long long)s.source_id,s.sample_clock,(unsigned long long)s.sample_origin,s.sample_active,s.sample_candidate,unsigned(s.sample_transition),double(s.sample_weight),bank[0],bank[1],bank[2],bank[3],bank[8],double(result.max_age_frames),double(result.max_age_ms));
   if(++runtime_samples_logged==2048)std::printf("NR_HISTORY_GPU_SAMPLE_LIMIT samples=2048 subsequent_samples=HUD_ONLY\n");
  }
  latest_sample=result;s.stats_pending=false;
@@ -338,7 +354,7 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  frame.history==p.last.history&&frame.params==p.last.params&&!frame.sr_reset;
  if(!continuous){p.history=false;p.transition.Clear();}
  p.slot=next;s.used=0;s.source_id=frame.source;s.borrowed.clear();p.current=frame;p.current_raw=raw[0];
- s.sampled=p.applied_controls.config.hud&&frame.source%30==0;s.stats_pending=false;s.sample_revision=p.applied_controls.revision;s.sample_generation=p.reset_window.generation;
+ s.sampled=p.applied_controls.config.hud&&frame.source%p.sample_interval==0;s.stats_pending=false;s.sample_revision=p.applied_controls.revision;s.sample_generation=p.reset_window.generation;
  auto cmd=scheduler.CommandBuffer();if(s.sampled&&p.queries)cmd.resetQueryPool(*p.queries,p.slot*QueriesPerSlot,QueriesPerSlot);if(!p.initialized)p.Init(cmd);p.Convert(scheduler,raw);
  const auto views=p.Converted();const unsigned next_bank=1-p.active;
  p.Pass(scheduler,PHAdvance,p.active,next_bank,views,p.banks[p.active].edit.View(),p.banks[p.active].meta.View(),frame,p.history,1,float(p.current_dt_ms));
@@ -371,6 +387,13 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
  // Reserve Compose and sampled Stats too; early arrival and expiry share ONE finalize.
  const unsigned required=unsigned(links.size())+unsigned(p.transition.active)+1u+unsigned(s.sampled);
  if(s.used+required>Passes)return false;
+ // Cadence experiment: return obsolete through the existing exact completion /
+ // CONSUMED path. Do not capture, restart the blend, refresh age or reuse leases.
+ if(p.transition.active&&p.transition.cadence){
+  std::printf("PERSISTENT_HISTORY_CANDIDATE_DEFERRED source=%llu origin=%llu transition_start=%llu reason=cadence_transition_in_progress action=obsolete_discard\n",
+   (unsigned long long)p.current.source,(unsigned long long)links.front().frame.source,(unsigned long long)p.transition.source);
+  return false;
+ }
  if(p.transition.active)p.FinishTransition(scheduler);
  // Preserve all imported image views until this slot's real last SR/merge use.
  // The caller separately owns the NR view and converted origin packet leases.
@@ -419,8 +442,13 @@ vk::ImageView NativePersistentHistory::Apply(Scheduler& scheduler){
  auto& sample=p.slots[p.slot];
  if(sample.sampled){
   p.Pass(scheduler,PHStats,p.active,1-p.active,views,p.returned.View(p.slot),p.banks[p.active].meta.View(),p.current,p.history,0,0);
-  auto cmd=scheduler.CommandBuffer();if(p.queries)cmd.copyQueryPoolResults(*p.queries,p.slot*QueriesPerSlot,sample.used*2,sample.stats->Handle(),GroupBytes,16,vk::QueryResultFlagBits::e64|vk::QueryResultFlagBits::eWithAvailability);
-  const vk::BufferMemoryBarrier2 host{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eHost,.dstAccessMask=vk::AccessFlagBits2::eHostRead,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.buffer=sample.stats->Handle(),.offset=0,.size=GroupBytes+QueriesPerSlot*16};
+  sample.sample_active=p.active;sample.sample_candidate=p.candidate;sample.sample_transition=p.transition.active;
+  sample.sample_weight=p.transition.Weight(p.current.source,p.clock_ms);sample.sample_clock=p.clock_ms;sample.sample_origin=p.candidate_origin;
+  auto cmd=scheduler.CommandBuffer();
+  cmd.copyBuffer(p.state->Handle(),sample.stats->Handle(),vk::BufferCopy{0,BankSampleOffset,32});
+  cmd.copyBuffer(p.returned.Guard(p.slot),sample.stats->Handle(),vk::BufferCopy{0,BankSampleOffset+32,4});
+  if(p.queries)cmd.copyQueryPoolResults(*p.queries,p.slot*QueriesPerSlot,sample.used*2,sample.stats->Handle(),GroupBytes,16,vk::QueryResultFlagBits::e64|vk::QueryResultFlagBits::eWithAvailability);
+  const vk::BufferMemoryBarrier2 host{.srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,.srcAccessMask=vk::AccessFlagBits2::eMemoryWrite,.dstStageMask=vk::PipelineStageFlagBits2::eHost,.dstAccessMask=vk::AccessFlagBits2::eHostRead,.srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.buffer=sample.stats->Handle(),.offset=0,.size=SampleBytes};
   cmd.pipelineBarrier2({.bufferMemoryBarrierCount=1,.pBufferMemoryBarriers=&host});sample.stats_pending=true;p.Mark(scheduler);
  }
  return p.returned.View(p.slot);

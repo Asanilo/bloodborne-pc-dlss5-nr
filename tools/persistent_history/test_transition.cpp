@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "video_core/renderer_vulkan/native_visual_transition.h"
+#include "native_visual_transition.h"
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -47,6 +47,18 @@ int main() {
             for (bool stats : {false, true})
                 assert(RequiredTransitionPasses(target, links, stats) <= 10);
     assert(RequiredTransitionPasses(false, 0, false) == 2);
+    // Cadence mode has a real longer frame AND clock limit. Its source cadence
+    // is independent of wall time and is still bounded if a clock stalls.
+    t.cadence = true;
+    assert(t.Begin(400, 1000));
+    assert(std::abs(t.Weight(400, 1000) - 1.f / 7.f) < 1e-6f);
+    assert(!t.Due(402, 1034));
+    assert(!t.Due(405, 1083));
+    assert(t.Due(406, 1083));
+    assert(t.Due(401, 1100));
+    assert(t.Due(399, 1001));
+    t.Clear(); assert(t.cadence); // policy survives reset, ownership does not.
+    t.cadence = false;
     assert(t.Begin(UINT64_MAX - 1, 0));
     assert(!t.Due(UINT64_MAX, 1));
     assert(t.Due(0, 2)); // wraparound is invalid, never extended lifetime.

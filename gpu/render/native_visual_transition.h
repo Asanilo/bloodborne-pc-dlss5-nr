@@ -9,6 +9,8 @@ namespace Vulkan {
 // proof is implied by beginning, clearing, or reaching this deadline.
 struct VisualTransition {
     static constexpr double DurationMs = 33.34;
+    // Opt-in A/B: finish a cadence-length transition before accepting a new target.
+    bool cadence = false;
     bool active = false;
     uint64_t source = 0;
     double ms = 0;
@@ -23,12 +25,13 @@ struct VisualTransition {
     bool Due(uint64_t current_source, double clock) const noexcept {
         if (!active || !source || !current_source || current_source < source ||
             !std::isfinite(ms) || !std::isfinite(clock) || clock < ms) return true;
-        return current_source - source >= 2 || clock - ms >= DurationMs;
+        return current_source - source >= (cadence ? 6u : 2u) ||
+               clock - ms >= (cadence ? 100. : DurationMs);
     }
     float Weight(uint64_t current_source, double clock) const noexcept {
         if (Due(current_source, clock)) return 1.f;
-        const double frames = (double(current_source - source) + 1.) / 3.;
-        return float(std::min(1., std::max(frames, (clock - ms) / DurationMs)));
+        const double frames = (double(current_source - source) + 1.) / (cadence ? 7. : 3.);
+        return float(std::min(1., std::max(frames, (clock - ms) / (cadence ? 100. : DurationMs))));
     }
 };
 
