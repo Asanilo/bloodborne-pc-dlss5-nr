@@ -9,6 +9,7 @@ namespace Vulkan {
 // proof is implied by beginning, clearing, or reaching this deadline.
 struct VisualTransition {
     static constexpr double DurationMs = 33.34;
+    bool fade_new_only = false; // display-only raw -> newly valid target, never stored
     bool active = false;
     uint64_t source = 0;
     double ms = 0;

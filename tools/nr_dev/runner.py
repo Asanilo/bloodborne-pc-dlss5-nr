@@ -691,7 +691,23 @@ def validate_daily_args(args):
  if any(getattr(args,k,None) for k in ('runtime_model_helper','runtime_model_build_sha256')):raise ValueError('daily mode selects Helper from local inputs')
  if any(type(getattr(args,k,None)) is not int or getattr(args,k)!=0 for k in ('seconds','watchdog_seconds','source_limit')):raise ValueError('daily mode has no total time/source budget')
 
+def validate_history_experiment_env():
+ policy=os.environ.get('BB_NR_VISUAL_TRANSITION')
+ if policy is not None and policy not in ('legacy','fade-new'):
+  raise ValueError('BB_NR_VISUAL_TRANSITION requires legacy or fade-new; cadence A2a was rejected')
+ interval=os.environ.get('BB_NR_HISTORY_SAMPLE_INTERVAL')
+ if interval is not None and (not re.fullmatch('[1-9][0-9]{0,2}',interval) or not 1<=int(interval)<=120):
+  raise ValueError('BB_NR_HISTORY_SAMPLE_INTERVAL requires canonical integer 1..120')
+
+def check_history_capability(build):
+ validate_history_experiment_env()
+ if os.environ.get('BB_NR_VISUAL_TRANSITION','legacy')=='fade-new':
+  marker=b'NRBRIDGE_NATIVE_HISTORY_FADE_V1'
+  if marker not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
+   raise ValueError('fade-new requires its source-built Native; refusing before GPU launch')
+
 def configure_daily_args(args):
+ validate_history_experiment_env()
  if getattr(args,'joystick_mouse',False) and getattr(args,'native_mouse',False):raise ValueError('choose one mouse route')
  if getattr(args,'sr_only',False):args.reuse_nr_prefix=None
  if getattr(args,'daily',False):
@@ -764,6 +780,7 @@ def launch_supervised(args,signals):
  native_mouse_scope.requested(args)
  validate_pm4_producer_context(args)
  run=checked_run(args.session);build,native_artifacts,build_provenance=checked_native_build(getattr(args,'native_build',None) or ROOT/'build/native');assets=ASSETS;seed=SEED;helper=ROOT/'build/helper/wine_async_presr_play.exe'
+ check_history_capability(build)
  check_fg_capability(args,build)
  dimension_contract=dimension_profile.select(args)
  binding=runtime_inputs.load(args.local_inputs,ROOT) if getattr(args,'local_inputs',None) else None
@@ -812,7 +829,7 @@ def launch_supervised(args,signals):
   online_env,online_record,online_module=daily_online.prepare(args,build,profile)
   if online_module is not None:native_artifacts=[*native_artifacts,online_module]
   (profile/'bbport.ini').write_text('upscaler=dlss\npreset=1\naspect_ratio=16:9\noutput_res=1920x1080\njitter=1\nobject_motion=1\nsharpen=0\nshow_fps=1\n');(run/'pad.txt').write_text('')
-  base_keys={'PATH','HOME','USER','LOGNAME','SHELL','LANG','LANGUAGE','LC_ALL','LC_CTYPE','TZ','TERM','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','XDG_RUNTIME_DIR','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS','PULSE_SERVER','PIPEWIRE_REMOTE','SDL_AUDIODRIVER','SDL_VIDEODRIVER'}
+  base_keys={'BB_NR_VISUAL_TRANSITION','BB_NR_HISTORY_SAMPLE_INTERVAL','PATH','HOME','USER','LOGNAME','SHELL','LANG','LANGUAGE','LC_ALL','LC_CTYPE','TZ','TERM','DISPLAY','WAYLAND_DISPLAY','XAUTHORITY','XDG_RUNTIME_DIR','XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','DBUS_SESSION_BUS_ADDRESS','PULSE_SERVER','PIPEWIRE_REMOTE','SDL_AUDIODRIVER','SDL_VIDEODRIVER'}
   env={k:v for k,v in os.environ.items() if k in base_keys}
   env.update(BB_GAME_DIR=str(assets),BB_DATA_DIR=str(profile),BB_CONFIG=str(profile/'bbport.ini'),BB_USER_DIR=str(profile/'user'),BB_GPU_USER_DIR=str(profile/'user'),BB_COPY_GPU_BUFFERS='1',BB_PREBUILT='1',BB_PROBE=str(build/'bb-probe'),BB_STARTUP_CHECK='0',BB_MODS_ENABLED='0',BB_UPSCALER='dlss',BB_UPSCALE_PRESET='1',BB_DLSS='1',BB_JITTER='1',BB_FPS='uncap',BB_FPS_LIMIT='90',BB_FRAME_STATS='1',BB_FRAME_LOG=str(profile/'logs/frames.csv'),BB_FULLSCREEN='0',BB_SKIP_NETWORK_CHOICE='1',BB_LANGUAGE='1',BB_PC_MODEL='0',BB_SAVE_LOG='1',BB_IME_TEXT='NRTest',BB_PAD_FILE=str(run/'pad.txt'),BB_DUMP_DIR=str(run/'dump'),BB_PRESENT_DUMP_TRIGGER=str(run/'present-dump-trigger'),BB_PRESENT_DUMP_COUNT='0',LD_LIBRARY_PATH=str(sysroot_lib),DLSSNR_DISABLE='1',DLSSNR_AUTO_DOWNLOAD='0',VK_LOADER_LAYERS_DISABLE='~implicit~',MANGOHUD='0',DISABLE_MANGOHUD='1')
   if player is not None:

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "video_core/renderer_vulkan/native_visual_transition.h"
+#include "native_visual_transition.h"
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -47,6 +47,10 @@ int main() {
             for (bool stats : {false, true})
                 assert(RequiredTransitionPasses(target, links, stats) <= 10);
     assert(RequiredTransitionPasses(false, 0, false) == 2);
+    // Reset clears logical ownership, not the chosen display-only policy.
+    t.fade_new_only = true;
+    t.Clear(); assert(t.fade_new_only && !t.active);
+    t.fade_new_only = false;
     assert(t.Begin(UINT64_MAX - 1, 0));
     assert(!t.Due(UINT64_MAX, 1));
     assert(t.Due(0, 2)); // wraparound is invalid, never extended lifetime.

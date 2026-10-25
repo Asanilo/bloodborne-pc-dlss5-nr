@@ -69,6 +69,7 @@ def launch_command(a):
   recovery._trace_launch(record,a)
  build,_,_=runner.checked_native_build(a.native_build or runner.ROOT/'build/native')
  if getattr(a,'launcher_settings',None):runner.player_settings.validate_native(runner.player_settings.load_request(a),build)
+ runner.check_history_capability(build)
  runner.check_fg_capability(a,build)
  a.ingame_nr_start=runner.ui_start.enabled(a,build)
  binding=None

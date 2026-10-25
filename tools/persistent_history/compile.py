@@ -3,7 +3,7 @@
 import hashlib,json,pathlib,struct,subprocess,tempfile
 root=pathlib.Path(__file__).resolve().parents[2]
 src=root/'tools/persistent_history/history.comp'
-out=root/'gpu/shadps4/video_core/renderer_vulkan/native_persistent_history_spv.h'
+out=root/'gpu/render/native_persistent_history_spv.h'
 with tempfile.TemporaryDirectory() as tmp:
     binary=pathlib.Path(tmp)/'history.spv'
     command=['glslangValidator','-V','--target-env','vulkan1.1',str(src),'-o',str(binary)]

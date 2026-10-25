@@ -114,6 +114,11 @@ See [Preview status](docs/NRBRIDGE_PREVIEW_STATUS.md) for details.
 
 <a id="how-it-works"></a>
 
+An opt-in NR history fade is available for experimentation with abrupt lighting changes:
+set `BB_NR_VISUAL_TRANSITION=fade-new` when using the source-built NR entry.
+The default remains `legacy`. See [NR temporal behavior and tested scope](docs/NR_TEMPORAL_STABILITY.zh-CN.md);
+this is not a claim that all flicker or ghosting is resolved.
+
 ## How NRBridge fits into the game
 
 bbport runs Bloodborne’s x86-64 game code directly on the Linux CPU and translates
