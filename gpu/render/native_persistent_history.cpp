@@ -27,7 +27,8 @@ namespace {
 const unsigned Width=BbNRDimensions::Width(),Height=BbNRDimensions::Height();
 constexpr unsigned Passes=10;
 static_assert(RequiredTransitionPasses(true,BbNativeAsync::NodeCount,true)<=Passes);
-const uint64_t GroupCount=((Width+7)/8)*((Height+7)/8),GroupBytes=GroupCount*6*4;
+constexpr unsigned StatWords=22;
+const uint64_t GroupCount=((Width+7)/8)*((Height+7)/8),GroupBytes=GroupCount*StatWords*4;
 constexpr unsigned QueriesPerSlot=Passes*2;
 const uint64_t BankSampleOffset=GroupBytes+QueriesPerSlot*16,SampleBytes=BankSampleOffset+36;
 struct HistoryImage {
@@ -57,7 +58,7 @@ struct NativePersistentHistory::Impl {
   vk::DescriptorSet conversion{};
   std::shared_ptr<Proof> proof=std::make_shared<Proof>();
   unsigned used=0; uint64_t source_id=0;
-  unsigned sample_active=0,sample_candidate=0;bool sample_transition=false;
+  unsigned sample_active=0,sample_candidate=0;bool sample_transition=false;uint64_t sample_candidate_current=0;
   float sample_weight=1;double sample_clock=0;uint64_t sample_origin=0;
   std::unique_ptr<VideoCore::Buffer> stats;bool sampled=false,stats_pending=false;
   std::array<unsigned,Passes> modes{};uint64_t sample_revision=0,sample_generation=0;
@@ -79,7 +80,7 @@ struct NativePersistentHistory::Impl {
  vk::UniqueSampler nearest;
  vk::UniqueDescriptorSetLayout layout,conversion_layout;
  vk::UniquePipelineLayout pipeline_layout,conversion_pipeline_layout;
- vk::UniquePipeline pipeline,cubic_pipeline,conversion_pipeline;
+ vk::UniquePipeline pipeline,cubic_pipeline,diagnostic_pipeline,cubic_diagnostic_pipeline,conversion_pipeline;
  vk::UniqueDescriptorPool pool;
  std::deque<Clock> clocks;
  BbNativeAsync::Frame current,last;
@@ -158,6 +159,13 @@ NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.Ge
  const vk::SpecializationInfo cubic_spec{1,&entry,sizeof(enable_cubic),&enable_cubic};
  pipeline=create(NativePersistentHistorySpv,*pipeline_layout);
  cubic_pipeline=create(NativePersistentHistorySpv,*pipeline_layout,&cubic_spec);
+ if(sample_interval==1){
+  const std::array<vk::SpecializationMapEntry,2> entries{{{0,0,4},{1,4,4}}};
+  std::array<uint32_t,2> values{0,1};
+  const vk::SpecializationInfo spec{2,entries.data(),sizeof(values),values.data()};
+  diagnostic_pipeline=create(NativePersistentHistorySpv,*pipeline_layout,&spec);values[0]=1;
+  cubic_diagnostic_pipeline=create(NativePersistentHistorySpv,*pipeline_layout,&spec);
+ }
  conversion_pipeline=create(NATIVE_SKY_CONVERT_COMP,*conversion_pipeline_layout);
  constexpr unsigned count=Passes*2;
  const std::array<vk::DescriptorPoolSize,4> sizes{{{vk::DescriptorType::eCombinedImageSampler,count*5+6},{vk::DescriptorType::eStorageImage,count*5+6},{vk::DescriptorType::eStorageBuffer,count*3},{vk::DescriptorType::eUniformBuffer,count}}};
@@ -200,6 +208,8 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  if(transition.active&&(mode==PHCompose||mode==PHStats)){
   c.TransitionEnabled=1.f;c.TransitionWeight=transition.Weight(current.source,clock_ms);c.FallbackState=candidate;
  }
+ if(mode==PHStats)c.FallbackState=candidate;
+ c.Reserved1=sample_interval==1&&s.sampled&&(mode==PHStats||(mode==PHAdvance&&from<2&&to<2))?1.f:0.f;
  c.DisplayStrength=control.display_strength;c.MaxFrames=float(control.ttl_frames);c.MaxMs=control.ttl_ms;
  c.DepthTolerance=control.depth_tolerance;c.ColourTolerance=control.colour_tolerance;c.MinConfidence=control.min_confidence;
  c.HistoryValid=valid?1:0;c.MvScaleX=c.MvScaleY=1;
@@ -220,7 +230,7 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  std::array<vk::DescriptorImageInfo,10> ii{};
  for(unsigned k=0;k<3;k++)ii[k]={.sampler=*nearest,.imageView=current_views[k],.imageLayout=vk::ImageLayout::eGeneral};
  // Stats reuses guide slots for target edit/meta; binding5 remains guarded output.
- if(mode==PHStats&&transition.active){ii[1].imageView=banks[candidate].edit.View();ii[2].imageView=banks[candidate].meta.View();}
+ if(mode==PHStats){ii[1].imageView=banks[candidate].edit.View();ii[2].imageView=banks[candidate].meta.View();}
  ii[3]={.imageView=banks[from].edit.View(),.imageLayout=vk::ImageLayout::eGeneral};
  ii[4]={.imageView=banks[from].meta.View(),.imageLayout=vk::ImageLayout::eGeneral};
  ii[5]={.sampler=*nearest,.imageView=extra0,.imageLayout=vk::ImageLayout::eGeneral};
@@ -237,7 +247,8 @@ void NativePersistentHistory::Impl::Pass(Scheduler& scheduler,unsigned mode,unsi
  Barrier(cmd);
  if(mode!=PHCompose&&mode!=PHStats){cmd.fillBuffer(state->Handle(),to*4,4,0);Barrier(cmd);}
  device.updateDescriptorSets(writes,{});
- cmd.bindPipeline(vk::PipelineBindPoint::eCompute,mode==PHAdvance&&control.reprojection==BbNR::Reprojection::ClampedCubic?*cubic_pipeline:*pipeline);
+ const bool cubic=mode==PHAdvance&&control.reprojection==BbNR::Reprojection::ClampedCubic;
+ cmd.bindPipeline(vk::PipelineBindPoint::eCompute,sample_interval==1?(cubic?*cubic_diagnostic_pipeline:*diagnostic_pipeline):(cubic?*cubic_pipeline:*pipeline));
  cmd.bindDescriptorSets(vk::PipelineBindPoint::eCompute,*pipeline_layout,0,s.sets[n],{});
  s.modes[n]=mode;if(s.sampled&&queries)cmd.writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe,*queries,slot*QueriesPerSlot+n*2);
  cmd.dispatch((Width+7)/8,(Height+7)/8,1);
@@ -258,7 +269,7 @@ void NativePersistentHistory::Impl::ReadSample(Slot& s){
  if(s.sample_revision!=applied_controls.revision||s.sample_generation!=reset_window.generation){s.stats_pending=false;return;}
  s.stats->Invalidate(0,SampleBytes);std::array<uint64_t,4> sums{};uint32_t max_frames=0,max_ms=0;
  const auto* data=reinterpret_cast<const uint32_t*>(s.stats->mapped_data.data());
- for(uint64_t group=0;group<GroupCount;group++){for(unsigned k=0;k<4;k++)sums[k]+=data[group*6+k];max_frames=std::max(max_frames,data[group*6+4]);max_ms=std::max(max_ms,data[group*6+5]);}
+ for(uint64_t group=0;group<GroupCount;group++){for(unsigned k=0;k<4;k++)sums[k]+=data[group*StatWords+k];max_frames=std::max(max_frames,data[group*StatWords+4]);max_ms=std::max(max_ms,data[group*StatWords+5]);}
  NativePersistentHistory::RuntimeSample result;result.available=true;result.source=s.source_id;result.revision=s.sample_revision;result.target_tick=s.proof->last;result.observed_tick=s.proof->observed.load(std::memory_order_acquire);result.monotonic_ns=std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
  result.valid_fraction=float(double(sums[0])/(Width*Height));result.changed_fraction=float(double(sums[1])/(Width*Height));
  if(sums[0]){result.mean_age_frames=float(double(sums[2])/65536./double(sums[0]));result.mean_age_ms=float(double(sums[3])/256./double(sums[0]));}
@@ -276,6 +287,18 @@ void NativePersistentHistory::Impl::ReadSample(Slot& s){
   const auto* bank=reinterpret_cast<const uint32_t*>(s.stats->mapped_data.data()+BankSampleOffset);
   std::printf("NR_HISTORY_BANK_SAMPLE source=%llu clock_ms=%.4f origin=%llu active=%u candidate=%u transition=%u weight=%.6f invalid0=%u invalid1=%u invalid2=%u invalid3=%u return_guard=%u max_age_frames=%.4f max_age_ms=%.4f scope=completed_current_source_GPU_state\n",
    (unsigned long long)s.source_id,s.sample_clock,(unsigned long long)s.sample_origin,s.sample_active,s.sample_candidate,unsigned(s.sample_transition),double(s.sample_weight),bank[0],bank[1],bank[2],bank[3],bank[8],double(result.max_age_frames),double(result.max_age_ms));
+  if(sample_interval==1){
+   std::array<uint64_t,12> counts{};std::array<uint32_t,4> ages{};
+   for(uint64_t group=0;group<GroupCount;group++){
+    for(unsigned k=0;k<12;k++)counts[k]+=data[group*StatWords+6+k];
+    for(unsigned k=0;k<4;k++)ages[k]=std::max(ages[k],data[group*StatWords+18+k]);
+   }
+   const double pixels=double(Width)*Height;
+   std::printf("NR_HISTORY_PARTICIPATION_SAMPLE source=%llu candidate_current=%llu target_current=%u active_live=%.6f target_live=%.6f both=%.6f old_only=%.6f new_only=%.6f active_max_frames=%.4f active_max_ms=%.4f target_max_frames=%.4f target_max_ms=%.4f reject_bank_or_reset=%llu reject_motion_bounds=%llu reject_source_dead=%llu reject_age=%llu reject_depth=%llu reject_colour=%llu reject_edge=%llu reject_confidence=%llu scope=first_rejection_in_current_active_Advance_not_candidate_catchup masks=bank_and_live_before_Return_guard target_may_be_stale\n",
+    (unsigned long long)s.source_id,(unsigned long long)s.sample_candidate_current,unsigned(s.sample_candidate_current==s.source_id),double(counts[8])/pixels,double(counts[9])/pixels,double(counts[10])/pixels,double(counts[8]-counts[10])/pixels,double(counts[9]-counts[10])/pixels,
+    ages[0]/65536.,ages[1]/256.,ages[2]/65536.,ages[3]/256.,
+    (unsigned long long)counts[0],(unsigned long long)counts[1],(unsigned long long)counts[2],(unsigned long long)counts[3],(unsigned long long)counts[4],(unsigned long long)counts[5],(unsigned long long)counts[6],(unsigned long long)counts[7]);
+  }
   if(++runtime_samples_logged==2048)std::printf("NR_HISTORY_GPU_SAMPLE_LIMIT samples=2048 subsequent_samples=HUD_ONLY\n");
  }
  latest_sample=result;s.stats_pending=false;
@@ -442,7 +465,7 @@ vk::ImageView NativePersistentHistory::Apply(Scheduler& scheduler){
  auto& sample=p.slots[p.slot];
  if(sample.sampled){
   p.Pass(scheduler,PHStats,p.active,1-p.active,views,p.returned.View(p.slot),p.banks[p.active].meta.View(),p.current,p.history,0,0);
-  sample.sample_active=p.active;sample.sample_candidate=p.candidate;sample.sample_transition=p.transition.active;
+  sample.sample_candidate_current=p.candidate_current;sample.sample_active=p.active;sample.sample_candidate=p.candidate;sample.sample_transition=p.transition.active;
   sample.sample_weight=p.transition.Weight(p.current.source,p.clock_ms);sample.sample_clock=p.clock_ms;sample.sample_origin=p.candidate_origin;
   auto cmd=scheduler.CommandBuffer();
   cmd.copyBuffer(p.state->Handle(),sample.stats->Handle(),vk::BufferCopy{0,BankSampleOffset,32});

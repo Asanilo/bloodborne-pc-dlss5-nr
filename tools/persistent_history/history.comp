@@ -1,5 +1,8 @@
 #version 450
 layout(constant_id=0) const uint EnableCubic=0u;
+// Immutable opt-in telemetry variant. No rejection or history math is changed.
+layout(constant_id=1) const uint EnableDiagnostics=0u;
+const uint StatWords=22u;
 layout(local_size_x=8,local_size_y=8) in;
 layout(binding=0) uniform sampler2D rawImage;
 layout(binding=1) uniform sampler2D depthImage;
@@ -16,6 +19,7 @@ layout(std430,binding=12) readonly buffer ReturnGuard {uint value;} guard;
 layout(std430,binding=13) writeonly buffer GroupStats {uint data[];} groups;
 shared uvec4 statsSum[64];
 shared uvec2 statsMax[64];
+shared uvec4 diagnosticA[64],diagnosticB[64];
 layout(std140,binding=11) uniform Params {
  uvec4 dispatch; uvec4 flags; vec4 motion; vec4 thresholds; vec4 age; vec4 limits; vec4 reserved1; vec4 reserved2;
  vec4 currentProjection; vec4 previousProjection; vec4 previousViewZ;
@@ -122,12 +126,25 @@ void main() {
   if(inside){valid=displayHistory(c,true,e,m);valid=guard.value==0u&&valid;
    vec3 shown=texelFetch(originOrFallbackEdit,c,0).rgb,raw=texelFetch(rawImage,c,0).rgb;
    changed=uint(finite3(shown)&&finite3(raw)&&any(greaterThan(abs(shown-raw),vec3(.00001))));}
+  uvec4 mask=uvec4(0),bankAges=uvec4(0);
+  if(EnableDiagnostics==1u&&p.reserved2.w==1.&&inside){
+   vec4 oe=imageLoad(sourceEdit,c),om=imageLoad(sourceMeta,c);
+   vec4 te=texelFetch(depthImage,c,0),tm=texelFetch(motionImage,c,0);
+   bool old=bankUsable(state.invalid[min(p.dispatch.w,3u)])&&live(oe,om);
+   bool target=bankUsable(state.invalid[min(p.flags.w,3u)])&&live(te,tm);
+   mask=uvec4(uint(old),uint(target),uint(old&&target),uint(old||target));
+   if(old)bankAges.xy=uvec2(round(om.z*65536.),round(om.w*256.));
+   if(target)bankAges.zw=uvec2(round(tm.z*65536.),round(tm.w*256.));
+  }
+  if(EnableDiagnostics==1u&&p.reserved2.w==1.){diagnosticA[gl_LocalInvocationIndex]=mask;diagnosticB[gl_LocalInvocationIndex]=bankAges;}
   uvec2 age=valid?uvec2(round(m.z*65536.),round(m.w*256.)):uvec2(0);
   statsSum[li]=uvec4(uint(valid),changed,age);statsMax[li]=age;barrier();
-  for(uint n=32u;n>0u;n/=2u){if(li<n){statsSum[li]+=statsSum[li+n];statsMax[li]=max(statsMax[li],statsMax[li+n]);}barrier();}
-  if(li==0u){uint b=(gl_WorkGroupID.y*gl_NumWorkGroups.x+gl_WorkGroupID.x)*6u;for(uint k=0u;k<4u;k++)groups.data[b+k]=statsSum[0][k];groups.data[b+4u]=statsMax[0].x;groups.data[b+5u]=statsMax[0].y;}return;
+  for(uint n=32u;n>0u;n/=2u){if(li<n){statsSum[li]+=statsSum[li+n];statsMax[li]=max(statsMax[li],statsMax[li+n]);if(EnableDiagnostics==1u&&p.reserved2.w==1.){diagnosticA[li]+=diagnosticA[li+n];diagnosticB[li]=max(diagnosticB[li],diagnosticB[li+n]);}}barrier();}
+  if(li==0u){uint b=(gl_WorkGroupID.y*gl_NumWorkGroups.x+gl_WorkGroupID.x)*StatWords;for(uint k=0u;k<4u;k++)groups.data[b+k]=statsSum[0][k];groups.data[b+4u]=statsMax[0].x;groups.data[b+5u]=statsMax[0].y;if(EnableDiagnostics==1u&&p.reserved2.w==1.)for(uint k=0u;k<4u;k++){groups.data[b+14u+k]=diagnosticA[0][k];groups.data[b+18u+k]=diagnosticB[0][k];}}return;
  }
- if(any(greaterThanEqual(c,ivec2(p.dispatch.yz)))) return;
+ uint diagnosticReason=0u;
+ bool inside=all(lessThan(c,ivec2(p.dispatch.yz)));
+ if(inside){
  uint mode=p.dispatch.x; uint src=min(p.dispatch.w,3u), dst=min(p.flags.x,3u);
  if(mode==0u) { if(all(equal(c,ivec2(0)))) {state.invalid[dst]=0u;state.validPixels=0u;state.rejectedPixels=0u;state.changedPixels=0u;state.oldestFrames=0u;} return; }
  vec4 raw=texelFetch(rawImage,c,0),e=vec4(0),m=vec4(0); bool ok=false;
@@ -153,11 +170,21 @@ void main() {
   if(all(equal(c,ivec2(0)))&&state.invalid[src]!=0u) atomicOr(state.invalid[dst],state.invalid[src]);
   vec2 uv=(vec2(c)+.5)/vec2(p.dispatch.yz),mv=texture(motionImage,uv).xy;
   vec2 prev=uv+mv*p.motion.xy/vec2(textureSize(motionImage,0))+p.motion.zw;
+  if(EnableDiagnostics==1u&&p.reserved2.w==1.){
+   if(!bankUsable(state.invalid[src])||p.flags.z==0u)diagnosticReason=1u;
+   else if(!(finite1(mv.x)&&finite1(mv.y)&&all(greaterThanEqual(prev,vec2(0)))&&all(lessThan(prev,vec2(1)))))diagnosticReason=2u;
+  }
   if(finite1(mv.x)&&finite1(mv.y)&&all(greaterThanEqual(prev,vec2(0)))&&all(lessThan(prev,vec2(1)))&&bankUsable(state.invalid[src])&&p.flags.z!=0u) {
    ivec2 q=ivec2(prev*vec2(p.dispatch.yz));e=imageLoad(sourceEdit,q);m=imageLoad(sourceMeta,q);vec2 sourceAge=m.zw;m.zw+=p.age.xy;
    float d=depthAt(c),expected=-1.;bool geometry=previousDepth(d,c,expected);vec3 previous=guide(m.y)*p.limits.z;
    vec3 difference=abs(log2((max(raw.rgb,vec3(0))+p.thresholds.x)/(previous+p.thresholds.x)));
    ok=live(e,m)&&guideRange(raw.rgb)&&finite1(d)&&finite1(p.limits.z)&&p.limits.z>0.&&geometry&&sameSurface(m.x,expected,p.previousProjection.z)&&all(lessThanEqual(difference,vec3(p.thresholds.z)));
+   if(EnableDiagnostics==1u&&p.reserved2.w==1.){
+    if(!live(e,vec4(m.xy,sourceAge)))diagnosticReason=3u;
+    else if(!live(e,m))diagnosticReason=4u; // only immutable age changed so far
+    else if(!(finite1(d)&&geometry&&sameSurface(m.x,expected,p.previousProjection.z)))diagnosticReason=5u;
+    else if(!(guideRange(raw.rgb)&&finite1(p.limits.z)&&p.limits.z>0.&&all(lessThanEqual(difference,vec3(p.thresholds.z)))))diagnosticReason=6u;
+   }
    float edgeResidual=0.,motionSpread=0.;
    bool interior=true;
    float surfaceEdgeResidual=0.,surfaceMotionSpread=0.;
@@ -176,6 +203,7 @@ void main() {
     edgeResidual=surfaceEdgeResidual;motionSpread=surfaceMotionSpread;
    }
    ok=ok&&(interior||supportedEdge);
+   if(EnableDiagnostics==1u&&p.reserved2.w==1.&&diagnosticReason==0u&&!(interior||supportedEdge))diagnosticReason=7u;
    if(ok) {
     float colourResidual=p.thresholds.z>0.?max(max(difference.r,difference.g),difference.b)/p.thresholds.z:0.;
     float residual=max(max(depthResidual(m.x,expected,p.previousProjection.z),edgeResidual),max(colourResidual,motionSpread));
@@ -222,6 +250,7 @@ void main() {
    }
    // Edge evidence is weaker: exact half .5 caps only confidence, never RGB.
    if(supportedEdge){e.a=min(e.a,.5);ok=ok&&live(e,m);}
+   if(EnableDiagnostics==1u&&p.reserved2.w==1.&&diagnosticReason==0u&&!ok)diagnosticReason=8u;
    m.xy=vec2(d,packed(raw.rgb));
   }
  } else if(mode==4u) {
@@ -234,4 +263,12 @@ void main() {
  if(p.reserved1.x>0.) {if(!ok) atomicAdd(state.rejectedPixels,1u);else {atomicAdd(state.validPixels,1u);atomicMax(state.oldestFrames,uint(ceil(m.z)));}}
  if(mode==4u) {vec3 rgb=ok?max((max(raw.rgb,vec3(0))+p.thresholds.x)*exp2(e.rgb)-p.thresholds.x,vec3(0)):raw.rgb;if(p.reserved1.w!=1.)rgb=mix(raw.rgb,rgb,p.reserved1.w);imageStore(outputImage,c,vec4(rgb,raw.a));if(p.reserved1.x>0.&&ok&&any(greaterThan(abs(rgb-raw.rgb),vec3(.00001))))atomicAdd(state.changedPixels,1u);}
  else {imageStore(destEdit,c,e);imageStore(destMeta,c,m);}
+ } // inside; all invocations reach the uniform diagnostic reduction below.
+ if(EnableDiagnostics==1u&&p.dispatch.x==2u&&p.reserved2.w==1.){
+  uint li=gl_LocalInvocationIndex;
+  diagnosticA[li]=uvec4(equal(uvec4(1,2,3,4),uvec4(diagnosticReason)));
+  diagnosticB[li]=uvec4(equal(uvec4(5,6,7,8),uvec4(diagnosticReason)));barrier();
+  for(uint n=32u;n>0u;n/=2u){if(li<n){diagnosticA[li]+=diagnosticA[li+n];diagnosticB[li]+=diagnosticB[li+n];}barrier();}
+  if(li==0u){uint b=(gl_WorkGroupID.y*gl_NumWorkGroups.x+gl_WorkGroupID.x)*StatWords;for(uint k=0u;k<4u;k++){groups.data[b+6u+k]=diagnosticA[0][k];groups.data[b+10u+k]=diagnosticB[0][k];}}
+ }
 }

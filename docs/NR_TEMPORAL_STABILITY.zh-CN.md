@@ -106,3 +106,28 @@ prefix RETURNED，boot receipt retired；capture staging/writer 正常释放。
 PID/start_ticks/exe 身份，沿用 `scenario.py` 的做法。避免每个输入切换
 重新读取并哈希整套 Native 库造成额外 CPU 尖峰和动作持续时间拉长；
 模型/共享资源/会话准入和真实退休规则不变。实际时间仍以 jsonl 为准。
+
+## 正常负载对照 r4 与下一步诊断
+
+`temporal-new-normal-r4` 使用 New / 1080p Quality / NR B / FG Off / 60fps cap，
+关闭验证、默认每30帧 Stats、没有 F9。实际动作段599个真实Present，
+59.924fps，P95=20.59ms（包含X11窗口视频CPU负载，非scanout/GPU耗时）。
+94个稀疏样本 valid=0.375449..0.658186，无valid0，候选间隔中位5。
+这将 r3 的低帧率干扰隔离出来，但稀疏采样仍有节奏混叠，不判根因。
+rc0/PASS_NORMAL_TEARDOWN/Native lastuse=true/residuals=[]，prefix RETURNED，
+receipt retired。源视频/输入日程保留在该session；A2a仍未运行。
+
+下一份Shader仅在 sample_interval=1 时启用单独的诊断specialization；
+默认nearest/cubic保持诊断specialization=0，不改模型、history采纳公式、
+TTL、深度/颜色/edge门限、共享GPU生命周期。诊断占用额外约1.8MiB
+双slot HostCached统计内存，无新图像、GPU等待或冷读回。
+
+逐源帧 Stats 提供active/target live交集、old-only/new-only和两者最大年龄。
+这些掩码使用bank+live，Return guard单列；target_current明确指出target
+是否已推进到本源帧，未推进的旧target不可当当前替代显示历史。
+Advance拒绝计数仅记录当前active推进中的首个失败条件：
+bank/reset、motion/bounds、来源已失效、新增age过期、depth、colour/guide、
+edge、confidence。source_dead不反推前帧为何失效；reject_age只统计此次
+推进新跨过TTL的来源，不把所有已有空历史都算TTL。
+计数与像素输出共用同一次推进，不新增dispatch；部分workgroup也统一
+到达reduction barrier。诊断仍需实测成本与正常负载帧率，不能预设无影响。
