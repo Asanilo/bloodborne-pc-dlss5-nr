@@ -131,3 +131,34 @@ edge、confidence。source_dead不反推前帧为何失效；reject_age只统计
 推进新跨过TTL的来源，不把所有已有空历史都算TTL。
 计数与像素输出共用同一次推进，不新增dispatch；部分workgroup也统一
 到达reduction barrier。诊断仍需实测成本与正常负载帧率，不能预设无影响。
+
+## 正常负载诊断 r5：静止对照，不冒充动作窗
+
+`temporal-new-reject-r5` 的新增诊断已实际运行并正常退休；报告保留1827个
+逐帧参与样本，active_empty=0、valid0=0、新增TTL过期计数=0。
+静止对照中每帧首拒平均占全图：已有空来源60.3818%、colour2.9182%、
+edge0.3629%、depth0.0338%、motion/bounds0.0978%；bank/reset与confidence为0。
+这些是顺序首拒统计，不能把source_dead当成本帧新拒绝。
+current target样本中新候选独有区域平均14.82%，旧active非整张失效。
+
+本次有限打印预算在动作前结束，动作前后2秒没有诊断交集。
+因此以上仅作为正常帧率的静止证据；不称为停止窗或画质修复通过。
+rc0 / PASS_NORMAL_TEARDOWN / lastuse=true / residuals=[] / prefix RETURNED /
+boot receipt retired，Native 128443a。Shader完整性、实际区域分区的
+数字合理性仍需后续动作窗一起复核，质量策略始终legacy。
+
+为避免人工消息往返耗尽34秒诊断打印预算，新增只读就绪监视与有界动作工具：
+
+```bash
+# 已使用独立研究存档启动play.py；先在另一终端启动观察器，再确认scene-ready。
+python3 tools/nr_dev/quality_window.py SESSION run-stop-long \
+  --label stop-window --min-fps 55 --video --close
+```
+
+观察器不启动游戏、Helper或GPU上下文。它检查精确session/PID/start/exe，
+等真实候选与GPU完成后的正valid样本、短预热和实际Present帧率条件，
+随后立即执行2.5秒跑动/3秒停止。`--min-fps`需要私有设置的
+`BB_MEMORY_PROFILE=1`；`--close`仅请求普通窗口关闭，真实退休仍由既有
+监督器和result/audit决定。即使可选视频失败也尝试普通关闭，不强杀游戏。
+`window_capture.py`仅查找与管理PID吻合的X11窗口，不截整个桌面；视频
+只作为墙钟观察，不能伪装成精确NR/Present源帧。
