@@ -226,6 +226,7 @@ private:
     std::array<u32,4> nr_source_layout{};
     void RunScaled();
     void RunUiOnly(VideoCore::ImageId color, VideoCore::ImageId depth);
+    bool CaptureUiOnlyFrameGenScene(VideoCore::ImageId depth, u32 source_width, u32 source_height);
     void EnsureUiResources(u32 width, u32 height, vk::Format color, vk::Format depth);
     void PrepareUiDepth(VideoCore::ImageId depth);
     /// Render size below the scaled-preset output size (the resolution patch is on).

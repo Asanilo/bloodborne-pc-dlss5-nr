@@ -572,7 +572,7 @@ bool TemporalUpscaler::OnFrameStart() {
             if (fields >= 2 && output >= 0 && output < outputs.count) {
                 BbSettings::Get().output_res.store(BbSettings::PackSize(outputs.sizes[output]));
             }
-            if (fields == 3 && provider >= 0 && provider < BbSettings::UpscalerCount) {
+            if (fields >= 3 && provider >= 0 && provider < BbSettings::UpscalerCount) {
                 BbSettings::Get().upscaler.store(provider);
             }
             std::fclose(f);
@@ -703,7 +703,7 @@ void TemporalUpscaler::RecordNrHdrPrepass(){
  // A size transition drains NR until the new FG domain has been captured;
  // this domain check does not replace NR's completion or Present ledger.
  const bool fg_compatible=!settings.frame_generation||
-     (UseDlss()&&frame_generation&&frame_generation->CompatibleScaledNrSource(
+     ((UseDlss()||NrWithoutSr())&&frame_generation&&frame_generation->CompatibleScaledNrSource(
          source,rw,rh,target_width,target_height));
  const bool supported=(UseDlss()||NrWithoutSr())&&settings.jitter&&fg_compatible&&!pending&&scene_color&&camera_motion.Ready();
  native_async_pre_sr.BeginSource(source,supported);
@@ -2436,7 +2436,8 @@ bool TemporalUpscaler::NativeFrameGeneration() const {
         return value && value[0] == '1';
     }();
     // A stable rendering route even with FG off: F8/FG toggles never switch NR's HDR domain.
-    return enabled && !scaled_session && target_width == 1920 && target_height == 1080;
+    return enabled && BbSettings::Get().upscaler!=BbSettings::UpscalerOff &&
+           !scaled_session && target_width == 1920 && target_height == 1080;
 }
 
 bool TemporalUpscaler::Scaled() const {
@@ -2693,6 +2694,12 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
                         vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferRead);
         runtime.FlushBarriers();
     }
+    if (NrWithoutSr() && camera_motion.Ready()) {
+        // The native scene can have an aligned backing allocation. Its valid
+        // pixels, rather than that padding, also define the FG guide rectangle.
+        const auto valid=SceneSize(source_width,source_height);
+        source_width=valid[0];source_height=valid[1];
+    }
     // Without a scene (the title, loading screens) on an output of another aspect ratio, the
     // frame past the game's 16:9 screen is black: the game's movies fill their whole (wider) view
     // with their background colour there, as they fill the screen at 16:9.
@@ -2748,10 +2755,67 @@ void TemporalUpscaler::RunUiOnly(VideoCore::ImageId color_id, VideoCore::ImageId
         barrier.newLayout = vk::ImageLayout::eGeneral;
         cmd.pipelineBarrier2({.imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &barrier});
     });
-    reset = true; // returning to 3D must not reuse history from before a menu/loading screen
     done_this_frame = ui_phase = true;
     ui_color = color_id;
     ui_depth = depth_id;
+    if(NrWithoutSr())RecordNrDimensionPresent(true);
+    // A native scene still needs FG guides even though no SR Feature is used.
+    // Title/loading frames retain the existing reset and cannot enter FG.
+    reset = !CaptureUiOnlyFrameGenScene(depth_id,source_width,source_height);
+}
+
+bool TemporalUpscaler::CaptureUiOnlyFrameGenScene(VideoCore::ImageId depth_id,u32 w,u32 h) {
+    if(!NrWithoutSr() || !frame_generation || !frame_generation->Wanted() ||
+       !camera_motion.Ready() || !depth_id || !w || !h || w!=ui_width || h!=ui_height)
+        return false;
+    auto& depth=texture_cache.GetImage(depth_id);
+    if(depth.info.size.width<w || depth.info.size.height<h)return false;
+    scheduler.EndRendering();
+    vk::Image image=depth.GetImage();
+    vk::ImageView view{};
+    if(!scaled_session && scene_targets.EligibleScene(depth)) {
+        VideoCore::ImageViewInfo info;info.format=depth.info.pixel_format;
+        const auto proxy=scene_targets.Read(depth_id,info);
+        image=proxy.image;view=proxy.view;
+    } else {
+        view=CachedView(depth,depth.info.pixel_format,vk::ImageAspectFlagBits::eDepth);
+        runtime.Transit(&depth,vk::ImageLayout::eGeneral,
+            vk::PipelineStageFlagBits2::eComputeShader,vk::AccessFlagBits2::eShaderRead);
+        runtime.FlushBarriers();
+    }
+    EnsureMotionResources(w,h);
+    const vk::ImageMemoryBarrier2 writable{
+        .srcStageMask=vk::PipelineStageFlagBits2::eAllCommands,
+        .srcAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite,
+        .dstStageMask=vk::PipelineStageFlagBits2::eComputeShader,
+        .dstAccessMask=vk::AccessFlagBits2::eShaderWrite,
+        .oldLayout=vk::ImageLayout::eUndefined,.newLayout=vk::ImageLayout::eGeneral,
+        .srcQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,.dstQueueFamilyIndex=VK_QUEUE_FAMILY_IGNORED,
+        .image=vk::Image(motion_image),.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}};
+    scheduler.Record([writable](vk::CommandBuffer cmd){
+        cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&writable});
+    });
+    camera_motion.RecordMotion(view,*motion_view,w,h);
+    auto readable=writable;
+    readable.srcStageMask=vk::PipelineStageFlagBits2::eComputeShader;
+    readable.srcAccessMask=vk::AccessFlagBits2::eShaderWrite;
+    readable.dstStageMask=vk::PipelineStageFlagBits2::eAllCommands;
+    readable.dstAccessMask=vk::AccessFlagBits2::eShaderRead;
+    readable.oldLayout=vk::ImageLayout::eGeneral;
+    scheduler.Record([readable](vk::CommandBuffer cmd){
+        cmd.pipelineBarrier2({.imageMemoryBarrierCount=1,.pImageMemoryBarriers=&readable});
+    });
+    const auto now=std::chrono::steady_clock::now();
+    float ms=std::chrono::duration<float,std::milli>(now-last_frame).count();
+    if(ms<=0 || ms>200)ms=16.6f;
+    last_frame=now;
+    CaptureFrameGenScene(image,depth.info.pixel_format,w,h,ui_width,ui_height,ms,reset);
+    dispatched_last_frame=true;
+    static u64 reports=0;
+    if(++reports<=3 || reports%256==0)
+        std::printf("FG_WITHOUT_SR_V1 source_game_frame=%llu render=%ux%u output=%ux%u native_SR_Evaluate_calls_this_source=0\n",
+            (unsigned long long)BbStats::gpu_frames.load(std::memory_order_relaxed),w,h,ui_width,ui_height);
+    return true;
 }
 
 void TemporalUpscaler::RunScaled() {
