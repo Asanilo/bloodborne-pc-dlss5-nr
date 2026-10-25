@@ -11,6 +11,7 @@ struct VisualTransition {
     static constexpr double DurationMs = 33.34;
     // Opt-in A/B: finish a cadence-length transition before accepting a new target.
     bool cadence = false;
+    bool fade_new_only = false; // display-only raw -> newly valid target, never stored
     bool active = false;
     uint64_t source = 0;
     double ms = 0;

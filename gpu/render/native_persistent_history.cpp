@@ -122,14 +122,15 @@ NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.Ge
  this->instance=&instance;
  if(const auto* policy=std::getenv("BB_NR_VISUAL_TRANSITION")){
   if(std::strcmp(policy,"cadence")==0)transition.cadence=true;
-  else if(std::strcmp(policy,"legacy")!=0)throw std::runtime_error("BB_NR_VISUAL_TRANSITION requires legacy or cadence");
+  else if(std::strcmp(policy,"fade-new")==0)transition.fade_new_only=true;
+  else if(std::strcmp(policy,"legacy")!=0)throw std::runtime_error("BB_NR_VISUAL_TRANSITION requires legacy, cadence or fade-new");
  }
  if(const auto* interval=std::getenv("BB_NR_HISTORY_SAMPLE_INTERVAL")){
   char* end=nullptr;const auto value=std::strtoul(interval,&end,10);
   if(end==interval||*end||value<1||value>120)throw std::runtime_error("BB_NR_HISTORY_SAMPLE_INTERVAL requires 1..120");
   sample_interval=unsigned(value);
  }
- std::printf("NR_HISTORY_EXPERIMENT transition=%s sample_interval=%u quality_policy=unchanged diagnostics=%u\n",transition.cadence?"cadence":"legacy",sample_interval,unsigned(sample_interval==1));
+ std::printf("NR_HISTORY_EXPERIMENT transition=%s sample_interval=%u admission_policy=unchanged diagnostics=%u\n",transition.fade_new_only?"fade-new":transition.cadence?"cadence":"legacy",sample_interval,unsigned(sample_interval==1));
  if(!instance.GetPhysicalDevice().getFeatures().shaderStorageImageExtendedFormats)throw std::runtime_error("persistent history extended image formats unavailable");
  for(const auto f:{vk::Format::eR16G16B16A16Sfloat,vk::Format::eR32G32B32A32Sfloat,vk::Format::eR32Sfloat,vk::Format::eR32G32Sfloat}){
   const auto need=vk::FormatFeatureFlagBits::eStorageImage|vk::FormatFeatureFlagBits::eSampledImage|vk::FormatFeatureFlagBits::eTransferDst|vk::FormatFeatureFlagBits::eTransferSrc;
@@ -155,14 +156,13 @@ NativePersistentHistory::Impl::Impl(const Instance& instance):device(instance.Ge
  const auto create=[&](std::span<const u32> code,vk::PipelineLayout pl,const vk::SpecializationInfo* specialization=nullptr){auto module=CompileSPV(code,device);auto p=device.createComputePipelineUnique({}, {.stage={.stage=vk::ShaderStageFlagBits::eCompute,.module=module,.pName="main",.pSpecializationInfo=specialization},.layout=pl});device.destroyShaderModule(module);return std::move(p.value);};
  // Compile both immutable variants during initialization. Nearest specialization
  // removes cubic sampling; a disabled option must not keep its register cost.
- const uint32_t enable_cubic=1;const vk::SpecializationMapEntry entry{0,0,sizeof(enable_cubic)};
- const vk::SpecializationInfo cubic_spec{1,&entry,sizeof(enable_cubic),&enable_cubic};
- pipeline=create(NativePersistentHistorySpv,*pipeline_layout);
- cubic_pipeline=create(NativePersistentHistorySpv,*pipeline_layout,&cubic_spec);
+ const std::array<vk::SpecializationMapEntry,3> entries{{{0,0,4},{1,4,4},{2,8,4}}};
+ std::array<uint32_t,3> values{0,0,unsigned(transition.fade_new_only)};
+ const vk::SpecializationInfo spec{3,entries.data(),sizeof(values),values.data()};
+ pipeline=create(NativePersistentHistorySpv,*pipeline_layout,&spec);values[0]=1;
+ cubic_pipeline=create(NativePersistentHistorySpv,*pipeline_layout,&spec);
  if(sample_interval==1){
-  const std::array<vk::SpecializationMapEntry,2> entries{{{0,0,4},{1,4,4}}};
-  std::array<uint32_t,2> values{0,1};
-  const vk::SpecializationInfo spec{2,entries.data(),sizeof(values),values.data()};
+  values[0]=0;values[1]=1;
   diagnostic_pipeline=create(NativePersistentHistorySpv,*pipeline_layout,&spec);values[0]=1;
   cubic_diagnostic_pipeline=create(NativePersistentHistorySpv,*pipeline_layout,&spec);
  }
@@ -294,9 +294,9 @@ void NativePersistentHistory::Impl::ReadSample(Slot& s){
     for(unsigned k=0;k<4;k++)ages[k]=std::max(ages[k],data[group*StatWords+18+k]);
    }
    const double pixels=double(Width)*Height;
-   std::printf("NR_HISTORY_PARTICIPATION_SAMPLE source=%llu candidate_current=%llu target_current=%u active_live=%.6f target_live=%.6f both=%.6f old_only=%.6f new_only=%.6f active_max_frames=%.4f active_max_ms=%.4f target_max_frames=%.4f target_max_ms=%.4f reject_bank_or_reset=%llu reject_motion_bounds=%llu reject_source_dead=%llu reject_age=%llu reject_depth=%llu reject_colour=%llu reject_edge=%llu reject_confidence=%llu scope=first_rejection_in_current_active_Advance_not_candidate_catchup masks=bank_and_live_before_Return_guard target_may_be_stale\n",
+   std::printf("NR_HISTORY_PARTICIPATION_SAMPLE source=%llu candidate_current=%llu target_current=%u active_live=%.6f target_live=%.6f both=%.6f old_only=%.6f new_only=%.6f active_max_frames=%.4f active_max_ms=%.4f target_max_frames=%.4f target_max_ms=%.4f mean_display_log_delta=%.6f reject_bank_or_reset=%llu reject_motion_bounds=%llu reject_source_dead=%llu reject_age=%llu reject_depth=%llu reject_colour=%llu reject_edge=%llu reject_confidence=%llu scope=first_rejection_in_current_active_Advance_not_candidate_catchup masks=bank_and_live_before_Return_guard target_may_be_stale\n",
     (unsigned long long)s.source_id,(unsigned long long)s.sample_candidate_current,unsigned(s.sample_candidate_current==s.source_id),double(counts[8])/pixels,double(counts[9])/pixels,double(counts[10])/pixels,double(counts[8]-counts[10])/pixels,double(counts[9]-counts[10])/pixels,
-    ages[0]/65536.,ages[1]/256.,ages[2]/65536.,ages[3]/256.,
+    ages[0]/65536.,ages[1]/256.,ages[2]/65536.,ages[3]/256.,double(counts[11])/(4096.*pixels),
     (unsigned long long)counts[0],(unsigned long long)counts[1],(unsigned long long)counts[2],(unsigned long long)counts[3],(unsigned long long)counts[4],(unsigned long long)counts[5],(unsigned long long)counts[6],(unsigned long long)counts[7]);
   }
   if(++runtime_samples_logged==2048)std::printf("NR_HISTORY_GPU_SAMPLE_LIMIT samples=2048 subsequent_samples=HUD_ONLY\n");

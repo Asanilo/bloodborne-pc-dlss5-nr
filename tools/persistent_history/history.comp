@@ -2,6 +2,7 @@
 layout(constant_id=0) const uint EnableCubic=0u;
 // Immutable opt-in telemetry variant. No rejection or history math is changed.
 layout(constant_id=1) const uint EnableDiagnostics=0u;
+layout(constant_id=2) const uint FadeNewOnly=0u;
 const uint StatWords=22u;
 layout(local_size_x=8,local_size_y=8) in;
 layout(binding=0) uniform sampler2D rawImage;
@@ -109,8 +110,14 @@ bool displayHistory(ivec2 c,bool statistics,out vec4 e,out vec4 m) {
  else {targetEdit=texelFetch(originOrFallbackEdit,c,0);targetMeta=texelFetch(modelOrFallbackMeta,c,0);}
  bool targetValid=bankUsable(state.invalid[min(p.flags.w,3u)])&&live(targetEdit,targetMeta);
  if(!targetValid)return oldValid;
- if(!oldValid){e=targetEdit;m=targetMeta;return true;}
  float w=finite1(p.reserved2.z)?clamp(p.reserved2.z,0.,1.):0.;
+ if(!oldValid){
+  e=targetEdit;m=targetMeta;
+  // Missing old history is raw (zero log edit). Fade only this displayed
+  // contribution; never feed the attenuated edit or a refreshed age into a bank.
+  if(FadeNewOnly==1u)e.rgb*=w;
+  return true;
+ }
  if(w==0.)return true;
  if(w==1.){e=targetEdit;m=targetMeta;return true;}
  e.rgb=mix(e.rgb,targetEdit.rgb,w);
@@ -122,17 +129,22 @@ void main() {
  ivec2 c=ivec2(gl_GlobalInvocationID.xy);
  if(p.dispatch.x==5u) {
   uint li=gl_LocalInvocationIndex;bool inside=all(lessThan(c,ivec2(p.dispatch.yz)));
-  vec4 e=vec4(0),m=vec4(0);bool valid=false;uint changed=0u;
+  vec4 e=vec4(0),m=vec4(0);bool valid=false;uint changed=0u,displayDelta=0u;
   if(inside){valid=displayHistory(c,true,e,m);valid=guard.value==0u&&valid;
    vec3 shown=texelFetch(originOrFallbackEdit,c,0).rgb,raw=texelFetch(rawImage,c,0).rgb;
-   changed=uint(finite3(shown)&&finite3(raw)&&any(greaterThan(abs(shown-raw),vec3(.00001))));}
+   changed=uint(finite3(shown)&&finite3(raw)&&any(greaterThan(abs(shown-raw),vec3(.00001))));
+   if(EnableDiagnostics==1u&&p.reserved2.w==1.&&guard.value==0u&&finite3(shown)&&finite3(raw)){
+    vec3 delta=abs(log2((max(shown,vec3(0))+p.thresholds.x)/(max(raw,vec3(0))+p.thresholds.x)));
+    displayDelta=uint(round(clamp((delta.r+delta.g+delta.b)/3.,0.,16.)*4096.));
+   }
+  }
   uvec4 mask=uvec4(0),bankAges=uvec4(0);
   if(EnableDiagnostics==1u&&p.reserved2.w==1.&&inside){
    vec4 oe=imageLoad(sourceEdit,c),om=imageLoad(sourceMeta,c);
    vec4 te=texelFetch(depthImage,c,0),tm=texelFetch(motionImage,c,0);
    bool old=bankUsable(state.invalid[min(p.dispatch.w,3u)])&&live(oe,om);
    bool target=bankUsable(state.invalid[min(p.flags.w,3u)])&&live(te,tm);
-   mask=uvec4(uint(old),uint(target),uint(old&&target),uint(old||target));
+   mask=uvec4(uint(old),uint(target),uint(old&&target),displayDelta);
    if(old)bankAges.xy=uvec2(round(om.z*65536.),round(om.w*256.));
    if(target)bankAges.zw=uvec2(round(tm.z*65536.),round(tm.w*256.));
   }

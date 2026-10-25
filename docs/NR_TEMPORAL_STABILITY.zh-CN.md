@@ -162,3 +162,18 @@ python3 tools/nr_dev/quality_window.py SESSION run-stop-long \
 监督器和result/audit决定。即使可选视频失败也尝试普通关闭，不强杀游戏。
 `window_capture.py`仅查找与管理PID吻合的X11窗口，不截整个桌面；视频
 只作为墙钟观察，不能伪装成精确NR/Present源帧。
+
+## 单变量候选：新历史独有像素的显示渐入（未验收）
+
+`BB_NR_VISUAL_TRANSITION=fade-new` 保持原2帧/33.34ms、候选节奏、
+历史有效集、TTL、模型、像素元数据和资源生命周期；唯一变化是
+transition中的new-only像素也按weight从raw（零log edit）渐入target。
+原行为在`!oldValid`分支直接使用完整target，跳过了已有过渡权重。
+渐入仅作用于当帧Compose，不写回history，不把旧信息标成新年龄。
+旧目标无效时保留旧fallback；无过渡或权重1时行为不变，不做空间滤波。
+默认仍legacy；cadence是独立A2a，二者不同时开启。
+
+诊断把原本未输出的冗余union计数槽改为实际Return图相对raw的全图
+平均绝对log2差，使用相同epsilon=1/512，定点4096、每像素截断16stop。
+`mean_display_log_delta`反映NR平均影响强度，帮助区分减弱NR与降低脉动。
+它不是单独画质判据，也不代替亮尾、细节和实际体验检查。
