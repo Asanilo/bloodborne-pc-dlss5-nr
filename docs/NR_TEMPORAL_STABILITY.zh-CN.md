@@ -65,3 +65,39 @@ slot 的真实末用完成，不新增 GPU wait。日志把同源的过渡权重
 外部交付保留：M7 `56f3ef61fc42f89578b7932fadc45e655a9c6d5d`
 （低波段 context，GPU NOT_RUN），Sky 基线
 `ca1c0287fc4b4bbd1cbe304aaa93dc7dd34a417d`。未迁入未经证明的算法。
+
+## 恢复后的诊断与条件隔离
+
+迁移后 boot `bfe7b4b5-26de-4c87-a547-fa869e56af00`。
+`temporal-old-legacy-r2` 在 NR Helper 创建前复现已知 Old 冷启动 WSI
+WRITE_AFTER_PRESENT（10 次 sync hazard）；普通关闭后 rc0、真实末用完成、
+无残留、prefix RETURNED、boot receipt retired。验证错误未被当成驱动故障
+或 NR 画质问题，也未宣称 WSI 已修复。
+
+`temporal-new-legacy-r3`：New / 1080p Quality / NR 310.9.16 B / FG Off，
+仍为 legacy transition；同步验证、逐帧 Stats、F9 冷捕获同时启用，约 24fps。
+实际场景为教堂前，动作日志 `quality-baseline-stop.jsonl`，
+`run-stop.mp4` 是 PID 匹配的 X11 窗口视频（不是精确源帧）。
+F9 `persistent-history-diagnostic-temporal-new-legacy-r3-capture-1`
+保留 3 帧输入/历史和一个候选，均有真实 copy completion；
+`out/temporal/r3-readback/analysis.json` 的完整性和最终 SR/Present 关联通过，
+不代表动态画质接受。
+
+2048 个逐帧样本中，868 个 valid=0 且 bank/Return guard 未拒绝，
+7 个 valid=0 与显示 bank-fatal 同现。停止窗 79 个样本中 33 个 valid=0，
+bank-fatal 为 0。捕获的三帧 valid 为 0.7672、0.6678、0.5991，
+年龄约 44.3、123.6、179.5ms，接近原有 200ms TTL。
+玩家指出此场持续闪，故不能把诊断负载下的 TTL/raw 回退当成原始
+正常帧率跑停症状。A2a 尚未运行，不合流任何画质策略。
+
+该场 rc0 / PASS_NORMAL_TEARDOWN / lastuse=true / residuals=[]，
+prefix RETURNED，boot receipt retired；capture staging/writer 正常释放。
+已把上述条件和 stop-window 通过 Herdr 交给 DSH B，只读分析。
+后续先关闭验证，恢复默认每30帧 Stats、不触发 F9，验证正常负载 legacy；
+再决定 A2a 单变量，不能混改 TTL 或像素拒绝。
+
+`tools/persistent_history/cadence_report.py` 只读两段保留日志，按源帧关联
+候选间隔、过渡、GPU sample 与 bank/Return guard，不推断缺失帧。
+旧玩家121415两段日志有5434源帧/1035候选，中位间隔5帧；181个稀疏样本
+均非零，valid 均值随候选offset0..5从0.6355降至0.4067。
+稀疏采样可能混叠；该趋势是进一步定位线索，不是根因结论。
