@@ -134,5 +134,6 @@ PNG、SHA、帧映射及分析。四场常规文件及图像归档合计约 **44
 无需再合入重复的动态 FG 实现：本轮使用公共 295dd7c 已有代码，未新增 GPU 算法修改。
 统一启动器继续选择 New Memory、DLSS FG、2X–6X；3X–6X 使用 GPU DMA-BUF 与
 consumer-queue-v1，NR 独立启用。成熟范围可按上表实验使用，未测组合不自动列为通过。
-后续由 M8 统一处理 Old/New 热对照、最终显示尺寸、区域加载和主线发布；
-FG 线继续负责发现的 Helper/多输出/Presenter 专属缺陷。
+上述为 M9 阶段原交接边界。公共集成现已结束，后续由用户直接管理两条研发线；
+FG 线负责 Helper/多输出/Presenter 专属缺陷，未完成事项以
+[M8 最终交接](M8_FINAL_HANDOFF.zh-CN.md)为准，不再保留长期公共协调任务。

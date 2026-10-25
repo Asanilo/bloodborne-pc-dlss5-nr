@@ -1,5 +1,8 @@
 # 玩家统一试玩入口
 
+公共集成已收束；最新玩家反馈、遗留问题及 FG/NR 文件归属见
+[最终交接](M8_FINAL_HANDOFF.zh-CN.md)。后续由用户直接管理两条研发线。
+
 本机准备好的小型入口为 `out/bbport-play`（主工作区），源码入口为
 `python3 launcher/play_nrbridge.py`。两者复用既有 managed entry、GPU 独占锁、
 Helper 检查、私有存档事务与正常资源退休，不建立第二套运行后端。
