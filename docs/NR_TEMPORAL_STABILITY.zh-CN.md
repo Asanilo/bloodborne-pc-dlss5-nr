@@ -101,3 +101,8 @@ prefix RETURNED，boot receipt retired；capture staging/writer 正常释放。
 旧玩家121415两段日志有5434源帧/1035候选，中位间隔5帧；181个稀疏样本
 均非零，valid 均值随候选offset0..5从0.6355降至0.4067。
 稀疏采样可能混叠；该趋势是进一步定位线索，不是根因结论。
+
+动作工具在起始完成深度准入后，逐步用既有 `runner.live(pid)` 核对
+PID/start_ticks/exe 身份，沿用 `scenario.py` 的做法。避免每个输入切换
+重新读取并哈希整套 Native 库造成额外 CPU 尖峰和动作持续时间拉长；
+模型/共享资源/会话准入和真实退休规则不变。实际时间仍以 jsonl 为准。

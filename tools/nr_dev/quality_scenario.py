@@ -63,7 +63,7 @@ def main():
  event('begin',identity=identity,capture_at_fraction=a.capture_at,scope='input schedule only; capture log supplies actual source/camera/Present identity')
  try:
   for index,(duration,value) in enumerate(PATTERNS[a.routine]):
-   assert runner.current_game(run)==identity,'game identity changed';pad.write_text(value+'\n');event('input',index=index,value=value,duration=duration)
+   assert runner.live(identity['pid'])==identity,'game PID/start/exe identity changed';pad.write_text(value+'\n');event('input',index=index,value=value,duration=duration)
    if a.capture and index==(a.capture_index if a.capture_index is not None else (1 if len(PATTERNS[a.routine])>1 else 0)):
     offset=duration*a.capture_at;time.sleep(offset);capture_key(identity)
     event('capture_requested',key='F9',backend='XSendEvent_exact_focused_PID',after_action_seconds=offset,scope='request, not successful GPU copy or simulated-action proof')
