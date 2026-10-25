@@ -804,6 +804,7 @@ def launch_supervised(args,signals):
    spec=importlib.util.spec_from_file_location('nr_prefix_lease',WT/'tools/nr_dev/prefix_lease.py')
    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
    prefix_lease=managed.enter_context(module.PrefixLease(previous/'profile/wine-prefix',profile/'wine-prefix',run/'nr-prefix-lease.json'))
+  player_settings.validate_native(player,build)
   online_env,online_record,online_module=daily_online.prepare(args,build,profile)
   if online_module is not None:native_artifacts=[*native_artifacts,online_module]
   (profile/'bbport.ini').write_text('upscaler=dlss\npreset=1\naspect_ratio=16:9\noutput_res=1920x1080\njitter=1\nobject_motion=1\nsharpen=0\nshow_fps=1\n');(run/'pad.txt').write_text('')

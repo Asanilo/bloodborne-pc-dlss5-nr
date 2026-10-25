@@ -107,6 +107,7 @@ def load_request(args):
            'BB_OBJECT_MOTION': ini.get('object_motion', '1')}
     selected = {}
     booleans = {'fullscreen': 'BB_FULLSCREEN', 'hdr': 'BB_HDR', 'mods_enabled': 'BB_MODS_ENABLED',
+                'cinematic_camera': 'BB_CINEMATIC_CAMERA',
                 'skip_network_choice': 'BB_SKIP_NETWORK_CHOICE', 'save_log': 'BB_SAVE_LOG',
                 'mangohud': 'MANGOHUD', 'frame_stats': 'BB_FRAME_STATS', 'gpu_profile': 'BB_GPU_PROFILE',
                 'vk_validation': 'BB_VK_VALIDATION', 'as_0_3': 'BB_AS_0_3'}
@@ -220,6 +221,12 @@ def write_snapshot(run, request):
     _write_exact(path, request)
     return {'path': str(path), 'sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
             'nr_enabled': request['nr_enabled'], 'user_dir': request['user_dir']}
+
+
+def validate_native(request, build):
+    if request is not None and request['environment'].get('BB_CINEMATIC_CAMERA')=='1':
+        if b'BBPORT_CINEMATIC_OFFLINE_V1' not in (Path(build)/'gpu/libbbgpu.so').read_bytes():
+            raise ValueError('F6 camera needs the rebuilt offline-camera Native; --cinematic-camera off retains the older runtime')
 
 
 def verify_snapshot(run, record, environment):

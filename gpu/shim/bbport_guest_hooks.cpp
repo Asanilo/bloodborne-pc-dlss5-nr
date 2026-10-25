@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "common/types.h"
 #include "bbport_guest_hooks.h"
+#include "bbport_cinematic.h"
 #include "bbport_settings.h"
 #include "bbport_guest_code.h"
 #include "bbport_heap_sites.h"
@@ -1848,6 +1849,7 @@ void Install(RangeCallback on_gpu_range_allocated) {
                     "stub bytes\n", detours, stub_used, StubPageSize);
     }
     BbHeapSites::Install();
+    BbCinematic::Install();
     if (const char* env = std::getenv("BB_HEAP_SITES"); env && env[0] == '1') {
         Patch(ImageBase + ReleaseCheck, ReleaseCheckCode, sizeof(ReleaseCheckCode));
     }
