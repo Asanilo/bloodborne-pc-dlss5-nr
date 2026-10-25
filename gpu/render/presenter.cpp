@@ -242,6 +242,7 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     TemporalUpscaler::Display display{};
     auto& upscaler = rasterizer->GetUpscaler();
     const bool upscaled = upscaler.DisplayOverride(cpu_address, display);
+    u64 native_fg_source=0;
     C1PresentAudit c1_audit{};
     VideoCore::ImageId image_id{};
     if (!upscaled) {
@@ -297,6 +298,8 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
         const u64 frame_counter_before = BbStats::frame_number.load(std::memory_order_relaxed);
         const u64 gpu_frame_at_prepare = BbStats::gpu_frames.load(std::memory_order_relaxed);
         const u64 prepare_tick = draw_scheduler.CurrentTick();
+        native_fg_source=upscaler.TakeNativeFgDisplaySource(cpu_address,image.image_uid,
+            image.info.size.width,image.info.size.height,gpu_frame_at_prepare,prepare_tick);
         const bool c1_selected = upscaler.TakeC1PresentAudit(
             cpu_address, frame_counter_before, gpu_frame_at_prepare, prepare_tick, c1_audit);
         // The 1:1 HDR Run route consumes the actual guest VideoOut buffer, not the scaled
@@ -316,9 +319,9 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     }
     const C1PresentAudit& frame_audit = upscaled ? display.c1_audit : c1_audit;
     frame->c1_source_game_frame = frame_audit.source_game_frame;
-    // Scaled content has its own producer/address/image-generation stamp even
-    // with NR disabled. Keep the verified Native HDR ledger route as before.
-    frame->fg_real_source = upscaled ? display.source_game_frame : frame_audit.source_game_frame;
+    // Both display routes carry their actual recorded content stamp. NR can be
+    // disabled or unarmed without removing the FG source or advancing NR history.
+    frame->fg_real_source = upscaled ? display.source_game_frame : native_fg_source;
     frame->c1_merge_tick = frame_audit.merge_tick;
     frame->c1_guest_buffer_address = frame_audit.buffer_address;
     frame->c1_guest_prepare_gpu_frame = frame_audit.buffer_prepare_gpu_frame;

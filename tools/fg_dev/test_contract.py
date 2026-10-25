@@ -30,6 +30,18 @@ static_assert(!CanStampDisplay(true,true,1u,1u,1815,1816,2560,1440,2560,1440)); 
 static_assert(!CanStampDisplay(true,true,1u,1u,0,1816,2560,1440,2560,1440));
 static_assert(!CanStampDisplay(true,true,1u,1u,1816,1816,1920,1080,2560,1440));
 constexpr bool display_stamps() {
+    // No NR job/ledger is needed to bind a verified sampled HDR->LDR source to
+    // the actual native VideoOut image; stale/auxiliary destinations still fail.
+    const DisplayStamp pending{77,0x4000,200,0,1920,1080};
+    auto native=BindDisplay(pending,0x4000,78,202,123,1920,1080);
+    if(native.Consume(0x4000,78,203,123,1920,1080)!=77)return false;
+    if(native.Consume(0x4000,78,204,123,1920,1080))return false;
+    if(BindDisplay(pending,0x4001,78,202,123,1920,1080).source)return false;
+    if(BindDisplay(pending,0x4000,79,202,123,1920,1080).source)return false;
+    if(BindDisplay(pending,0x4000,78,199,123,1920,1080).source)return false;
+    if(BindDisplay(pending,0x4000,78,202,0,1920,1080).source)return false;
+    if(BindDisplay(pending,0x4000,78,202,123,1920,1200).source)return false;
+    if(BindDisplay({},0x4000,78,202,123,1920,1080).source)return false;
     const DisplayStamp captured{1816, 0x1000, 99, 4, 2560, 1440};
     auto stamp = captured;
     if (stamp.Consume(0x1000, 1817, 99, 4, 2560, 1440) != 1816) return false;

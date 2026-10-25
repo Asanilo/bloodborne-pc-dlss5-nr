@@ -50,4 +50,15 @@ struct DisplayStamp {
                    ? recorded.source : 0;
     }
 };
+
+constexpr DisplayStamp BindDisplay(const DisplayStamp& pending, std::uint64_t address,
+                                   std::uint64_t gpu_frame_at_draw, std::uint64_t draw_tick,
+                                   std::uint64_t image_generation,
+                                   std::uint32_t width, std::uint32_t height) {
+    if (!pending.source || pending.address!=address || !pending.producer_tick ||
+        !image_generation || !width || !height || pending.width!=width || pending.height!=height ||
+        gpu_frame_at_draw<=pending.source || gpu_frame_at_draw-pending.source!=1 ||
+        draw_tick<pending.producer_tick) return {};
+    return {pending.source,address,draw_tick,image_generation,width,height};
+}
 } // namespace Vulkan::FgContract

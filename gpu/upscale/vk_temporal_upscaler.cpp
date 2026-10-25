@@ -3172,6 +3172,11 @@ bool TemporalUpscaler::RedirectColor(VideoCore::ImageId color,
         display.valid = false; // not upscaled: the presenter shows the guest buffer
         display.c1_audit = {};
         display.source_stamp = {};
+        if (NativeFrameGeneration()) {
+            display.source_stamp=FgContract::BindDisplay(pending_display_source,address,
+                BbStats::gpu_frames.load(std::memory_order_relaxed),scheduler.CurrentTick(),
+                image.image_uid,image.info.size.width,image.info.size.height);
+        }
         return false;
     }
     if (!display.image || display.format != image.info.pixel_format ||
@@ -3391,6 +3396,11 @@ void TemporalUpscaler::OnDisplayPassStart(VAddr address, std::span<const VAddr> 
                     vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
                 runtime.FlushBarriers();
                 finished = image.GetImage();
+                const u64 source=frame_generation->AcceptedDisplaySource(finished,
+                    image.info.size.width,image.info.size.height,
+                    BbStats::gpu_frames.load(std::memory_order_relaxed),true);
+                if(source)accepted_display={.source=source,.address=address,
+                    .width=image.info.size.width,.height=image.info.size.height};
             }
         }
         frame_generation->Interpolate(finished, address);
@@ -3402,6 +3412,15 @@ void TemporalUpscaler::OnDisplayPassStart(VAddr address, std::span<const VAddr> 
         pending_display_source = accepted_display;
         if (pending_display_source.source) pending_display_source.producer_tick=scheduler.CurrentTick();
     }
+}
+
+u64 TemporalUpscaler::TakeNativeFgDisplaySource(VAddr address,u64 image_generation,u32 width,u32 height,
+                                               u64 gpu_frame_at_prepare,u64 prepare_tick) {
+    std::scoped_lock lock{display_mutex};
+    auto it=displays.find(address);
+    if(it==displays.end()||it->second.valid)return 0;
+    return it->second.source_stamp.Consume(address,gpu_frame_at_prepare,prepare_tick,
+                                          image_generation,width,height);
 }
 
 bool TemporalUpscaler::DisplayOverride(VAddr address, Display& display) {
