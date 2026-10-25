@@ -8,6 +8,7 @@ import argparse,ctypes,ctypes.util,json,math,re,signal,time
 from pathlib import Path
 import runner
 PATTERNS={
+ 'run-stop-long':[(2.,''),(2.5,'ly=0 circle'),(3.,''),(2.5,'ly=255'),(3.,'')],
  'run-stop':[(1.,''),(1.5,'ly=0 circle'),(3.,''),(1.5,'ly=255'),(3.,'')],
  'static':[(6.,'')],
  'turn':[(1.,''),(.35,'mdx=16'),(1.,''),(.35,'mdx=-16'),(2.,'')],
