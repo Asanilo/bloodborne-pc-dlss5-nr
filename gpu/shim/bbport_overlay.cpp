@@ -316,7 +316,7 @@ void NRControls() {
     ImGui::BeginDisabled(actual.capture_busy||request.capture_seq!=actual.capture_applied_seq);
     if(ImGui::Button("Capture current-source chain (F9)"))BbNR::Submit(c,{.capture=true},&error);
     ImGui::EndDisabled();
-    ImGui::Text("Capture request %llu / completed %llu%s",(unsigned long long)request.capture_seq,(unsigned long long)actual.capture_applied_seq,actual.capture_busy?" (busy)":"");
+    ImGui::Text("Capture request %llu / handled %llu%s",(unsigned long long)request.capture_seq,(unsigned long long)actual.capture_applied_seq,actual.capture_busy?" (busy)":"");
     if(ImGui::Button("Restore exact NR defaults"))BbNR::Submit(BbNR::Config{},{.reset=true},&error);
     Hint("Restores requested defaults. Model changes still require explicit Apply; actual state is shown above.");
     if(!error.empty())ImGui::TextWrapped("Request rejected: %s",error.c_str());

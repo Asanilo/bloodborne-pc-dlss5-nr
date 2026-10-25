@@ -8,6 +8,7 @@ GPU completion evidence. The existing Runner remains the sole retirement owner.
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import time
 
@@ -20,6 +21,36 @@ def retained(run):
                    (run / 'game.log.1', run / 'game.log') if p.is_file())
 
 
+class PresentTail:
+    """Read each captured byte once, following the two rotating log inodes."""
+    def __init__(self):
+        self.streams = {}
+
+    def read(self, run):
+        live, rows = set(), []
+        for name in ('game.log.1', 'game.log'):
+            try:
+                stream = (run / name).open('rb')
+            except FileNotFoundError:
+                continue
+            with stream:
+                info = os.fstat(stream.fileno())
+                key = (info.st_dev, info.st_ino); live.add(key)
+                offset, pending = self.streams.get(key, (0, b''))
+                if info.st_size < offset:
+                    raise ValueError('real Present capture was truncated')
+                stream.seek(offset); chunk = stream.read(8 * 1024 * 1024 + 1)
+                if len(chunk) > 8 * 1024 * 1024:
+                    raise ValueError('unbounded real Present log')
+                parts = (pending + chunk).split(b'\n')
+                self.streams[key] = (offset + len(chunk), parts.pop())
+                for line in parts:
+                    if line.startswith(b'MEMORY_PRESENT_V1 '):
+                        rows.extend(metrics.rows(line.decode('ascii'), 'MEMORY_PRESENT_V1'))
+        self.streams = {key: value for key, value in self.streams.items() if key in live}
+        return rows
+
+
 def summarize(rows, model, begin, end):
     chosen = [r for r in rows if begin < int(r['cpu_monotonic_ns']) < end]
     if len(chosen) < 2 or any(r['model'] != model for r in chosen):
@@ -28,6 +59,8 @@ def summarize(rows, model, begin, end):
     frames = [int(r['frame']) for r in chosen]
     if any(b <= a for a, b in zip(times, times[1:])) or len(set(frames)) != len(frames):
         raise ValueError('nonmonotonic or duplicate real Present ledger')
+    if any(b != a + 1 for a, b in zip(frames, frames[1:])):
+        raise ValueError('missing real Present telemetry in measurement window')
     if any(r['success'] != '1' for r in chosen):
         raise ValueError('failed Present in measurement window')
     intervals = [(b - a) / 1e6 for a, b in zip(times, times[1:])]
@@ -76,21 +109,30 @@ def main():
     output = run / (a.label + '-memory-profile.json')
     if output.exists():
         p.error('output already exists')
+    tail = PresentTail()
+    tail.read(run)  # Prime old bytes before the measured window.
     begin = time.monotonic_ns()
     samples = {}
     memory_samples = {}
+    residency_samples = {}
+    collector_cpu_begin = time.process_time()
     # Poll within the bounded log retention window; retain only the small timing ledger.
     while time.monotonic_ns() < begin + a.seconds * 1_000_000_000:
         latest = run / 'gpu-memory-latest.json'
         if latest.is_file():
             sample = json.loads(latest.read_text())
             memory_samples[sample['monotonic_ns']] = sample
-        for row in metrics.rows(retained(run), 'MEMORY_PRESENT_V1'):
+        residency = run / 'memory-residency-latest.json'
+        if residency.is_file():
+            sample = json.loads(residency.read_text())
+            if sample['observed_monotonic_ns'] >= begin:
+                residency_samples[sample['observed_monotonic_ns']] = sample
+        for row in tail.read(run):
             if int(row['cpu_monotonic_ns']) > begin:
                 samples[row['cpu_monotonic_ns']] = row
         time.sleep(.5)
     end = time.monotonic_ns()
-    for row in metrics.rows(retained(run), 'MEMORY_PRESENT_V1'):
+    for row in tail.read(run):
         if int(row['cpu_monotonic_ns']) > begin:
             samples[row['cpu_monotonic_ns']] = row
     if runner.current_game(run) != game:
@@ -101,11 +143,13 @@ def main():
     rows = sorted(samples.values(), key=lambda r: int(r['cpu_monotonic_ns']))
     summary = summarize(rows, a.model, begin, end)
     result = dict(schema='bb-memory-profile-v1', session=a.session, label=a.label,
+                  collector_cpu_ms=(time.process_time() - collector_cpu_begin) * 1000,
                   actual_route=route_data, game=game, model=a.model,
                   build=manifest['native_build_provenance'], summary=summary,
                   gpu_memory=metrics.memory(run, summary['begin_ns'], summary['end_ns'],
                                             samples=list(memory_samples.values())),
                   memory_samples=list(memory_samples.values()),
+                  residency_samples=list(residency_samples.values()),
                   route_sha256=hashlib.sha256(route.read_bytes()).hexdigest(),
                   scope='real Present return CPU intervals; device usage includes driver/other apps; '
                         'scene equivalence requires separate observation; no GPU/scanout completion claim',

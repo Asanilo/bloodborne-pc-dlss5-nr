@@ -973,6 +973,8 @@ def daily(args) -> int:
         command.append("--sr-only")
     if getattr(args,"fg_backend",None) is not None:
         command += ["--fg-backend",args.fg_backend]
+    if getattr(args,"fg_start_off",False):
+        command.append("--fg-start-off")
     for key in ("nr_sr_preset","nr_output","nr_execution","dlssg_multiplier","reuse_nr_prefix","dlssg_model","dlssg_runtime","dlssg_prefix_session","dlssg_pipeline","dlssg_transport"):
         value=getattr(args,key,None)
         if value is not None:command += ["--"+key.replace("_","-"),str(value)]
@@ -1080,12 +1082,12 @@ def main(argv=None) -> int:
                         help="opt-in Experimental HUDless FSR FG x2; requires a rebuilt M1 runtime")
     parser.add_argument("--fg-native", action="store_true",
                         help="explicit Native HDR integration (implied by --experimental-fg)")
+    parser.add_argument("--gpu-validation", action="store_true",
+                        help="explicit core+sync GPU diagnostic; forwarded to daily coordinator")
     parser.add_argument("--fg-profile", action="store_true",
                         help="bounded FG CPU/GPU stage timings; does not change the backend")
     parser.add_argument("--fg-validation", action="store_true",
                         help="enable existing Vulkan core/sync validation for an FG test")
-    parser.add_argument("--gpu-validation", action="store_true",
-                        help="explicit core+sync GPU diagnostic; forwarded to daily coordinator")
     parser.add_argument("--sr-only", action="store_true",
                         help="do not start the Helper; the runner owns the SR-only path")
     parser.add_argument("--no-terminal", action="store_true")

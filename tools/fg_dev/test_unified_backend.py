@@ -3,6 +3,12 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'nr_dev'))
 import fg_config,runner,prefix_lease
 class UnifiedTests(unittest.TestCase):
+ def test_selected_backend_can_start_disabled_without_changing_nr(self):
+  a=runner.parse_args(['start','cpu','--daily','--local-inputs','/inputs','--fg-backend','dlssg','--fg-start-off','--dlssg-model','/model'])
+  self.assertTrue(a.fg_start_off);self.assertFalse(a.sr_only)
+  self.assertEqual(fg_config.requested(a),'dlssg')
+  with self.assertRaises(SystemExit):
+   runner.parse_args(['start','cpu','--daily','--local-inputs','/inputs','--fg-backend','off','--fg-start-off'])
  def test_legacy_and_explicit_precedence(self):
   self.assertEqual(fg_config.selection({})['backend'],'off')
   self.assertEqual(fg_config.selection({'nrbridge_fsr_fg':True})['backend'],'fsr31')
@@ -38,9 +44,10 @@ class UnifiedTests(unittest.TestCase):
   for m in range(2,7):
    c=fg_config.selection({'fg_backend':'dlssg','fg_dlss_pipeline':'consumer-queue-v1','fg_dlss_multiplier':m})
    self.assertEqual(c['multiplier'],m)
-  for settings in ({'fg_dlss_pipeline':'submit-ready-v1'},{'fg_dlss_pipeline':'consumer-queue-v1','fg_dlss_transport':'mapped-v1'}):
-   config=fg_config.selection({'fg_backend':'dlssg','fg_dlss_multiplier':3}|settings) # UI must reopen to correct it
-   with self.assertRaisesRegex(ValueError,'requires GPU'):fg_config.availability(config,'/missing')
+  config=fg_config.selection({'fg_backend':'dlssg','fg_dlss_multiplier':3,'fg_dlss_pipeline':'submit-ready-v1'})
+  self.assertEqual(config['pipeline'],'consumer-queue-v1')
+  config=fg_config.selection({'fg_backend':'dlssg','fg_dlss_multiplier':3,'fg_dlss_transport':'mapped-v1'})
+  with self.assertRaisesRegex(ValueError,'requires GPU'):fg_config.availability(config,'/missing')
  def test_manifest_drift(self):
   env={'BB_FRAME_GEN':'0','BB_FRAME_GEN_BACKEND':'smooth-motion','NVPRESENT_ENABLE_SMOOTH_MOTION':'1'}
   fg_config.validate_environment('smooth-motion',env)

@@ -29,7 +29,7 @@ public:
   std::array<double,6> pass_ms{}; // mode-indexed GPU dispatch timestamps, sums for repeated modes
  };
  RuntimeSample LatestRuntimeSample() const;
- struct CaptureStatus {uint64_t seq=0,first_source=0,last_source=0,revision=0;unsigned recorded_frames=0,last_index=0;bool busy=false,complete=false,failed=false;std::string directory;};
+ struct CaptureStatus {uint64_t seq=0,first_source=0,last_source=0,revision=0;unsigned recorded_frames=0,last_index=0;bool busy=false,complete=false,failed=false,request_rejected=false;std::string directory,reason;};
  CaptureStatus Capture() const;
  bool CaptureFor(uint64_t source) const noexcept;
  struct CaptureFrame {uint64_t seq=0,source=0,revision=0;unsigned index=0;std::string directory;};

@@ -22,6 +22,7 @@ def selection(settings):
         raise ValueError('Unsupported DLSS FG pipeline/transport')
     multiplier=settings.get('fg_dlss_multiplier',2)
     if type(multiplier) is not int or not 2<=multiplier<=6:raise ValueError('DLSS multiplier must be 2..6')
+    if multiplier>2 and transport=='gpu-dmabuf-v1':pipeline='consumer-queue-v1'
     return dict(multiplier=multiplier,backend=backend, pipeline=pipeline if transport=='gpu-dmabuf-v1' else 'sync-v1',
                 transport=transport, model=settings.get('fg_dlss_model',''),
                 runtime=settings.get('fg_dlss_runtime',''), prefix_session=settings.get('fg_dlss_prefix_session',''))
@@ -58,6 +59,7 @@ def command_options(config):
 
 
 def add_argument(parser):
+    parser.add_argument('--fg-start-off',action='store_true',help='keep the selected application FG backend available, initially disabled; toggle in game')
     parser.add_argument('--dlssg-multiplier',type=int,choices=range(2,7),default=2)
     parser.add_argument('--fg-backend',choices=BACKENDS,default=None,
                         help='one FG backend; NR and SR remain independent')
@@ -66,9 +68,11 @@ def add_argument(parser):
 def normalize(args):
     backend=getattr(args,'fg_backend',None)
     if getattr(args,'dlssg_transport',None) is None:args.dlssg_transport='gpu-dmabuf-v1' if backend=='dlssg' else 'mapped-v1'
-    if getattr(args,'dlssg_pipeline',None) is None:args.dlssg_pipeline='submit-ready-v1' if backend=='dlssg' and args.dlssg_transport=='gpu-dmabuf-v1' else 'sync-v1'
+    if getattr(args,'dlssg_pipeline',None) is None:args.dlssg_pipeline=('consumer-queue-v1' if getattr(args,'dlssg_multiplier',2)>2 else 'submit-ready-v1') if backend=='dlssg' and args.dlssg_transport=='gpu-dmabuf-v1' else 'sync-v1'
     legacy=getattr(args,'experimental_fg',None)
     sm=getattr(args,'smooth_motion',False)
+    if getattr(args,'fg_start_off',False) and (backend not in ('fsr31','fsr316','dlssg') or sm):
+        raise ValueError('--fg-start-off requires one application FG backend')
     if backend is None:
         # Historical diagnostic capture/plain-FSR paths retain their exact flags.
         return

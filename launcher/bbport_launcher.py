@@ -209,7 +209,7 @@ DEFAULTS = {
     "frame_stats": False,
     "save_log": False,
     "crash_diag": False,
-    "memory_model": "auto",
+    "memory_model": "old" if NRBRIDGE else "auto",
     "as_0_3": False,
     "gpu_profile": False,
     "vk_validation": False,

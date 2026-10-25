@@ -55,6 +55,14 @@ class DailyLog(unittest.TestCase):
         self.assertNotIn(line, (self.run / 'game.log').read_bytes())
         self.assertNotIn(line, (self.run / 'game.log.1').read_bytes())
 
+    def test_latest_residency_keeps_only_the_last_small_record(self):
+        first = b'MEMORY_RESIDENCY_V1 model=new active_mirror_bytes=100'
+        last = b'MEMORY_RESIDENCY_V1 model=new active_mirror_bytes=50'
+        state = self.capture(first + b'\n' + last + b'\n' + b'ordinary\n' * 40000)
+        self.assertTrue(state['complete'])
+        record = json.loads((self.run / 'memory-residency-latest.json').read_text())
+        self.assertEqual(record['line'], last.decode())
+
     def test_failure_survives_rotation_beyond_both_retained_files(self):
         state = self.capture(b'x' * 65520 + b'\nNATIVE_RESOURCE_QUARANTINE error=1\n' + b'ok\n' * 40000)
         self.assertTrue(state['complete'])

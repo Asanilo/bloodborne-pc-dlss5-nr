@@ -14,7 +14,7 @@
 | 1440p Performance | 1280×720 → 2560×1440 | 3X | SR+FG、NR→SR+FG 均通过 |
 | 1440p Balanced | 1506×848 → 2560×1440 | 4X、5X、6X | SR+FG 通过；6X 另有 NR→SR+FG 通过 |
 | 1920×1200 Quality，16:10 | 1280×800 → 1920×1200 | 2X | 运行中从 1440Q 切入、FG 关闭/恢复及切回通过 |
-| 1440p DLAA | 2560×1440 → 2560×1440 | 2X | 从 1440Q 切入及切回，FG 重建与实际生成 Present 通过；NR 切换恢复未通过 |
+| 1440p DLAA | 2560×1440 → 2560×1440 | 2X | 2f566db 的 FG 重建/生成通过、NR 恢复失败；后续公共修复及回归见下文 |
 
 这是代表性组合验收，不是所有档位、尺寸、倍率的笛卡尔积验收。未实测的超宽屏、
 4K、HDR 及 New Memory 不由此表推定通过。NR 开启样本使用独立 1280×720 NR execution；
@@ -99,12 +99,13 @@ FG 关闭窗口 generated=0，恢复后实际重新生成；生成分支不推�
 
 ## 已知问题与边界
 
-1. **NR 运行时切档后不会自动恢复。** `m9-old1440q-2x-nr-r10` 在初始 Quality
+1. **2f566db 的历史 NR 切档恢复缺陷，后续已修复。** `m9-old1440q-2x-nr-r10` 在初始 Quality
    正常选中 NR；切到 DLAA 后 NR 以 `profile_change` 正常排空退出
    （80 finalized = 79 captured + 1 obsolete），后续 DLAA 样本 171/171 为 cache_selected=0。
    切回 Quality 时 FG g3 正常生成，NR 仍未恢复。因此该 DLAA 样本只能算 SR+FG，
    不能按样本旧标签 `nr-sr-fg` 宣称 NR 联动通过。M8 接手公共 NR 停止/恢复逻辑；
-   本轮没有绕过 unsupported、清除历史或强行恢复旧 Helper。暂用重启游戏进入目标配置。
+   本轮没有绕过 unsupported、清除历史或强行恢复旧 Helper。后续修复为 `2f0c3d1`，实测见下节；
+   原 r10 记录保持不变，不能将后续成功写回旧失败样本。
 2. **公共 WSI sync hazard 尚在。** 两次 core+sync 冷测试各报告 10 次
    `SYNC-HAZARD-WRITE-AFTER-PRESENT`，位于启动菜单/早期失败 Present、FG Helper 建立前。
    VUID 字典为空不代表 sync clean；duplicate-message limit=10 也不允许从后续没有新增
@@ -121,7 +122,28 @@ FG 关闭窗口 generated=0，恢复后实际重新生成；生成分支不推�
 3X–6X 使用 `consumer-queue-v1`；2X 保留 `submit-ready-v1`、consumer queue 及 CPU Bridge
 回退。非默认 NR 尺寸需启用已有尺寸选项，NR execution 本轮选 1280×720，SR 档位及输出
 独立设置；NR 开关独立，不因选择 FG 后端而自动关闭。倍率改动仍需重新启动。
-Old 非默认组合已经可实验使用，尚不能把 NR 运行中切档恢复列为支持能力。
+Old 非默认组合已经可实验使用；NR 切档恢复须包含后续公共修复 `2f0c3d1`，不能使用原2f566db推定通过。
+
+## M8 后续公共修复回归
+
+公共 Native `bd654b2`（包含修复 `2f0c3d1`）、同一 Helper42，core+sync 冷功能验收：
+
+| 会话 | Q→DLAA窗口 NR | 回Q窗口 NR | 回Q稳定5秒 NR / real / generated | 正常退休 |
+|---|---:|---:|---|---|
+| m8-old1440q-resume-r3 | 224/231 | 223/230 | 165/165 / 165 / 164，order0 | rc0、lastuse=true、residuals=[]、prefix RETURNED |
+| m8-new1440q-resume-r1 | 166/173 | 176/183 | 119/119 / 119 / 119，order0 | 同上 |
+
+两场实际 memory model 分别核对 old/new；NR execution1280×720，SR/FG output2560×1440，
+最终窗口读回仍为1920×1080，不增加物理1440p扫描显示结论。
+退出前没有 profile_change stop，请求只在最后正常退出时出现 reason=exit。
+Helper、Native最后使用、逐代 GPU/FD/model 均实际退休。daily preSR 的短暂 domain 不匹配改为保留会话和资源，
+已提交任务仍走原真实完成→obsolete→CONSUMED→FinalizedAck；有限诊断和未知状态隔离没有放松。
+恢复沿用 source gap/layout_changed/history reset，不复用旧布局 candidate。
+
+Old 本场完整 stdout 仍累计原型相同的10条 WSI WRITE_AFTER_PRESENT，未解决；New 本场累计 VUID0/sync0。
+这些冷窗口只验证功能、切换与退休，不作为 Old/New 热性能对照。
+New 在启动 NR 前另有5秒 real117/generated117/order0，证明 scaled FG 独立 source stamp 已实际生效，
+不是依靠 NR ledger 或 Helper Evaluate 计数推断通过。
 
 本机结果根目录为公共 `nrbridge/out/nr-dev/runs/`，完整成功会话：
 

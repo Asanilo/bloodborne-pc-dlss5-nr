@@ -20,6 +20,19 @@ inline bool Enabled()noexcept {
 }
 inline constexpr unsigned Width=1280,Height=720,MaxJobs=4,SourceLimit=120;
 static_assert(BbNativeAsync::NodeCount==5&&BbNativeAsync::MaxLinks==4);
+// A daily scene/FG-domain transition is reversible. Keep its immutable inputs,
+// in-flight job and Helper session; DrainUnavailable still performs the exact
+// completion/obsolete/ACK path. This does NOT authorize reuse or GPU retirement.
+// Finite diagnostics keep their original profile-change shutdown semantics.
+inline bool RetainUnavailableSession()noexcept {
+ return NativeRuntimeModel::Daily()&&BbNativeAsyncPreSrPlay::Enabled();
+}
+inline bool ProfileRequiresStop(bool supported,bool snapshots)noexcept {
+ return !supported&&snapshots&&!RetainUnavailableSession();
+}
+inline bool NeedsStop(bool supported,bool snapshots,bool exit,bool rejected)noexcept {
+ return exit||rejected||ProfileRequiresStop(supported,snapshots);
+}
 // Pixel texels only. VMA allocation padding and model footprint are not inferred.
 inline constexpr uint64_t RawPacketBytes=uint64_t(Width)*Height*(8+8+4);
 inline constexpr uint64_t RawPacketsBytes=RawPacketBytes*BbNativeAsync::NodeCount;

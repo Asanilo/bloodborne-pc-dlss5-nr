@@ -121,6 +121,12 @@ class GameLog:
                         json.dump({'schema': 'bb-memory-model-active-v1',
                                    'line': data.decode().strip(),
                                    'observed_monotonic_ns': time.monotonic_ns()}, out)
+                if data.startswith(b'MEMORY_RESIDENCY_V1 '):
+                    target = self.run / 'memory-residency-latest.json'
+                    temporary = target.with_suffix('.tmp')
+                    temporary.write_text(json.dumps({'schema': 'bb-memory-residency-v1',
+                        'line': data.decode().strip(), 'observed_monotonic_ns': time.monotonic_ns()}) + '\n')
+                    temporary.replace(target)
                 if size + len(data) > self.limit:
                     stream.close()
                     path.replace(self.run / 'game.log.1')

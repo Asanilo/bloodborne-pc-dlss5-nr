@@ -2,6 +2,7 @@
 #include "native_persistent_history.h"
 #include "nr_dimensions.h"
 #include "native_persistent_history_diagnostic.h"
+#include "native_history_capture_admission.h"
 #include "native_async_pre_sr_return.h"
 #include "native_persistent_history_shader.h"
 #include "native_visual_transition.h"
@@ -318,8 +319,18 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
  }
  if(!p.diagnostic&&(p.pending_controls.capture_seq>p.handled_capture||p.env_capture_pending)){
   const auto sequence=p.pending_controls.capture_seq>p.handled_capture?p.pending_controls.capture_seq:0;
-  p.diagnostic=std::make_unique<NativePersistentHistoryDiagnostic>(*p.instance,sequence,sequence?3:0);
-  p.handled_capture=sequence;p.env_capture_pending=false;p.capture_status={};p.capture_status.seq=sequence;p.capture_status.busy=true;p.capture_status.revision=p.applied_controls.revision;p.capture_status.directory=p.diagnostic->Directory();
+  try{
+   p.diagnostic=std::make_unique<NativePersistentHistoryDiagnostic>(*p.instance,sequence,sequence?3:0);
+   p.handled_capture=sequence;p.env_capture_pending=false;p.capture_status={};p.capture_status.seq=sequence;p.capture_status.busy=true;p.capture_status.revision=p.applied_controls.revision;p.capture_status.directory=p.diagnostic->Directory();
+  }catch(const HistoryCapture::DiagnosticAdmissionRejected& error){
+   // Only CPU admission rejection is consumed. Unknown allocation/record/GPU
+   // exceptions still propagate to the Source quarantine boundary unchanged.
+   p.handled_capture=sequence;p.env_capture_pending=false;p.capture_status={};
+   p.capture_status.seq=sequence;p.capture_status.revision=p.applied_controls.revision;
+   p.capture_status.request_rejected=true;p.capture_status.reason=error.what();
+   std::printf("PERSISTENT_HISTORY_CAPTURE_REQUEST_REJECTED seq=%llu source=%llu capture_GPU_recorded=0 capture_staging_allocated=0 no_auto_retry=1 source_continues=1 reason=%s\n",
+    (unsigned long long)sequence,(unsigned long long)frame.source,error.what());
+  }
  }
  // Job epoch changes are not a visual reset: history/params/reset and real
  // consecutive source lineage govern the independent active lifetime.

@@ -284,6 +284,8 @@ void Load() {
             Set(v, key, value);
         }
     }
+    if (Vulkan::FgBackendStatus::Is(std::getenv("BB_FRAME_GEN_INITIAL"),"0"))
+        v.frame_generation=false;
     if (!Vulkan::FgBackendStatus::Application() || Vulkan::FgBackendStatus::Is(std::getenv("NVPRESENT_ENABLE_SMOOTH_MOTION"),"1"))
         v.frame_generation=false;
     v.startup_preset = v.preset;
