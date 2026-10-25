@@ -86,8 +86,7 @@ python3 tools/nr_dev/quality_window.py SESSION run-stop-long \
 ```
 
 `--min-fps`需要私有 `BB_MEMORY_PROFILE=1`。`--close`只请求正常关闭；
-真实GPU/Helper/FD退休仍由原监督器和result/audit判定。可选X11视频
-只有墙钟意义且有效帧率未验收，不能当作精确NR源帧或视觉结论。
+真实GPU/Helper/FD退休仍由原监督器和result/audit判定。不再包含X11视频采集功能，避免把不可靠录像引入主工作流程。
 
 `BB_NR_HISTORY_SAMPLE_INTERVAL=1`启用独立诊断specialization：active/target
 live交集、old-only/new-only、最大年龄与当前active Advance的首拒。
