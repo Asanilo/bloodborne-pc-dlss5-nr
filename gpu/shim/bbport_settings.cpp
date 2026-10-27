@@ -212,6 +212,7 @@ std::string SizeText(OutputSize size) {
 void SetMonitor(int width, int height) {
     const OutputSize m{width, height};
     if (width <= 0 || height <= 0 || m == Monitor()) return;
+    const bool first_monitor=Monitor().width==0;
     monitor.store(PackSize(m), std::memory_order_relaxed);
     auto& v = Get();
     // Auto follows the monitor: its output is kept (and saved: run.sh's startup patch reads it).
@@ -222,6 +223,7 @@ void SetMonitor(int width, int height) {
         v.output_res = PackSize(fitted);
         Save();
     }
+    if(first_monitor && v.aspect==AspectAuto)v.startup_output=CurrentOutput();
 }
 
 Values& Get() {
@@ -308,6 +310,7 @@ void Load() {
         v.startup_effects[e] = v.effects[e];
     }
     v.startup_model_lod = v.model_lod;
+    v.startup_output = CurrentOutput();
     if (FixedRenderSession()) {
         int w = 0, h = 0;
         const char* output = std::getenv("BB_OUTPUT_RES");
@@ -350,14 +353,23 @@ bool FixedRenderSession() {
 
 int RenderPreset() {
     const auto& v = Get();
-    return FixedRenderSession() ? v.startup_preset :
+    return !LiveResolutionChanges() ? v.startup_preset :
         v.upscaler == UpscalerTaa ? NativeAA : v.preset.load();
+}
+
+OutputSize RenderOutput() {
+    const auto& v=Get();
+    return !LiveResolutionChanges() ? v.startup_output : CurrentOutput();
+}
+
+bool LiveResolutionChanges() {
+    return !FixedRenderSession() && Get().startup_live_resolution!=0;
 }
 
 bool ResolutionNeedsRestart() {
     const auto& v = Get();
     // TAA needs the live path (native guest targets): run.sh selects it on restart.
-    return FixedRenderSession() &&
+    return !LiveResolutionChanges() &&
         (v.preset != v.startup_preset || CurrentOutput() != v.startup_output ||
          (v.upscaler == UpscalerOff) != (v.startup_upscaler == UpscalerOff) ||
          (v.upscaler == UpscalerTaa) != (v.startup_upscaler == UpscalerTaa));

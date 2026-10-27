@@ -4,6 +4,7 @@
 #include <utility>
 inline const char* BbChinese(const char* text) {
     static constexpr std::pair<std::string_view, const char*> entries[] = {
+        {"On allows resolution and preset changes during play. Off keeps the startup resolution and preset. Changing this mode requires restarting the game.","开启后可在游戏中切换分辨率与画质档位；关闭后保持启动时的分辨率与档位。更改此模式需要重启游戏。"},
         {"Display bypass (F8)","NR 显示旁路（F8）"},
         {"Display strength","NR 效果强度"},
         {"History reprojection","历史重投影"},

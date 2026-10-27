@@ -1003,6 +1003,7 @@ def language():
 
 
 RU_PLAYER = {
+    "Changing this mode requires restarting. When enabled, resolution and presets can change during play.":"Смена режима требует перезапуска. При включении разрешение и пресет можно менять в игре.",
     "Automatic (uses New)":"Автоматически (New)","New (recommended)":"New (рекомендуется)","Old":"Old",
     "New is the default. Old remains available for compatibility; performance depends on the scene.":"По умолчанию New. Old доступен для совместимости; результат зависит от сцены.",
     'Advanced settings':'Расширенные настройки','Diagnostics and debug options':'Диагностика и отладка',

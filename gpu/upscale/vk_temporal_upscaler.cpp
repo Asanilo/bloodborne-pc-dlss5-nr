@@ -589,7 +589,7 @@ bool TemporalUpscaler::OnFrameStart() {
     const bool active = Active();
     const bool jitter_on = active && settings.jitter && !BbToggle::Disabled(1u << 25);
     const int upscaler = settings.upscaler.load();
-    auto output_size = BbSettings::CurrentOutput();
+    auto output_size = BbSettings::RenderOutput();
     if (!Game::CameraAspect() && output_size.width * 9 != output_size.height * 16) {
         // A game whose camera keeps 16:9: its picture at that shape, as high (wide) as the output
         // allows; the presenter puts it in the middle.

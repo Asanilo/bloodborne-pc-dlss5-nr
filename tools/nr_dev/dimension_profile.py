@@ -55,7 +55,7 @@ def validate_capabilities(profile,build,binding):
 def ini(profile,original=''):
  if profile is None:return None
  updates={'upscaler':'dlss' if profile['sr_enabled'] else 'off','preset':str(profile['preset']),'aspect_ratio':profile['aspect_ratio'],
-          'output_res':f"{profile['output_width']}x{profile['output_height']}", 'jitter':'1','object_motion':'1','live_resolution':'1'}
+          'output_res':f"{profile['output_width']}x{profile['output_height']}", 'jitter':'1','object_motion':'1'}
  if not profile['sr_enabled']:updates.pop('preset') # hidden SR preset has no effect; preserve the player's choice
  # Keep controls, language and other saved choices in the isolated run profile.
  lines=[]
