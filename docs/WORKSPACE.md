@@ -1,61 +1,68 @@
 # Workspace and branch guide
 
+Factual layout as of 2026-10-26. For player-facing state and roadmap see
+[project status](PROJECT_STATUS.zh-CN.md) and [roadmap](NRBRIDGE_ROADMAP.zh-CN.md).
+
 ## Repositories and branches
 
 | Repository/reference | Purpose |
 |---|---|
-| bloodborne-pc-dlss5-nr: `nrbridge` | Current NRBridge/0.6 development and Preview source |
-| bloodborne-pc-dlss5-nr: `master` | Retained fork mainline; not automatically switched to NRBridge |
-| bloodborne-pc-dlss5-nr: `testing` | Retained upstream-testing reference |
+| bloodborne-pc-dlss5-nr: `nrbridge` | Default branch; current NRBridge/0.6 development and Preview source |
+| bloodborne-pc-dlss5-nr: `master` | Retained fork mainline; not merged into NRBridge |
+| *retired 2026-10-26:* `m9/dlss-fg-dynamic` | FG independent line; branch deleted, worktree kept detached (`.worktree/fg`) |
+| *retired 2026-10-26:* `nr/temporal-stability` | NR temporal independent line; branch deleted, worktree kept detached (`.worktree/m5-nr`) |
+| local only: `m10/nr-quality` | Unpushed NR quality experiment; kept to avoid losing work |
 | `nrbridge/` | Standalone Helper/forwarder and canonical protocol source, frozen import from OptiScaler |
 | `upstream` remote | Original bbport history; retained for future normal merges |
 
-M1 merges the full FG and integration histories into `nrbridge`; their development
-branch names can be retired without losing FSR 3.1.6 or original authors.
-The FG checkout directory is retained for the existing agent session, detached at
-the pre-convergence integration snapshot, rather than recreated.
-`workspace-init.sh` now defaults to NR only; `--with-fg` is explicit.
+Branches merged into `nrbridge` were retired on 2026-10-26, locally and on the
+Fork remote: `m2/dlss-fg`, `m4/dlss-mfg`, `m5/nr-dimensions`, `testing`. Their
+FSR 3.1.6 path and original authorship remain in `nrbridge`. No force push or
+history rewrite was involved. `master` is retained because it is not an ancestor.
 
-There are three long-lived local/Fork Native branches. Upstream 8185b88 and
-gameplay 7265d3b are ancestors of the NRBridge branch. No force push or history
-rewrite is part of workspace cleanup. The default branch is `nrbridge`; the earlier development branch name has been retired.
+The two remaining development lines were retired on 2026-10-26: their branch
+references were deleted locally and on the Fork remote, while the worktree
+directories are kept at a detached HEAD because they still hold local evidence
+and private `out/` products. Do not run `git gc --prune` before those worktrees
+are removed, or the detached commits can be collected. Removing a worktree later
+only needs the directory plus `git worktree prune`.
 
 In a multi-worktree checkout, keep the primary checkout and one active NRBridge
-worktree (`.worktree/nrbridge`). The retired detached native-mouse worktree is no
-longer required: its adapted implementation is in current source, and its original
-candidate source/tests and unique evidence were verified and retained privately.
-No archive branches/tags were added for this retirement.
+worktree (`.worktree/nrbridge`). A retired detached native-mouse worktree is no
+longer required: its adapted implementation is in current source, and its
+original candidate source/tests and unique evidence were verified privately.
 
-## Upstream Helper reference snapshot (before migration)
+## Source, development data and player installation
 
-The Helper repository is inspected separately:13 local branches and2 worktrees.
-Its current `dev/nrbridge-helper-convergence-20261019` is2 commits ahead of
-`linux-nr`; both worktrees are clean. The CI branch and historical PoC branches
-may carry independent work. They are preserved in this Native cleanup, rather
-than being deleted based on their names. No Helper ref, source, protocol or
-installed artifact is changed here.
-
-## Separate source, development data and player installation
+These are three separate trees; none should reference the private paths of another.
 
 ```text
-<source>/                     # public source, tests, documentation
-  .worktree/nrbridge/          # optional active development checkout
-  out/                        # ignored build/dependency/test products
-  dist/                       # ignored local packages
-<development-data>/           # NR_DEV_ROOT / NRBRIDGE_HOME as explicitly selected
-  inputs/                     # prepared pinned inputs
-  localinputs/                # private configs and pins
-  build/baselines/            # accepted immutable Native identities
-  runs/                       # private profiles, progress and acceptance evidence
-<player-install>/             # independent daily entry; not a source worktree
-  packages/
-  runtime/current
-  data/nrbridge/
+<source>/                         # public source, tests, documentation
+  .worktree/nrbridge/             # active development checkout
+  out/  dist/                     # ignored build/dependency/package products
+<development-data>/               # NR_DEV_ROOT / NRBRIDGE_HOME
+  inputs/                         # prepared pinned inputs (source-deps, helper closure)
+  localinputs/                    # private configs and pins
+  seed/                           # private save seed
+  build/{baselines,convergence,helper-runtime-model}/
+<player-install>/                 # independent daily entry; not a source worktree
+  CUSA03173/                      # game content
+  runtime/current  runtime/previous
+  data/{saves,nrbridge}/          # saves and runtime-private state
 ```
 
-Build defaults are derived from the user home or checkout rather than a personal
-username. Use explicit preparation paths for a relocated checkout; an old CMake
-cache or generated environment file is not made portable merely by moving it.
+The local development data root is `/home/arinp/Code/nr-home`; the player
+installation is `/home/arinp/bloodborne`. Defaults are derived from `$HOME`
+rather than a hardcoded personal path, and every root can be overridden with
+`NR_DEV_ROOT` / `NRBRIDGE_HOME` / `NR_SOURCE_DEPS_ROOT` / `NR_BUILD_ENV_ROOT` /
+`BB_BUILD_DIR`. A relocated checkout still needs explicit preparation paths; an
+old CMake cache or generated environment file does not become portable by moving it.
+
+**Retired:** `/home/arinp/Code/nrbridge-dev` was deleted on 2026-10-26 after its
+still-referenced inputs, private configurations, seed and Helper/forwarder build
+outputs were migrated into `nr-home`, and every hardcoded default was pointed at
+the new root. Nothing in the player installation references the old path.
+
 The Helper subtree builds independently in this checkout; its compiler/SDK roots
 and the online dependency root can be selected explicitly. See `nrbridge/README.md`.
 

@@ -5,10 +5,10 @@ from pathlib import Path
 _dimensions_spec=importlib.util.spec_from_file_location('nr_dimension_profile',Path(__file__).with_name('dimension_profile.py'))
 dimension_profile=importlib.util.module_from_spec(_dimensions_spec);_dimensions_spec.loader.exec_module(dimension_profile)
 def workspace_root():
- value=os.environ.get('NRBRIDGE_HOME',str(Path('/home/arinp/Code/nr-home')));path=Path(value)
+ value=os.environ.get('NRBRIDGE_HOME',str(Path.home()/'Code/nr-home'));path=Path(value)
  if not value or any(c in value for c in ('\x00','\n',':')) or not path.is_absolute() or str(path)!=value or path.resolve()!=path or path in (Path('/'),Path.home()):raise ValueError('NRBRIDGE_HOME requires a dedicated canonical absolute directory')
  return path
-ROOT=workspace_root();WT=Path(__file__).resolve().parents[2];ASSETS=Path('/home/arinp/bloodborne/CUSA03173');SEED=ROOT/'seed/private-NRTest-seed'
+ROOT=workspace_root();WT=Path(__file__).resolve().parents[2];ASSETS=Path.home()/'bloodborne/CUSA03173';SEED=ROOT/'seed/private-NRTest-seed'
 _fg_spec=importlib.util.spec_from_file_location('nr_dev_fg_config',Path(__file__).with_name('fg_config.py'))
 fg_config=importlib.util.module_from_spec(_fg_spec);_fg_spec.loader.exec_module(fg_config)
 _sm_spec=importlib.util.spec_from_file_location('nr_dev_smooth_motion',Path(__file__).with_name('smooth_motion.py'))

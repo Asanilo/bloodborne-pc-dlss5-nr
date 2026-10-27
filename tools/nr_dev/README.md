@@ -14,7 +14,7 @@ These are example paths, not bundled dependencies or an automatic fresh-machine
 installer. Choose canonical absolute directories on your own system:
 
 ```bash
-export NR_DEV_ROOT="$HOME/.local/share/bbport-nrbridge-dev"
+export NR_DEV_ROOT="$HOME/Code/nr-home"
 export NRBRIDGE_HOME="$NR_DEV_ROOT"
 export NR_HELPER_ROOT="/path/to/this-checkout"  # optional; local subtree is default
 export NR_SOURCE_DEPS_ROOT="/path/to/prepared/source-deps"
