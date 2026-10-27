@@ -84,6 +84,8 @@ OutputList Outputs(int aspect);
 OutputSize NearestOutput(int aspect, OutputSize size);
 /// The output in use: the chosen resolution in the chosen aspect ratio.
 OutputSize CurrentOutput();
+/// Applied output; live changes disabled keeps the startup size until restart.
+OutputSize RenderOutput();
 /// "2560x1080".
 std::string SizeText(OutputSize size);
 
@@ -161,6 +163,7 @@ void ConfigureUpscalerSupport(bool fsr4, bool fsr411);
 void ConfigureDlssSupport(bool available, const char* problem);
 /// Startup-patched scene dimensions cannot change until run.sh prepares a new image.
 bool FixedRenderSession();
+bool LiveResolutionChanges();
 int RenderPreset();
 bool ResolutionNeedsRestart();
 /// Writes the file (menu changes).

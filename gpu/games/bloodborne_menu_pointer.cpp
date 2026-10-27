@@ -24,6 +24,7 @@
 //    blocked), 0x5562878 another input block (+0x2e4), 0x5128948 the region (5: Japan, circle
 //    confirms), 0x557fc60 the menu sound request (+8 its label: 0x49344e4 the cursor's move).
 #include "bloodborne_menu_pointer.h"
+#include "../../src/runtime_button_assignment.h"
 
 #include <algorithm>
 #include <atomic>
@@ -56,7 +57,7 @@ constexpr std::uint8_t ListUpdateEntry[] = {0x55, 0x48, 0x89, 0xe5, 0x41, 0x57};
 constexpr Addr SetCursorFn = 0x1acf6b0, ScrollByFn = 0x1ad0dd0, HideCursorsFn = 0x1acf0e0;
 constexpr Addr FindChildFn = 0x1adb220, WorldMatrixFn = 0x2040;
 constexpr Addr CursorName = 0x4934044;
-constexpr Addr MenuFlow = 0x5580e38, InputBlock = 0x5562878, Region = 0x5128948;
+constexpr Addr MenuFlow = 0x5580e38, InputBlock = 0x5562878;
 constexpr Addr MenuSound = 0x557fc60, CursorMoveSound = 0x49344e4;
 
 enum : std::uint32_t {
@@ -448,7 +449,9 @@ bool InMenu() {
 }
 
 std::uint32_t ConfirmButton() {
-    return Get<std::int32_t>(At(Region), -1) == 5 ? Circle : Cross;
+    // The system service overrides the console's confirm assignment. Disc region
+    // (also affected by language unlocks) is not the active input convention.
+    return BBPORT_CONFIRM_PAD_BUTTON;
 }
 
 std::uint32_t BackButton() {

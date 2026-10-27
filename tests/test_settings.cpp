@@ -113,6 +113,26 @@ int main() {
     } else {
         BbSettings::SetMonitor(1920, 1080);
     }
+    // A managed NR/FG host path may require BB_LIVE_RES=1 internally, but the
+    // player's Off choice still locks the applied resolution/preset until restart.
+    {
+        std::ofstream config(path,std::ios::trunc);
+        config << "aspect_ratio=16:9\noutput_res=1920x1080\npreset=1\nlive_resolution=0\n";
+    }
+    setenv("BB_LIVE_RES","1",1);
+    BbSettings::Load();
+    s.output_res=BbSettings::PackSize({1280,720});s.preset=3;
+    assert(BbSettings::CurrentOutput()==(BbSettings::OutputSize{1280,720}));
+    assert(BbSettings::RenderOutput()==(BbSettings::OutputSize{1920,1080}));
+    assert(BbSettings::RenderPreset()==1 && BbSettings::ResolutionNeedsRestart());
+    s.live_resolution=1;
+    assert(BbSettings::RenderPreset()==1); // mode changes need restart too
+    BbSettings::Save();BbSettings::Load();
+    assert(s.live_resolution==1 && BbSettings::RenderOutput()==(BbSettings::OutputSize{1280,720}));
+    s.output_res=BbSettings::PackSize({2560,1440});s.preset=2;
+    assert(BbSettings::RenderOutput()==(BbSettings::OutputSize{2560,1440}));
+    assert(BbSettings::RenderPreset()==2 && !BbSettings::ResolutionNeedsRestart());
+    unsetenv("BB_LIVE_RES");
     unsetenv("BB_MENU_LANGUAGE");
     unlink(path);
     std::puts("PASS: settings save keeps other keys, menu position, inherited/explicit menu language");

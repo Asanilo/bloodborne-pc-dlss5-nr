@@ -259,3 +259,5 @@ ZH.update({
 
 ZH.update({"Automatic (uses New)":"自动（使用 New）","New (recommended)":"New（推荐）","Old":"Old",
 "New is the default. Old remains available for compatibility; performance depends on the scene.":"默认使用 New，Old 保留用于兼容与对照；性能取决于场景。"})
+
+ZH.update({"Changing this mode requires restarting. When enabled, resolution and presets can change during play.":"更改此模式需要重启。开启后，可在游戏中切换分辨率和画质档位。"})

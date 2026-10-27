@@ -173,7 +173,7 @@ LANGUAGES = [("Английский", "1"), ("Английский (Велико
              ("Польский", "16"), ("Турецкий", "19"), ("Корейский", "9"),
              ("Китайский (упрощённый)", "11"), ("Китайский (традиционный)", "10"),
              ("Финский", "12"), ("Шведский", "13"), ("Датский", "14"), ("Норвежский", "15")]
-LIVE_RESOLUTION = [("Авто (по видеокарте)", "auto"), ("Выключена (быстрее)", "0"), ("Включена", "1")]
+LIVE_RESOLUTION = [("Авто (по видеокарте)", "auto"), ("Выключена", "0"), ("Включена", "1")]
 READBACKS = [("Relaxed", "", "По умолчанию"), ("Выключены", "0"), ("Precise", "2")]
 # Background pre-upload of the game's GPU memory into VRAM (BB_PREUPLOAD): auto = on with a discrete GPU.
 PREUPLOAD = [("Обычная", "", "Без лишней видеопамяти"), ("Полная", "2", "Около 3 ГБ видеопамяти сверху"),
@@ -1057,7 +1057,7 @@ class LauncherWindow(Adw.ApplicationWindow):
         screen.add(self.aspect_row)
         screen.add(self.output_row)
         self.live_row = combo_row(tr("Смена разрешения на лету"),
-                                  tr("Без перезапуска, но медленнее на Steam Deck и старых GPU"),
+                                  tr("Changing this mode requires restarting. When enabled, resolution and presets can change during play."),
                                   LIVE_RESOLUTION, self.ini.get("live_resolution", "0"))
         screen.add(self.live_row)
         self.fullscreen_row = Adw.SwitchRow(title=tr("Полноэкранный режим"),

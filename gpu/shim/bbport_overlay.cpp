@@ -107,10 +107,7 @@ bool FgCounter() {
         previous_real = real; previous_generated = generated; previous_other = other;
         start = now;
     }
-    if (Vulkan::FgLifecycle::driver_smooth_motion.load())
-        ImGui::Text(BbSettings::MenuText("Real %.0f | Smooth Motion: display FPS unverified",
-                                       "Real %.0f | Smooth Motion: display FPS unverified"),real_fps);
-    else ImGui::Text(BbSettings::MenuText("Real %.0f | FG %.0f | Present %.0f","Реальные %.0f | FG %.0f | Present %.0f"), real_fps, generated_fps, present_fps);
+    ImGui::Text("%.0f FPS",present_fps);
     return true;
 }
 
@@ -753,7 +750,7 @@ void Menu() {
     ImGui::Text(
         BbSettings::MenuText("Active scene render: %d x %d", "Активный рендер сцены: %d x %d"),
         s.active_render_width.load(), s.active_render_height.load());
-    if (BbSettings::FixedRenderSession()) {
+    if (!BbSettings::LiveResolutionChanges()) {
         ImGui::Text(BbSettings::MenuText("Startup preset: %s", "Пресет при запуске: %s"),
                     BbSettings::PresetName(s.startup_preset));
         if (const char* automatic = std::getenv("BB_AUTO_RENDER_RES");
@@ -961,7 +958,7 @@ void Menu() {
         }
         ImGui::EndCombo();
     }
-    if (BbSettings::FixedRenderSession()) {
+    if (!BbSettings::LiveResolutionChanges()) {
         Hint(BbSettings::MenuText(
             "Size of the final frame and UI. The preset sets the scene size relative to "
             "the output: 4K Performance = 1920x1080. Another aspect ratio widens the view (the "
@@ -981,7 +978,7 @@ void Menu() {
             "Смена размера сбрасывает историю апскейлера и может вызвать короткую паузу."));
     }
     const char* live_modes[] = {BbSettings::MenuText("Auto (based on GPU)", "Авто (по видеокарте)"),
-                                BbSettings::MenuText("Off (faster)", "Выключена (быстрее)"),
+                                BbSettings::MenuText("Off", "Выключена"),
                                 BbSettings::MenuText("On", "Включена")};
     int live = s.live_resolution + 1;
     if (ImGui::BeginCombo(
@@ -1004,14 +1001,10 @@ void Menu() {
                                                 "смена — после перезапуска"));
     }
     Hint(BbSettings::MenuText(
-        "On: output resolution and preset change without restarting, but game post-processing "
-        "stays at 1080p, which is noticeably slower on Steam Deck and older GPUs. "
-        "Off: everything renders at the preset resolution, and changes require a restart. Auto "
-        "enables this on powerful discrete GPUs. Applies after restarting the game.",
-        "Включена: разрешение вывода и пресет меняются без перезапуска, но постобработка игры "
-        "остаётся в 1080p — на Steam Deck и старых видеокартах это заметно медленнее. "
-        "Выключена: всё рисуется в разрешении пресета, смена — через перезапуск. Авто включает "
-        "её на мощных дискретных видеокартах. Применяется после перезапуска игры."));
+        "On allows resolution and preset changes during play. Off keeps the startup resolution "
+        "and preset. Changing this mode requires restarting the game.",
+        "Вкл: разрешение и пресет меняются во время игры. Выкл: сохраняются стартовые "
+        "разрешение и пресет. Изменение этого режима требует перезапуска игры."));
     ImGui::SeparatorText(BbSettings::MenuText("Game effects",
                                               "Эффекты игры (после перезапуска)"));
     const char* lods[] = {BbSettings::MenuText("Highest (-2)", "Максимальная (-2)"),
@@ -1148,14 +1141,7 @@ void FpsCounter() {
                      ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoNav |
                      ImGuiWindowFlags_NoFocusOnAppearing);
     const auto& s = BbSettings::Get();
-    if (!FgCounter()) ImGui::Text(BbSettings::MenuText("%.0f FPS  %.1f ms  %s", "%.0f FPS  %.1f мс  %s"),
-                frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f, frame_ms_avg,
-                s.upscaler == BbSettings::UpscalerFsr3     ? "FSR 3.1"
-                : s.upscaler == BbSettings::UpscalerFsr4   ? "FSR 4"
-                : s.upscaler == BbSettings::UpscalerFsr411 ? "FSR 4.1.1"
-                : s.upscaler == BbSettings::UpscalerTaa    ? "TAA"
-                : s.upscaler == BbSettings::UpscalerDlss   ? "DLSS"
-                                                           : "");
+    if (!FgCounter()) ImGui::Text("%.0f FPS",frame_ms_avg > 0.0f ? 1000.0f / frame_ms_avg : 0.0f);
     ImGui::End();
 }
 
