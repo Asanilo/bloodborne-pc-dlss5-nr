@@ -2,7 +2,7 @@
 # SM experiment build: independent build dir, prepared deps, no LTO.
 set -euo pipefail
 WT=/home/arinp/Code/bloodborne_pc/.worktree/sm
-BUILD=/home/arinp/Code/nr-home/build/sm-present
+BUILD=${BB_BUILD_DIR:-/home/arinp/Code/nr-home/build/sm-present}
 mkdir -p "$BUILD"
 cd "$WT"
 export NR_SOURCE_DEPS_ROOT=/home/arinp/Code/nr-home/inputs/source-deps

@@ -68,6 +68,44 @@ r62 的唯一根因；本轮修的是退出路径上确定存在的并发与错�
 `sm-c`/`sm-d` 的窗口重建说明 r62 里的“两个 NVP_Swapchain”本身不导致退出失败；`sm-e` 在没有
 缩放的情况下也出现重建，说明 NR 启动时也会触发一次 swapchain 更新。
 
+## 可选后端恢复（分支内）
+
+`tools/nr_dev/fg_config.py` 的 `SM_UNAVAILABLE` 硬性拒绝已移除，`--fg-backend smooth-motion`
+与 `--smooth-motion` 都可以选中驱动层后端；启动器标签与文案同步更新。防线保留在两处：
+
+- `smooth_motion.check_capability` 仍要求二进制里有 `SM_EXIT_PROOF`；
+- daily runner 的 boot 收据（`/run/user/<uid>/bbport-nrbridge-session.json`）在 pending/HOLD
+  时拒绝任何新会话。
+
+`tools/fg_dev` 60 项测试通过，其中 `test_sm_is_selectable_without_application_fg`
+替换了原来的隔离断言。
+
+## 正式 runner 准备
+
+`tools/sm_lab/official_inputs.py` 生成一个私有 `NRBRIDGE_HOME`（默认
+`~/Code/nr-home/build/sm-official`）：只复制 Helper 构建目录并改写其 manifest 的 artifact
+路径，assets/seed/GE/sysroot/NGX/model/forwarder 全部按绝对路径引用共享输入，不复制游戏或
+SDK。配置与 pins（10715 个文件）通过 `runtime_inputs.load` 校验。
+
+构建与验收命令（GPU 可用时）：
+
+```bash
+BB_BUILD_DIR=~/Code/nr-home/build/sm-official/build/native bash tools/sm_lab/build.sh
+NRBRIDGE_HOME=~/Code/nr-home/build/sm-official \
+  python3 tools/nr_dev/play.py --daily --smooth-motion \
+  --local-inputs ~/Code/nr-home/build/sm-official/localinputs/sm-B-v1.json \
+  --native-build ~/Code/nr-home/build/sm-official/build/native --session sm-official-01
+```
+
+## 当前阻塞
+
+2026-10-29 01:36 同机的 Native NR shadow 会话（`native-nr-shadow3109-001`，wE:p1）冷初始化
+`VK_ERROR_DEVICE_LOST`，kernel Xid13；boot 收据被置为 `hold`，指向
+`/home/arinp/Code/dlss_vulkan/private/native-nr-home/runs/native-nr-shadow3109-001`。
+按规则这属于 boot 级 HOLD：新 boot 之前的 daily 入口会拒绝所有会话，SM 的稳定性重复、
+官方验收和显示侧证据都必须等它显式解除。该失败晚于本分支最后一轮正常退出（01:00 前），
+不归因于 SM 会话。
+
 ## 未完成
 
 - **插帧的显示侧证明**：应用只看到 60 次真实 Present；SM 的合成帧由驱动层呈现。需要外部

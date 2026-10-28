@@ -5,10 +5,8 @@ import re
 from pathlib import Path
 
 BACKENDS = ('off', 'fsr31', 'dlssg', 'smooth-motion', 'fsr316')
-LABELS = ('Off', 'AMD FSR 3.1', 'NVIDIA DLSS', 'NVIDIA Smooth Motion (unavailable)', 'AMD FSR 3.1.6')
+LABELS = ('Off', 'AMD FSR 3.1', 'NVIDIA DLSS', 'NVIDIA Smooth Motion', 'AMD FSR 3.1.6')
 PIPELINES = ('submit-ready-v1', 'consumer-queue-v1')
-SM_UNAVAILABLE = ('Smooth Motion temporarily unavailable: M3 exit produced ErrorDeviceLost; '
-                  'normal GPU retirement is unverified. Use Off, FSR or DLSS FG.')
 
 
 def selection(settings):
@@ -89,7 +87,6 @@ def normalize(args):
     if backend is None:
         # Historical diagnostic capture/plain-FSR paths retain their exact flags.
         return
-    if backend=='smooth-motion':raise ValueError(SM_UNAVAILABLE)
     expected={'fsr31':'fsr31-hudless','fsr316':'fsr316','dlssg':'dlssg'}.get(backend)
     if legacy and legacy!=expected or sm and backend!='smooth-motion':
         raise ValueError('Conflicting FG backend selections; choose exactly one')
@@ -123,8 +120,6 @@ def validate_environment(backend,env):
 def availability(config,home):
     """Cheap UI checks. The locked runner performs hashes, GPU identity and retirement checks."""
     backend=config['backend']
-    if backend=='smooth-motion':
-        raise ValueError(SM_UNAVAILABLE)
     if backend=='dlssg':
         if config.get('multiplier',2)>2 and (config['transport']!='gpu-dmabuf-v1' or config['pipeline']!='consumer-queue-v1'):
             raise ValueError('DLSS 3X–6X requires GPU DMA-BUF and consumer-queue-v1; x2 retains all fallbacks')

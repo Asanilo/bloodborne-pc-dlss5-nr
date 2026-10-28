@@ -99,7 +99,7 @@
 | NR 着色闪烁 / 有效历史骤降 / 亮尾 | 未解决，主线保留现场 | `.worktree/nrbridge/out/nr-dev/runs/` 中 2026-10-25 与已标记失败轮次 |
 | NR 时域画质（分数运动、深度边缘） | 实验策略 `fade-new`，默认关闭 | [NR 时域稳定性](NR_TEMPORAL_STABILITY.zh-CN.md) |
 | FSR FG 植被错位 | 未解决，未承诺修复 | [FG 通用化](FG_GENERALIZATION.zh-CN.md) |
-| Smooth Motion | 不可用（安全退出未验收） | 同上，及第 2 节路线图 |
+| Smooth Motion | 实验分支已可选；正式 runner 验收与显示侧证据待补 | [Smooth Motion 原型](SMOOTH_MOTION_PROTOTYPE.zh-CN.md) |
 | 真实联机 / DLC / 手柄混合输入 | 未验收 | [bbport 0.6 功能状态](BBPORT_06_FUNCTION_STATUS.md) |
 
 故障证据按轮次保存在被忽略的 `out/` 下，不属于运行依赖；清理时不要以"曾用于验收"为由整体删除。
