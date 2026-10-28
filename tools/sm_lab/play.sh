@@ -17,6 +17,7 @@ NRHOME=$LAB/nrhome
 name=$1
 seconds=$2
 shift 2
+for kv in "$@"; do export "$kv"; done
 
 run=$NRHOME/runs/$name
 rm -rf "$run"
@@ -113,8 +114,6 @@ if [[ ${NR:-0} == 1 ]]; then
     export BB_NR_RUNTIME_MODEL=1
     : > "$run/pad.txt"
 fi
-
-for kv in "$@"; do export "$kv"; done
 
 cd "$WT"
 setsid bash run.sh > "$run/game.log" 2>&1 &

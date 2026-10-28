@@ -54,8 +54,12 @@ r62 的唯一根因；本轮修的是退出路径上确定存在的并发与错�
 |---|---|---|
 | `sm-a-baseline` | 仅 SM 驱动层，NR/FG 关 | exit 0；`SM_EXIT_PROOF`；1 个 NVP swapchain；3492 真实 Present |
 | `sm-c-resize` | 仅 SM，窗口 1280x720→1920x1080 重建 | exit 0；`SM_EXIT_PROOF`；2 个 NVP swapchain；3729 真实 Present |
-| `sm-d-ingame` | 仅 SM，载入私有存档副本（停在主菜单） | exit 0；`SM_EXIT_PROOF`；2 个 NVP swapchain |
-| `sm-e-nr` | SM + NR（Helper `MODEL_VK_CREATE`/`PRESET B`/`GPU_complete=1`/`TEARDOWN NORMAL_RELEASE`） | exit 0；`SM_EXIT_PROOF` + `NATIVE_ASYNC_PRE_SR_EXIT_PROOF`；2 个 NVP swapchain；6697 真实 Present |
+| `sm-d-ingame` | 仅 SM，私有存档副本（当时按键时机不对，停在主菜单） | exit 0；`SM_EXIT_PROOF`；2 个 NVP swapchain |
+| `sm-e-nr` | SM + NR（菜单场景，Helper `MODEL_VK_CREATE`/`PRESET B`/`GPU_complete=1`/`TEARDOWN NORMAL_RELEASE`） | exit 0；`SM_EXIT_PROOF` + `NATIVE_ASYNC_PRE_SR_EXIT_PROOF`；2 个 NVP swapchain；6697 真实 Present |
+| `sm-i-game` | 仅 SM，载入存档后**实际进游戏**（亚楠中央，HUD 正常，60fps） | exit 0；`SM_EXIT_PROOF`；5220 真实 Present；无 DeviceLost |
+| `sm-j-game-nr` | SM + NR，**实际进游戏**，NR 活跃（`NATIVE_ASYNC_PRE_SR_CURRENT_PRESENT` 5439 帧、NR job 230、`NATIVE_ORIGIN_GPU_USE_READY`） | exit 0；`SM_EXIT_PROOF` + `FG_EXIT_PROOF` + `NATIVE_ASYNC_PRE_SR_EXIT_PROOF`；无 DeviceLost |
+
+`sm-j` 就是 M3 r62 的同构配置（SM + NR + 进游戏 + 正常关窗），本轮正常退休。
 
 四轮 `nvpresent.log` 都报告 `Smooth Motion enabled [1]`、`System support: 1. Device support: 1`、
 `NVP_Swapchain created`，没有 `passthrough swapchain`，即层确实接管了呈现（不是回退直通）。
@@ -68,12 +72,14 @@ r62 的唯一根因；本轮修的是退出路径上确定存在的并发与错�
 
 - **插帧的显示侧证明**：应用只看到 60 次真实 Present；SM 的合成帧由驱动层呈现。需要外部
   显示侧证据（高频录制/驱动计数）才能说“实际显示了 120fps”。当前证据只到“层启用且接管呈现”。
-- **进游戏实机**：本轮的私有存档副本没有被游戏识别（主菜单只有 New Game），因此会话停在
-  标题/菜单场景；需要在正式 runner 的存档同步路径下重做一次进游戏验收。
+- **进游戏实机**：已在私有 profile 里完成（见 `sm-i`/`sm-j`）。实验启动器原先没有在复制存档前
+  导出 `SAVEDATA_SRC`，已修复；存档按端口实际使用的 `savedata/1/CUSA00207` 只读挂载。正式
+  runner 的存档同步路径仍需独立验收。
 - **官方 runner 验收**：本轮用独立 profile 直启，没有走 `tools/nr_dev/play.py --daily` 的
   retirement audit / host-safety / prefix lease。要恢复为玩家可选后端，还需要用正式入口跑
   一次 `PASS_NORMAL_TEARDOWN`。
-- 多次重复（同一配置 3 次以上）与长时间会话的稳定性还没有做。
+- 多次重复（同一配置 3 次以上）、长时间会话、以及在正式 runner 下的稳定性还没有做；
+  `sm-j` 目前只跑了一次。
 
 ## 恢复为可选后端的前置
 
