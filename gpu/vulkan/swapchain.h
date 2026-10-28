@@ -82,7 +82,11 @@ private:
     /// Extent, image count, transform and alpha mode from the surface's capabilities.
     void QuerySurface();
     void Create(u32 width, u32 height);
-    /// The views and semaphores (and the swapchain unless it is being retired).
+    /// Actual device completion (vkDeviceWaitIdle); false: the device is lost/unknown.
+    bool Drain();
+    /// The views and semaphores, after a successful drain.
+    void DestroyResourcesNow();
+    /// The views and semaphores (after a best-effort drain); a recreate keeps the swapchain.
     void DestroyResources();
 
     const Instance& instance;

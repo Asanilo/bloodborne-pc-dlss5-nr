@@ -238,6 +238,23 @@ void Presenter::ReleaseFrame(Frame* frame) {
 
 Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute,
                                VAddr cpu_address) {
+    // Normal exit retired the swapchain: this thread must not prepare another frame for it.
+    // Guarded by the same mutex the retire waits on, so no lease can be taken after the gate.
+    {
+        std::scoped_lock lock{prepare_gate_mutex};
+        if (prepare_stopped.load(std::memory_order_acquire)) {
+            return &blank_frame;
+        }
+        ++prepare_in_flight;
+    }
+    struct PrepareLease {
+        std::mutex& mutex;
+        unsigned& count;
+        ~PrepareLease() {
+            std::scoped_lock lock{mutex};
+            --count;
+        }
+    } prepare_lease{prepare_gate_mutex, prepare_in_flight};
     BbTimeline::Note(BbTimeline::PipeTask, 4, draw_scheduler.CurrentTick());
     // Scaled upscaler presets: the output-size display buffer drawn by the port.
     TemporalUpscaler::Display display{};
@@ -731,8 +748,10 @@ void Presenter::RecordPresent(vk::CommandBuffer cmdbuf, const Frame* frame, vk::
 }
 
 void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame) {
+    bool released = false;
     const auto release = [&] {
-        if (!is_reusing_frame) {
+        if (!is_reusing_frame && !released) {
+            released = true;
             ReleaseFrame(frame);
         }
     };
@@ -741,6 +760,31 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool is_game_frame)
         frame->fg_ticket.reset(); // Worker owns the copy/ACK; no unsubmitted reader is retained.
         frame->has_interp = false;
         if (FgLifecycle::draw_retired.load() && !FgLifecycle::present_retired.load()) {
+            if (FgLifecycle::driver_smooth_motion.load()) {
+                // The command processor thread prepares the next frame on the same Presenter.
+                // Refuse that before any swapchain resource changes, then let this frame go so a
+                // PrepareFrame already waiting for a free frame can finish, and wait for the
+                // leases already taken: destroying views/semaphores under an in-flight
+                // PrepareFrame is a use-after-free the device reports as lost.
+                {
+                    std::scoped_lock lock{prepare_gate_mutex};
+                    prepare_stopped.store(true, std::memory_order_release);
+                }
+                release();
+                const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(15);
+                while (true) {
+                    {
+                        std::scoped_lock lock{prepare_gate_mutex};
+                        if (!prepare_in_flight) break;
+                    }
+                    if (std::chrono::steady_clock::now() >= deadline) {
+                        std::fprintf(stderr,"SM_EXIT_HOLD functional=FAIL reason=prepare_in_flight_timeout device_idle=UNKNOWN\n");
+                        FgLifecycle::held.store(true);
+                        return;
+                    }
+                    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                }
+            }
             // All old FG copies were submitted before draw_retired; this owning thread has
             // submitted its last generated present and will admit no more.
             auto leases_drained = std::make_shared<std::promise<void>>();
