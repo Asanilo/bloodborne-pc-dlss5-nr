@@ -119,13 +119,14 @@ NRBRIDGE_HOME=~/Code/nr-home/build/sm-official \
 - 多次重复（同一配置 3 次以上）、长时间会话、以及在正式 runner 下的稳定性还没有做；
   `sm-j` 目前只跑了一次。
 
-## 恢复为可选后端的前置
+## 合流前的前置
 
 1. 用正式入口跑通一次 SM 会话（含 NR、进游戏、正常退休），得到 `PASS_NORMAL_TEARDOWN`；
 2. 用真实路径补上显示侧插帧证据；
-3. 之后才移除 `tools/nr_dev/fg_config.py`（`SM_UNAVAILABLE`）与
-   `launcher/bbport_launcher.py` 的拒绝文案，并在 `smooth_motion.check_capability` 里继续
-   要求二进制包含 `SM_EXIT_PROOF`。
+3. 同一配置重复 3 次以上。
+
+第 3 项里"移除后端拒绝"已在实验分支完成（见上），但仍保留二进制 `SM_EXIT_PROOF` 检查与
+boot 收据门禁；在前两项通过前不合流 `nrbridge`。
 
 ## 复现
 
