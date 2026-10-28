@@ -7,6 +7,7 @@
 #   SAVEDATA_SRC=<dir>   private save copy to load
 #   PRESS_AT=<sec>       press PRESS_BUTTONS (default cross) after the window appears
 #   BB_GPU_LOCK_HELD=1   a batch already holds the GPU lock
+#   SM=0                 run the same scene without the driver layer (A/B)
 set -euo pipefail
 LAB=/home/arinp/Code/bloodborne_pc/.worktree/sm/out/sm-lab
 WT=/home/arinp/Code/bloodborne_pc/.worktree/sm
@@ -79,7 +80,12 @@ export XDG_DATA_HOME="$run/profile/xdg/data"
 export XDG_STATE_HOME="$run/profile/xdg/state"
 export __GL_SHADER_DISK_CACHE_PATH="$run/profile/nv-cache"
 export LD_LIBRARY_PATH="$BUILD/gpu:$BUILD:/home/arinp/Code/bloodborne_pc/out/deps/root/usr/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-export NVPRESENT_ENABLE_SMOOTH_MOTION=1
+if [[ ${SM:-1} == 1 ]]; then
+    export NVPRESENT_ENABLE_SMOOTH_MOTION=1
+else
+    unset NVPRESENT_ENABLE_SMOOTH_MOTION
+    export BB_FRAME_GEN_BACKEND=off
+fi
 export NVPRESENT_LOG_LEVEL=4
 export NVPRESENT_LOG_FILE="$run/nvpresent.log"
 export VK_LOADER_LAYERS_ALLOW=VK_LAYER_NV_present
