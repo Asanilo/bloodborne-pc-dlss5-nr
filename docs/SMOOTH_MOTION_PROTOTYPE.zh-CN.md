@@ -102,9 +102,22 @@ NRBRIDGE_HOME=~/Code/nr-home/build/sm-official \
 2026-10-29 01:36 同机的 Native NR shadow 会话（`native-nr-shadow3109-001`，wE:p1）冷初始化
 `VK_ERROR_DEVICE_LOST`，kernel Xid13；boot 收据被置为 `hold`，指向
 `/home/arinp/Code/dlss_vulkan/private/native-nr-home/runs/native-nr-shadow3109-001`。
-按规则这属于 boot 级 HOLD：新 boot 之前的 daily 入口会拒绝所有会话，SM 的稳定性重复、
-官方验收和显示侧证据都必须等它显式解除。该失败晚于本分支最后一轮正常退出（01:00 前），
+按规则这属于 boot 级 HOLD：新 boot 之前的 daily 入口会拒绝所有会话。MultiPass 复核结论
+（2026-10-29）确认这是真实设备故障（fence=-4、exit23、无退休证明），不适用 DLSSG 的
+exit0 重审，手改 receipt 也会因本 boot 的 Xid 再次拒绝——只能**用户手动重启到新 boot**，
+旧 HOLD 与证据保留、不改 PASS、不删 receipt。该失败晚于本分支最后一轮正常退出（01:00 前），
 不归因于 SM 会话。
+
+重启后一条命令：
+
+```bash
+bash tools/sm_lab/acceptance.sh preflight        # 新 boot、无 Xid、无残留、锁空闲才继续
+bash tools/sm_lab/acceptance.sh "sm off sm sm"   # SM 验收 + 同场景 off 对照 + 2 次稳态重复
+```
+
+`preflight` 只读判定：receipt 属于旧 boot 时视为过期（runner 也会忽略），属于本 boot 且
+pending/HOLD 时直接拒绝。`acceptance.sh` 每轮独立 session 目录，第一轮建 prefix、后续
+`--reuse-nr-prefix` 复用已正常退休的前一轮；任一轮 HOLD 立即停止计划。
 
 ## 未完成
 

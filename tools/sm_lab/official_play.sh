@@ -6,7 +6,7 @@
 # menu into the save, arms NR, screenshots, closes normally and reports the
 # runner's own result.
 #
-# usage: official_play.sh <session> [seconds-in-game] [extra play.py args...]
+# usage: [SM_MODE=on|off] official_play.sh <session> [seconds-in-game] [extra play.py args...]
 set -euo pipefail
 WT=/home/arinp/Code/bloodborne_pc/.worktree/sm
 HOME_NR=/home/arinp/Code/nr-home/build/sm-official
@@ -21,7 +21,12 @@ mkdir -p "$HOME_NR/runs"
 if [[ -e $run ]]; then echo "SESSION_EXISTS $run"; exit 2; fi
 
 cd "$WT"
-setsid python3 tools/nr_dev/play.py --daily --smooth-motion \
+if [[ ${SM_MODE:-on} == off ]]; then
+    backend=(--fg-backend off)
+else
+    backend=(--smooth-motion)
+fi
+setsid python3 tools/nr_dev/play.py --daily "${backend[@]}" \
     --local-inputs "$HOME_NR/localinputs/sm-B-v1.json" \
     --native-build "$BUILD" --session "$session" "$@" \
     > "$HOME_NR/runs/$session.launcher.log" 2>&1 &
