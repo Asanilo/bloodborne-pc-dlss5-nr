@@ -63,6 +63,7 @@ acceptance are three separate facts. Keep existing baseline bytes unchanged.
 ## CPU regression
 
 ```bash
+python3 tools/persistent_history/run_cpu_tests.py
 python3 -m unittest discover -s tools/nr_dev/tests -p 'test_*.py'
 python3 -m unittest discover -s tests -p 'test_nrbridge*.py'
 python3 -m unittest discover -s "$NR_HELPER_ROOT/nrbridge/tests" -p 'test_*.py'
