@@ -48,48 +48,40 @@ if [[ ${1:-} == preflight ]]; then
     preflight
     exit
 fi
+if [[ ${1:-} == plan ]]; then
+    # Offline: print the rounds and the prefix owner without touching the GPU.
+    python3 "$WT/tools/sm_lab/prefix_plan.py" plan --stamp "${3:-test}" --plan "${2:-sm}"
+    exit
+fi
 
 plan=${1:-sm}
 seconds=${2:-45}
 preflight
 
-prefix_owner=
-index=0
-for kind in $plan; do
-    index=$((index + 1))
-    session="sm-acc-$(date +%m%d-%H%M%S)-${kind}${index}"
+stamp=$(date +%m%d-%H%M%S)
+while IFS=$'\t' read -r index kind session reuse; do
     args=()
-    # PrefixLease moves the borrowed prefix back to its owner after a normal
-    # retirement, so later rounds must reuse the session that created it.
-    [[ -n $prefix_owner ]] && args+=(--reuse-nr-prefix "$prefix_owner")
-    echo "===== ROUND $index/$kind session=$session ====="
-    if [[ $kind == off ]]; then SM_MODE=off FRAME_CAPTURE=${FRAME_CAPTURE:-1} \
-        bash "$WT/tools/sm_lab/official_play.sh" "$session" "$seconds" "${args[@]}"; else
+    if [[ $reuse != - ]]; then
+        # A borrowed session ends empty after the return; only the initialized
+        # owner may be borrowed from. Refuse instead of handing over an empty dir.
+        if ! python3 "$WT/tools/sm_lab/prefix_plan.py" check-owner --home "$HOME_NR" --session "$reuse"; then
+            echo "OWNER_NOT_INITIALIZED $reuse; stopping the plan"
+            exit 6
+        fi
+        args+=(--reuse-nr-prefix "$reuse")
+    fi
+    echo "===== ROUND $((index + 1))/$kind session=$session reuse=$reuse ====="
+    if [[ $kind == off ]]; then
+        SM_MODE=off FRAME_CAPTURE=${FRAME_CAPTURE:-1} \
+            bash "$WT/tools/sm_lab/official_play.sh" "$session" "$seconds" "${args[@]}"
+    else
         SM_MODE=on FRAME_CAPTURE=${FRAME_CAPTURE:-1} \
-        bash "$WT/tools/sm_lab/official_play.sh" "$session" "$seconds" "${args[@]}"; fi
-    python3 - "$HOME_NR/runs/$session" "$kind" <<'PY' || true
-import json, sys
-from pathlib import Path
-run, kind = Path(sys.argv[1]), sys.argv[2]
-result = json.loads((run / 'result.json').read_text()) if (run / 'result.json').exists() else {}
-print('ROUND', kind, 'status', result.get('status'), 'returncode', result.get('returncode'))
-manifest = json.loads((run / 'manifest.json').read_text()) if (run / 'manifest.json').exists() else {}
-env = manifest.get('environment', {})
-print('  pacing fps_limit', env.get('BB_FPS_LIMIT'), 'present_mode', env.get('BB_PRESENT_MODE'))
-log = run / 'game.log'
-if log.exists():
-    text = log.read_text(errors='replace')
-    print('  markers', [l.split(' ', 1)[0] for l in text.splitlines()
-                        if l.startswith(('SM_EXIT_', 'FG_EXIT_', 'NATIVE_ASYNC_PRE_SR_EXIT_PROOF'))])
-    print('  device_lost', 'DeviceLost' in text or 'DEVICE_LOST' in text)
-summary = run / 'display-frames.summary'
-if summary.exists():
-    print('  display', summary.read_text().strip())
-PY
-    [[ -z $prefix_owner ]] && prefix_owner=$session
+            bash "$WT/tools/sm_lab/official_play.sh" "$session" "$seconds" "${args[@]}"
+    fi
+    python3 "$WT/tools/sm_lab/round_report.py" "$HOME_NR/runs/$session" "$kind" || true
     if [[ -f $HOME_NR/runs/$session/result.json ]]; then
         status=$(python3 -c "import json;print(json.load(open('$HOME_NR/runs/$session/result.json')).get('status'))")
         if [[ $status == HOLD ]]; then echo "ROUND_HOLD $session; stopping the plan"; exit 5; fi
     fi
-done
+done < <(python3 "$WT/tools/sm_lab/prefix_plan.py" plan --stamp "$stamp" --plan "$plan")
 echo "PLAN_DONE $plan"
