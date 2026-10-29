@@ -152,39 +152,48 @@ NRBRIDGE_HOME=~/Code/nr-home/build/sm-official \
 已按 `564ae10` 重新生成（`source-head.txt`/`artifacts.sha256` 对齐），
 `checked_native_build` + capability 复核通过；下一次 GPU 窗口只需跑验收，不必再构建。
 
-## MFG 账本能否提供可信帧身份（有界评估，2026-10-29）
+## MFG 账本能否提供可信帧身份（有界评估，2026-10-29，已按实际分支更正）
 
-只读参考 `.worktree/mfg-latency` 的 `gpu/render/present_measure.*` 与
-`fg_present_plan.*`。结论：**不能**。现有账本既未接线，语义上也覆盖不到驱动层新增帧。
+只读参考 `.worktree/mfg-latency`（HEAD `96f5a33`）的 `gpu/render/present_measure.*`、
+`fg_present_plan.*` 与 `presenter.cpp`。结论：**应用侧账本已接线，但覆盖不到驱动层新增帧**。
 
-事实（可直接复核）：
+**已有接线（应用侧 CPU）**：
 
-- `PresentRecord` 有 `id`/`source`/`generated_index`/`epoch` 与 recorded/submitted/returned/
-  shown/source_final_write/encode_done/gpu_done 等戳，且显式区分 CPU/GPU 时钟域
-  （`present_measure.h:5-40`）。
-- 但 `gpu/` 里**没有** `VkPresentIdKHR`、`vkWaitForPresentKHR` 或 `VK_KHR_present_wait` 的使用；
-  `device_feature_chain.cpp:59` 只有一个 `presentId` 布尔。`presenter.h:161` 声明了
-  `Measure::Ledger measure`，但 `presenter.cpp` 没有任何 `Allocate/Submitted/Returned/Shown`
-  调用点，`shown` 也从未被写入（它还是 CPU 域戳，不是驱动时间戳）。
-- `generated_index` 由应用侧 FG（DLSS/FSR）在 `fg_present_plan` 里分配；Smooth Motion 的合成帧
-  由驱动层在 `vkQueuePresentKHR` 之后产生，**没有应用侧 id，也不会进入这份账本**。
+- `presenter.cpp:975` `measure.Allocate(source, generated_index, epoch, now)`；
+- `1031` `measure.Submitted(id, now)`（提交已发出、present 尚未返回）；
+- `1044/1045` `measure.Returned(id, now)` / `measure.Failed(id)`（`vkQueuePresentKHR` 返回处）；
+- `891/892` `measure.Summarise()` / `measure.Validate()`，摘要每 300 帧一行（`883` 起），全部由
+  `BB_LAT_MEASURE=1` 门控。
+- `PresentRecord` 显式区分 CPU/GPU 时钟域（`present_measure.h:5-40`）。
+
+**仍然缺的三项（逐项按代码核实）**：
+
+1. `measure.Shown(...)` 在 MFG 的 `presenter.cpp` **没有调用点**，`shown` 从未被写入；
+2. `swapchain.cpp:261` 的 `vk::PresentInfoKHR` **没有 presentId 链**，`gpu/` 内也没有
+   `VkPresentIdKHR`、`vkWaitForPresentKHR` 或 `VK_KHR_present_wait` 的使用——账本 id 只在
+   进程内部，不传给驱动，因此没有驱动确认的显示时间戳；
+3. `generated_index` 只由应用侧 FG（DLSS/FSR）分配；Smooth Motion 的合成帧由驱动层在
+   `vkQueuePresentKHR` 之后产生，**没有应用侧 id**，也不会进入账本。
+
+注意：SM 分支（`sm/present-lifecycle`）本身没有这套账本；不要把“SM 分支未接线”混同为
+“MFG 未接线”。
 
 四层可观测性：
 
 | 层 | 现有来源 | 能否标识驱动新增帧 |
 |---|---|---|
-| 应用提交/返回 | `vkQueuePresentKHR` 返回、ledger.returned（CPU） | 否，只覆盖应用提交的图像 |
+| 应用提交/返回 | `measure.Allocate/Submitted/Returned`（CPU 戳，`BB_LAT_MEASURE`） | 否，只覆盖应用提交的图像 |
 | 驱动插帧 | 无（层内部） | 无 id、无计数 |
 | 合成器采集 | `wlr-screencopy`（哈希/幅度） | 只看到“输出变了”，无法归属 |
 | 真实 scanout | KMS page-flip 事件 | 可枚举 flip，但当前无 DRM master 权限，且无内容身份 |
 
 **缺少的观测点**：一条与合成器自身重绘无关、能枚举**所有**上屏帧并带内容身份的时间线
 （KMS flip + CRC，或驱动侧每 swapchain 的已呈现帧计数/追踪）。应用侧 present id 只能给应用帧
-打标签，无法枚举两次应用 present 之间的驱动帧。
+打标签，无法枚举两次应用 present 之间的驱动帧；即使补上 `VkPresentIdKHR`/present_wait，也只
+能拿到应用帧的显示确认。
 
 因此本阶段**停止**：不再增加阈值或统计量，不宣称插帧收益，也不把合成器内容变化率当证据。
-若将来要补，最小可接受输入是上述 scanout 侧时间线；在此之前，SM 的显示侧只能标注为
-“层已启用并接管呈现”，不能标注为“已插帧”。
+SM 的显示侧目前只能标注为“层已启用并接管呈现”，不能标注为“已插帧”。
 
 ## 当前阻塞
 
