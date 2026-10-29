@@ -67,12 +67,18 @@ export BB_STARTUP_CHECK=0
 export BB_FULLSCREEN=0
 export BB_SKIP_NETWORK_CHOICE=1
 export BB_FRAME_GEN=0
-export BB_FRAME_GEN_BACKEND=smooth-motion
+export BB_FRAME_GEN_BACKEND="${BB_FRAME_GEN_BACKEND:-smooth-motion}"
 export BB_FRAME_GEN_AUDIT=1
 export BB_FPS=uncap
-export BB_FPS_LIMIT=60
-export BB_PRESENT_MODE=Immediate
-export BB_FRAME_STATS=0
+export BB_FPS_LIMIT="${BB_FPS_LIMIT:-60}"
+export BB_PRESENT_MODE="${BB_PRESENT_MODE:-Immediate}"
+export BB_FRAME_STATS="${BB_FRAME_STATS:-0}"
+if [[ ${FRAME_LOG:-0} == 1 ]]; then
+    export BB_FRAME_STATS=1
+    export BB_FRAME_LOG="$run/frames.csv"
+    export BB_READBACK_LOG="$run/readbacks.csv"
+    : > "$run/frames.csv"
+fi
 export BB_PAD_FILE="$run/pad.txt"
 export XDG_CONFIG_HOME="$run/profile/xdg/config"
 export XDG_CACHE_HOME="$run/profile/xdg/cache"
@@ -174,6 +180,20 @@ if [[ ${RESIZE:-0} == 1 && -n $win ]]; then
     niri msg action set-window-height 1080 >/dev/null 2>&1 || true
     echo "RESIZE large"
     sleep "${RESIZE_HOLD:-4}"
+fi
+if [[ ${NO_CLOSE:-0} == 1 ]]; then
+    echo "PLAY_NOW frame_log=$run/frames.csv"
+    status=0
+    while kill -0 "$pid" 2>/dev/null; do sleep 2; done
+    wait "$pid" || status=$?
+    echo "EXIT=$status"
+    python3 /home/arinp/Code/bloodborne_pc/.worktree/sm/tools/sm_lab/frames_summary.py "$run/frames.csv" 2>/dev/null || true
+    exit "$status"
+fi
+if [[ -n ${HOLD_PAD:-} ]]; then
+    sleep "${HOLD_AT:-45}"
+    printf '%s' "$HOLD_PAD" > "$run/pad.txt"
+    echo "PAD_HOLD $HOLD_PAD"
 fi
 sleep "$seconds"
 if [[ ${FRAME_CAPTURE:-0} == 1 && -x "$LAB/frame/frame-count" ]]; then
