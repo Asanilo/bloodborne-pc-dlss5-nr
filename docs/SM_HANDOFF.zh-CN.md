@@ -4,6 +4,10 @@
 `nrbridge` `ce175c1`，与主线无冲突。rebase 前 tip 保留为标签 `sm-pre-rebase`。
 写入负责人：Sol（`wG:p3`）。本文件只做交接，不是验收结论。
 
+> **合流前提（2026-10-29 用户要求，覆盖本文早前表述）**：SM 必须先在实机上通过用户验收，
+> 才能合入 MultiPass 候选。本文第五节“效果未证明不阻塞源码合流”**不再是放行依据**；
+> 在用户明确验收前，请勿继续源码合流。已提交内容保留，不 reset、不删除。
+
 ## 一、必须合入的功能提交
 
 | 提交 | 内容 | 文件 |
@@ -54,8 +58,9 @@ prefix 的 owner），**运行时的 prefix 语义没有改动**（`tools/nr_dev
 - 无新增第三方依赖，`gpu/CMakeLists.txt` 未改。
 - CPU 测试：`tools/fg_dev` 60 项、`tests` 启动器 43 项、`tools/sm_lab/test_prefix_plan.py` 9 项、
   `tools/sm_lab/test_frame_report.py` 7 项，全部通过。
-- 实机证据（**不阻塞合流**，仅供背景）：新 boot `6df86d77` 上官方 daily 三轮
+- 实机证据（生命周期验收，**不构成插帧效果验收**）：新 boot `6df86d77` 上官方 daily 三轮
   `PASS_NORMAL_TEARDOWN`（`sm-acc-1029-174527-sm1`、`-174813-off2`、`-1752-sm3`），
   `SM_EXIT_PROOF` + `FG_EXIT_PROOF` + `NATIVE_ASYNC_PRE_SR_EXIT_PROOF`，无 DeviceLost。
 - 未证明：驱动是否真的向显示端插帧（缺 scanout 侧帧身份，见原型文档的 MFG 评估节）。
-  这一点不影响源码合流。
+  **这是合流前必须由用户验收的部分**；现有工具只能证明“层已启用并接管呈现”，不能证明
+  “显示端出现了插帧”。
