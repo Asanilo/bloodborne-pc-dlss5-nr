@@ -19,6 +19,20 @@ class DailyRetirement(unittest.TestCase):
    with self.subTest(key=key),tempfile.TemporaryDirectory() as tmp:
     root=Path(tmp);s=fixture(root);doc=json.loads((root/name).read_text());doc[key]=value;(root/name).write_text(json.dumps(doc))
     with self.assertRaises(ValueError):r.audit_daily(root,s)
+ def test_serial_mixed_counts_require_native_and_secondary_retirement(self):
+  with tempfile.TemporaryDirectory() as tmp:
+   root=Path(tmp);session=fixture(root)
+   (root/'manifest.json').write_text(json.dumps({'environment':{'BB_NR_SERIAL_MULTIPASS':'1'}}))
+   summary=dict(schema='nr-native-serial-summary-v1',session=session,finalized_jobs=20000,two_pass_jobs=7000,verified_evaluates=27000,secondary_created=2,secondary_released=2,last_helper_serial=40000)
+   retirement=dict(schema='nr-serial-retirement-v1',session=session,created=2,released=2,params_destroyed=True,last_gpu_serial=40000,normal_shutdown=True)
+   (root/'native-serial-summary.json').write_text(json.dumps(summary));(root/'serial-retirement.json').write_text(json.dumps(retirement))
+   p=root/'async-wine-result.json';helper=json.loads(p.read_text());helper['evaluate_calls_total']=27000;p.write_text(json.dumps(helper))
+   self.assertEqual(r.audit_daily(root,session)['terminal_counts']['finalized_jobs'],20000)
+   for value in (20000,26999,40000):
+    helper['evaluate_calls_total']=value;p.write_text(json.dumps(helper))
+    with self.assertRaises(ValueError):r.audit_daily(root,session)
+   helper['evaluate_calls_total']=27000;p.write_text(json.dumps(helper));retirement['released']=1;(root/'serial-retirement.json').write_text(json.dumps(retirement))
+   with self.assertRaises(ValueError):r.audit_daily(root,session)
  def test_pending_files_refuse_normal_retirement(self):
   for name in ['runtime-model-request-3.json','runtime-job-model-2.json','frames/bucket-000000/async-input-x.json']:
    with self.subTest(name=name),tempfile.TemporaryDirectory() as tmp:

@@ -309,11 +309,15 @@ void NRControls() {
         ImGui::TreePop();
     }
     if(ImGui::TreeNode("Model parameters (explicit Apply)")) {
+        ImGui::BeginDisabled(!std::getenv("BB_NR_SERIAL_MULTIPASS"));
+        int passes=int(c.model_passes)-1;if(ImGui::Combo("NR passes",&passes,"1\0" "2 (serial)\0")){c.model_passes=unsigned(passes+1);changed=true;}
+        ImGui::EndDisabled();
         int style=int(c.model_style);if(ImGui::Combo("Model style",&style,"Default\0Natural\0Cinematic\0")){c.model_style=unsigned(style);changed=true;}
         changed|=ImGui::SliderFloat("Model intensity",&c.model_intensity,0.f,2.f);
         ImGui::Text("Model Apply request %llu / applied %llu",(unsigned long long)request.model_apply_seq,(unsigned long long)actual.model_applied_version);
+        ImGui::Text("Actual NR passes %u",actual.actual_config.model_passes);
         ImGui::Text("Actual model style %u / intensity %.2f",actual.actual_config.model_style,actual.actual_config.model_intensity);
-        if(c.model_style!=actual.actual_config.model_style||c.model_intensity!=actual.actual_config.model_intensity) {
+        if(c.model_style!=actual.actual_config.model_style||c.model_intensity!=actual.actual_config.model_intensity||c.model_passes!=actual.actual_config.model_passes) {
             if(request.model_apply_seq>actual.model_applied_version)ImGui::TextUnformatted("Model Apply pending; actual parameters above remain in use.");
             else ImGui::TextUnformatted("Staged model settings: explicit Apply required (also after loading a profile).");
         }
