@@ -38,8 +38,9 @@ PY_RECEIPT
     if pgrep -x bb-probe >/dev/null 2>&1; then echo "BLOCKED bb-probe is running"; return 1; fi
     if pgrep -f wine_runtime_model.exe >/dev/null 2>&1; then echo "BLOCKED Helper is running"; return 1; fi
     if ! nvidia-smi -L >/dev/null 2>&1; then echo "BLOCKED nvidia-smi cannot talk to the driver"; return 1; fi
-    exec 9>"$LOCK"
-    if ! flock -n 9; then echo "BLOCKED GPU lock is held"; return 1; fi
+    # Probe only: the daily runner takes the lock itself for every round, so this
+    # shell must not keep it open past the check.
+    if ! ( exec 9>"$LOCK"; flock -n 9 ); then echo "BLOCKED GPU lock is held"; return 1; fi
     echo "PREFLIGHT_OK gpu=$(nvidia-smi --query-gpu=name --format=csv,noheader | head -1)"
 }
 
