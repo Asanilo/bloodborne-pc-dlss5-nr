@@ -120,11 +120,22 @@ NRBRIDGE_HOME=~/Code/nr-home/build/sm-official \
 采样点，合成器重绘只动少数点。分析器已用合成数据验证，**真实游戏内的阈值标定与 SM 开/关
 对照仍需下一次 GPU 窗口**。
 
+## 分支状态（rebase 与构建对齐）
+
+实验分支已 rebase 到 `nrbridge`（`ce175c1`），冲突为零；rebase 前 tip 保留为标签
+`sm-pre-rebase`。在 rebase 后的树上重跑 FG 60 项与启动器 43 项测试均通过。官方 home 的构建
+已按 `564ae10` 重新生成（`source-head.txt`/`artifacts.sha256` 对齐），
+`checked_native_build` + capability 复核通过；下一次 GPU 窗口只需跑验收，不必再构建。
+
 ## 当前阻塞
 
-2026-10-29 01:36 同机的 Native NR shadow 会话（`native-nr-shadow3109-001`，wE:p1）冷初始化
-`VK_ERROR_DEVICE_LOST`，kernel Xid13；boot 收据被置为 `hold`，指向
-`/home/arinp/Code/dlss_vulkan/private/native-nr-home/runs/native-nr-shadow3109-001`。
+2026-10-29 18:03:35 本 boot 再次进入 HOLD：Native NR 冷初始化定位会话
+`native-nr-cold3109-002` 在 18:03:13 再次 Xid13（`adapter_network_warmup` 阶段，未有真实
+Native 帧输出），exit23、无退休证明；收据状态 `hold`。这属于 M6/Native NR 的故障，与本分支
+17:45–17:58 已通过的 SM 官方验收无关，但同样让本 boot 的 daily 入口拒绝新会话。因此下一阶段
+（显示侧第二版阈值标定、重锚定后的验收复跑）需要新 boot。
+
+（更早的 01:36 故障：`native-nr-shadow3109-001`，同为 Xid13/DeviceLost；那次 HOLD 记录保留。）
 按规则这属于 boot 级 HOLD：新 boot 之前的 daily 入口会拒绝所有会话。MultiPass 复核结论
 （2026-10-29）确认这是真实设备故障（fence=-4、exit23、无退休证明），不适用 DLSSG 的
 exit0 重审，手改 receipt 也会因本 boot 的 Xid 再次拒绝——只能**用户手动重启到新 boot**，
