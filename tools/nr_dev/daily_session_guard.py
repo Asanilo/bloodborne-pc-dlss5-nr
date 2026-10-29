@@ -13,6 +13,13 @@ import uuid
 
 SCHEMA = 'nrbridge-boot-session-v1'
 NAME = 'bbport-nrbridge-session.json'
+# A current-boot HOLD can be re-admitted once, by an explicit recovery record:
+# a short GPU submit probe passed and the kernel journal shows no driver error.
+RECOVERY_NAME = 'bbport-nrbridge-recovery.json'
+RECOVERY_SCHEMA = 'nrbridge-recovery-v1'
+RECOVERY_KEYS = {'schema', 'uid', 'boot_id', 'session', 'probe', 'receipt',
+                 'receipt_sha256', 'journal_clean_after_probe', 'created_ns', 'nonce'}
+PROBE_KEYS = {'tool', 'sha256', 'result', 'output_sha256'}
 MAX_BYTES = 8192
 KEYS = {'schema', 'uid', 'boot_id', 'state', 'root', 'session', 'nonce'}
 
@@ -101,8 +108,122 @@ class SessionGuard:
     def admit(self):
         record = self.read()
         if record is not None and record['boot_id'] == self.boot_id and record['state'] != 'retired':
-            raise ValueError('current-boot global session pending/HOLD: ' + record['root'] + '/runs/' + record['session'])
+            if not self._recovered(record):
+                raise ValueError('current-boot global session pending/HOLD: ' + record['root'] + '/runs/' + record['session'])
         return record
+
+    def _recovery_path(self):
+        return self.directory / RECOVERY_NAME
+
+    def read_recovery(self):
+        path = self._recovery_path()
+        try:
+            descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        except FileNotFoundError:
+            if path.is_symlink():
+                raise ValueError('recovery record symlink refused') from None
+            return None
+        except OSError:
+            raise ValueError('recovery record unreadable or unsafe') from None
+        try:
+            before = os.fstat(descriptor)
+            if (not stat.S_ISREG(before.st_mode) or before.st_uid != self.uid
+                    or stat.S_IMODE(before.st_mode) != 0o600 or before.st_nlink != 1
+                    or not 0 < before.st_size <= MAX_BYTES):
+                raise ValueError('recovery record requires bounded UID-owned regular file mode 0600')
+            data = os.read(descriptor, MAX_BYTES + 1)
+            after = os.fstat(descriptor)
+            if len(data) != before.st_size or (before.st_dev, before.st_ino, before.st_mtime_ns) != (
+                    after.st_dev, after.st_ino, after.st_mtime_ns):
+                raise ValueError('recovery record changed while reading')
+        finally:
+            os.close(descriptor)
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError('duplicate recovery record field')
+                result[key] = value
+            return result
+        try:
+            record = json.loads(data, object_pairs_hook=unique)
+        except (ValueError, UnicodeError):
+            raise ValueError('malformed recovery record JSON') from None
+        self._validate_recovery(record)
+        return record
+
+    def _validate_recovery(self, record):
+        if not isinstance(record, dict) or set(record) != RECOVERY_KEYS:
+            raise ValueError('malformed recovery record')
+        if record.get('schema') != RECOVERY_SCHEMA or type(record.get('uid')) is not int or record['uid'] != self.uid:
+            raise ValueError('recovery record UID/schema mismatch')
+        self._boot(record.get('boot_id'))
+        if record['boot_id'] != self.boot_id:
+            raise ValueError('recovery record belongs to another boot')
+        if not isinstance(record.get('session'), str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,62}', record['session']):
+            raise ValueError('unsafe recovery session')
+        probe = record.get('probe')
+        if not isinstance(probe, dict) or set(probe) != PROBE_KEYS:
+            raise ValueError('malformed recovery probe')
+        if not isinstance(probe['tool'], str) or not probe['tool']:
+            raise ValueError('recovery probe tool required')
+        if not isinstance(probe['sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', probe['sha256']):
+            raise ValueError('recovery probe binary SHA required')
+        if not isinstance(probe['output_sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', probe['output_sha256']):
+            raise ValueError('recovery probe output SHA required')
+        if probe['result'] != 'PASS' or record.get('journal_clean_after_probe') is not True:
+            raise ValueError('recovery requires a passing probe and a clean journal')
+        receipt = record.get('receipt')
+        self._validate(receipt)
+        if not isinstance(record.get('receipt_sha256'), str) or not re.fullmatch(r'[0-9a-f]{64}', record['receipt_sha256']):
+            raise ValueError('recovery receipt SHA required')
+        if type(record.get('created_ns')) is not int or record['created_ns'] <= 0:
+            raise ValueError('recovery timestamp required')
+        if not isinstance(record.get('nonce'), str) or not re.fullmatch(r'[0-9a-f]{32}', record['nonce']):
+            raise ValueError('invalid recovery nonce')
+
+    def _recovered(self, receipt):
+        record = self.read_recovery()
+        if record is None:
+            return False
+        return record['boot_id'] == self.boot_id and record['session'] == receipt['session']
+
+    def write_recovery(self, receipt, probe):
+        # Only a current-boot pending/HOLD receipt can be recovered; the failed
+        # session's own record stays HOLD and is embedded unchanged.
+        current = self.read()
+        self._validate(receipt)
+        if current != receipt or receipt['boot_id'] != self.boot_id or receipt['state'] == 'retired':
+            raise ValueError('recovery requires the current non-retired boot receipt')
+        if not isinstance(probe, dict) or set(probe) != PROBE_KEYS or probe.get('result') != 'PASS':
+            raise ValueError('recovery requires a passing probe record')
+        payload = json.dumps(receipt, sort_keys=True).encode()
+        record = {'schema': RECOVERY_SCHEMA, 'uid': self.uid, 'boot_id': self.boot_id,
+                  'session': receipt['session'], 'probe': probe, 'receipt': receipt,
+                  'receipt_sha256': __import__('hashlib').sha256(payload).hexdigest(),
+                  'journal_clean_after_probe': True,
+                  'created_ns': __import__('time').time_ns(),
+                  'nonce': uuid.uuid4().hex}
+        self._validate_recovery(record)
+        data = (json.dumps(record, sort_keys=True) + chr(10)).encode()
+        if len(data) > MAX_BYTES:
+            raise ValueError('recovery record too large')
+        temporary = self.directory / (RECOVERY_NAME + '.' + uuid.uuid4().hex + '.tmp')
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        try:
+            with os.fdopen(descriptor, 'wb') as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, self._recovery_path())
+            directory_fd = os.open(self.directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return self._recovery_path()
 
     def _write(self, record):
         self._directory()

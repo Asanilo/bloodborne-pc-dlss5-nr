@@ -21,7 +21,9 @@ class UnifiedTests(unittest.TestCase):
     if not nr:argv+=['--sr-only']
     if backend=='dlssg':argv+=['--dlssg-model','/model']
     if backend=='smooth-motion':
-     with self.assertRaises(SystemExit):runner.parse_args(argv)
+     a=runner.parse_args(argv)
+     self.assertTrue(a.smooth_motion);self.assertIsNone(a.experimental_fg)
+     self.assertEqual(fg_config.requested(a),'smooth-motion')
      continue
     a=runner.parse_args(argv)
     self.assertEqual(a.sr_only,not nr)
@@ -34,12 +36,16 @@ class UnifiedTests(unittest.TestCase):
    c=fg_config.selection({'fg_backend':'dlssg','fg_dlss_pipeline':pipe})
    self.assertEqual(c['backend'],'dlssg');self.assertEqual(c['pipeline'],pipe)
   self.assertEqual(fg_config.selection({'fg_backend':'dlssg','fg_dlss_transport':'mapped-v1'})['pipeline'],'sync-v1')
- def test_sm_quarantine_keeps_audit_and_research_path(self):
-  with self.assertRaisesRegex(ValueError,'ErrorDeviceLost'):
-   fg_config.availability({'backend':'smooth-motion'},'/missing')
-  a=argparse.Namespace(fg_backend=None,smooth_motion=True)
+ def test_sm_is_selectable_without_application_fg(self):
+  # The M3 quarantine is lifted on this branch: the runner still requires a Native
+  # with the SM_EXIT_PROOF marker and the boot receipt still gates every daily run.
+  self.assertIsInstance(fg_config.availability({'backend':'smooth-motion'},'/missing'),str)
+  a=argparse.Namespace(fg_backend='smooth-motion',smooth_motion=False)
   fg_config.normalize(a)
+  self.assertTrue(a.smooth_motion);self.assertIsNone(a.experimental_fg);self.assertFalse(a.fg_native)
   self.assertEqual(fg_config.requested(a),'smooth-motion')
+  with self.assertRaises(ValueError):
+   fg_config.normalize(argparse.Namespace(fg_backend='smooth-motion',smooth_motion=False,fg_native=True))
  def test_mfg_requires_supported_pipeline(self):
   for m in range(2,7):
    c=fg_config.selection({'fg_backend':'dlssg','fg_dlss_pipeline':'consumer-queue-v1','fg_dlss_multiplier':m})

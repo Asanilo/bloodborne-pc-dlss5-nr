@@ -796,12 +796,14 @@ void Menu() {
         BbSettings::MenuText(Vulkan::FgBackendStatus::Name(),Vulkan::FgBackendStatus::Name()),
         BbSettings::MenuText(s.frame_generation?"On":"Off",s.frame_generation?"Вкл":"Выкл"));
     static constexpr const char* backend_labels[]={"Off","AMD FSR 3.1","NVIDIA DLSS",
-        "NVIDIA Smooth Motion (unavailable)","AMD FSR 3.1.6"};
+        "NVIDIA Smooth Motion","AMD FSR 3.1.6"};
     int next_backend=s.frame_generation_backend.load();
     const int actual_backend=Vulkan::FgSelection::Index(Vulkan::FgBackendStatus::Selected());
     if(ImGui::BeginCombo(BbSettings::MenuText("FG backend","Алгоритм FG"),BbSettings::MenuText(backend_labels[next_backend],backend_labels[next_backend]))){
         for(int i=0;i<5;++i){
-            ImGui::BeginDisabled(i==3);
+            // Driver-layer Smooth Motion is selectable too; like any backend
+            // change it takes effect in the next process (the layer is created
+            // with the instance), not live in this one.
             if(ImGui::Selectable(BbSettings::MenuText(backend_labels[i],backend_labels[i]),i==next_backend)){
                 Store(s.frame_generation_backend,i,true);next_backend=i;
                 // Off is a live toggle. Returning to the retained backend is
@@ -810,7 +812,6 @@ void Menu() {
                 else if(i==actual_backend)Store(s.frame_generation,true,true);
                 if(i!=2)Store(s.frame_generation_next_multiplier,2,true);
             }
-            ImGui::EndDisabled();
         }
         ImGui::EndCombo();
     }

@@ -156,6 +156,11 @@ private:
     std::condition_variable free_cv;
     std::deque<u64> recent_frame_ticks; ///< BB_FRAMES_AHEAD bound (PrepareFrame)
     std::mutex fg_images_mutex; ///< Resize/encode owner versus normal-exit Present retirement.
+    /// Normal-exit gate: the present thread refuses new command-processor preparation and waits
+    /// for the leases already taken before it retires the driver layer's swapchain.
+    std::mutex prepare_gate_mutex;
+    std::atomic<bool> prepare_stopped{false};
+    unsigned prepare_in_flight = 0; ///< guarded by prepare_gate_mutex
     u64 last_prepare_ns = 0;
     u64 last_real_game_source = 0;
     double fg_interval_ms = 16.667;

@@ -12,7 +12,7 @@
 | `off` | 不启用应用级或驱动级 FG | 可用，NR 独立 |
 | `fsr31` | FSR 3.1 HUDless x2 | 可用；高速转镜植被漂移仍是已知缺陷 |
 | `dlssg` | NVIDIA DLSS FG x2 | 可用；现有 DMA-BUF GPU bridge |
-| `smooth-motion` | NVIDIA present Layer | 暂不可用，见下文实机失败 |
+| `smooth-motion` | NVIDIA present Layer | 实验分支已重新可选，见 [Smooth Motion 原型](SMOOTH_MOTION_PROTOTYPE.zh-CN.md) |
 | `fsr316` | 既有 FSR 3.1.6 实验 | 保留；本轮未重新验收其画质 |
 
 高级设置保存 `fg_dlss_pipeline`：`submit-ready-v1` 为稳定回退，

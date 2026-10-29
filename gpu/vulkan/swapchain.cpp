@@ -172,13 +172,27 @@ void Swapchain::Create(u32 width_, u32 height_) {
     frame_index = 0;
 }
 
+bool Swapchain::Drain() {
+    // Actual GPU completion, not an application timeline value: an acquire wait, a present or
+    // the driver layer's own queue work may outlive every recorded submission.
+    const auto result = instance.GetDevice().waitIdle();
+    if (result != vk::Result::eSuccess) {
+        LOG_WARNING(Render_Vulkan, "Device idle wait before swapchain changes: {}",
+                    vk::to_string(result));
+        return false;
+    }
+    return true;
+}
+
 void Swapchain::DestroyResources() {
     const vk::Device device = instance.GetDevice();
     // The semaphores and views may still be in use by the last presents.
-    if (const auto result = device.waitIdle(); result != vk::Result::eSuccess) {
-        LOG_WARNING(Render_Vulkan, "Device idle wait before swapchain changes: {}",
-                    vk::to_string(result));
-    }
+    (void)Drain();
+    DestroyResourcesNow();
+}
+
+void Swapchain::DestroyResourcesNow() {
+    const vk::Device device = instance.GetDevice();
     for (const auto view : views) {
         device.destroyImageView(view);
     }
@@ -196,13 +210,15 @@ void Swapchain::DestroyResources() {
 
 bool Swapchain::RetireDriverLayer() {
     const auto device = instance.GetDevice();
-    if (device.waitIdle() != vk::Result::eSuccess) return false;
-    DestroyResources();
+    // Drain first: a lost device must never be reported as a retired one, and nothing may be
+    // destroyed on an unknown completion state.
+    if (!Drain()) return false;
+    DestroyResourcesNow();
     if (swapchain) device.destroySwapchainKHR(swapchain);
     swapchain = vk::SwapchainKHR{};
     // The layer's destroy must join its swapchain workers. Observe device completion
     // again after that call; an application's timeline alone cannot retire layer work.
-    return device.waitIdle() == vk::Result::eSuccess;
+    return Drain();
 }
 
 void Swapchain::Recreate(u32 width_, u32 height_) {
