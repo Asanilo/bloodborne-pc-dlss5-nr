@@ -106,6 +106,11 @@ def stage(args):
     environment=dict(NRBRIDGE_HOME=str(home),NRBRIDGE_NATIVE_BUILD=str(native),
         NRBRIDGE_RUNTIME_INPUTS=str(inputs),NRBRIDGE_REUSE_NR_PREFIX=args.nr_prefix,
         BB_PLAYER_RUNTIME=str(player_runtime))
+    dimensions_inputs=getattr(args,'dimensions_runtime_inputs',None)
+    if dimensions_inputs:
+        dimensions_inputs=dimensions_inputs.resolve()
+        runtime.load(dimensions_inputs,home)
+        environment['NRBRIDGE_DIMENSIONS_RUNTIME_INPUTS']=str(dimensions_inputs)
     lines=['#!/usr/bin/env bash','set -euo pipefail']
     lines += ['export '+key+'='+shlex.quote(value) for key,value in environment.items()]
     lines += ['exec '+shlex.quote(str(app/'AppRun'))+' "$@"']
@@ -124,6 +129,8 @@ def main():
     parser.add_argument('--runtime-inputs',type=Path,required=True)
     parser.add_argument('--fg-model',type=Path,required=True)
     parser.add_argument('--nr-prefix',required=True);parser.add_argument('--fg-prefix',required=True)
+    parser.add_argument('--dimensions-runtime-inputs',type=Path,
+                        help='existing sealed single-pass M5 runtime retained for variable dimensions')
     args=parser.parse_args()
     with open('/tmp/nrbridge-poc-gpu.lock','a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
