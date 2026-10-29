@@ -119,12 +119,17 @@ NRBRIDGE_HOME=~/Code/nr-home/build/sm-official \
 （0–1000），`frame_report.py` 按阈值（1/5/10/25‰）统计更新率。依据：新游戏帧会改变大部分
 采样点，合成器重绘只动少数点。
 
-阈值本身不等于“已去污染”，所以分析器现在**自己判断能不能下结论**：
+阈值本身不等于“已去污染”。分析器只输出**候选统计**，不宣称插帧可证：
 
-- `noise_floor_permille`：低于阈值的非零差异中位数；只要它 > 0，就说明采样里仍有合成器重绘，
-  `claimable=false`；
-- `per_second_stable`：窗口 ≥ 2 s 时要求至少两个秒桶且 max ≤ 1.25×min，单次爆发不算证据；
-- 两者都通过才输出 `claimable=true`。
+- `noise_floor_permille`：低于阈值的非零差异中位数；> 0 说明采样里仍有合成器重绘，
+  `candidate_consistent=false`；
+- `per_second_stable`：按**真实 monotonic 时间戳**分秒桶（不是帧序号），缺失秒计 0，尾部不满
+  一秒单独计 `tail_updates`、不参与稳定性；窗口 ≥ 2 个完整秒且 max ≤ 1.25×min 才算稳定；
+- `candidate_consistent=true` 仅表示“统计上像一个稳定更新流”，`interpolation_proven` 恒为
+  false，`provenance=unverified_capture`。
+
+关键反例（已进测试）：一个**稳定且幅度 ≥ 阈值**的合成器污染流与真实新帧流在这份数据上完全
+不可区分，所以即使 `noise_floor=0`、速率稳定，也不能自动宣称去污染。
 
 离线已用合成分布覆盖四种情况（干净、重绘噪声、单峰噪声、速率不稳），见
 `tools/sm_lab/test_frame_report.py`。
@@ -135,7 +140,8 @@ NRBRIDGE_HOME=~/Code/nr-home/build/sm-official \
 2. `Immediate` 是否因撕裂被合成器采到中间状态——需要在 `Fifo`（或 `Mailbox`）下重复同一
    场景，若噪声消失，则“2 倍”才可用；
 3. 同一窗口内同时确认应用真实 Present 速率（`FG_PRESENT kind=real` 计数）；
-4. SM 开/关各一轮，`claimable=true` 且更新率≈2×真实 Present 才可下结论。
+4. SM 开/关各一轮，`candidate_consistent=true` 且更新率≈2×真实 Present，仍只能算候选；
+   要有可信帧身份（如驱动/内核侧计数）或独立标定，才谈“插帧已证明”。
 
 在这些条件满足前，本仓库不声称“驱动插帧已被显示侧证明”。
 
