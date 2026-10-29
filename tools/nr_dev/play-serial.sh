@@ -7,5 +7,6 @@ if [[ $# -lt 1 ]]; then
 fi
 inputs=$1
 shift
+mkdir -p -- "$NRBRIDGE_HOME/runs"
 here=$(cd -- "$(dirname -- "$0")" && pwd -P)
 exec python3 "$here/play.py" --daily --serial-multipass --fg-backend off --local-inputs "$inputs" "$@"

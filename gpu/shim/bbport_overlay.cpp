@@ -309,7 +309,9 @@ void NRControls() {
         ImGui::TreePop();
     }
     if(ImGui::TreeNode("Model parameters (explicit Apply)")) {
-        ImGui::BeginDisabled(!std::getenv("BB_NR_SERIAL_MULTIPASS"));
+        const char* serial=std::getenv("BB_NR_SERIAL_MULTIPASS");
+        // A profile saved at two passes must still be able to select one on the ordinary entry.
+        ImGui::BeginDisabled((!serial||std::strcmp(serial,"1")!=0)&&c.model_passes==1);
         int passes=int(c.model_passes)-1;if(ImGui::Combo("NR passes",&passes,"1\0" "2 (serial)\0")){c.model_passes=unsigned(passes+1);changed=true;}
         ImGui::EndDisabled();
         int style=int(c.model_style);if(ImGui::Combo("Model style",&style,"Default\0Natural\0Cinematic\0")){c.model_style=unsigned(style);changed=true;}
