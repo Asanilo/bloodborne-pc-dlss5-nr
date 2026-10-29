@@ -17,23 +17,20 @@ preflight() {
     boot=$(cat /proc/sys/kernel/random/boot_id)
     echo "BOOT=$boot"
     if [[ -f $RECEIPT ]]; then
-        # A receipt from an older boot is ignored by the runner's admit(); only the
-        # current boot's pending/HOLD blocks new daily sessions.
-        read -r rboot state root session < <(python3 - "$RECEIPT" <<'PY_RECEIPT'
+        python3 - "$RECEIPT" <<'PY_RECEIPT'
 import json, sys
 d = json.load(open(sys.argv[1]))
-print(d.get('boot_id'), d.get('state'), d.get('root'), d.get('session'))
+print('RECEIPT boot=%s state=%s root=%s session=%s' % (
+    d.get('boot_id'), d.get('state'), d.get('root'), d.get('session')))
 PY_RECEIPT
-)
-        echo "RECEIPT boot=$rboot state=$state root=$root session=$session"
-        if [[ $rboot != "$boot" ]]; then
-            echo "STALE_RECEIPT from a previous boot; the runner ignores it"
-        elif [[ $state != retired ]]; then
-            echo "BLOCKED receipt is $state from this boot's earlier session; a new boot is required"
-            return 1
-        fi
     else
         echo "RECEIPT absent (first session in this boot)"
+    fi
+    # The guard owns admission: a current-boot pending/HOLD needs a matching
+    # recovery record from tools/nr_dev/recovery_admit.py.
+    if ! python3 -c "import sys; sys.path.insert(0, '$WT/tools/nr_dev'); import daily_session_guard as g; g.SessionGuard().admit()" 2>/dev/null; then
+        echo "BLOCKED boot receipt is pending/HOLD without a matching recovery record"
+        return 1
     fi
     if pgrep -x bb-probe >/dev/null 2>&1; then echo "BLOCKED bb-probe is running"; return 1; fi
     if pgrep -f wine_runtime_model.exe >/dev/null 2>&1; then echo "BLOCKED Helper is running"; return 1; fi
