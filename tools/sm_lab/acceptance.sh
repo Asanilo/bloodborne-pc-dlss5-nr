@@ -53,13 +53,15 @@ plan=${1:-sm}
 seconds=${2:-45}
 preflight
 
-prev=
+prefix_owner=
 index=0
 for kind in $plan; do
     index=$((index + 1))
     session="sm-acc-$(date +%m%d-%H%M%S)-${kind}${index}"
     args=()
-    [[ -n $prev ]] && args+=(--reuse-nr-prefix "$prev")
+    # PrefixLease moves the borrowed prefix back to its owner after a normal
+    # retirement, so later rounds must reuse the session that created it.
+    [[ -n $prefix_owner ]] && args+=(--reuse-nr-prefix "$prefix_owner")
     echo "===== ROUND $index/$kind session=$session ====="
     if [[ $kind == off ]]; then SM_MODE=off FRAME_CAPTURE=${FRAME_CAPTURE:-1} \
         bash "$WT/tools/sm_lab/official_play.sh" "$session" "$seconds" "${args[@]}"; else
@@ -84,7 +86,7 @@ summary = run / 'display-frames.summary'
 if summary.exists():
     print('  display', summary.read_text().strip())
 PY
-    prev=$session
+    [[ -z $prefix_owner ]] && prefix_owner=$session
     if [[ -f $HOME_NR/runs/$session/result.json ]]; then
         status=$(python3 -c "import json;print(json.load(open('$HOME_NR/runs/$session/result.json')).get('status'))")
         if [[ $status == HOLD ]]; then echo "ROUND_HOLD $session; stopping the plan"; exit 5; fi

@@ -97,6 +97,25 @@ NRBRIDGE_HOME=~/Code/nr-home/build/sm-official \
   --native-build ~/Code/nr-home/build/sm-official/build/native --session sm-official-01
 ```
 
+## 新 boot 官方验收（2026-10-29 17:45–17:58）
+
+新 boot `6df86d77`，Astra 短探针 PASS 后按 `sm → off → sm` 执行，全部通过：
+
+| 会话 | 配置 | 结果 |
+|---|---|---|
+| `sm-acc-1029-174527-sm1` | 官方 daily，SM，新建 prefix | `PASS_NORMAL_TEARDOWN`，exit0，`SM_EXIT_PROOF` + `FG_EXIT_PROOF` + `NATIVE_ASYNC_PRE_SR_EXIT_PROOF`，无 DeviceLost |
+| `sm-acc-1029-174813-off2` | 官方 daily，层关闭对照 | `PASS_NORMAL_TEARDOWN`，exit0 |
+| `sm-acc-1029-1752-sm3` | 官方 daily，SM，复用 R1 已退休 prefix | `PASS_NORMAL_TEARDOWN`，exit0，三份证明齐全 |
+| `disp-off-01` | 实验启动器，层关闭 | 正常退出（无 SM 证明，符合预期） |
+
+批后核对：锁空闲、无 bb-probe/Helper 残留、receipt=retired、本 boot 无 NVIDIA Xid。
+
+**显示侧指标失败（重要负面结果）**：同场景同 60fps 上限下，SM 开：内容变化 114.1 Hz / 应用
+真实 Present 55.7 Hz（2.05×）；SM 关：118.0 Hz / 59.9 Hz（1.97×）。两者都约 2 倍，说明
+`zwlr_screencopy` 的抽样哈希被合成器自身重绘（约 140 Hz 的中位间隔）污染，**不能**用来
+区分驱动层是否插帧。上一节的“2 倍判据”作废，需要换成能排除合成器重绘的方法（例如按区域
+像素差阈值、或直接读驱动侧计数），列为下一阶段问题。
+
 ## 当前阻塞
 
 2026-10-29 01:36 同机的 Native NR shadow 会话（`native-nr-shadow3109-001`，wE:p1）冷初始化
@@ -127,9 +146,9 @@ pending/HOLD 时直接拒绝。`acceptance.sh` 每轮独立 session 目录，第
   `frame_report.py` 统计内容变化率。判据：同一场景、同一限帧下，SM 开启时内容变化率应接近
   关闭时的 2 倍（例如 60→120），而不是与应用侧真实 Present 数相同。
 
-  证据边界：这是**合成器侧内容变化率**，不是扫描输出或光子时间戳，也不能单独证明“驱动插帧
-  已生效”；必须与同一会话里 `nvpresent.log` 的层启用状态、`SM_EXIT_PROOF` 以及同场景 off
-  对照一起看。桌面静止画面的采样（0 变化）只用于验证工具本身。
+  证据边界：这是**合成器侧内容变化率**，不是扫描输出或光子时间戳。实测该指标在 SM 开/关
+  两种情况下都约为真实 Present 的 2 倍（见下节），说明它被合成器重绘污染，**当前版本不能
+  作为插帧证据**；工具保留，判据需重新设计。
 - **进游戏实机**：已在私有 profile 里完成（见 `sm-i`/`sm-j`）。实验启动器原先没有在复制存档前
   导出 `SAVEDATA_SRC`，已修复；存档按端口实际使用的 `savedata/1/CUSA00207` 只读挂载。正式
   runner 的存档同步路径仍需独立验收。

@@ -65,11 +65,13 @@ echo "HELPER_START_TOKEN"
 sleep 30
 printf '%s\n' "$session" > "$run/native-scene-arm" 2>/dev/null || true
 echo "SCENE_ARM_TOKEN"
+sleep "$seconds"
+# Capture at the end of the in-game window, after the first audited presents:
+# right after the arm the game may still be on a loading screen.
 if [[ ${FRAME_CAPTURE:-0} == 1 && -x $WT/out/sm-lab/frame/frame-count ]]; then
     "$WT/out/sm-lab/frame/frame-count" "${FRAME_SECONDS:-4}" > "$run/display-frames.txt" 2>/dev/null || true
     python3 "$WT/tools/sm_lab/frame_report.py" "$run/display-frames.txt" | tee "$run/display-frames.summary" || true
 fi
-sleep "$seconds"
 grim "$run/before-close.png" 2>/dev/null && echo "SHOT=$run/before-close.png"
 niri msg action close-window --id "$win" >/dev/null 2>&1 || true
 echo "CLOSE_REQUESTED $(date +%H:%M:%S)"
