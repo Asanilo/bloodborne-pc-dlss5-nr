@@ -176,6 +176,10 @@ if [[ ${RESIZE:-0} == 1 && -n $win ]]; then
     sleep "${RESIZE_HOLD:-4}"
 fi
 sleep "$seconds"
+if [[ ${FRAME_CAPTURE:-0} == 1 && -x "$LAB/frame/frame-count" ]]; then
+    "$LAB/frame/frame-count" "${FRAME_SECONDS:-4}" > "$run/display-frames.txt" 2>/dev/null || true
+    python3 "$LAB/frame_report.py" "$run/display-frames.txt" | tee "$run/display-frames.summary" || true
+fi
 grim "$run/before-close.png" 2>/dev/null && echo "SHOT=$run/before-close.png"
 if [[ -n $win ]]; then
     niri msg action close-window --id "$win" || true
