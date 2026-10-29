@@ -1,0 +1,612 @@
+{
+  "schema": "nr-serial-acceptance-20261030-v1",
+  "quality": "USER_REVIEW_PENDING",
+  "native_commit": "45ab4cb9d879cfdc4a6d2004bcc55f8f759dbe8f",
+  "helper_commit": "6765901b200998849921843962d831ecd718a6a0",
+  "runs": [
+    {
+      "session": "serial-one-r1",
+      "passes": 1,
+      "status": "PASS_NORMAL_TEARDOWN",
+      "native_summary": {
+        "finalized_jobs": 1510,
+        "last_helper_serial": 1512,
+        "schema": "nr-native-serial-summary-v1",
+        "secondary_created": 0,
+        "secondary_released": 0,
+        "session": "serial-one-r1",
+        "two_pass_jobs": 0,
+        "verified_evaluates": 1510
+      },
+      "helper_counts": {
+        "evaluate_calls_total": 1510,
+        "resolve_calls_total": 1510,
+        "feature_create_calls": 1,
+        "feature_release_calls": 1,
+        "captured_jobs": 1509,
+        "obsolete_jobs": 1
+      },
+      "retirement": "PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP",
+      "log_proof": {
+        "schema": "nr-daily-game-log-audit-v1",
+        "order": [
+          "game.log.1",
+          "game.log"
+        ],
+        "file_sha256": {
+          "game.log.1": "606b24c1edf8903ae2d50980f14998f1236c6059244ced82cbe5e6f015a446c4",
+          "game.log": "74bccda08ca1aeebaaf0b8425fbc4b3e4c7ec43c5872242b7de3fb86948b0a54"
+        },
+        "file_bytes": {
+          "game.log.1": 8388388,
+          "game.log": 4045859
+        },
+        "state_sha256": "b4134ac3eda7fba03bc2eb04b54a4f601fd696d46e5bd2ad2784b2f637f7d60e",
+        "rotations": 3,
+        "bytes_seen": 29211101,
+        "scope": "retained stdout tail only; earlier failures remain guarded by the capture latch"
+      },
+      "helper_log_sha256": {
+        "async-helper.log": "b4bf81c64bdee91389d8524698f15da00eb113c2f05eab139afc2fdee4d82f2f"
+      },
+      "windows": {
+        "static": {
+          "after_ns": 35166859557551,
+          "before_ns": 35172859911597,
+          "actual_presents": 478,
+          "actual_FPS": 79.58024034517547,
+          "present_p95_ms": 16.360246399999998,
+          "source_first": 15569,
+          "source_last": 16046,
+          "cache_selected_presents": 478,
+          "nr_jobs": 80,
+          "reset_jobs": 80,
+          "gpu_scope": "same Helper queue commands/dependencies, not pure inference",
+          "gpu_memory": {
+            "status": "MEASURED_PID_COMPUTE_SAMPLE",
+            "scope": "PID-associated compute-app sampling; graphics memory may be absent; missing is not zero",
+            "device_total": {
+              "status": "MEASURED_DEVICE_TOTAL",
+              "scope": "per-UUID physical device total includes other apps, driver and shared usage; never summed from PID reports",
+              "devices": [
+                {
+                  "uuid": "GPU-8734fac9-db30-c279-a340-fe117ace6365",
+                  "samples": 3,
+                  "peak_used_MiB": 3864.0,
+                  "total_MiB_min": 8188.0,
+                  "total_MiB_max": 8188.0,
+                  "peak_used_percent": 47.19101123595505
+                }
+              ],
+              "attribution": "device usage is not solely NRBridge; per-UUID samples do not alone prove which device Native selected"
+            },
+            "pid": 1223409,
+            "game_start_ticks": 3497743,
+            "samples": 3,
+            "peak_MiB": 3446.0,
+            "identity_limit": "sampler recorded PID only; starttime is game provenance, not per-sample PID-reuse proof"
+          },
+          "total_ms": {
+            "median": 10.336464,
+            "p95": 10.5671392
+          },
+          "evaluate_ms": {
+            "median": 8.755151999999999,
+            "p95": 8.924089599999999
+          },
+          "evaluate2_ms": {
+            "median": 0.0,
+            "p95": 0.0
+          },
+          "resolve_ms": {
+            "median": 1.375456,
+            "p95": 1.4100768
+          },
+          "nr_origin_source_gap_median": 6
+        },
+        "turn": {
+          "after_ns": 35219761150339,
+          "before_ns": 35224461540764,
+          "actual_presents": 363,
+          "actual_FPS": 77.06751306984016,
+          "present_p95_ms": 16.463153449999997,
+          "source_first": 19782,
+          "source_last": 20144,
+          "cache_selected_presents": 363,
+          "nr_jobs": 61,
+          "reset_jobs": 61,
+          "gpu_scope": "same Helper queue commands/dependencies, not pure inference",
+          "gpu_memory": {
+            "status": "NOT_MEASURED",
+            "scope": "PID-associated compute-app sampling; graphics memory may be absent; missing is not zero",
+            "device_total": {
+              "status": "NOT_MEASURED",
+              "scope": "per-UUID physical device total includes other apps, driver and shared usage; never summed from PID reports"
+            }
+          },
+          "total_ms": {
+            "median": 9.236384,
+            "p95": 10.450112
+          },
+          "evaluate_ms": {
+            "median": 7.635968,
+            "p95": 8.867168
+          },
+          "evaluate2_ms": {
+            "median": 0.0,
+            "p95": 0.0
+          },
+          "resolve_ms": {
+            "median": 1.371776,
+            "p95": 1.401664
+          },
+          "nr_origin_source_gap_median": 6.0
+        }
+      },
+      "screenshot": {
+        "path": "/tmp/nrbridge-serial-candidate/runs/serial-one-r1/one-static.png",
+        "sha256": "7228c230ce76ffaf625074ad8538aab0315e7261c792f89c92675f549e7d0d4e",
+        "public_path": "assets/multipass-serial-1pass.png"
+      }
+    },
+    {
+      "session": "serial-two-r1",
+      "passes": 2,
+      "status": "PASS_NORMAL_TEARDOWN",
+      "native_summary": {
+        "finalized_jobs": 1335,
+        "last_helper_serial": 1339,
+        "schema": "nr-native-serial-summary-v1",
+        "secondary_created": 1,
+        "secondary_released": 1,
+        "session": "serial-two-r1",
+        "two_pass_jobs": 1335,
+        "verified_evaluates": 2670
+      },
+      "helper_counts": {
+        "evaluate_calls_total": 2670,
+        "resolve_calls_total": 1335,
+        "feature_create_calls": 2,
+        "feature_release_calls": 2,
+        "captured_jobs": 1333,
+        "obsolete_jobs": 2
+      },
+      "retirement": "PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP",
+      "log_proof": {
+        "schema": "nr-daily-game-log-audit-v1",
+        "order": [
+          "game.log.1",
+          "game.log"
+        ],
+        "file_sha256": {
+          "game.log.1": "d0bf647c7af037241f8b31e3fffdb109aac24a9d7c3139e8a9c3a9e0bda947c3",
+          "game.log": "37c70df80ef58882829dc85d39a81f36216e938d6ff5fec859c39a5d6ebe5e25"
+        },
+        "file_bytes": {
+          "game.log.1": 8388511,
+          "game.log": 3854829
+        },
+        "state_sha256": "f8857968dca225e69004a0093cda4db48c3ac70689acbbf78dc07563183126ce",
+        "rotations": 2,
+        "bytes_seen": 20631829,
+        "scope": "retained stdout tail only; earlier failures remain guarded by the capture latch"
+      },
+      "helper_log_sha256": {
+        "async-helper.log": "862a6f650bb461ec1141b25c7f9b9f9f76a28aaf21bb1ba6b4e3b1847c9cacd2"
+      },
+      "windows": {
+        "static": {
+          "after_ns": 35497732682409,
+          "before_ns": 35503732995806,
+          "actual_presents": 461,
+          "actual_FPS": 76.74125675087893,
+          "present_p95_ms": 19.443316499999998,
+          "source_first": 15611,
+          "source_last": 16071,
+          "cache_selected_presents": 461,
+          "nr_jobs": 70,
+          "reset_jobs": 70,
+          "gpu_scope": "same Helper queue commands/dependencies, not pure inference",
+          "gpu_memory": {
+            "status": "MEASURED_PID_COMPUTE_SAMPLE",
+            "scope": "PID-associated compute-app sampling; graphics memory may be absent; missing is not zero",
+            "device_total": {
+              "status": "MEASURED_DEVICE_TOTAL",
+              "scope": "per-UUID physical device total includes other apps, driver and shared usage; never summed from PID reports",
+              "devices": [
+                {
+                  "uuid": "GPU-8734fac9-db30-c279-a340-fe117ace6365",
+                  "samples": 6,
+                  "peak_used_MiB": 4098.0,
+                  "total_MiB_min": 8188.0,
+                  "total_MiB_max": 8188.0,
+                  "peak_used_percent": 50.04885197850513
+                }
+              ],
+              "attribution": "device usage is not solely NRBridge; per-UUID samples do not alone prove which device Native selected"
+            },
+            "pid": 1234832,
+            "game_start_ticks": 3529961,
+            "samples": 6,
+            "peak_MiB": 3490.0,
+            "identity_limit": "sampler recorded PID only; starttime is game provenance, not per-sample PID-reuse proof"
+          },
+          "total_ms": {
+            "median": 17.61088,
+            "p95": 17.9192752
+          },
+          "evaluate_ms": {
+            "median": 17.21336,
+            "p95": 17.5060368
+          },
+          "evaluate2_ms": {
+            "median": 8.577072000000001,
+            "p95": 8.942822399999999
+          },
+          "resolve_ms": {
+            "median": 0.180608,
+            "p95": 0.1861104
+          },
+          "nr_origin_source_gap_median": 7
+        },
+        "turn": {
+          "after_ns": 35505279769083,
+          "before_ns": 35509980189520,
+          "actual_presents": 346,
+          "actual_FPS": 73.83039183679006,
+          "present_p95_ms": 19.5896972,
+          "source_first": 16191,
+          "source_last": 16536,
+          "cache_selected_presents": 346,
+          "nr_jobs": 55,
+          "reset_jobs": 55,
+          "gpu_scope": "same Helper queue commands/dependencies, not pure inference",
+          "gpu_memory": {
+            "status": "MEASURED_PID_COMPUTE_SAMPLE",
+            "scope": "PID-associated compute-app sampling; graphics memory may be absent; missing is not zero",
+            "device_total": {
+              "status": "MEASURED_DEVICE_TOTAL",
+              "scope": "per-UUID physical device total includes other apps, driver and shared usage; never summed from PID reports",
+              "devices": [
+                {
+                  "uuid": "GPU-8734fac9-db30-c279-a340-fe117ace6365",
+                  "samples": 3,
+                  "peak_used_MiB": 4176.0,
+                  "total_MiB_min": 8188.0,
+                  "total_MiB_max": 8188.0,
+                  "peak_used_percent": 51.001465559355154
+                }
+              ],
+              "attribution": "device usage is not solely NRBridge; per-UUID samples do not alone prove which device Native selected"
+            },
+            "pid": 1234832,
+            "game_start_ticks": 3529961,
+            "samples": 3,
+            "peak_MiB": 3568.0,
+            "identity_limit": "sampler recorded PID only; starttime is game provenance, not per-sample PID-reuse proof"
+          },
+          "total_ms": {
+            "median": 17.69552,
+            "p95": 17.960153599999998
+          },
+          "evaluate_ms": {
+            "median": 17.289536,
+            "p95": 17.563817599999997
+          },
+          "evaluate2_ms": {
+            "median": 8.587488,
+            "p95": 8.9823744
+          },
+          "resolve_ms": {
+            "median": 0.179008,
+            "p95": 0.18372159999999998
+          },
+          "nr_origin_source_gap_median": 6.0
+        }
+      },
+      "screenshot": {
+        "path": "/tmp/nrbridge-serial-candidate/runs/serial-two-r1/two-static.png",
+        "sha256": "89bbfc0a3b8254aa1f9f825db692f2d846c7585e6abbeb6ae17a1ec3580446b0",
+        "public_path": "assets/multipass-serial-2pass.png"
+      },
+      "actual_bindings_checked": 1335,
+      "binding_examples": [
+        {
+          "job": 0,
+          "origin": 7842,
+          "calls": [
+            {
+              "feature": 21878640,
+              "input": 93825339387408,
+              "output": 93825339144336,
+              "pass": 1,
+              "reset": 1
+            },
+            {
+              "feature": 250798864,
+              "input": 93825339144336,
+              "output": 93825341673936,
+              "pass": 2,
+              "reset": 1
+            }
+          ],
+          "resolve_proxy": 93825339387408
+        },
+        {
+          "job": 1,
+          "origin": 7849,
+          "calls": [
+            {
+              "feature": 21878640,
+              "input": 93825339387408,
+              "output": 93825339144336,
+              "pass": 1,
+              "reset": 1
+            },
+            {
+              "feature": 250798864,
+              "input": 93825339144336,
+              "output": 93825341673936,
+              "pass": 2,
+              "reset": 1
+            }
+          ],
+          "resolve_proxy": 93825339387408
+        }
+      ],
+      "secondary_retirement": {
+        "created": 1,
+        "last_gpu_serial": 1339,
+        "normal_shutdown": true,
+        "params_destroyed": true,
+        "released": 1,
+        "schema": "nr-serial-retirement-v1",
+        "session": "serial-two-r1"
+      }
+    }
+  ],
+  "limits": [
+    "single order, one short scene per mode; no repeated/order-swapped quality experiment",
+    "screenshots differ in idle animation/cloud/light/time; no ground-truth improvement claim",
+    "continuous Reset=0 model history not GPU exercised; live 2->1->2 plus Style changes passed normal retirement",
+    "no original Helper pixel equivalence comparison yet; frozen Encode/Resolve bytes and single-pass behavior preserved",
+    "GPU memory is device-wide sampled usage, not exclusive Feature allocation"
+  ],
+  "post_gpu_host": {
+    "boot_id": "6df86d77-f362-434f-b9cb-8f04f59e4f0b",
+    "kernel_gpu_fault_check": "PASS",
+    "journal_sha256": "1e3743b5998f1e606db21920c03f36bfcb317582adad310e18186d4413924b04",
+    "gpu_lock": "AVAILABLE",
+    "receipt": {
+      "boot_id": "6df86d77-f362-434f-b9cb-8f04f59e4f0b",
+      "nonce": "041b3b2c079348edb8eb966a371fc214",
+      "root": "/tmp/nrbridge-serial-candidate",
+      "schema": "nrbridge-boot-session-v1",
+      "session": "serial-native-mouse-r1",
+      "state": "retired",
+      "uid": 1000
+    }
+  },
+  "live_switch": {
+    "session": "serial-switch-r2",
+    "result": {
+      "status": "PASS_NORMAL_TEARDOWN",
+      "returncode": 0,
+      "native_lastuse_proof": true,
+      "residuals": [],
+      "watchdog_expired": false,
+      "supervisor_interrupted": false,
+      "received_signals": 0,
+      "quality": "NOT_ACCEPTED",
+      "performance": "separate actual Present analysis required",
+      "generated_inputs_cleanup": {
+        "status": "RETIRED",
+        "removed": [
+          {
+            "name": "boot.bin",
+            "bytes": 98649948,
+            "sha256": "6e45ed8b7997afadfbd1cef2f786fbfbbe0fecaa02ec484be13322b1ee296e9a"
+          },
+          {
+            "name": "eboot.elf",
+            "bytes": 93667640,
+            "sha256": "cec1b276e7f9e4db978e57f524f41fbaac594530a3437b002e23f3fab14b4f86"
+          },
+          {
+            "name": "entry.bin",
+            "bytes": 1024,
+            "sha256": "791768cff02c9fe1ead5495cee6e6d04b648efa1767c7162c335306ea467eb10"
+          },
+          {
+            "name": "boot-libc.bin",
+            "bytes": 99659112,
+            "sha256": "038e0e089cd34d990c80171e455ac4f6bf05f270135f782bc4298bedaa535b3d"
+          },
+          {
+            "name": "boot-linked.bin",
+            "bytes": 101235516,
+            "sha256": "b5cb1da3a15bb853c2adbc9ef03d7d8058f729b247a0646370cf61f056398e1d"
+          },
+          {
+            "name": "content.bin",
+            "bytes": 28,
+            "sha256": "6c749b4537aca734e52ccce8c9a19563cdde18f62612c2f3d1124ccb3d1a0846"
+          },
+          {
+            "name": "patches.bin",
+            "bytes": 126,
+            "sha256": "eb6fe364685d188a6308a43b72f64079030215d41cd9bfad9f24c2899a4f76a8"
+          }
+        ],
+        "bytes": 393213394,
+        "retained": "generation JSON, logs, saves, diagnostics and Native/Helper builds"
+      },
+      "fg_preferences": {
+        "status": "no_player_settings"
+      },
+      "player_preferences": {
+        "status": "not_saved",
+        "reason": "[Errno 2] No such file or directory: '/tmp/nrbridge-serial-candidate/runs/serial-switch-r2/player-settings.json'"
+      },
+      "player_run_cleanup_plan": {
+        "mode": "dry-run",
+        "redundant_save_copies": []
+      },
+      "player_run_cleanup": {
+        "mode": "apply",
+        "redundant_save_copies": []
+      }
+    },
+    "summary": {
+      "finalized_jobs": 6946,
+      "last_helper_serial": 6959,
+      "schema": "nr-native-serial-summary-v1",
+      "secondary_created": 5,
+      "secondary_released": 5,
+      "session": "serial-switch-r2",
+      "two_pass_jobs": 5254,
+      "verified_evaluates": 12200
+    },
+    "secondary_retirement": {
+      "created": 5,
+      "last_gpu_serial": 6959,
+      "normal_shutdown": true,
+      "params_destroyed": true,
+      "released": 5,
+      "schema": "nr-serial-retirement-v1",
+      "session": "serial-switch-r2"
+    },
+    "phases": [
+      {
+        "generation": "1",
+        "params": "2",
+        "revision": "1",
+        "style": "0",
+        "intensity": "1",
+        "actual_create_fence": "4",
+        "first_job": {
+          "job": "0",
+          "origin": "17784",
+          "passes": "2",
+          "reset": "1",
+          "total_ms": "17.907456",
+          "evaluate_ms": "17.485536",
+          "evaluate2_ms": "9.946816",
+          "resolve_ms": "0.179584",
+          "scope": "queue_commands_and_dependencies"
+        }
+      },
+      {
+        "generation": "2",
+        "params": "3",
+        "revision": "2",
+        "style": "0",
+        "intensity": "1",
+        "actual_create_fence": "1724",
+        "first_job": {
+          "job": "1719",
+          "origin": "28644",
+          "passes": "1",
+          "reset": "1",
+          "total_ms": "9.169120",
+          "evaluate_ms": "7.551200",
+          "evaluate2_ms": "0.000000",
+          "resolve_ms": "1.374464",
+          "scope": "queue_commands_and_dependencies"
+        }
+      },
+      {
+        "generation": "3",
+        "params": "4",
+        "revision": "3",
+        "style": "0",
+        "intensity": "1",
+        "actual_create_fence": "3418",
+        "first_job": {
+          "job": "3411",
+          "origin": "38821",
+          "passes": "2",
+          "reset": "1",
+          "total_ms": "16.392640",
+          "evaluate_ms": "16.011168",
+          "evaluate2_ms": "8.452640",
+          "resolve_ms": "0.185632",
+          "scope": "queue_commands_and_dependencies"
+        }
+      },
+      {
+        "generation": "4",
+        "params": "5",
+        "revision": "4",
+        "style": "2",
+        "intensity": "1",
+        "actual_create_fence": "6346",
+        "first_job": {
+          "job": "6337",
+          "origin": "56893",
+          "passes": "2",
+          "reset": "1",
+          "total_ms": "16.637568",
+          "evaluate_ms": "16.213376",
+          "evaluate2_ms": "8.736928",
+          "resolve_ms": "0.188032",
+          "scope": "queue_commands_and_dependencies"
+        }
+      },
+      {
+        "generation": "5",
+        "params": "6",
+        "revision": "5",
+        "style": "1",
+        "intensity": "1",
+        "actual_create_fence": "6421",
+        "first_job": {
+          "job": "6410",
+          "origin": "57400",
+          "passes": "2",
+          "reset": "1",
+          "total_ms": "17.950016",
+          "evaluate_ms": "17.511904",
+          "evaluate2_ms": "9.978592",
+          "resolve_ms": "0.199232",
+          "scope": "queue_commands_and_dependencies"
+        }
+      },
+      {
+        "generation": "6",
+        "params": "7",
+        "revision": "6",
+        "style": "2",
+        "intensity": "1",
+        "actual_create_fence": "6469",
+        "first_job": {
+          "job": "6456",
+          "origin": "57724",
+          "passes": "2",
+          "reset": "1",
+          "total_ms": "17.863616",
+          "evaluate_ms": "17.434624",
+          "evaluate2_ms": "10.013472",
+          "resolve_ms": "0.190816",
+          "scope": "queue_commands_and_dependencies"
+        }
+      }
+    ],
+    "helper_log_sha256": {
+      "async-helper.log": "9b5a8db9d28af92ff2313cc91d8fe51a3b7e9ca1338bac2ac94a1f249d9caef5"
+    }
+  },
+  "user_feedback": {
+    "kind": "subjective_user_acceptance",
+    "answer": "\u770b\u5230\u6536\u76ca\uff0c\u7ee7\u7eed\u505a\u5408\u5165\u8bc4\u4f30",
+    "objective_image_improvement_claim": false
+  },
+  "input_mode": {
+    "measured_comparison_and_switch_runs": "joystick compatibility, mistakenly selected by agent",
+    "default_candidate": "native mouse",
+    "native_restart_session": "serial-native-mouse-r1",
+    "native_restart_environment": "1",
+    "native_restart_status": "PASS_NORMAL_TEARDOWN",
+    "native_restart_scope": "default selection verified; user declined additional acceptance, closed normally"
+  }
+}

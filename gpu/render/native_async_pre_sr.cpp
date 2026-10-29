@@ -334,8 +334,8 @@ NativeAsyncPreSr::SparseReturn NativeAsyncPreSr::TryRecordSparseComplete(Schedul
     !sparse_input_proof->native_GPU_complete.load(std::memory_order_acquire)||complete.input_tick_echo!=sparse_input_proof->native_target_tick||
     id.session!=expected.session||id.resource_set!=expected.resource_set||id.generation!=expected.generation||id.job!=expected.job||
     id.origin_source!=expected.origin_source||id.origin_epoch!=expected.origin_epoch||id.origin_history!=expected.origin_history||id.params_version!=expected.params_version||
-    !resources.Valid(id)||!id.Matches(chain.Origin())||complete.model_reset!=1)throw std::runtime_error("Native sparse exact completion/native input identity mismatch");
- const bool valid=complete.output_valid&&complete.model_valid&&complete.evaluate_calls==1&&complete.evaluate_result==1&&complete.resolve_calls==1;
+    !resources.Valid(id)||!id.Matches(chain.Origin())||(complete.model_reset>1||complete.expected_passes<1||complete.expected_passes>2))throw std::runtime_error("Native sparse exact completion/native input identity mismatch");
+ const bool valid=complete.output_valid&&complete.model_valid&&complete.evaluate_calls==complete.expected_passes&&complete.evaluate_result==1&&complete.resolve_calls==1;
  const bool skip=complete.expected_skip&&!complete.output_valid&&!complete.model_valid&&!complete.evaluate_calls&&!complete.evaluate_result&&!complete.resolve_calls;
  if(!valid&&!skip)throw std::runtime_error("Native sparse normal model predicate rejected unexpected output");
  const bool current=!stopping&&!rejected&&current_source>0&&chain.CompleteTo(id.origin_source,current_source,id.origin_epoch,id.origin_history);
@@ -422,8 +422,8 @@ void NativeAsyncPreSr::PublishRuntimeStatus(){
  else if(runtime_model_pending){runtime_status.status=BbNR::Status::Pending;runtime_status.reason="Draining actual GPU leases / rebuilding Helper Feature";}
  if(retained&&retained->persistent){
   auto& v=*retained->persistent;const auto applied=v.AppliedControls();
-  const auto model_style=runtime_status.actual_config.model_style;const auto model_intensity=runtime_status.actual_config.model_intensity;
-  runtime_status.actual_config=applied.config;runtime_status.actual_config.model_style=model_style;runtime_status.actual_config.model_intensity=model_intensity;
+  const auto model_style=runtime_status.actual_config.model_style;const auto model_intensity=runtime_status.actual_config.model_intensity;const auto model_passes=runtime_status.actual_config.model_passes;
+  runtime_status.actual_config=applied.config;runtime_status.actual_config.model_style=model_style;runtime_status.actual_config.model_intensity=model_intensity;runtime_status.actual_config.model_passes=model_passes;
   runtime_status.reset_applied_seq=applied.reset_seq;
   const auto sample=v.LatestRuntimeSample();runtime_status.gpu_sample_available=sample.available;runtime_status.gpu_timing_available=sample.timing_available;
   runtime_status.history_pass_ms=sample.pass_ms;runtime_status.gpu_timing_source=sample.source;runtime_status.gpu_timing_revision=sample.revision;runtime_status.gpu_timing_monotonic_ns=sample.monotonic_ns;
@@ -446,9 +446,15 @@ void NativeAsyncPreSr::PublishRuntimeStatus(){
 }
 bool NativeAsyncPreSr::ApplyRuntimeControls(Scheduler& scheduler){
  runtime_request=BbNR::ReadRequest();
+ // An explicit CLI 2-pass choice uses the same drain/Apply path as the UI.
+ if(!serial_initial_requested&&peer&&peer->State()==NativeAsyncPreSrOriginOwner::Phase::Ready){
+  serial_initial_requested=true;
+  const char* initial=std::getenv("BB_NR_SERIAL_INITIAL_PASSES");const char* optin=std::getenv("BB_NR_SERIAL_MULTIPASS");
+  if(initial&&std::string(initial)=="2"&&optin&&std::string(optin)=="1"&&runtime_request.model_apply_seq==0){auto config=runtime_request.config;config.model_passes=2;BbNR::Submit(config,{.apply_model=true});runtime_request=BbNR::ReadRequest();}
+ }
  if(peer)if(auto ack=peer->TryConsumeModelAck()){
   runtime_model_params=ack->params;runtime_status.model_applied_version=ack->revision;
-  runtime_status.actual_config.model_style=ack->settings.style;runtime_status.actual_config.model_intensity=ack->settings.intensity;
+  runtime_status.actual_config.model_style=ack->settings.style;runtime_status.actual_config.model_intensity=ack->settings.intensity;runtime_status.actual_config.model_passes=ack->settings.passes;
   if(retained&&retained->persistent)retained->persistent->Reset();
   chain.Restart(true);recorded_origin.reset();
   if(retained){for(auto& x:retained->records)x.reset();for(auto& x:retained->leases)x.reset();retained->sky->Restart();}
@@ -456,6 +462,9 @@ bool NativeAsyncPreSr::ApplyRuntimeControls(Scheduler& scheduler){
  }
  runtime_model_pending=runtime_request.model_apply_seq>runtime_status.model_applied_version;
  if(runtime_model_pending){
+  if(runtime_request.model_config.model_passes==2&&(!std::getenv("BB_NR_SERIAL_MULTIPASS")||std::string(std::getenv("BB_NR_SERIAL_MULTIPASS"))!="1")){
+   runtime_status.status=BbNR::Status::Failed;runtime_status.reason="2-pass NR requires the serial candidate entry";runtime_model_pending=false;BbNR::PublishSnapshot(runtime_status);return true;
+  }
   if(!peer||!peer->RuntimeModelEnabled()){
    runtime_status.status=BbNR::Status::Failed;runtime_status.reason="This session has no runtime-model Helper; settings were not applied";
    // No resource mutation and no optimistic acknowledgment on unsupported backend.
@@ -467,7 +476,7 @@ bool NativeAsyncPreSr::ApplyRuntimeControls(Scheduler& scheduler){
    if(retained){for(const auto& l:retained->leases)if(l)l->CompleteNative(observed);if(retained->persistent)retained->persistent->ObserveCompletion(scheduler);}
    if((!retained||retained->AllUsesReady())&&(!fixed_input||fixed_input->Ready())){
     NativeRuntimeModel::Commit commit{.revision=runtime_request.model_apply_seq,.previous_generation=peer->ModelGeneration(),.generation=peer->ModelGeneration()+1,.previous_params=runtime_model_params,.params=runtime_model_params+1,
-     .settings={runtime_request.model_config.model_style,runtime_request.model_config.model_intensity},.finalized_jobs=peer->FinalizedJobs(),.native_target_tick=target,.native_observed_tick=observed,.packet_leases=0,.shared_job_finalized=true,.native_GPU_complete=true};
+     .settings={runtime_request.model_config.model_style,runtime_request.model_config.model_intensity,runtime_request.model_config.model_passes},.finalized_jobs=peer->FinalizedJobs(),.native_target_tick=target,.native_observed_tick=observed,.packet_leases=0,.shared_job_finalized=true,.native_GPU_complete=true};
     peer->TryRebuildModel(commit);
    }
   }
