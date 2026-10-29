@@ -14,6 +14,7 @@ def parse_args(argv=None):
  inputs=p.add_mutually_exclusive_group()
  inputs.add_argument('--local-inputs',help='显式 ROOT/localinputs 版本化配置；默认保留legacy路径')
  inputs.add_argument('--legacy-inputs',action='store_true',help='显式选择原Helper与61项legacy pins，供旧基线回滚')
+ p.add_argument('--nr-passes',type=int,choices=(1,2),default=1,help='serial candidate initial pass count; 2 requires --serial-multipass')
  p.add_argument('--serial-multipass',action='store_true',help='candidate: allow same-resolution serial 1/2 passes; matched Helper required')
  p.add_argument('--daily',action='store_true',help='日常游玩，无固定时长；默认原生鼠标')
  p.add_argument('--joystick-mouse',action='store_true',help='兼容摇杆模拟鼠标')
@@ -88,6 +89,7 @@ def launch_command(a):
   recovery._identities(runner,record)
   recovery._predecessor(runner,record)
  if a.continue_session:runner.continuation_source(a.continue_session)
+ if a.nr_passes==2 and not a.serial_multipass:raise ValueError('--nr-passes 2 requires --serial-multipass')
  if a.serial_multipass:
   if not a.daily:raise ValueError('serial candidate uses the daily runner; add --daily')
   if b'NRBRIDGE_SERIAL_MULTIPASS_V1' not in helper.read_bytes():raise ValueError('serial MultiPass requires matching Helper')
@@ -100,7 +102,7 @@ def launch_command(a):
  if a.nr_sr_preset:command+=['--nr-sr-preset',a.nr_sr_preset]
  if a.nr_output:command+=['--nr-output',a.nr_output]
  if a.nr_execution:command+=['--nr-execution',a.nr_execution]
- if a.serial_multipass:command+=['--serial-multipass']
+ if a.serial_multipass:command+=['--serial-multipass','--nr-passes',str(a.nr_passes)]
  if a.continue_session:command+=['--continue-session',a.continue_session]
  if a.context_recovery:command+=['--context-recovery',a.context_recovery]
  if a.online_pool!='offline':command+=['--online-pool',a.online_pool,'--online-account-config',a.online_account_config]

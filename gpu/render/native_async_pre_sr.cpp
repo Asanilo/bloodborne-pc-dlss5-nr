@@ -446,6 +446,12 @@ void NativeAsyncPreSr::PublishRuntimeStatus(){
 }
 bool NativeAsyncPreSr::ApplyRuntimeControls(Scheduler& scheduler){
  runtime_request=BbNR::ReadRequest();
+ // An explicit CLI 2-pass choice uses the same drain/Apply path as the UI.
+ if(!serial_initial_requested&&peer&&peer->State()==NativeAsyncPreSrOriginOwner::Phase::Ready){
+  serial_initial_requested=true;
+  const char* initial=std::getenv("BB_NR_SERIAL_INITIAL_PASSES");const char* optin=std::getenv("BB_NR_SERIAL_MULTIPASS");
+  if(initial&&std::string(initial)=="2"&&optin&&std::string(optin)=="1"&&runtime_request.model_apply_seq==0){auto config=runtime_request.config;config.model_passes=2;BbNR::Submit(config,{.apply_model=true});runtime_request=BbNR::ReadRequest();}
+ }
  if(peer)if(auto ack=peer->TryConsumeModelAck()){
   runtime_model_params=ack->params;runtime_status.model_applied_version=ack->revision;
   runtime_status.actual_config.model_style=ack->settings.style;runtime_status.actual_config.model_intensity=ack->settings.intensity;runtime_status.actual_config.model_passes=ack->settings.passes;

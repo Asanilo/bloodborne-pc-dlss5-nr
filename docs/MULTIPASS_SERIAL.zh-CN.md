@@ -39,7 +39,9 @@ Helper 为独立 OptiScaler 仓库 `research/multipass-serial`，具体提交见
 
 ```bash
 export NRBRIDGE_HOME=/tmp/nrbridge-serial-candidate
-bash tools/nr_dev/play-serial.sh "$NRBRIDGE_HOME/localinputs/serial.json"
+bash tools/nr_dev/play-serial.sh "$NRBRIDGE_HOME/localinputs/serial.json" --nr-passes 1
+# 显式双遍起始选择通过相同的 Apply 流程生效；运行中仍可用面板切回一遍
+bash tools/nr_dev/play-serial.sh "$NRBRIDGE_HOME/localinputs/serial.json" --nr-passes 2
 ```
 
 入口沿用 daily 准入、GPU flock 和正常退休，只允许配对 Native/Helper；首版不启用可变分辨率。

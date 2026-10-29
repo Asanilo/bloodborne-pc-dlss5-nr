@@ -76,6 +76,7 @@ public:
  uint64_t Epoch()const noexcept{return last_epoch;}
  uint64_t OriginSource()const noexcept{return chain.Size()?chain.Origin().source:0;}
 private:
+ bool serial_initial_requested=false;
  std::shared_ptr<void> dimension_adapter;
  static void HoldDimensionAdapter(std::shared_ptr<void>);
  struct Retention {
