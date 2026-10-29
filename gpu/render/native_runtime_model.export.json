@@ -2,7 +2,7 @@
   "schema": "nrbridge-native-protocol-copy-v1",
   "source": {
     "repository": "Asanilo/OptiScaler-Linux-NR",
-    "commit": "77b9ed64900b9a3af258091170eb693a20c5db0b",
+    "commit": "6765901b200998849921843962d831ecd718a6a0",
     "header": "nrbridge/protocol/native_runtime_model.h",
     "exporter": "nrbridge/protocol/export.py"
   },
