@@ -46,9 +46,14 @@ def sha(data):
 
 
 def busy_processes():
-    out = subprocess.run(['pgrep', '-af', 'bb-probe|wine_runtime_model'],
-                         capture_output=True, text=True)
-    return [line for line in out.stdout.splitlines() if line.strip()]
+    # Exact process name for the game (a command line that merely mentions the
+    # probe path must not count), and the Helper by its executable name.
+    found = []
+    for pattern, exact in (('bb-probe', True), ('wine_runtime_model.exe', False)):
+        args = ['pgrep', '-x', pattern] if exact else ['pgrep', '-f', pattern]
+        out = subprocess.run(args, capture_output=True, text=True)
+        found += [pid for pid in out.stdout.split() if pid.isdigit()]
+    return found
 
 
 def main():
