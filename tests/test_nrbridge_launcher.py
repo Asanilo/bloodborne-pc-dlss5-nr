@@ -52,6 +52,36 @@ def frontend_namespace():
 
 
 class AdapterTests(unittest.TestCase):
+    def test_managed_gpu_indices_use_the_native_loader_policy(self):
+        tree = ast.parse((ROOT / 'launcher/bbport_launcher.py').read_text())
+        function = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                        and n.name == 'connected_gpus')
+        module = ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[]))
+        for managed in (False, True):
+            with self.subTest(managed=managed):
+                process = mock.Mock()
+                process.run.return_value.stdout = '0\t0x10de\tdiscrete\tRTX 4060\t1\n'
+                environment = {'BB_GPU_ID': '1', 'VK_DRIVER_FILES': '/tmp/driver.json',
+                               'VK_ICD_FILENAMES': '/tmp/legacy.json',
+                               'VK_LOADER_LAYERS_DISABLE': 'custom', 'DISPLAY': ':1'}
+                namespace = dict(NRBRIDGE=managed, PACKAGED=False, PORT_DIR=ROOT,
+                                 subprocess=process,
+                                 os=types.SimpleNamespace(environ=environment))
+                exec(compile(module, '<gpu-list>', 'exec'), namespace)
+                self.assertEqual(namespace['connected_gpus'](),
+                                 [(0, '0x10de', 'discrete', 'RTX 4060', True)])
+                actual = process.run.call_args.kwargs['env']
+                self.assertNotIn('BB_GPU_ID', actual)
+                self.assertEqual(actual['DISPLAY'], ':1')
+                if managed:
+                    self.assertEqual(actual['VK_LOADER_LAYERS_DISABLE'], '~implicit~')
+                    self.assertNotIn('VK_DRIVER_FILES', actual)
+                    self.assertNotIn('VK_ICD_FILENAMES', actual)
+                else:
+                    self.assertEqual(actual['VK_LOADER_LAYERS_DISABLE'], 'custom')
+                    self.assertEqual(actual['VK_DRIVER_FILES'], '/tmp/driver.json')
+                self.assertEqual(environment['BB_GPU_ID'], '1')
+
     def test_daily_has_all_saved_paths_and_explicit_modes(self):
         command = bridge.player_command({'online': True, 'online_pool': 'huntersdream',
             'nrbridge_enabled': False, 'nrbridge_native_mouse': False}, {},

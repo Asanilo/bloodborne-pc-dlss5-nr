@@ -597,6 +597,14 @@ def connected_gpus():
     (bb-gpu-capabilities --gpus; BB_GPU_ID is the index), [] if unknown."""
     tool = PORT_DIR / ("bin" if PACKAGED else "out") / "bb-gpu-capabilities"
     env = {key: value for key, value in os.environ.items() if key != "BB_GPU_ID"}
+    if NRBRIDGE:
+        # The managed runner disables implicit layers. Mesa's device-select layer
+        # can reorder the devices; its indices must not reach a differently
+        # ordered Native list (e.g. RTX 4060 and Radeon 780M on hybrid laptops).
+        env["VK_LOADER_LAYERS_DISABLE"] = "~implicit~"
+        # These loader overrides are not forwarded by the managed runner either.
+        env.pop("VK_DRIVER_FILES", None)
+        env.pop("VK_ICD_FILENAMES", None)
     try:
         run = subprocess.run([str(tool), "--gpus"], capture_output=True, text=True, timeout=10,
                              env=env)
