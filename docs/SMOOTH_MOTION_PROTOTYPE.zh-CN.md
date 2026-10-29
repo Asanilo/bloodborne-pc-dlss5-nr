@@ -117,8 +117,27 @@ NRBRIDGE_HOME=~/Code/nr-home/build/sm-official \
 
 第二版改为**差异幅度**：`frame_count` 逐帧与上一帧比较采样像素，输出 permille 差异
 （0–1000），`frame_report.py` 按阈值（1/5/10/25‰）统计更新率。依据：新游戏帧会改变大部分
-采样点，合成器重绘只动少数点。分析器已用合成数据验证，**真实游戏内的阈值标定与 SM 开/关
-对照仍需下一次 GPU 窗口**。
+采样点，合成器重绘只动少数点。
+
+阈值本身不等于“已去污染”，所以分析器现在**自己判断能不能下结论**：
+
+- `noise_floor_permille`：低于阈值的非零差异中位数；只要它 > 0，就说明采样里仍有合成器重绘，
+  `claimable=false`；
+- `per_second_stable`：窗口 ≥ 2 s 时要求至少两个秒桶且 max ≤ 1.25×min，单次爆发不算证据；
+- 两者都通过才输出 `claimable=true`。
+
+离线已用合成分布覆盖四种情况（干净、重绘噪声、单峰噪声、速率不稳），见
+`tools/sm_lab/test_frame_report.py`。
+
+**仍缺的真实采集条件**（不能靠离线推断）：
+
+1. 暂停/静止场景下实测 `noise_floor` 是否为 0（这是判据成立的前提）；
+2. `Immediate` 是否因撕裂被合成器采到中间状态——需要在 `Fifo`（或 `Mailbox`）下重复同一
+   场景，若噪声消失，则“2 倍”才可用；
+3. 同一窗口内同时确认应用真实 Present 速率（`FG_PRESENT kind=real` 计数）；
+4. SM 开/关各一轮，`claimable=true` 且更新率≈2×真实 Present 才可下结论。
+
+在这些条件满足前，本仓库不声称“驱动插帧已被显示侧证明”。
 
 ## 分支状态（rebase 与构建对齐）
 
