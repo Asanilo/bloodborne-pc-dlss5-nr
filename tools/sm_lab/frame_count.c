@@ -33,10 +33,13 @@ struct shm_buffer {
 };
 
 static struct shm_buffer shm;
+static uint8_t *previous_frame;
+static size_t previous_size;
 static int ready_flag;
 static int failed_flag;
 static uint64_t frame_hash;
 static uint64_t frame_ts_ns;
+static unsigned frame_diff_permille;
 
 static void noop_geometry(void *d, struct wl_output *o, int32_t x, int32_t y, int32_t pw,
                           int32_t ph, int32_t subpixel, const char *make, const char *model,
@@ -132,6 +135,24 @@ static void frame_ready(void *data, struct zwlr_screencopy_frame_v1 *frame, uint
     }
     frame_hash = hash;
     frame_ts_ns = ((uint64_t)sec_hi << 32 | sec_lo) * 1000000000ull + nsec;
+    // Amplitude, not mere inequality: compositor redraws/dithering change a few
+    // sampled bytes, a new game frame changes most of them.
+    unsigned changed = 0, samples = 0;
+    if (previous_frame && previous_size == shm.size) {
+        for (size_t i = 0; i + 8 <= shm.size; i += 64) {
+            ++samples;
+            int delta = abs((int)p[i] - (int)previous_frame[i]) +
+                        abs((int)p[i + 1] - (int)previous_frame[i + 1]) +
+                        abs((int)p[i + 2] - (int)previous_frame[i + 2]);
+            if (delta > 24) ++changed;
+        }
+    }
+    frame_diff_permille = samples ? (unsigned)((uint64_t)changed * 1000 / samples) : 0;
+    if (!previous_frame || previous_size != shm.size) {
+        previous_frame = malloc(shm.size);
+        previous_size = previous_frame ? shm.size : 0;
+    }
+    if (previous_frame) memcpy(previous_frame, shm.data, shm.size);
     ready_flag = 1;
     zwlr_screencopy_frame_v1_destroy(frame);
 }
@@ -198,8 +219,8 @@ int main(int argc, char **argv) {
         if (failed_flag) continue;
         if (index == 0 || frame_hash != previous) ++distinct;
         previous = frame_hash;
-        printf("FRAME %u %llu %016llx\n", index, (unsigned long long)frame_ts_ns,
-               (unsigned long long)frame_hash);
+        printf("FRAME %u %llu %016llx %u\n", index, (unsigned long long)frame_ts_ns,
+               (unsigned long long)frame_hash, frame_diff_permille);
         ++index;
     }
     printf("TOTAL frames=%u distinct=%u seconds=%.3f\n", index, distinct, seconds);
