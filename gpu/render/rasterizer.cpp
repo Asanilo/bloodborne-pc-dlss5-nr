@@ -367,8 +367,10 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     const auto& regs = Regs();
     // bbport: the pass copying a finished frame to a display buffer; the previous draw's
     // target is that frame.
-    if (camera_motion->Enabled() && regs.color_buffers[0] &&
-        FrameCapture::IsDisplayBuffer(regs.color_buffers[0].Address())) {
+    const VAddr display_address = camera_motion->Enabled() && regs.color_buffers[0] &&
+        FrameCapture::IsDisplayBuffer(regs.color_buffers[0].Address())
+            ? regs.color_buffers[0].Address() : 0;
+    if (display_address) {
         scene_started = false;
         DumpTracedInputs();
         DumpPassImages('p');
@@ -406,6 +408,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     if (!skipped_ps.empty()) {
         const auto* ps = pipeline->GetStages()[u32(Shader::SwStage::Fragment)];
         if (ps && std::ranges::find(skipped_ps, ps->pgm_hash) != skipped_ps.end()) {
+            upscaler->OnDisplayPassEnd(display_address, {}, false);
             return;
         }
     }
@@ -486,6 +489,7 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     const bool inputs_resolved = draw_inputs.resolved;
     draw_inputs.pending = false;
     if (!bound) {
+        upscaler->OnDisplayPassEnd(display_address, {}, false);
         return;
     }
     const auto state = BeginRendering(pipeline);
@@ -722,6 +726,8 @@ void Rasterizer::DrawRecord(const GraphicsPipeline* pipeline, const PreparedDraw
     }
 
     BB_SECTION(Kick);
+    if (display_address)
+        upscaler->OnDisplayPassEnd(display_address, cb_descs[0].first, true);
     ResetBindings(false);
     scheduler.KickRecording();
 }

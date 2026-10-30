@@ -8,8 +8,10 @@
 //    reuses its depth buffer before the display pass) and its motion vectors and camera kept.
 //  - Interpolate, at the game's display pass: the output-size image holds the finished frame,
 //    UI and all. Prepare (optical flow on that frame) and the interpolation are recorded there,
-//    before the next frame's work. No HUD-less image: the game draws more than its HUD over the
-//    upscaled scene, and FSR pastes whatever differs uninterpolated (a double image).
+//    before the next frame's work. DLSSG waits for the guest display draw as well: its brightness
+//    adjustment must be present in both real and generated images. No HUD-less image: the game
+//    draws more than its HUD over the upscaled scene, and FSR pastes whatever differs
+//    uninterpolated (a double image).
 //  - The presenter encodes that output like the real frame (PrepareFrame) and shows it first.
 // Settings: frame_generation in bbport.ini, the in-game menu, BB_FRAME_GEN=1.
 #pragma once
@@ -83,6 +85,13 @@ public:
     /// holds the frame with its UI. Records the interpolation if this frame's scene was captured.
     void Interpolate(vk::Image color, VAddr display);
 
+    // DLSSG consumes the result of the guest display draw, including its brightness
+    // adjustment, rather than assuming that draw is a byte-for-byte scene copy.
+    bool DeferDisplayPass(VAddr display);
+    bool HasDeferredDisplayPass(VAddr display) const;
+    void FinishDisplayPass(VAddr display, vk::Image color, vk::Format format,
+                           u32 width, u32 height);
+
     /// Presenter: the frame interpolated before the last real one of `display` (General layout,
     /// the scene's format and size), if there is one; it is used once.
     struct Output {
@@ -127,6 +136,7 @@ private:
     vk::Format context_format{};
 
     Scene scene{};
+    VAddr pending_display_pass = 0;
     u64 accepted_scene_source = 0;
     u64 previous_fsr_source = 0;
     bool scene_captured = false; ///< this frame's, not yet interpolated
