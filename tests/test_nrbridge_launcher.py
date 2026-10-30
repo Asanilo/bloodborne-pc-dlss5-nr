@@ -492,6 +492,31 @@ class EntryAndReadbackTests(unittest.TestCase):
         self.assertIn('--sr-only', output.getvalue())
         self.assertIn('--experimental-fg fsr31-hudless --fg-native', output.getvalue())
 
+    def test_daily_serial_runtime_and_dimensions_fallback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'gpu').mkdir()
+            (root / 'gpu/libbbgpu.so').write_bytes(b'NRBRIDGE_NATIVE_SERIAL_MULTIPASS_V1')
+            helper = root / 'serial.exe'
+            helper.write_bytes(b'NRBRIDGE_SERIAL_MULTIPASS_V1')
+            config = root / 'serial.json'
+            config.write_text(json.dumps({'helper': {'path': str(helper)}}))
+            args = argparse.Namespace(sr_only=False, nr_sr_preset=None, nr_output=None, nr_execution=None)
+            self.assertEqual(entry.daily_runtime_route(config, root, args), (config, True))
+            args.sr_only = True
+            self.assertEqual(entry.daily_runtime_route(config, root, args), (config, False))
+            args.sr_only = False
+            args.nr_sr_preset = 'quality'
+            legacy_helper = root / 'dimensions.exe'
+            legacy_helper.write_bytes(b'NRBRIDGE_DIMENSIONS_V3R2')
+            legacy = root / 'dimensions.json'
+            legacy.write_text(json.dumps({'helper': {'path': str(legacy_helper)}}))
+            with mock.patch.dict(os.environ, {'NRBRIDGE_DIMENSIONS_RUNTIME_INPUTS': str(legacy)}):
+                self.assertEqual(entry.daily_runtime_route(config, root, args), (legacy, False))
+            args.nr_sr_preset = None
+            helper.write_bytes(b'old-single-pass-helper')
+            self.assertEqual(entry.daily_runtime_route(config, root, args), (config, False))
+
     def test_entry_diagnostic_flags_reach_existing_daily_runner(self):
         with mock.patch.object(entry, 'daily', return_value=0) as daily:
             self.assertEqual(entry.main(['--daily', '--fg-backend', 'fsr31', '--fg-profile', '--fg-validation']), 0)
