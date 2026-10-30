@@ -1,3 +1,5 @@
+# SPDX-FileCopyrightText: Copyright 2026 bbport contributors
+# SPDX-License-Identifier: GPL-2.0-or-later
 """Compile selected shadPS4/GoldHEN XML patches into out/patches.bin for the loader.
 
 Patch addresses are PS4 virtual addresses (eboot base 0x400000); the loader's
@@ -70,11 +72,13 @@ def intel_cpu(cpuinfo='/proc/cpuinfo'):
 SKIP_NETWORK_CHOICE='Skip Online/Offline Choice'
 
 
-def language_patches(env=os.environ):
-    # CUSA03173 includes zhocn/zhotw text, but hides it behind its region check.
-    # Reuse the existing 1.09 community patch; never rewrite the game extraction.
-    return ['Unlock Game Region'] if env.get('BB_LANGUAGE') in ('10', '11') else []
+LEGACY_REGION_PATCH='Unlock Game Region'
 
+
+def report_region_patch_migration(name):
+    print(f'Patches: {name} replaced by language-table mapping; preserving the retail '
+          'sell region and confirm buttons (region 5 has an empty server-info URL).',
+          file=sys.stderr)
 
 
 def skip_network_choice(env=os.environ):
@@ -182,6 +186,54 @@ SCENE_WIDTH=0x02196A6B-EBOOT_BASE
 SCENE_HEIGHT=0x02196A7A-EBOOT_BASE
 UI_WIDTH=0x02358554-EBOOT_BASE
 UI_HEIGHT=0x0235855D-EBOOT_BASE
+
+
+# Adapted from deadinside28/bloodborne_pc 0fc2921c45f8ff3900f6bfa43a299e9a4f532af4
+# (scripts/patches.py, language_writes); retain GPL-2.0-or-later attribution above.
+# Issue #269: the game's text and voice language whatever the copy's sell region allows (the EU
+# release shows English for Chinese and Korean and plays English voices for Japanese, though the
+# files are there; a save keeps the language it was made with). CSLocalizeLang (+0x1fb6cf0) and
+# the save's language (+0x14ef0..) map the wanted language through the sell region's tables (one
+# per region: game language -> shown language); the patches rewrite those tables: every language
+# as itself (voices: those with voice files), or every one as the chosen language.
+# Game language numbers (the order of the game's codes jajp, engb, ... zhcn).
+GAME_LANGUAGES=['jajp','engb','frfr','itit','dede','eses','esar','ptbr','enus','nlnl','plpl',
+                'ruru','dadk','nono','fifi','svse','trtr','ptpt','zhtw','kokr','zhcn']
+VOICE_COUNT=8  # jajp .. ptbr have voice files (sound/*_jaj|eng|frf|iti|ded|ese|esa|ptb.fsb)
+ENGLISH=1
+# The six regions' tables (21 int32 each), text and voice; region 2's text table as a check.
+TEXT_TABLES=(0x47366b0,0x4736720,0x47367c0,0x4736830,0x4736890,0x4736950)
+VOICE_TABLES=(0x47369b0,0x4736a20,0x4736a80,0x4736ae0,0x4736b40,0x4736ba0)
+EU_TEXT_TABLE=(0x47367c0,[1,1,2,3,4,5,5,17,1,9,10,11,12,13,14,15,16,17,1,1,1])
+
+
+def language_writes(settings, elf, env=os.environ):
+    """The sell regions' language tables for bbport.ini game_text_language and
+    game_voice_language (a code of GAME_LANGUAGES; auto or none: the game's own choice, without
+    the region's limits)."""
+    site,expected=EU_TEXT_TABLE
+    if (len(elf)<0x4000+max(TEXT_TABLES+VOICE_TABLES)+84 or
+            list(struct.unpack_from('<21i',elf,0x4000+site))!=expected):
+        raise ValueError('game language tables do not match the supported eboot; '
+                         'refusing language patches (no region-unlock fallback)')
+    # NRBridge's existing launcher uses PS4 language numbers. Force the selected Chinese
+    # text even for saves made in another language; other choices keep the game's selection.
+    default_text={'10':'zhtw','11':'zhcn'}.get(env.get('BB_LANGUAGE'),'auto')
+    text=settings.get('game_text_language',default_text)
+    voice=settings.get('game_voice_language','auto')
+    if text!='auto' and text not in GAME_LANGUAGES:
+        print(f'Patches: game_text_language={text} is not one of the game\'s languages')
+        text='auto'
+    if voice!='auto' and (voice not in GAME_LANGUAGES or GAME_LANGUAGES.index(voice)>=VOICE_COUNT):
+        print(f'Patches: game_voice_language={voice} has no voice files')
+        voice='auto'
+    text_map=[GAME_LANGUAGES.index(text)]*21 if text!='auto' else list(range(21))
+    voice_map=([GAME_LANGUAGES.index(voice)]*21 if voice!='auto'
+               else [i if i<VOICE_COUNT else ENGLISH for i in range(21)])
+    writes=[(site,struct.pack('<21i',*text_map)) for site in TEXT_TABLES]
+    writes+=[(site,struct.pack('<21i',*voice_map)) for site in VOICE_TABLES]
+    print(f'Patches: game languages: text {text}, voice {voice} (any sell region)')
+    return writes
 
 
 def read_settings(path):
@@ -335,6 +387,9 @@ def compile_external(selected, segments):
     """Writes of the selected external patches; a patch with unsupported lines is skipped whole."""
     writes=[]
     for key,_,meta in selected:
+        if meta.get('Name')==LEGACY_REGION_PATCH:
+            report_region_patch_migration(key)
+            continue
         try:
             ours=[]
             for line in meta.iter('Line'):
@@ -387,12 +442,16 @@ def main():
         names.append(INTEL_TONEMAP)
     if skip_network_choice() and SKIP_NETWORK_CHOICE not in names:
         names.append(SKIP_NETWORK_CHOICE)
-    names += [name for name in language_patches() if name not in names]
     if gx_command_heap() and GX_COMMAND_HEAP not in names:
         names.append(GX_COMMAND_HEAP)
+    if LEGACY_REGION_PATCH in names:
+        report_region_patch_migration(LEGACY_REGION_PATCH)
+        names=[name for name in names if name!=LEGACY_REGION_PATCH]
     names=validate_patch_requirements(names,a.game_dir)
-    segments=eboot_segments((a.out/'eboot.elf').read_bytes())
+    elf=(a.out/'eboot.elf').read_bytes()
+    segments=eboot_segments(elf)
     writes=compile_patches(a.xml,names,a.app_version,segments)
+    writes+=language_writes(read_settings(a.settings),elf)
     size=render_size(read_settings(a.settings),a.render_res) if a.render_res else None
     # The UI keeps the game's 1920x1080 coordinates even for a larger output: the port draws
     # it into the output-size image with a viewport scaled by output / 1920
