@@ -39,6 +39,9 @@ class PortableBuildDefaultsTest(unittest.TestCase):
             package.mkdir(parents=True)
             for name in ('build.py', 'closure.py'):
                 shutil.copyfile(PACK / name, package / name)
+            scripts = root / 'checkout/scripts'
+            scripts.mkdir()
+            shutil.copyfile(ROOT / 'scripts/steam_environment.py', scripts / 'steam_environment.py')
             environment = dict(os.environ, HOME=str(root / 'home'),
                                NRBRIDGE_HOME=str(root / 'private'),
                                BB_ONLINE_DEPS_ROOT=str(root / 'online'))

@@ -3,6 +3,10 @@
 启动入口为 `/home/arinp/bloodborne/launch.sh`。它打开完整启动器，使用安装目录的设置、
 游戏和现有存档；开发工作树不是正式入口。需要 Steam/Lutris 时仍使用这个入口。
 
+添加到 Steam 时选择该脚本，使用原生 Linux 启动，不强制 Proton。入口会过滤 Steam 的
+`gameoverlayrenderer.so` 预加载，避免它在启动器的子进程里反复报错；这不会安装或修复 Steam Overlay。
+若脚本启动前仍出现单条预加载警告，可将该快捷方式的 Steam 启动选项设为 `LD_PRELOAD= %command%`。
+
 版本、功能清单与未解决问题见[项目现状](PROJECT_STATUS.zh-CN.md)，发展方向见[路线图](NRBRIDGE_ROADMAP.zh-CN.md)。
 
 ## 开始与退出
