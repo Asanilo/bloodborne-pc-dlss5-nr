@@ -30,6 +30,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from closure import _is_project_owned, collect  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / 'scripts'))
+from steam_environment import guard_shell  # noqa: E402
 DEFAULT_NATIVE_SHA = "c91bf9467604c36d70d97dd200844ae1ac8e8428"
 DEFAULT_HELPER_BUILD = "1eddac56e4de26c0"
 DEFAULT_FORWARDER_BUILD = "9a8251430ccfa68a"
@@ -647,7 +649,7 @@ def _copy_lib(src: Path, dst: Path) -> None:
 
 def write_apprun(app: Path) -> None:
     apprun = app / "AppRun"
-    apprun.write_text(
+    apprun.write_text(guard_shell(
         r"""#!/bin/sh
 # Private bbport NRBridge preview.  All writable state goes to NRBRIDGE_HOME;
 # the AppImage mount is read-only and is never used as a data directory.
@@ -703,7 +705,7 @@ export NRBRIDGE_HOME="${NRBRIDGE_HOME-${XDG_DATA_HOME:-$HOME/.local/share}/bbpor
 export BB_PREBUILT=1
 exec "$APPDIR/usr/bin/python3.14" "$APPDIR/usr/share/bbport/launcher/nrbridge_entry.py" "$@"
 """
-    )
+    ))
     apprun.chmod(0o755)
     (app / "bbport.desktop").write_text(
         """[Desktop Entry]

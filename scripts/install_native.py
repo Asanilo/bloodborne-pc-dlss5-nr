@@ -8,6 +8,7 @@ runtime/current symlink. A custom wrapper without the known runtime entry is ref
 import argparse
 from datetime import datetime, timezone
 import os
+from steam_environment import guard_shell
 from pathlib import Path
 import shutil
 import subprocess
@@ -111,12 +112,13 @@ def activate_release(root, final):
     temp_link = root / "runtime" / (".current-" + uuid.uuid4().hex)
     temp_link.symlink_to(Path("releases") / name)
     os.replace(temp_link, current)
-    if original_entry in old:
+    updated = guard_shell(old.replace(original_entry, native_entry))
+    if updated != old:
         # Retain the entire wrapper, including driver/overlay workarounds.
         saved = root / ("launch-before-native-" + name + ".sh")
         shutil.copy2(launch, saved)
         temporary = root / (".launch-" + name)
-        temporary.write_text(old.replace(original_entry, native_entry))
+        temporary.write_text(updated)
         temporary.chmod(launch.stat().st_mode & 0o777)
         os.replace(temporary, launch)
         print(f"Previous launch wrapper: {saved}")

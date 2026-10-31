@@ -15,6 +15,7 @@ from pathlib import Path
 import shlex
 import shutil
 import sys
+from steam_environment import guard_shell
 
 
 def load(path, name):
@@ -109,7 +110,7 @@ def stage(args):
     lines=['#!/usr/bin/env bash','set -euo pipefail']
     lines += ['export '+key+'='+shlex.quote(value) for key,value in environment.items()]
     lines += ['exec '+shlex.quote(str(app/'AppRun'))+' "$@"']
-    (release/'launch.sh').write_text('\n'.join(lines)+'\n');(release/'launch.sh').chmod(0o755)
+    (release/'launch.sh').write_text(guard_shell('\n'.join(lines)+'\n'));(release/'launch.sh').chmod(0o755)
     write(release/'release.json',dict(schema='bbport-local-player-release-v1',native_source=head,
         environment=environment,stage_status='AWAITING_GAMEPLAY_QA',settings_preserved=True,saves_preserved=True))
     print(release)
