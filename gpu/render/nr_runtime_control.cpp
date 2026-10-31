@@ -27,16 +27,16 @@ struct State {
 State& S(){static State s;return s;}
 bool Fail(std::string* e,const char* message){if(e)*e=message;return false;}
 using J=nlohmann::json;
-J Encode(const Config& c){return J{{"version",ApiVersion},{"reprojection",static_cast<uint32_t>(c.reprojection)},{"display_bypass",c.display_bypass},{"display_strength",c.display_strength},{"ttl_frames",c.ttl_frames},{"ttl_ms",c.ttl_ms},{"depth_tolerance",c.depth_tolerance},{"colour_tolerance",c.colour_tolerance},{"min_confidence",c.min_confidence},{"model_style",c.model_style},{"model_intensity",c.model_intensity},{"hud",c.hud}};}
+J Encode(const Config& c){J result{{"version",ApiVersion},{"reprojection",static_cast<uint32_t>(c.reprojection)},{"display_bypass",c.display_bypass},{"display_strength",c.display_strength},{"ttl_frames",c.ttl_frames},{"ttl_ms",c.ttl_ms},{"depth_tolerance",c.depth_tolerance},{"colour_tolerance",c.colour_tolerance},{"min_confidence",c.min_confidence},{"model_style",c.model_style},{"model_intensity",c.model_intensity},{"hud",c.hud}};if(c.model_passes!=1)result["model_passes"]=c.model_passes;return result;}
 Config Decode(const J& j){
  if(!j.is_object()||!j.at("version").is_number_integer())throw std::runtime_error("runtime config must use exact versioned typed fields");
  const auto version=j.at("version").get<int64_t>();
- if((version!=1&&version!=ApiVersion)||j.size()!=(version==1?11:12))throw std::runtime_error("unsupported or inexact NR runtime config version");
+ if((version!=1&&version!=ApiVersion)||j.size()!=((version==1?11u:12u)+(j.contains("model_passes")?1u:0u)))throw std::runtime_error("unsupported or inexact NR runtime config version");
  for(const char* key:{"ttl_frames","model_style"})if(!j.at(key).is_number_unsigned()||j.at(key).get<uint64_t>()>UINT32_MAX)throw std::runtime_error("unsigned runtime config field required");
  for(const char* key:{"display_bypass","hud"})if(!j.at(key).is_boolean())throw std::runtime_error("boolean runtime config field required");
  for(const char* key:{"display_strength","ttl_ms","depth_tolerance","colour_tolerance","min_confidence","model_intensity"})if(!j.at(key).is_number())throw std::runtime_error("numeric runtime config field required");
  if(version==2&&(!j.at("reprojection").is_number_unsigned()||j.at("reprojection").get<uint64_t>()>1))throw std::runtime_error("reprojection must be unsigned 0 or 1");
- Config c;if(version==2)c.reprojection=static_cast<Reprojection>(j.at("reprojection").get<uint32_t>());c.display_bypass=j.at("display_bypass").get<bool>();c.display_strength=j.at("display_strength").get<float>();c.ttl_frames=j.at("ttl_frames").get<uint32_t>();c.ttl_ms=j.at("ttl_ms").get<float>();c.depth_tolerance=j.at("depth_tolerance").get<float>();c.colour_tolerance=j.at("colour_tolerance").get<float>();c.min_confidence=j.at("min_confidence").get<float>();c.model_style=j.at("model_style").get<uint32_t>();c.model_intensity=j.at("model_intensity").get<float>();c.hud=j.at("hud").get<bool>();return c;
+ Config c;if(j.contains("model_passes")){if(!j.at("model_passes").is_number_unsigned()||j.at("model_passes")!=2)throw std::runtime_error("model_passes must be 2 when present");c.model_passes=2;}if(version==2)c.reprojection=static_cast<Reprojection>(j.at("reprojection").get<uint32_t>());c.display_bypass=j.at("display_bypass").get<bool>();c.display_strength=j.at("display_strength").get<float>();c.ttl_frames=j.at("ttl_frames").get<uint32_t>();c.ttl_ms=j.at("ttl_ms").get<float>();c.depth_tolerance=j.at("depth_tolerance").get<float>();c.colour_tolerance=j.at("colour_tolerance").get<float>();c.min_confidence=j.at("min_confidence").get<float>();c.model_style=j.at("model_style").get<uint32_t>();c.model_intensity=j.at("model_intensity").get<float>();c.hud=j.at("hud").get<bool>();return c;
 }
 void Worker(std::stop_token stop){auto& s=S();for(;;){
  Config c;std::string path;{
@@ -54,14 +54,14 @@ bool Validate(const Config& c,std::string* error){
  if(c.ttl_frames<1||c.ttl_frames>12||!range(c.ttl_ms,1,200))return Fail(error,"visual TTL must be 1..12 frames and 1..200ms");
  if(!range(c.depth_tolerance,.0001f,.25f)||!range(c.colour_tolerance,0,4)||!range(c.min_confidence,0,1))return Fail(error,"invalid finite confidence/depth/colour threshold");
  if(c.reprojection!=Reprojection::Nearest&&c.reprojection!=Reprojection::ClampedCubic)return Fail(error,"unknown history reprojection mode");
- if(c.model_style>2||!range(c.model_intensity,0,2))return Fail(error,"model style must be 0..2 and intensity finite in [0,2]");
+ if((c.model_passes!=1&&c.model_passes!=2)||c.model_style>2||!range(c.model_intensity,0,2))return Fail(error,"model style must be 0..2 and intensity finite in [0,2]");
  return true;
 }
 bool RequiresVisualReset(const Config&a,const Config&b){return a.reprojection!=b.reprojection||a.ttl_frames!=b.ttl_frames||a.ttl_ms!=b.ttl_ms||a.depth_tolerance!=b.depth_tolerance||a.colour_tolerance!=b.colour_tolerance||a.min_confidence!=b.min_confidence;}
 bool Submit(const Config& c,Actions actions,std::string* error){
  if(error)error->clear();if(!Validate(c,error))return false;auto& s=S();std::scoped_lock lock(s.mutex);
  if(actions.apply_model&&(s.snapshot.status==Status::Held||s.snapshot.model_restart_required))return Fail(error,"Model HOLD: restart isolated session; in-place Apply is unavailable");
- const auto same_model=[](const Config&a,const Config&b){return a.model_style==b.model_style&&a.model_intensity==b.model_intensity;};
+ const auto same_model=[](const Config&a,const Config&b){return a.model_style==b.model_style&&a.model_intensity==b.model_intensity&&a.model_passes==b.model_passes;};
  // Coalesce repeated explicit clicks on the same in-flight target. A failed
  // request may be explicitly retried with a fresh sequence, never auto-retried.
  if(actions.apply_model&&s.snapshot.status!=Status::Failed){
@@ -81,7 +81,7 @@ bool InitializeConfig(const std::string& input,std::string* error){
  Config c;bool loaded=true;std::string why;
  try{if(std::filesystem::is_symlink(path))throw std::runtime_error("symlink config refused");if(std::filesystem::exists(path)){std::ifstream f(path);J j;f>>j;c=Decode(j);if(!Validate(c,&why))throw std::runtime_error(why);}}
  catch(const std::exception&e){c=Config{};loaded=false;why=e.what();}
- {std::scoped_lock lock(s.mutex);s.path=path;s.dirty=false;s.request.config=c;++s.request.revision;++s.request.reset_seq;if(!loaded)s.snapshot.reason="Invalid config: exact defaults restored; "+why;else if(c.model_style!=Config{}.model_style||c.model_intensity!=Config{}.model_intensity)s.snapshot.reason="Loaded model settings staged: explicit Apply required; no automatic rebuild";}
+ {std::scoped_lock lock(s.mutex);s.path=path;s.dirty=false;s.request.config=c;++s.request.revision;++s.request.reset_seq;if(!loaded)s.snapshot.reason="Invalid config: exact defaults restored; "+why;else if(c.model_style!=Config{}.model_style||c.model_intensity!=Config{}.model_intensity||c.model_passes!=1)s.snapshot.reason="Loaded model settings staged: explicit Apply required; no automatic rebuild";}
  s.worker=std::jthread(Worker);if(!loaded&&error)*error=why;return loaded;
 }
 bool PublishSnapshot(const Snapshot& snapshot,std::string* error){

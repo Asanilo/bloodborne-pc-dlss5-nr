@@ -45,7 +45,7 @@ public:
  // Completion is a managed owner-verified wire record. Not a renderer file read.
  struct SparseCompletion {NativeAsyncPreSrOriginIdentity identity;uint64_t input_tick_echo=0,helper_gpu_serial=0;
   bool verified_wire=false,helper_GPU_complete=false,output_valid=false,model_valid=false,expected_skip=false;
-  uint64_t evaluate_calls=0,evaluate_result=0,resolve_calls=0,model_reset=0;};
+  uint64_t evaluate_calls=0,evaluate_result=0,resolve_calls=0,model_reset=0;uint32_t expected_passes=1;};
  enum class SparseDisposition {Unavailable,Captured,ObsoleteDiscard,ExpectedSkip};
  struct SparseReturn {vk::ImageView view{};SparseDisposition disposition=SparseDisposition::Unavailable;};
  SparseReturn TryRecordSparseComplete(Scheduler&,const NativeAsyncPreSrOriginResources&,const SparseCompletion&,
@@ -76,6 +76,7 @@ public:
  uint64_t Epoch()const noexcept{return last_epoch;}
  uint64_t OriginSource()const noexcept{return chain.Size()?chain.Origin().source:0;}
 private:
+ bool serial_initial_requested=false;
  std::shared_ptr<void> dimension_adapter;
  static void HoldDimensionAdapter(std::shared_ptr<void>);
  struct Retention {

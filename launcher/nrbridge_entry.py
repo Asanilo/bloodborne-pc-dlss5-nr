@@ -902,6 +902,31 @@ def runner_supports_online() -> bool:
     )
 
 
+def daily_runtime_route(config: Path, build: Path, args) -> tuple[Path, bool]:
+    """Use the paired serial runtime at baseline size; retain sealed M5 fallback."""
+    if getattr(args, "sr_only", False):
+        return config, False
+    dimensions = any(getattr(args, key, None) for key in ("nr_sr_preset", "nr_output", "nr_execution"))
+    try:
+        selected = json.loads(config.read_text())
+        helper = Path(selected["helper"]["path"]).read_bytes()
+    except (OSError, ValueError, KeyError):
+        # The normal play entry remains responsible for validating the configuration.
+        return config, False
+    if dimensions:
+        fallback = os.environ.get("NRBRIDGE_DIMENSIONS_RUNTIME_INPUTS")
+        if b"NRBRIDGE_DIMENSIONS_V3R2" not in helper and fallback:
+            previous = canonical_option(fallback)
+            record = json.loads(previous.read_text())
+            if b"NRBRIDGE_DIMENSIONS_V3R2" not in Path(record["helper"]["path"]).read_bytes():
+                die("the selected dimensions fallback has no matching M5 Helper")
+            return previous, False
+        return config, False
+    serial = (b"NRBRIDGE_SERIAL_MULTIPASS_V1" in helper
+              and b"NRBRIDGE_NATIVE_SERIAL_MULTIPASS_V1" in (build / "gpu/libbbgpu.so").read_bytes())
+    return config, serial
+
+
 def daily(args) -> int:
     home = canonical_home(args.home or DEFAULT_HOME)
     config = Path(getattr(args,"local_inputs",None) or home / "localinputs/runtime.json")
@@ -930,6 +955,7 @@ def daily(args) -> int:
             + ". Rebuild with a matching Native/Helper pair; --check remains available.",
             3,
         )
+    config, serial = daily_runtime_route(config, build, args)
     session = args.session or ("nrbridge-" + time.strftime("%Y%m%d-%H%M%S"))
     launcher_settings = (
         canonical_option(args.launcher_settings)
@@ -969,6 +995,8 @@ def daily(args) -> int:
         "--native-build",
         str(build),
     ]
+    if serial:
+        command.append("--serial-multipass")
     if launcher_settings:
         command += ["--launcher-settings", str(launcher_settings)]
     if launcher_ini:

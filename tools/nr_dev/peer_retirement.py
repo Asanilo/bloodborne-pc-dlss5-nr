@@ -207,8 +207,27 @@ def audit_daily(run,session):
       and retired.get('export_raw_fd_owned')==0,'daily actual Helper shared GPU retirement')
  need(audited.get('status')=='FD_AUDITED' and audited.get('tracked_NR_FD_remaining')==0
       and all(exact_typed(audited.get(k),release.get(k)) for k in ('native_last_use_tick','native_last_use_observed_tick','native_last_use_proof','completed_GPU')),'daily targeted FD audit with same actual final-use proof')
- need(helper.get('evaluate_calls_total')==(total if helper.get('mode')=='resident' else 0)
-      and helper.get('resolve_calls_total')==helper.get('evaluate_calls_total'),'daily actual Evaluate/resolve counts')
+ expected_evaluates=total if helper.get('mode')=='resident' else 0
+ manifest=load(run/'manifest.json') if (run/'manifest.json').exists() else {}
+ if manifest.get('environment',{}).get('BB_NR_SERIAL_MULTIPASS')=='1':
+  native=load(run/'native-serial-summary.json')
+  need(set(native)=={'schema','session','finalized_jobs','two_pass_jobs','verified_evaluates','secondary_created','secondary_released','last_helper_serial'}
+       and native['schema']=='nr-native-serial-summary-v1' and native['session']==session,'serial Native summary identity')
+  for key in ('finalized_jobs','two_pass_jobs','verified_evaluates','secondary_created','secondary_released','last_helper_serial'):
+   need(type(native[key]) is int and 0<=native[key]<=9007199254740991,'serial summary exact unsigned counters')
+  need(native['finalized_jobs']==total and native['two_pass_jobs']<=total,'serial verified job counts')
+  expected_evaluates=total+native['two_pass_jobs'] if helper.get('mode')=='resident' else 0
+  need(native['verified_evaluates']==expected_evaluates,'exact Native-verified serial Evaluate count')
+  need(native['secondary_created']==native['secondary_released'],'Native-verified secondary retirement count')
+  if native['secondary_created']:
+   secondary=load(run/'serial-retirement.json')
+   need(set(secondary)=={'schema','session','created','released','params_destroyed','last_gpu_serial','normal_shutdown'}
+        and secondary['schema']=='nr-serial-retirement-v1' and secondary['session']==session
+        and exact_typed(secondary['created'],native['secondary_created']) and exact_typed(secondary['released'],native['secondary_released'])
+        and secondary['params_destroyed'] is True and secondary['normal_shutdown'] is True
+        and type(secondary['last_gpu_serial']) is int and secondary['last_gpu_serial']>=native['last_helper_serial'],'independent secondary actual normal shutdown')
+ need(type(helper.get('evaluate_calls_total')) is int and helper['evaluate_calls_total']==expected_evaluates
+      and type(helper.get('resolve_calls_total')) is int and helper['resolve_calls_total']==(total if helper.get('mode')=='resident' else 0),'daily exact Evaluate/resolve counts')
  need(not list(run.glob('runtime-model-request-*.json')) and not list(run.glob('runtime-model-ack-*.json')),'daily no pending model transition')
  need(not list(run.glob('runtime-job-model-*.json')) and not list((run/'frames').rglob('async-*.json')),'daily consumed transport files retired')
  return {'retirement':'PASS_NATIVE_HELPER_GPU_FD_MODEL_NORMAL_REAP','terminal_counts':{k:helper[k] for k in counts},

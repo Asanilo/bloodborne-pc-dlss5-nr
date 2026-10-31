@@ -179,9 +179,10 @@ public:
     /// Actual unredirected VideoOut image content, independent of NR admission.
     u64 TakeNativeFgDisplaySource(VAddr address,u64 image_generation,u32 width,u32 height,
                                   u64 gpu_frame_at_prepare,u64 prepare_tick);
-    /// The game's display pass of `address` begins (recording thread): frame generation
-    /// interpolates this frame now, its scene with the UI complete.
+    /// Bind the finished scene to this guest display draw. DLSSG consumes the draw's
+    /// result in OnDisplayPassEnd, including the game's brightness adjustment.
     void OnDisplayPassStart(VAddr address, std::span<const VAddr> sampled_addresses);
+    void OnDisplayPassEnd(VAddr address, VideoCore::ImageId target, bool drawn);
     /// The frame's UI is being drawn (after the scaled scene, before the display pass).
     bool InUiPhase() const {
         return ui_phase;

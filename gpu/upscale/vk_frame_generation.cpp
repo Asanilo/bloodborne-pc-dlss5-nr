@@ -201,6 +201,9 @@ void FrameGeneration::Retire() {
 }
 
 void FrameGeneration::OnFrameStart() {
+    // The display draw ends the previous scene. Keep its already captured guides
+    // until that draw has been recorded; reset at FinishDisplayPass instead.
+    if (pending_display_pass) return;
     // Consume a one-shot request at a real-frame boundary, like the experimental menu switch.
     // Writers should rename a complete file containing 0 or 1 onto this private path.
     static const char* control = std::getenv("BB_FRAME_GEN_CONTROL");
@@ -226,8 +229,8 @@ void FrameGeneration::OnFrameStart() {
     last_frame_ns = now;
     dispatched_last_frame = false;
     scene_captured = hudless_ready = false;
-    // Rasterizer calls this immediately AFTER Interpolate, before the display draw and
-    // PrepareFrame. Its one-shot output must survive until that flip consumes it.
+    // Called after Interpolate (after the display draw for DLSSG), before PrepareFrame.
+    // Its one-shot output must survive until that flip consumes it.
 }
 
 void FrameGeneration::Destroy() {
@@ -588,6 +591,36 @@ FrameGeneration::Target& FrameGeneration::PrepareTarget(VAddr display, u64 id, b
     }
 
     return *target;
+}
+
+bool FrameGeneration::DeferDisplayPass(VAddr display) {
+    if (!(dlssg_gpu || dlssg_bridge) || !Wanted() || !scene_captured || !display)
+        return false;
+    pending_display_pass = display;
+    return true;
+}
+
+bool FrameGeneration::HasDeferredDisplayPass(VAddr display) const {
+    return display && pending_display_pass == display;
+}
+
+void FrameGeneration::FinishDisplayPass(VAddr display, vk::Image color, vk::Format format,
+                                        u32 width, u32 height) {
+    if (!HasDeferredDisplayPass(display)) return;
+    pending_display_pass = 0;
+    // Copies preserve bytes; the presenter selects the matching VideoOut sRGB view.
+    if (format == vk::Format::eR8G8B8A8Srgb) format = vk::Format::eR8G8B8A8Unorm;
+    if (format == vk::Format::eB8G8R8A8Srgb) format = vk::Format::eB8G8R8A8Unorm;
+    if (color && width == scene.width && height == scene.height &&
+        (format == vk::Format::eR8G8B8A8Unorm || format == vk::Format::eB8G8R8A8Unorm)) {
+        scene.color = color;
+        scene.color_format = format;
+        Interpolate(color, display);
+    } else {
+        scene_captured = false;
+        reset_next = true;
+    }
+    OnFrameStart();
 }
 
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {

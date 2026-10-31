@@ -13,6 +13,7 @@ struct Config {
  uint32_t ttl_frames=12;
  float ttl_ms=200.f,depth_tolerance=.02f,colour_tolerance=.5f,min_confidence=.5f;
  uint32_t model_style=0;
+ uint32_t model_passes=1;
  float model_intensity=1.f;
  bool hud=true;
  bool operator==(const Config&) const=default;

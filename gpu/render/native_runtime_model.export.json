@@ -2,13 +2,12 @@
   "schema": "nrbridge-native-protocol-copy-v1",
   "source": {
     "repository": "Asanilo/OptiScaler-Linux-NR",
-    "commit": "713f8ac99959fcdf470b2600c2645a1e5b24b7c8",
+    "commit": "6765901b200998849921843962d831ecd718a6a0",
     "header": "nrbridge/protocol/native_runtime_model.h",
     "exporter": "nrbridge/protocol/export.py"
   },
   "consumed": [
-    "native_runtime_model.h",
-    "nr_dimensions.h"
+    "native_runtime_model.h"
   ],
   "export_manifest": {
     "schema": "nrbridge-protocol-export-v1",
@@ -17,13 +16,12 @@
     "runtime_model_schema": "nr-runtime-model-v1",
     "job_model_schema": "nr-runtime-job-model-v1",
     "exports": {
-      "nr_dimensions.h": "4aa339ea24650b4178875308d049ec3faeb45496e43845cddb2d7bd8a7a73290",
-      "native_runtime_model.h": "92c16609685a651a405842126b6160fd02376c2be034d2142f365bda119a0205",
-      "pre_sr_wire.h": "6063ae065e86c56d2e3fb7dc269cdc9588febcd721ce747e71054bbcdaceba28",
+      "native_runtime_model.h": "9333788b025f3a51b1a3d17cb541fe01eeafa1dc7b7ddbc0b0a870add6fafa48",
+      "pre_sr_wire.h": "e2e546ae2520ebc7796954f9d0cad4df4728b79b8c28e0514624ee4ef88a0268",
       "effective-spec.json": "671c7644c69de5f681b099fb4c3d402ba36f1e4538e65cd5538441e2bd47643b",
       "pre_sr_spec.h": "1e57fbf32d827bf0cb60876e23fbe9ecb52ac0b6160887778c04e13073eaab09"
     }
   },
-  "export_manifest_sha256": "0c530f9e91fc7339b4bf8703e38914c86ba320a0b79bbd11518a8db97104dd86",
-  "update": "M5 explicit dimensions wire v3; stable runtime model header unchanged; canonical local nrbridge/protocol export"
+  "export_manifest_sha256": "ca4ced25561bd433a4cd13be7cfa1d33cd1582260adaa43117ccbae474b8e0ec",
+  "update": "Paired isolated serial two-pass candidate; unchanged v4 base wire, optional two-pass fields require matching capability markers."
 }

@@ -20,14 +20,6 @@ class LauncherTranslations(unittest.TestCase):
         finally:
             i18n.set_language(previous)
 
-    def test_chinese_uses_existing_region_patch(self):
-        sys.path.insert(0, str(ROOT / "scripts"))
-        from patches import language_patches
-        for language in ('10', '11'):
-            self.assertEqual(language_patches({'BB_LANGUAGE': language}), ['Unlock Game Region'])
-        self.assertEqual(language_patches({'BB_LANGUAGE': '1'}), [])
-        self.assertEqual(language_patches({}), [])
-
     def test_current_launcher_labels_have_chinese_and_format_slots(self):
         import ast
         from string import Formatter

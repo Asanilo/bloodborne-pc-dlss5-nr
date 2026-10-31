@@ -3477,15 +3477,50 @@ void TemporalUpscaler::OnDisplayPassStart(VAddr address, std::span<const VAddr> 
                     .width=image.info.size.width,.height=image.info.size.height};
             }
         }
-        frame_generation->Interpolate(finished, address);
+        if (!accepted_display.source || !frame_generation->DeferDisplayPass(address))
+            frame_generation->Interpolate(finished, address);
     } else if (frame_generation && ui_phase && ui_image) {
-        frame_generation->Interpolate(vk::Image(ui_image), address);
+        if (!accepted_display.source || !frame_generation->DeferDisplayPass(address))
+            frame_generation->Interpolate(vk::Image(ui_image), address);
     }
     {
         std::scoped_lock lock{display_mutex};
         pending_display_source = accepted_display;
         if (pending_display_source.source) pending_display_source.producer_tick=scheduler.CurrentTick();
     }
+}
+
+void TemporalUpscaler::OnDisplayPassEnd(VAddr address, VideoCore::ImageId target, bool drawn) {
+    if (!frame_generation || !frame_generation->HasDeferredDisplayPass(address)) return;
+    if (!drawn) {
+        frame_generation->FinishDisplayPass(address, {}, {}, 0, 0);
+        return;
+    }
+    scheduler.EndRendering();
+    vk::Image image{};
+    vk::Format format{};
+    u32 width = 0, height = 0;
+    {
+        std::scoped_lock lock{display_mutex};
+        const auto it = displays.find(address);
+        if (it != displays.end() && it->second.valid) {
+            image = vk::Image(it->second.image);
+            format = it->second.format;
+            width = it->second.width;
+            height = it->second.height;
+        }
+    }
+    if (!image) {
+        auto& guest = texture_cache.GetImage(target);
+        runtime.Transit(&guest, vk::ImageLayout::eGeneral, vk::PipelineStageFlagBits2::eAllCommands,
+                        vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
+        runtime.FlushBarriers();
+        image = guest.GetImage();
+        format = guest.info.pixel_format;
+        width = guest.info.size.width;
+        height = guest.info.size.height;
+    }
+    frame_generation->FinishDisplayPass(address, image, format, width, height);
 }
 
 u64 TemporalUpscaler::TakeNativeFgDisplaySource(VAddr address,u64 image_generation,u32 width,u32 height,
