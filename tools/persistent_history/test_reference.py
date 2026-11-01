@@ -11,6 +11,7 @@ EPS=parameter('Epsilon'); MAX_FRAMES=parameter('MaxFrames'); MAX_MS=parameter('M
 COLOUR=parameter('ColourTolerance'); DEPTH=parameter('DepthTolerance')
 def capture(raw,edited,frames,ms):
     if any(not math.isfinite(v) or v<0 for v in raw+edited):return None
+    if any(not math.isfinite(v) or v<0 for v in (frames,ms)):return None
     if frames>MAX_FRAMES or ms>MAX_MS:return None
     edit=tuple(math.log2((b+EPS)/(a+EPS)) for a,b in zip(raw,edited))
     if any(abs(v)>parameter('MaxLogEdit') for v in edit):return None
@@ -37,6 +38,7 @@ def surface(a,b,projection_z=PROJECTION[2]):
 def advance(history,oldraw,raw,olddepth,depth,dtframes=1,dtms=16,exposure=1,mv=(0,0),uv=(.5,.5),edge=False):
     if history is None:return None
     e,frames,ms=history;frames+=dtframes;ms+=dtms
+    if any(not math.isfinite(v) or v<0 for v in (frames,ms)):return None
     if frames>MAX_FRAMES or ms>MAX_MS:return None
     if edge or not all(math.isfinite(v) for v in raw+mv+(depth,exposure)):return None
     if any(v<0 or v>=1 for v in (uv[0]+mv[0],uv[1]+mv[1])):return None
@@ -144,6 +146,16 @@ def restricted_cubic(grid,position,nearest,min_confidence=.5):
     return tuple(min(max(v,a),b) for v,a,b in zip(rgb,lo,hi)),confidence,*reference[2:4],True
 
 class Boundaries(unittest.TestCase):
+    def test_oracle_rejects_negative_and_nonfinite_stored_ages(self):
+        # PHCapture and live() reject these values; Python comparison with NaN
+        # alone does not. Keep the old scalar oracle faithful at this boundary.
+        for bad in (-1.,math.nan,math.inf,-math.inf):
+            self.assertIsNone(capture((1,1,1),(2,2,2),bad,0))
+            self.assertIsNone(capture((1,1,1),(2,2,2),0,bad))
+            history=capture((1,1,1),(2,2,2),0,0)
+            self.assertIsNone(advance(history,(1,1,1),(1,1,1),.5,.5,dtframes=bad,dtms=0))
+            self.assertIsNone(advance(history,(1,1,1),(1,1,1),.5,.5,dtframes=0,dtms=bad))
+
     def test_restricted_bilinear_same_origin_and_hard_reference(self):
         self.assertIn('vec2 texel=prev*vec2(p.dispatch.yz)-.5',SHADER)
         self.assertIn('if(weight==0.)continue',SHADER)

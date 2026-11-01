@@ -4,6 +4,7 @@
 #include "nr_dimensions.h"
 #include "native_persistent_history_diagnostic.h"
 #include "native_history_capture_admission.h"
+#include "native_persistent_history_admission.h"
 #include "native_async_pre_sr_return.h"
 #include "native_persistent_history_shader.h"
 #include "native_visual_transition.h"
@@ -43,9 +44,6 @@ void Barrier(vk::CommandBuffer cmd){
  .dstAccessMask=vk::AccessFlagBits2::eMemoryRead|vk::AccessFlagBits2::eMemoryWrite};
  cmd.pipelineBarrier2({.memoryBarrierCount=1,.pMemoryBarriers=&b});
 }
-bool Same(const BbNativeAsync::Frame& a,const BbNativeAsync::Frame& b){
- return a.epoch==b.epoch&&a.history==b.history&&a.params==b.params;
-}
 }
 struct NativePersistentHistory::Impl {
  struct Proof {std::atomic<uint64_t> observed{0}; uint64_t last=0; bool unknown=false;};
@@ -64,7 +62,6 @@ struct NativePersistentHistory::Impl {
   std::unique_ptr<VideoCore::Buffer> stats;bool sampled=false,stats_pending=false;
   std::array<unsigned,Passes> modes{};uint64_t sample_revision=0,sample_generation=0;
  };
- struct Clock {uint64_t source;double ms;uint64_t history,params;};
  const Instance* instance=nullptr;
  vk::Device device; VmaAllocator allocator;
  std::array<Bank,4> banks;
@@ -83,7 +80,7 @@ struct NativePersistentHistory::Impl {
  vk::UniquePipelineLayout pipeline_layout,conversion_pipeline_layout;
  vk::UniquePipeline pipeline,cubic_pipeline,diagnostic_pipeline,cubic_diagnostic_pipeline,conversion_pipeline;
  vk::UniqueDescriptorPool pool;
- std::deque<Clock> clocks;
+ std::deque<PersistentHistoryAdmissionClock> clocks;
  BbNativeAsync::Frame current,last;
  double clock_ms=0,current_dt_ms=0;
  unsigned slot=0,active=0,candidate=2;
@@ -103,7 +100,6 @@ struct NativePersistentHistory::Impl {
  void ReadSample(Slot&);
  void FinishTransition(Scheduler&);
  bool Free(const Slot& s)const noexcept{return !s.proof->unknown&&(!s.proof->last||s.proof->observed.load(std::memory_order_acquire)>=s.proof->last);}
- bool Time(uint64_t,double&)const;
  std::array<vk::ImageView,3> Converted()const;
  void Convert(Scheduler&,const std::array<vk::Image,3>&);
  void Pass(Scheduler&,unsigned mode,unsigned from,unsigned to,const std::array<vk::ImageView,3>&,
@@ -188,7 +184,6 @@ void NativePersistentHistory::Impl::Mark(Scheduler& scheduler){
  auto proof=slots[slot].proof;const auto tick=scheduler.CurrentTick();proof->last=std::max(proof->last,tick);
  scheduler.DeferPriorityOperation([proof,tick]{auto old=proof->observed.load(std::memory_order_relaxed);while(old<tick&&!proof->observed.compare_exchange_weak(old,tick,std::memory_order_release,std::memory_order_relaxed)){};});
 }
-bool NativePersistentHistory::Impl::Time(uint64_t source,double& ms)const {for(const auto& c:clocks)if(c.source==source){ms=c.ms;return true;}return false;}
 std::array<vk::ImageView,3> NativePersistentHistory::Impl::Converted()const{return {slots[slot].converted[0].View(),slots[slot].converted[1].View(),slots[slot].converted[2].View()};}
 void NativePersistentHistory::Impl::Convert(Scheduler& scheduler,const std::array<vk::Image,3>& raw){
  auto& s=slots[slot];auto cmd=scheduler.CommandBuffer();
@@ -393,17 +388,9 @@ bool NativePersistentHistory::BeginCurrent(Scheduler& scheduler,const std::array
 bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<const Link> links,vk::ImageView nr,vk::Image nr_image,const CandidateEvidence* evidence){
  auto& p=*impl;
  if(!p.prepared||p.applied||p.candidate_recorded||p.unknown||p.timeline!=&scheduler||!nr||links.empty()||links.size()>BbNativeAsync::NodeCount)return false;
- if(links.back().frame.source!=p.current.source)return false;
- if(!p.reset_window.Admits(links.front().frame.source))return false;
- if(p.current.source<links.front().frame.source||p.current.source-links.front().frame.source>BbNativeAsync::MaxLinks)return false;
- double origin_time=0,latest_time=0;if(!p.Time(links.front().frame.source,origin_time)||!p.Time(p.current.source,latest_time))return false;
- if(latest_time-origin_time>200.)return false;
- for(size_t k=0;k<links.size();++k){const auto& f=links[k].frame;double ms;
-  if(!BbNativeAsync::Finite(f)||!Same(f,links.front().frame)||!p.Time(f.source,ms)||!links[k].converted[0]||!links[k].converted[1]||!links[k].converted[2])return false;
-  bool visual=false;for(const auto& clock:p.clocks)if(clock.source==f.source)visual=clock.history==p.current.history&&clock.params==p.current.params;
-  if(!visual)return false;
-  if(k&&(f.source!=links[k-1].frame.source+1||f.previous!=links[k-1].frame.source||f.sr_reset))return false;
- }
+ const auto admission=AdmitPersistentHistoryCandidate(links,p.clocks,p.current,p.reset_window.minimum_origin);
+ if(!admission.admitted)return false;
+ for(const auto& link:links)if(!link.converted[0]||!link.converted[1]||!link.converted[2])return false;
  auto& s=p.slots[p.slot];
  if(!std::isfinite(p.clock_ms)||!p.current.source)return false;
  // Validate the whole incoming candidate before touching an in-flight transition.
@@ -413,10 +400,10 @@ bool NativePersistentHistory::RecordCandidate(Scheduler& scheduler,std::span<con
  if(p.transition.active)p.FinishTransition(scheduler);
  // Preserve all imported image views until this slot's real last SR/merge use.
  // The caller separately owns the NR view and converted origin packet leases.
- double previous_time=origin_time;unsigned current_bank=2;
+ double previous_time=admission.times[0];unsigned current_bank=2;
  for(size_t k=0;k<links.size();++k){const auto& link=links[k];std::array<vk::ImageView,3> views{};
   for(unsigned j=0;j<3;j++){auto v=p.device.createImageViewUnique({.image=link.converted[j],.viewType=vk::ImageViewType::e2D,.format=j==0?vk::Format::eR32G32B32A32Sfloat:j==1?vk::Format::eR32Sfloat:vk::Format::eR32G32Sfloat,.subresourceRange={vk::ImageAspectFlagBits::eColor,0,1,0,1}}).value;views[j]=*v;s.borrowed.push_back(std::move(v));}
-  double ms=0;p.Time(link.frame.source,ms);const auto to=k?5-current_bank:2;
+  const double ms=admission.times[k];const auto to=k?5-current_bank:2;
   p.Pass(scheduler,k?PHAdvance:PHCapture,current_bank,to,views,views[0],nr,link.frame,k!=0,k?1.f:0.f,k?float(ms-previous_time):0.f);
   current_bank=to;previous_time=ms;
  }
