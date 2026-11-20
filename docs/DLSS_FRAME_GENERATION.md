@@ -34,7 +34,7 @@ from RTX 40/50 owners are welcome.
 
 ### Experimental 4x cascade on Linux
 
-Set `BB_DLSSG_CASCADE=1 BB_FRAME_GEN=dlss BB_FRAME_GEN_MULTIPLIER=4` with the ABI 3 bridge.
+Set `BB_DLSSG_CASCADE=1 BB_FRAME_GEN=dlss BB_FRAME_GEN_MULTIPLIER=4` with the ABI 4 bridge.
 The game offers **4x (experimental cascade)** alongside the standard 2x mode. A second 2x DLSS
 feature interpolates each half of the real-frame interval using estimated intermediate depth and
 motion. The cascade requires three evaluations per real-frame pair. Translucent HUD pixels

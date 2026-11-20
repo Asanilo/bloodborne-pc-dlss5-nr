@@ -472,7 +472,7 @@ std::string Dlss::FrameGenProblem() const {
 }
 
 bool Dlss::SupportsSecondaryFrameGen() const {
-    return FrameGenMaxCount() > 0 && impl->api->abi >= 3 && impl->api->FrameGenCreateSecondary &&
+    return FrameGenMaxCount() > 0 && impl->api->abi >= 4 && impl->api->FrameGenCreateSecondary &&
            impl->api->FrameGenEvaluateCascade;
 }
 

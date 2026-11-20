@@ -17,8 +17,8 @@ extern "C" {
 #endif
 
 // 1: DLSS Super Resolution. 2: adds DLSS Frame Generation (the FrameGen* members and
-// ConfigureDirectories). 3: adds an independent second Frame Generation feature.
-#define BBPORT_DLSS_BRIDGE_ABI 3
+// ConfigureDirectories). 4: adds cascaded Frame Generation and per-evaluation skip status.
+#define BBPORT_DLSS_BRIDGE_ABI 4
 
 typedef void (*BbDlssLogFn)(int warning, const char* message);
 
@@ -127,7 +127,7 @@ typedef struct BbDlssApi {
     // The caller must have waited for the GPU work that used the feature.
     void (*FrameGenRelease)(void);
 
-    // ABI 3. These use an independent feature and parameter map. FrameGenRelease releases both.
+    // ABI 4. These use an independent feature and parameter map. FrameGenRelease releases both.
     int32_t (*FrameGenCreateSecondary)(VkCommandBuffer command, const BbDlssgFeature* feature);
     // skip: four-byte buffer. NGX writes a nonzero low byte when it declines interpolation.
     int32_t (*FrameGenEvaluateCascade)(VkCommandBuffer command, const BbDlssgEvaluate* evaluate,

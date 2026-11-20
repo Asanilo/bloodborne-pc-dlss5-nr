@@ -170,7 +170,7 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
             instance.GetPhysicalDevice().getFeatures().shaderStorageImageWriteWithoutFormat;
         cascade_supported = bridge && storage_writes;
         settings.dlssg_cascade_available = cascade_supported;
-        settings.dlssg_cascade_problem = !bridge ? "DLSS cascade needs the ABI 3 bridge"
+        settings.dlssg_cascade_problem = !bridge ? "DLSS cascade needs the ABI 4 bridge"
             : !storage_writes ? "DLSS cascade needs format-independent storage image writes"
                               : nullptr;
     }

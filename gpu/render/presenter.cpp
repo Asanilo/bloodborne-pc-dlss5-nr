@@ -691,16 +691,19 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool) {
     };
     const bool blank = frame == &blank_frame;
     u32 generated = blank ? 0 : std::min(frame->interp_count, Frame::MaxInterp);
-    if (generated && frame->check_cascade) {
+    if (frame->check_cascade) {
         // NGX can copy a real frame on successful Evaluate. Decide before the first Present.
         const vk::SemaphoreWaitInfo ready{.semaphoreCount = 1, .pSemaphores = &frame->ready_semaphore,
                                           .pValues = &frame->ready_tick};
         Check<"wait for DLSS interpolation status">(
             instance.GetDevice().waitSemaphores(ready, UINT64_MAX));
+        frame->check_cascade = false;
         auto& status = *frame->cascade_status;
         status.Invalidate(0, MaxCascadeStatusBytes);
         const auto bytes = status.mapped_data;
-        if (bytes[0] || bytes[4] || bytes[8]) {
+        if (generated != FrameGeneration::MaxGenerated) {
+            generated = 0; // An encode target could not be allocated. Keep the real frame.
+        } else if (bytes[0] || bytes[sizeof(u32)] || bytes[2 * sizeof(u32)]) {
             generated = 0;
             static u64 skipped = 0;
             if (++skipped == 1 || skipped % 256 == 0) {
