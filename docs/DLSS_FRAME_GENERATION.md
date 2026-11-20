@@ -34,11 +34,58 @@ from RTX 40/50 owners are welcome.
 
 ### Experimental 4x cascade on Linux
 
-Set `BB_DLSSG_CASCADE=1 BB_FRAME_GEN=dlss BB_FRAME_GEN_MULTIPLIER=4` with the ABI 4 bridge.
-The game offers **4x (experimental cascade)** alongside the standard 2x mode. A second 2x DLSS
-feature interpolates each half of the real-frame interval using estimated intermediate depth and
-motion. The cascade requires three evaluations per real-frame pair. Translucent HUD pixels
-keep the real background already blended into them.
+Set `BB_DLSSG_CASCADE=1 BB_FRAME_GEN=dlss BB_FRAME_GEN_MULTIPLIER=4` with the ABI 4
+bridge. In the graphics overlay, choose DLSS and **4x (experimental cascade)**.
+The standard 2x option uses the original single feature. Each rendered pair A/B
+costs three ordinary NGX evaluations in 4x mode. The first feature makes the
+midpoint M. A second feature processes A→M and M→B in sequence. The presenter
+receives the quarter frame, M, the three-quarter frame and B in that order.
+
+The half-step motion, depth and camera transforms are estimates from the real
+frames. With a HUD-less capture, both features operate on scene color. The
+renderer then copies pixels changed by the game's UI from the current finished
+frame to each output. Translucent HUD pixels keep some current background.
+Both histories restart on reset. The presenter checks the SDK's skip flags
+after the source frame's render submission completes and drops a declined group.
+
+#### RTX 4060 Laptop validation
+
+Linux driver 620.70.06 and NVIDIA DLSS SDK 310.9.1. NGX reported
+`MultiFrameCountMax=1`. Requesting native multi-output 3x directly through
+the public API returned `0xbad00005` (invalid parameter) at the first of the
+two requested output indices. The reference Vulkan 2x path placed a textured
+object moving 24 pixels per source frame at the 12-pixel midpoint.
+[Public capability and index definitions](https://github.com/NVIDIA/DLSS/blob/v310.9.1/include/nvsdk_ngx_defs_dlssg.h#L348-L359)
+and [NVIDIA programming guide](https://github.com/NVIDIA/DLSS/blob/v310.9.1/doc/DLSS-FG%20Programming%20Guide.pdf).
+
+Two independent 2x handles on the same Vulkan device produced positions 6, 12
+and 18 pixels into that motion in all 17 synthetic pairs at 1080p. This
+fixture supplied analytic intermediate depth and motion. The game uses its
+own estimated guides. During a fast turn in Iosefka's Clinic, a bright window
+moved from x=417.2 to 244.3 pixels across one real pair. Its three generated
+positions were 374.8, 332.0 and 287.9, covering 24.5%, 49.3% and 74.8% of
+the displacement. Positions are the mean x of pixels with mean RGB above
+80/255 in x=[100,550), y=[285,430) of the 1920×1080 presenter input.
+The health bar and item icons stayed in place. The generated frames showed
+blocky edges where the moving collar met the face in this close-up.
+
+The 1080p diagnostic comparison used the same clinic save, DLSS Quality
+(1280×720 source), Reflex On, Immediate presentation and a 35 FPS source cap.
+The 2x executable and bridge used upstream 0.7 at `0fc2921`. Both builds
+used the same FSR dependency link fix. The cascade measurement used `f4f9090`.
+
+| Static clinic window | Upstream 2x | Cascade 4x |
+|---|---:|---:|
+| Source flips/s | 34.94 | 34.94 |
+| Present returns/s | 69.87 | 139.74 |
+| Return interval, median / p95 | 14.31 / 14.64 ms | 7.15 / 7.39 ms |
+| FG GPU label, median across full five-second windows | 4.03 ms/source | 9.73 ms/source |
+
+Rates use the first and last timestamps of each event type in the static window.
+The built-in timeline records a source flip at `Display::Flip` and a return on
+the CPU immediately after `vkQueuePresentKHR`. GPU label times use the renderer's
+Vulkan timestamps. The experiment measured application pacing. Panel scanout and
+input-to-photon latency were outside the capture.
 
 ## Low latency: NVIDIA Reflex through VK_NV_low_latency2 (2026-10-18)
 
