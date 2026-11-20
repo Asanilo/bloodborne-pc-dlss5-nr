@@ -151,6 +151,8 @@ add_own_shader(upscale/shaders/fsr4_color.comp fsr4_decode_comp)
 add_own_shader(upscale/shaders/fsr4_color.comp fsr4_encode_comp ENCODE=1)
 add_own_shader(upscale/shaders/fsr4_reactive.comp fsr4_reactive_comp)
 add_own_shader(upscale/shaders/fg_display_lut.comp fg_display_lut_comp)
+add_own_shader(upscale/shaders/fg_cascade_guides.comp fg_cascade_guides_comp)
+add_own_shader(upscale/shaders/fg_cascade_hud.comp fg_cascade_hud_comp)
 # SMAA 1x for anti_aliasing=smaa (upscale/vk_smaa.cpp; third_party/smaa, MIT).
 add_own_shader(upscale/shaders/smaa.comp smaa_edges_comp PASS=0)
 add_own_shader(upscale/shaders/smaa.comp smaa_weights_comp PASS=1)

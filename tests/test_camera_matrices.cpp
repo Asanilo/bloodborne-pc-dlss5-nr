@@ -120,5 +120,28 @@ int main() {
         Matrix4 a{}, b{}, c{};
         assert(!ClipTransforms(view, inv_view, {}, prev_view, prev_inv_view, prev_proj, a, b, c));
     }
+    // The cascade splits the motion between a synthetic halfway camera and the two real ones.
+    {
+        const Pose previous{prev_view, prev_inv_view, prev_proj, true};
+        const Pose current{view, inv_view, proj, true};
+        const Pose mid = Midpoint(previous, current);
+        assert(mid.valid);
+        Affine expected_view{}, expected_inv_view{};
+        Camera({0.75f, 2.0f, -3.25f}, 0.275f, expected_view, expected_inv_view);
+        for (int i = 0; i < 12; ++i) {
+            assert(Near(mid.view[i], expected_view[i], 1e-4f));
+            assert(Near(mid.inv_view[i], expected_inv_view[i], 1e-4f));
+        }
+        Matrix4 projection{}, mid_to_prev{}, prev_to_mid{}, cur_to_mid{}, mid_to_cur{};
+        assert(ClipTransforms(mid.view, mid.inv_view, mid.projection, prev_view, prev_inv_view,
+                              prev_proj, projection, mid_to_prev, prev_to_mid));
+        assert(ClipTransforms(view, inv_view, proj, mid.view, mid.inv_view, mid.projection,
+                              projection, cur_to_mid, mid_to_cur));
+        const Matrix4 composed = Multiply(cur_to_mid, mid_to_prev);
+        for (int i = 0; i < 16; ++i) {
+            assert(Near(composed[i], clip_to_prev[i], 1e-4f));
+        }
+        assert(!Midpoint({}, current).valid);
+    }
     std::puts("PASS: camera clip-space matrices for DLSS Frame Generation");
 }

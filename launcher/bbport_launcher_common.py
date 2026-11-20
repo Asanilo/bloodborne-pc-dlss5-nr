@@ -334,6 +334,9 @@ DLSS_SDK_URL = "https://github.com/NVIDIA/DLSS/tree/main/lib/Linux_x86_64/rel"
 # offers DLSS; FSR 3.1 stays hidden until its artifacts are fixed (BB_FRAME_GEN=1 in the game).
 FRAME_GENS = [("Выключена", "off"), ("DLSS 2x (NVIDIA RTX 40/50)", "dlss2"),
               ("DLSS 3x (NVIDIA RTX 50)", "dlss3"), ("DLSS 4x (NVIDIA RTX 50)", "dlss4")]
+DLSS_CASCADE = os.environ.get("BB_DLSSG_CASCADE", "").startswith("1")
+if DLSS_CASCADE:
+    FRAME_GENS[2:] = [("DLSS 4x (экспериментальный каскад)", "dlss4")]
 # Low latency (bbport.ini low_latency): NVIDIA Reflex through VK_NV_low_latency2 (NVIDIA driver
 # 550+), else AMD Anti-Lag 2 through VK_AMD_anti_lag (Mesa's anti-lag layer, AMD's driver); nothing
 # changes elsewhere. With DLSS frame generation the game keeps it at least on.
@@ -347,7 +350,7 @@ def frame_gen_choice(ini):
             multiplier = min(max(int(ini.get("frame_generation_multiplier", "2")), 2), 4)
         except ValueError:
             multiplier = 2
-        return f"dlss{multiplier}"
+        return f"dlss{2 if DLSS_CASCADE and multiplier == 3 else multiplier}"
     return "off"
 
 

@@ -203,6 +203,8 @@ struct Values {
     /// not (set by the renderer; null until the device exists, or when it is available).
     std::atomic<int> dlssg_max_multiplier{1};
     std::atomic<const char*> dlssg_problem{nullptr};
+    std::atomic<bool> dlssg_cascade_available{false};
+    std::atomic<const char*> dlssg_cascade_problem{nullptr};
     /// Low latency (NVIDIA Reflex): off, on, on with boost. Live. On by default where the driver
     /// has it (low_latency_supported, set by the renderer); nothing changes elsewhere.
     std::atomic<int> low_latency{LowLatencyOn};

@@ -17,8 +17,8 @@ extern "C" {
 #endif
 
 // 1: DLSS Super Resolution. 2: adds DLSS Frame Generation (the FrameGen* members and
-// ConfigureDirectories); the port accepts both.
-#define BBPORT_DLSS_BRIDGE_ABI 2
+// ConfigureDirectories). 3: adds an independent second Frame Generation feature.
+#define BBPORT_DLSS_BRIDGE_ABI 3
 
 typedef void (*BbDlssLogFn)(int warning, const char* message);
 
@@ -126,6 +126,10 @@ typedef struct BbDlssApi {
     int32_t (*FrameGenEvaluate)(VkCommandBuffer command, const BbDlssgEvaluate* evaluate);
     // The caller must have waited for the GPU work that used the feature.
     void (*FrameGenRelease)(void);
+
+    // ABI 3. These use an independent feature and parameter map. FrameGenRelease releases both.
+    int32_t (*FrameGenCreateSecondary)(VkCommandBuffer command, const BbDlssgFeature* feature);
+    int32_t (*FrameGenEvaluateSecondary)(VkCommandBuffer command, const BbDlssgEvaluate* evaluate);
 } BbDlssApi;
 
 typedef const BbDlssApi* (*BbDlssGetApiFn)(void);

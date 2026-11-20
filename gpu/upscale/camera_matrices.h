@@ -13,12 +13,19 @@
 
 #include <array>
 #include <cmath>
+#include <numeric>
 
 namespace Vulkan::CameraMatrices {
 
 using Matrix4 = std::array<float, 16>;
 using Affine = std::array<float, 12>;
 using Projection = std::array<float, 4>;
+
+struct Pose {
+    Affine view{}, inv_view{};
+    Projection projection{};
+    bool valid = false;
+};
 
 /// a * b for 3x4 affine matrices (rows [R | t], column vectors).
 inline Affine MultiplyAffine(const Affine& a, const Affine& b) {
@@ -68,6 +75,54 @@ inline Matrix4 RowVectors(const Affine& a) {
 inline bool Usable(const Projection& p) {
     return p[0] != 0.0f && p[1] != 0.0f && p[3] != 0.0f && std::isfinite(p[0]) &&
            std::isfinite(p[1]) && std::isfinite(p[2]) && std::isfinite(p[3]);
+}
+
+/// Halfway position and projection, with an orthonormal orientation between the endpoint
+/// views. An opposite pair of axes has no stable average and is treated as a discontinuity.
+inline Pose Midpoint(const Pose& previous, const Pose& current) {
+    if (!previous.valid || !current.valid || !Usable(previous.projection) ||
+        !Usable(current.projection)) {
+        return {};
+    }
+    Pose mid{};
+    for (int i = 0; i < 4; ++i) {
+        mid.projection[i] = std::midpoint(previous.projection[i], current.projection[i]);
+    }
+    if (!Usable(mid.projection)) {
+        return {};
+    }
+    for (int col = 0; col < 3; ++col) {
+        std::array<float, 3> axis{};
+        for (int row = 0; row < 3; ++row) {
+            axis[row] = std::midpoint(previous.inv_view[row * 4 + col],
+                                      current.inv_view[row * 4 + col]);
+        }
+        for (int basis = 0; basis < col; ++basis) {
+            const auto begin = mid.view.begin() + basis * 4;
+            const float dot = std::inner_product(axis.begin(), axis.end(), begin, 0.0f);
+            for (int row = 0; row < 3; ++row) {
+                axis[row] -= dot * begin[row];
+            }
+        }
+        const float length = std::sqrt(std::inner_product(axis.begin(), axis.end(), axis.begin(), 0.0f));
+        if (!(length > 1e-3f) || !std::isfinite(length)) {
+            return {};
+        }
+        for (int row = 0; row < 3; ++row) {
+            mid.view[col * 4 + row] = mid.inv_view[row * 4 + col] = axis[row] / length;
+        }
+    }
+    for (int row = 0; row < 3; ++row) {
+        mid.inv_view[row * 4 + 3] = std::midpoint(previous.inv_view[row * 4 + 3],
+                                                current.inv_view[row * 4 + 3]);
+    }
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            mid.view[row * 4 + 3] -= mid.view[row * 4 + col] * mid.inv_view[col * 4 + 3];
+        }
+    }
+    mid.valid = true;
+    return mid;
 }
 
 /// The projection of the current camera, and the transforms from its clip space to the previous

@@ -9,6 +9,8 @@ otherwise).
 import os
 
 EN = {
+    "DLSS 4x (экспериментальный каскад)": "DLSS 4x (experimental cascade)",
+    "Каскад DLSS 4x использует два экземпляра DLSS 2x. Нужен обновлённый мост DLSS.": "DLSS 4x cascade uses two DLSS 2x features. It needs the updated DLSS bridge.",
     "Качество изображения": "Image quality",
     "Библиотеки AMD и NVIDIA": "AMD and NVIDIA libraries",
     "Свои файлы AMD и NVIDIA: порт их не распространяет": "Your own AMD and NVIDIA files: the port does not ship them",
@@ -463,6 +465,8 @@ EN = {
 }
 
 PT_BR = {
+    "DLSS 4x (экспериментальный каскад)": "DLSS 4x (cascata experimental)",
+    "Каскад DLSS 4x использует два экземпляра DLSS 2x. Нужен обновлённый мост DLSS.": "A cascata DLSS 4x usa duas instâncias do DLSS 2x. Ela precisa da ponte DLSS atualizada.",
     "Добавить ещё одну": "Adicionar mais uma",
     "Ярлык создан: {}": "Atalho criado: {}",
     "Не удалось создать ярлык: {}": "Não foi possível criar o atalho: {}",
@@ -747,6 +751,8 @@ PT_BR = {
 
 
 ZH_CN = {
+    "DLSS 4x (экспериментальный каскад)": "DLSS 4x（实验性级联）",
+    "Каскад DLSS 4x использует два экземпляра DLSS 2x. Нужен обновлённый мост DLSS.": "DLSS 4x 级联使用两个 DLSS 2x 实例，需要新版 DLSS 桥接库。",
     "Добавить ещё одну": "再添加一个",
     "Ярлык создан: {}": "已创建快捷方式：{}",
     "Не удалось создать ярлык: {}": "无法创建快捷方式：{}",

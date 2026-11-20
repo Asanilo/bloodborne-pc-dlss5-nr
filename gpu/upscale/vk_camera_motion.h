@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "common/types.h"
+#include "upscale/camera_matrices.h"
 #include "vulkan/vk_common.h"
 #include "buffers/buffer.h"
 #include "textures/image.h"
@@ -80,6 +81,9 @@ public:
     void CameraVectors(float position[3], float up[3], float right[3], float forward[3]) const noexcept;
     // Current projection, previous projection, and row Z of previous-view * inverse-view.
     [[nodiscard]] std::array<std::array<float, 4>, 3> TaaDepthParameters() const noexcept;
+    [[nodiscard]] CameraMatrices::Pose CurrentPose() const noexcept {
+        return {current.view, current.inv_view, current.proj, current.valid};
+    }
     /// Frame generation (DLSS): row-vector matrices of D3D clip space (upscale/camera_matrices.h):
     /// the projection, current clip to previous clip, and back. False before two cameras.
     bool ClipTransforms(std::array<float, 16>& view_to_clip,

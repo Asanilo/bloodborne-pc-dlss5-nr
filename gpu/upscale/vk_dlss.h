@@ -99,10 +99,11 @@ public:
         bool reset;
         u32 count, index; ///< generated frames for this pair, and which one (1-based)
     };
-    [[nodiscard]] bool HasFrameGen(const FrameGenDesc& desc) const;
+    [[nodiscard]] bool SupportsSecondaryFrameGen() const;
+    [[nodiscard]] bool HasFrameGen(const FrameGenDesc& desc, bool secondary = false) const;
     /// Records the feature creation. The GPU must be done with the previous one.
-    bool CreateFrameGen(vk::CommandBuffer command, const FrameGenDesc& desc);
-    bool EvaluateFrameGen(vk::CommandBuffer command, const FrameGenFrame& frame);
+    bool CreateFrameGen(vk::CommandBuffer command, const FrameGenDesc& desc, bool secondary = false);
+    bool EvaluateFrameGen(vk::CommandBuffer command, const FrameGenFrame& frame, bool secondary = false);
     void ReleaseFrameGen();
 
 private:

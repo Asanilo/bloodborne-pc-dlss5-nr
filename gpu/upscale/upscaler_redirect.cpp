@@ -359,6 +359,7 @@ void TemporalUpscaler::CaptureFrameGenScene(vk::Image depth_image, vk::Format de
         .camera_up = {},
         .camera_right = {},
         .camera_forward = {},
+        .camera_pose = camera_motion.CurrentPose(),
     };
     camera_motion.CameraVectors(scene.camera_position, scene.camera_up, scene.camera_right,
                                 scene.camera_forward);

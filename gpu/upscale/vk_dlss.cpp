@@ -22,10 +22,10 @@
 #include <fstream>
 #include <iterator>
 #include <fmt/format.h>
-#include "../../../dlss_bridge/bbport_dlss_bridge.h"
+#include "dlss_bridge/bbport_dlss_bridge.h"
 #elif defined(__linux__)
 #include <dlfcn.h>
-#include "../../../dlss_bridge/bbport_dlss_bridge.h"
+#include "dlss_bridge/bbport_dlss_bridge.h"
 #endif
 
 namespace Vulkan {
@@ -234,7 +234,7 @@ struct Dlss::Impl {
     const BbDlssApi* api{};
     std::vector<std::string> instance_extensions, device_extensions;
     std::optional<FeatureDesc> feature;
-    std::optional<FrameGenDesc> frame_gen;
+    std::array<std::optional<FrameGenDesc>, 2> frame_gen;
     int frame_gen_max{};
     std::string problem, frame_gen_problem;
     bool eligible{true}, instance_ready{}, device_ready{}, initialized{}, available{};
@@ -471,26 +471,33 @@ std::string Dlss::FrameGenProblem() const {
     return impl->available ? impl->frame_gen_problem : std::string{};
 }
 
-bool Dlss::HasFrameGen(const FrameGenDesc& desc) const {
-    return impl->frame_gen && *impl->frame_gen == desc;
+bool Dlss::SupportsSecondaryFrameGen() const {
+    return FrameGenMaxCount() > 0 && impl->api->abi >= 3 && impl->api->FrameGenCreateSecondary &&
+           impl->api->FrameGenEvaluateSecondary;
 }
 
-bool Dlss::CreateFrameGen(vk::CommandBuffer command, const FrameGenDesc& desc) {
-    if (FrameGenMaxCount() < 1 || impl->api->abi < 2) {
+bool Dlss::HasFrameGen(const FrameGenDesc& desc, bool secondary) const {
+    return impl->frame_gen[secondary] == desc;
+}
+
+bool Dlss::CreateFrameGen(vk::CommandBuffer command, const FrameGenDesc& desc, bool secondary) {
+    if (FrameGenMaxCount() < 1 || impl->api->abi < 2 || (secondary && !SupportsSecondaryFrameGen())) {
         return false;
     }
-    impl->frame_gen.reset();
+    auto& created = impl->frame_gen[secondary];
+    created.reset();
     const BbDlssgFeature feature{desc.width, desc.height, static_cast<VkFormat>(desc.format),
                                  desc.render_width, desc.render_height};
-    if (!impl->api->FrameGenCreate(command, &feature)) {
+    const auto create = secondary ? impl->api->FrameGenCreateSecondary : impl->api->FrameGenCreate;
+    if (!create(command, &feature)) {
         return false;
     }
-    impl->frame_gen = desc;
+    created = desc;
     return true;
 }
 
-bool Dlss::EvaluateFrameGen(vk::CommandBuffer command, const FrameGenFrame& frame) {
-    if (!impl->frame_gen) {
+bool Dlss::EvaluateFrameGen(vk::CommandBuffer command, const FrameGenFrame& frame, bool secondary) {
+    if (!impl->frame_gen[secondary]) {
         return false;
     }
     const auto image = [](const Resource& r) {
@@ -529,11 +536,13 @@ bool Dlss::EvaluateFrameGen(vk::CommandBuffer command, const FrameGenFrame& fram
                 sizeof(parameters.clip_to_prev_clip));
     std::memcpy(parameters.prev_clip_to_clip, frame.prev_clip_to_clip.data(),
                 sizeof(parameters.prev_clip_to_clip));
-    return impl->api->FrameGenEvaluate(command, &parameters) != 0;
+    const auto evaluate =
+        secondary ? impl->api->FrameGenEvaluateSecondary : impl->api->FrameGenEvaluate;
+    return evaluate(command, &parameters) != 0;
 }
 
 void Dlss::ReleaseFrameGen() {
-    impl->frame_gen.reset();
+    impl->frame_gen = {};
     if (impl->api && impl->api->abi >= 2 && impl->initialized) {
         impl->api->FrameGenRelease();
     }
@@ -542,7 +551,7 @@ void Dlss::ReleaseFrameGen() {
 void Dlss::Shutdown() {
     impl->available = false;
     impl->feature.reset();
-    impl->frame_gen.reset();
+    impl->frame_gen = {};
     impl->frame_gen_max = 0;
     if (impl->api && impl->initialized) {
         impl->api->Shutdown();
@@ -585,13 +594,16 @@ int Dlss::FrameGenMaxCount() const {
 std::string Dlss::FrameGenProblem() const {
     return {};
 }
-bool Dlss::HasFrameGen(const FrameGenDesc&) const {
+bool Dlss::SupportsSecondaryFrameGen() const {
     return false;
 }
-bool Dlss::CreateFrameGen(vk::CommandBuffer, const FrameGenDesc&) {
+bool Dlss::HasFrameGen(const FrameGenDesc&, bool) const {
     return false;
 }
-bool Dlss::EvaluateFrameGen(vk::CommandBuffer, const FrameGenFrame&) {
+bool Dlss::CreateFrameGen(vk::CommandBuffer, const FrameGenDesc&, bool) {
+    return false;
+}
+bool Dlss::EvaluateFrameGen(vk::CommandBuffer, const FrameGenFrame&, bool) {
     return false;
 }
 void Dlss::ReleaseFrameGen() {}

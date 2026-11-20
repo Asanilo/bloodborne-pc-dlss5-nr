@@ -40,6 +40,7 @@
 #include "common/types.h"
 #include "textures/image.h"
 #include "upscale/vk_dlss.h"
+#include "upscale/camera_matrices.h"
 #include "vulkan/vk_common.h"
 #include "ffx_vk_portable.h" // after vk_common: its Vulkan configuration first
 
@@ -86,6 +87,7 @@ public:
         /// motion from the objects' with them). has_matrices false before two cameras.
         bool has_matrices;
         std::array<float, 16> view_to_clip, clip_to_prev_clip, prev_clip_to_clip;
+        CameraMatrices::Pose camera_pose;
     };
     /// End of the upscaler's scaled run (recording thread): keeps the inputs and copies the depth.
     void CaptureScene(const Scene& scene);
@@ -164,7 +166,23 @@ private:
     void WaitAsyncIdle();
     /// Creation info with both queue families' access when asynchronous.
     vk::ImageCreateInfo Shared(vk::ImageCreateInfo info) const;
-    void RecordDlss(vk::Image color, u64 id, bool reset, u32 count);
+    void RecordDlss(vk::Image color, bool reset, u32 count, bool cascade,
+                    const CameraMatrices::Pose& midpoint,
+                    const std::array<float, 2>& midpoint_jitter,
+                    const CameraMatrices::Pose& previous_pose);
+    void EnsureCascadeResources();
+    void RecordDlssCascade(const Dlss::FrameGenDesc& desc, bool create, Dlss::FrameGenFrame frame,
+                           const std::array<Dlss::Resource, MaxGenerated>& outputs,
+                           const CameraMatrices::Pose& midpoint,
+                           const std::array<float, 2>& midpoint_jitter,
+                           const CameraMatrices::Pose& previous_pose);
+    void RecordCascadeGuides(vk::CommandBuffer cmdbuf, const Dlss::FrameGenFrame& frame,
+                             const Dlss::FrameGenFrame& midpoint, const Dlss::FrameGenFrame& half);
+    void RecordCascadeHud(vk::CommandBuffer cmdbuf, const Dlss::Resource& color,
+                          const Dlss::Resource& hudless,
+                          const std::array<Dlss::Resource, MaxGenerated>& outputs);
+    bool CascadeWanted(int multiplier) const;
+    void FailCascade(const char* reason);
     void RecordAmd(vk::Image color, u64 id, bool reset, Target& target);
     /// The provider failed for good: off, with the reason in the settings (the menu shows it).
     void Fail(int provider, const char* reason);
@@ -185,6 +203,24 @@ private:
     /// DLSS: the feature made (or to be made in the next recorded generation).
     std::optional<Dlss::FrameGenDesc> dlss_desc;
     bool dlss_create_pending = false;
+    bool cascade_supported = false;
+    std::atomic<bool> cascade_failed{false};
+    struct CascadeHistory {
+        CameraMatrices::Pose pose;
+        std::array<float, 2> jitter;
+        u64 capture;
+        u64 source;
+    };
+    std::optional<CascadeHistory> cascade_history;
+    // Kept until the draw scheduler has finished, just like the NGX feature and its targets.
+    struct CascadeImage {
+        VideoCore::HostImage image;
+        vk::UniqueImageView view;
+    };
+    std::array<CascadeImage, 3> cascade_guides;
+    vk::UniqueDescriptorSetLayout cascade_layout;
+    vk::UniquePipelineLayout cascade_pipeline_layout;
+    vk::UniquePipeline cascade_guides_pipeline, cascade_hud_pipeline;
 
     Scene scene{};
     bool scene_captured = false; ///< this frame's, not yet interpolated

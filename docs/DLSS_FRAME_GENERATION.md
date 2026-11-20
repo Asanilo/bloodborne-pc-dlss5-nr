@@ -32,6 +32,14 @@ Not yet verified on hardware by the author (no NVIDIA GPU at hand): the Vulkan p
 Windows port's working implementation (Supermedo/bloodborne_pc) and NVIDIA's Linux SDK; reports
 from RTX 40/50 owners are welcome.
 
+### Experimental 4x cascade on Linux
+
+Set `BB_DLSSG_CASCADE=1 BB_FRAME_GEN=dlss BB_FRAME_GEN_MULTIPLIER=4` with the ABI 3 bridge.
+The game offers **4x (experimental cascade)** alongside the standard 2x mode. A second 2x DLSS
+feature interpolates each half of the real-frame interval using estimated intermediate depth and
+motion. The cascade requires three evaluations per real-frame pair. Translucent HUD pixels
+keep the real background already blended into them.
+
 ## Low latency: NVIDIA Reflex through VK_NV_low_latency2 (2026-10-18)
 
 On NVIDIA's driver (550 and newer) the game's thread sleeps at the start of each of its frames

@@ -353,6 +353,7 @@ bool UpscalerSection(BbSettings::Values& s) {
         const bool dlss_shown = s.dlss_supported.load() || current == BbSettings::FrameGenDlss;
         const int dlss_max = s.dlssg_max_multiplier.load(std::memory_order_relaxed);
         const bool dlss_available = dlss_max > 1;
+        const bool cascade_available = s.dlssg_cascade_available.load(std::memory_order_relaxed);
         const bool shown = fsr3_shown || dlss_available || s.dlss_supported.load() ||
                            current != BbSettings::FrameGenOff;
         if (shown) {
@@ -400,7 +401,27 @@ bool UpscalerSection(BbSettings::Values& s) {
                 "выше. DLSS Frame Generation нужны мост DLSS, libnvidia-ngx-dlssg.so от NVIDIA "
                 "рядом с игрой или в папке DLSS лаунчера и GeForce RTX 40 или новее. Работает со "
                 "всеми пресетами апскейлера, кроме «Выкл»; меню и ролики не генерируются."));
-            if (current == BbSettings::FrameGenDlss && dlss_max > 2) {
+            if (current == BbSettings::FrameGenDlss && dlss_available && cascade_available) {
+                const int requested = s.frame_generation_multiplier.load(std::memory_order_relaxed);
+                const int multiplier = requested == 4 ? 4 : std::clamp(requested, 2, dlss_max);
+                const auto label = [](int count) {
+                    if (count == 4) {
+                        return BbSettings::MenuText("4x (experimental cascade)", "4x (экспериментальный каскад)");
+                    }
+                    return count == 3 ? "3x" : "2x";
+                };
+                if (ImGui::BeginCombo(BbSettings::MenuText("Multiplier", "Множитель"), label(multiplier))) {
+                    for (int value : {2, 3, 4}) {
+                        if (value == 3 && dlss_max < 3) {
+                            continue; // Only NGX's native MFG can provide 3x.
+                        }
+                        if (ImGui::Selectable(label(value), multiplier == value)) {
+                            Store(s.frame_generation_multiplier, value, multiplier != value);
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+            } else if (current == BbSettings::FrameGenDlss && dlss_max > 2) {
                 int multiplier = std::clamp(s.frame_generation_multiplier.load(), 2, dlss_max);
                 const bool changed = ImGui::SliderInt(
                     BbSettings::MenuText("Multiplier", "Множитель"), &multiplier, 2, dlss_max, "%dx");
@@ -410,6 +431,11 @@ bool UpscalerSection(BbSettings::Values& s) {
                     "needs that refresh rate for them to be seen.",
                     "Кадров на экране на один кадр игры: 2x — один сгенерированный, 4x — три. "
                     "Чтобы их было видно, нужна такая частота обновления дисплея."));
+            }
+            if (current == BbSettings::FrameGenDlss) {
+                if (const char* problem = s.dlssg_cascade_problem.load(std::memory_order_relaxed)) {
+                    ImGui::TextDisabled("%s", problem);
+                }
             }
             const char* problem = current == BbSettings::FrameGenDlss
                                       ? s.dlssg_problem.load(std::memory_order_relaxed)

@@ -1,0 +1,50 @@
+// SPDX-FileCopyrightText: Copyright 2026 bbport contributors
+// SPDX-License-Identifier: GPL-2.0-or-later
+#version 450
+#extension GL_EXT_samplerless_texture_functions : require
+layout(local_size_x = 8, local_size_y = 8) in;
+layout(binding = 0) uniform texture2D depth_tex;
+layout(binding = 1) uniform texture2D motion_tex;
+layout(binding = 2, r32f) uniform writeonly image2D midpoint_depth;
+layout(binding = 3, rg16f) uniform writeonly image2D midpoint_motion;
+layout(binding = 4, rg16f) uniform writeonly image2D current_half_motion;
+layout(push_constant) uniform Push {
+    mat4 current_to_midpoint;
+    vec2 current_jitter;
+    vec2 midpoint_jitter;
+} pc;
+
+vec2 motion_at(ivec2 pixel) {
+    const vec2 motion = texelFetch(motion_tex, pixel, 0).rg;
+    return any(isinf(motion)) || any(isnan(motion)) ? vec2(0.0) : motion;
+}
+
+void main() {
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    const ivec2 size = imageSize(midpoint_depth);
+    if (any(greaterThanEqual(pixel, size))) {
+        return;
+    }
+
+    const vec2 half_motion = 0.5 * motion_at(pixel);
+    imageStore(current_half_motion, pixel, vec4(half_motion, 0.0, 0.0));
+
+    // Gather from the real current frame. Its vectors point back in time, so finding the
+    // source pixel of this midpoint pixel requires the inverse of the half-step warp.
+    const vec2 jitter_delta = pc.midpoint_jitter - pc.current_jitter;
+    ivec2 source = pixel;
+    vec2 source_motion = half_motion;
+    for (int i = 0; i < 2; ++i) {
+        source = ivec2(clamp(round(vec2(pixel) - source_motion - jitter_delta),
+                            vec2(0.0), vec2(size - 1)));
+        source_motion = 0.5 * motion_at(source);
+    }
+    const float depth = texelFetch(depth_tex, source, 0).r;
+    const vec2 ndc = 2.0 * (vec2(source) + 0.5 - pc.current_jitter) / vec2(size) - 1.0;
+    // The input is positive-Y-down render space, the camera transform is D3D clip space.
+    const vec4 midpoint_clip = pc.current_to_midpoint * vec4(ndc.x, -ndc.y, depth, 1.0);
+    const float midpoint_z = midpoint_clip.w > 0.0
+        ? clamp(midpoint_clip.z / midpoint_clip.w, 0.0, 1.0) : depth;
+    imageStore(midpoint_depth, pixel, vec4(midpoint_z));
+    imageStore(midpoint_motion, pixel, vec4(source_motion, 0.0, 0.0));
+}

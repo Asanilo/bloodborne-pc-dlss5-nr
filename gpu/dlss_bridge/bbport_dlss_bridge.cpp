@@ -36,6 +36,12 @@ constexpr char EngineVersion[] = "bbport-windows";
 constexpr char EngineVersion[] = "bbport-linux";
 #endif
 
+struct FrameGenInstance {
+    NVSDK_NGX_Parameter* parameters{};
+    NVSDK_NGX_Handle* feature{};
+    BbDlssgFeature desc{};
+};
+
 struct State {
     BbDlssLogFn log{};
     std::vector<std::wstring> dll_directories;
@@ -48,10 +54,8 @@ struct State {
     NVSDK_NGX_Parameter* parameters{};
     NVSDK_NGX_Handle* feature{};
     BbDlssFeature feature_desc{};
-    // Frame Generation: its own parameter map (NVIDIA's advice with two features).
-    NVSDK_NGX_Parameter* fg_parameters{};
-    NVSDK_NGX_Handle* fg_feature{};
-    BbDlssgFeature fg_desc{};
+    FrameGenInstance primary_fg;
+    FrameGenInstance secondary_fg;
     bool fg_device_supported{};
     int32_t fg_max_count{};
     // The extensions of both features, without duplicates.
@@ -363,32 +367,33 @@ int32_t FrameGenMaxCount() {
     return state.initialized ? state.fg_max_count : 0;
 }
 
-void FrameGenRelease() {
-    if (state.fg_feature) {
-        NVSDK_NGX_VULKAN_ReleaseFeature(state.fg_feature);
-        state.fg_feature = nullptr;
+void FrameGenReleaseInstance(FrameGenInstance& fg) {
+    if (fg.feature) {
+        NVSDK_NGX_VULKAN_ReleaseFeature(fg.feature);
+        fg.feature = nullptr;
     }
-    if (state.fg_parameters) {
-        NVSDK_NGX_VULKAN_DestroyParameters(state.fg_parameters);
-        state.fg_parameters = nullptr;
+    if (fg.parameters) {
+        NVSDK_NGX_VULKAN_DestroyParameters(fg.parameters);
+        fg.parameters = nullptr;
     }
 }
 
-int32_t FrameGenCreate(VkCommandBuffer command, const BbDlssgFeature* desc) {
+int32_t FrameGenCreateInstance(FrameGenInstance& fg, VkCommandBuffer command,
+                               const BbDlssgFeature* desc) {
     if (!state.initialized || state.fg_max_count < 1 || !desc)
         return 0;
-    FrameGenRelease();
+    FrameGenReleaseInstance(fg);
     if (!Check("Frame Generation parameter allocation",
-               NVSDK_NGX_VULKAN_AllocateParameters(&state.fg_parameters)))
+               NVSDK_NGX_VULKAN_AllocateParameters(&fg.parameters)))
         return 0;
     // Depth and motion vectors come at the scene's render size, smaller than the frame.
-    NVSDK_NGX_Parameter_SetUI(state.fg_parameters, NVSDK_NGX_DLSSG_Parameter_Width, desc->width);
-    NVSDK_NGX_Parameter_SetUI(state.fg_parameters, NVSDK_NGX_DLSSG_Parameter_Height, desc->height);
-    NVSDK_NGX_Parameter_SetUI(state.fg_parameters, NVSDK_NGX_DLSSG_Parameter_InternalWidth,
+    NVSDK_NGX_Parameter_SetUI(fg.parameters, NVSDK_NGX_DLSSG_Parameter_Width, desc->width);
+    NVSDK_NGX_Parameter_SetUI(fg.parameters, NVSDK_NGX_DLSSG_Parameter_Height, desc->height);
+    NVSDK_NGX_Parameter_SetUI(fg.parameters, NVSDK_NGX_DLSSG_Parameter_InternalWidth,
                               desc->render_width);
-    NVSDK_NGX_Parameter_SetUI(state.fg_parameters, NVSDK_NGX_DLSSG_Parameter_InternalHeight,
+    NVSDK_NGX_Parameter_SetUI(fg.parameters, NVSDK_NGX_DLSSG_Parameter_InternalHeight,
                               desc->render_height);
-    NVSDK_NGX_Parameter_SetUI(state.fg_parameters, NVSDK_NGX_DLSSG_Parameter_DynamicResolution, 0);
+    NVSDK_NGX_Parameter_SetUI(fg.parameters, NVSDK_NGX_DLSSG_Parameter_DynamicResolution, 0);
     NVSDK_NGX_DLSSG_Create_Params settings{};
     settings.Width = desc->width;
     settings.Height = desc->height;
@@ -396,13 +401,13 @@ int32_t FrameGenCreate(VkCommandBuffer command, const BbDlssgFeature* desc) {
     settings.RenderWidth = desc->render_width;
     settings.RenderHeight = desc->render_height;
     settings.DynamicResolutionScaling = false;
-    const auto result = NGX_VK_CREATE_DLSSG(command, 1, 1, &state.fg_feature,
-                                            state.fg_parameters, &settings);
-    if (!Check("Frame Generation feature creation", result) || !state.fg_feature) {
-        state.fg_feature = nullptr;
+    const auto result = NGX_VK_CREATE_DLSSG(command, 1, 1, &fg.feature,
+                                            fg.parameters, &settings);
+    if (!Check("Frame Generation feature creation", result) || !fg.feature) {
+        FrameGenReleaseInstance(fg);
         return 0;
     }
-    state.fg_desc = *desc;
+    fg.desc = *desc;
     Log(0, "Frame Generation %ux%u (depth and motion %ux%u, format %u)", desc->width,
         desc->height, desc->render_width, desc->render_height,
         static_cast<unsigned>(desc->format));
@@ -443,8 +448,9 @@ bool Flag(const char* name, bool fallback) {
     return env && *env ? env[0] == '1' : fallback;
 }
 
-int32_t FrameGenEvaluate(VkCommandBuffer command, const BbDlssgEvaluate* evaluate) {
-    if (!state.fg_feature || !state.fg_parameters || !evaluate)
+int32_t FrameGenEvaluateInstance(FrameGenInstance& fg, VkCommandBuffer command,
+                                 const BbDlssgEvaluate* evaluate) {
+    if (!fg.feature || !fg.parameters || !evaluate)
         return 0;
     auto backbuffer = Wrap(evaluate->backbuffer, false);
     auto depth = Wrap(evaluate->depth, false);
@@ -463,8 +469,8 @@ int32_t FrameGenEvaluate(VkCommandBuffer command, const BbDlssgEvaluate* evaluat
     NVSDK_NGX_DLSSG_Opt_Eval_Params options{};
     options.multiFrameCount = std::max(1u, evaluate->multi_frame_count);
     options.multiFrameIndex = std::clamp(evaluate->multi_frame_index, 1u, options.multiFrameCount);
-    const float aspect = state.fg_desc.render_height
-                             ? float(state.fg_desc.render_width) / float(state.fg_desc.render_height)
+    const float aspect = fg.desc.render_height
+                             ? float(fg.desc.render_width) / float(fg.desc.render_height)
                              : 16.0f / 9.0f;
     Identity(options.clipToLensClip);
     if (evaluate->has_matrices && evaluate->view_to_clip[0][0] != 0.0f &&
@@ -566,10 +572,31 @@ int32_t FrameGenEvaluate(VkCommandBuffer command, const BbDlssgEvaluate* evaluat
             evaluate->has_matrices ? "the game's" : "made up");
     }
     return Check("Frame Generation evaluation",
-                 NGX_VK_EVALUATE_DLSSG(command, state.fg_feature, state.fg_parameters,
+                 NGX_VK_EVALUATE_DLSSG(command, fg.feature, fg.parameters,
                                        &resources, &options))
                ? 1
                : 0;
+}
+
+int32_t FrameGenCreate(VkCommandBuffer command, const BbDlssgFeature* desc) {
+    return FrameGenCreateInstance(state.primary_fg, command, desc);
+}
+
+int32_t FrameGenEvaluate(VkCommandBuffer command, const BbDlssgEvaluate* evaluate) {
+    return FrameGenEvaluateInstance(state.primary_fg, command, evaluate);
+}
+
+int32_t FrameGenCreateSecondary(VkCommandBuffer command, const BbDlssgFeature* desc) {
+    return FrameGenCreateInstance(state.secondary_fg, command, desc);
+}
+
+int32_t FrameGenEvaluateSecondary(VkCommandBuffer command, const BbDlssgEvaluate* evaluate) {
+    return FrameGenEvaluateInstance(state.secondary_fg, command, evaluate);
+}
+
+void FrameGenRelease() {
+    FrameGenReleaseInstance(state.secondary_fg);
+    FrameGenReleaseInstance(state.primary_fg);
 }
 
 void Shutdown() {
@@ -601,7 +628,9 @@ const BbDlssApi api{BBPORT_DLSS_BRIDGE_ABI,
                     FrameGenMaxCount,
                     FrameGenCreate,
                     FrameGenEvaluate,
-                    FrameGenRelease};
+                    FrameGenRelease,
+                    FrameGenCreateSecondary,
+                    FrameGenEvaluateSecondary};
 
 } // namespace
 

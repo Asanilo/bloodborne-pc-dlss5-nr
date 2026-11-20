@@ -371,11 +371,15 @@ class LauncherWindow(ContentPages, OnlinePage, TrophiesPage, LogPage, UpscalerFi
         nvidia = not vendors or any("10de" in vendor for vendor in vendors)
         frame_gens = [FRAME_GENS[0], ("FSR 3.1 (экспериментально)", "fsr3")]
         frame_gens += [entry for entry in FRAME_GENS[1:] if nvidia or self.ini.get("frame_generation") == "dlss"]
-        self.frame_gen_row = combo_row(
-            tr("Генерация кадров"),
+        frame_gen_description = (
+            tr("Каскад DLSS 4x использует два экземпляра DLSS 2x. Нужен обновлённый мост DLSS.")
+            if DLSS_CASCADE else
             tr("Кадры между кадрами игры. FSR 3.1 — на любой видеокарте, пока экспериментально "
                "(возможны артефакты по краям). DLSS: нужны мост DLSS, libnvidia-ngx-dlssg.so от NVIDIA "
-               "(выбирается выше, как библиотека DLSS) и GeForce RTX 40 или новее; 3x и 4x — RTX 50"),
+               "(выбирается выше, как библиотека DLSS) и GeForce RTX 40 или новее; 3x и 4x — RTX 50")
+        )
+        self.frame_gen_row = combo_row(
+            tr("Генерация кадров"), frame_gen_description,
             frame_gens, "fsr3" if self.ini.get("frame_generation") == "fsr3" else frame_gen_choice(self.ini))
         upscaler.add(self.frame_gen_row)
         # Low latency (Reflex, Anti-Lag 2): with DLSS frame generation at least on (the game enforces
