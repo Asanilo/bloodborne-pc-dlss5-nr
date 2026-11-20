@@ -898,10 +898,15 @@ void Render(vk::CommandBuffer cmdbuf, vk::ImageView view, vk::Extent2D extent) {
     static const bool fps_print = bb_env_on("BB_FPS_PRINT");
     if (fps_print) {
         static auto window_start = now;
+        static auto first_source = BbStats::frame_number.load(std::memory_order_relaxed);
         static std::uint64_t presents = 0;
         ++presents;
         if (const double s = std::chrono::duration<double>(now - window_start).count(); s >= 5.0) {
             std::printf("Present rate: %.1f FPS over %.1f s\n", presents / s, s);
+            const auto source = BbStats::frame_number.load(std::memory_order_relaxed);
+            std::printf("Source preparation rate: %.1f FPS (%u frames in %.3f s)\n",
+                        (source - first_source) / s, source - first_source, s);
+            first_source = source;
             std::fflush(stdout);
             window_start = now;
             presents = 0;
