@@ -105,6 +105,30 @@ Using the Hunter's Mark reloaded the clinic in the same process. The new
 camera view and HUD appeared and 4x generation resumed. The tests used a
 private save and exited normally.
 
+#### Direct multi-output on the RTX 4060 Laptop
+
+The `nrbridge` reference binds the current real frame, its depth and motion
+once per pair. Its Windows helper uses the same feature for each output index.
+It applies a version-specific adaptation to the loaded Windows feature
+module. The Linux experiment below used the original NVIDIA Linux modules.
+
+| Linux DLSS-G module | Single-feature test on driver 620.70.06 | Result |
+|---|---|---|
+| 310.9.1 development | 2x control, then a separate 3x run | Correct moving midpoint at 2x. NGX rejected the first 3x index. |
+| 310.9.1 release | Requested two generated frames at create, supplied a consecutive real backbuffer ID, primed the feature with three 2x evaluations, then requested 3x | Warm 2x succeeded. NGX rejected count 2, index 1 on source frame 4. |
+| 310.9.16 release | Same warm test using the matching headers, Linux NGX stub and feature libraries | Warm 2x succeeded. Same rejection on source frame 4. |
+
+Each 3x request returned `0xbad00005` with the runtime reporting a supported
+count of one. No direct 3x image was produced. The 4x–6x direct cases were
+left unmeasured. [NVIDIA 310.9.16 release](https://github.com/NVIDIA/DLSS/releases/tag/v310.9.16)
+
+The Windows and Linux release modules at 310.9.1 share 31 byte-identical
+embedded Blackwell PTX payloads in containers that also have Ada members.
+A separate compile-only test extracted these from the Linux file, targeted
+Ada in memory, and compiled all 31 into CUDA objects on the RTX 4060 Laptop.
+This test launched zero kernels. Executing the model, producing correct
+thirds from one feature, and measuring an adapted native runtime remain open.
+
 ## Low latency: NVIDIA Reflex through VK_NV_low_latency2 (2026-10-18)
 
 On NVIDIA's driver (550 and newer) the game's thread sleeps at the start of each of its frames
