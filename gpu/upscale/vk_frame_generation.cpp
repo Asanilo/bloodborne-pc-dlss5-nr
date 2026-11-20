@@ -278,6 +278,19 @@ bool FrameGeneration::CascadeWanted(int multiplier) const {
     return multiplier == 4 && cascade_supported && !cascade_failed.load(std::memory_order_relaxed);
 }
 
+bool FrameGeneration::CascadeActive() const {
+    return Provider() == BbSettings::FrameGenDlss &&
+           CascadeWanted(BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed));
+}
+
+void FrameGeneration::RetireInactiveCascade() {
+    if (cascade_guides[0].image && !CascadeActive()) {
+        Destroy();
+        scene_captured = false;
+        reset_next = true;
+    }
+}
+
 void FrameGeneration::FailCascade(const char* reason) {
     if (!cascade_failed.exchange(true, std::memory_order_relaxed)) {
         auto& settings = BbSettings::Get();
@@ -320,9 +333,19 @@ void FrameGeneration::Destroy() {
         }
         dlss_desc.reset();
         dlss_create_pending = false;
-        for (auto& guide : cascade_guides) {
-            guide.view.reset();
-            guide.image = VideoCore::HostImage{};
+        if (cascade_guides[0].image) {
+            for (auto& guide : cascade_guides) {
+                guide.view.reset();
+                guide.image.Destroy();
+            }
+            cascade_skip = {};
+            std::scoped_lock lock{targets_mutex};
+            for (auto& target : targets) {
+                target.view.reset();
+                target.image.Destroy();
+                target.ready = false;
+                target.disable_interpolation = nullptr;
+            }
         }
     }
     if (amd) {
@@ -765,6 +788,7 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
             // first frame after a reset has nothing before it to interpolate from.
             target.ready = i < count && !reset;
             target.frame = id;
+            target.disable_interpolation = cascade ? cascade_skip[i]->Handle() : vk::Buffer{};
         }
         if (!reset) ++stat_ready;
     }
@@ -1135,6 +1159,10 @@ void FrameGeneration::EnsureCascadeResources() {
     }
     scheduler.EndRendering();
     for (u32 i = 0; i < cascade_guides.size(); ++i) {
+        if (!cascade_skip[i]) {
+            cascade_skip[i] = std::make_unique<VideoCore::Buffer>(
+                instance, 0, sizeof(u32), VideoCore::MemoryType::DeviceLocal, "DLSS skip flag");
+        }
         auto& guide = cascade_guides[i];
         const auto format = i == 0 ? vk::Format::eR32Sfloat : vk::Format::eR16G16Sfloat;
         guide.image = VideoCore::HostImage(device, instance.GetAllocator());
@@ -1236,72 +1264,98 @@ void FrameGeneration::RecordDlssCascade(
     }
     half.output = outputs[2];
 
+    frame.disable_interpolation = cascade_skip[1]->Handle();
+    mid.disable_interpolation = cascade_skip[0]->Handle();
+    half.disable_interpolation = cascade_skip[2]->Handle();
+
     scheduler.EndRendering();
-    scheduler.Record([this, desc, create, frame, mid, half, outputs, color, hudless](
-                         vk::CommandBuffer cmdbuf) {
-        const auto all = vk::PipelineStageFlagBits2::eAllCommands;
-        const auto compute = vk::PipelineStageFlagBits2::eComputeShader;
-        const auto read = vk::AccessFlagBits2::eShaderRead;
-        const auto write = vk::AccessFlagBits2::eShaderStorageWrite;
-        const auto memory = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite;
-        for (const auto& input : {color, hudless, frame.depth, frame.motion}) {
-            if (input.image) {
-                ImageBarrier(cmdbuf, input.image, all, vk::AccessFlagBits2::eMemoryWrite,
-                             compute, read, vk::ImageLayout::eGeneral, {input.aspect, 0, 1, 0, 1});
-            }
+    // Record stateful NGX evaluations in source order on the command producer.
+    const auto cmdbuf = scheduler.CommandBuffer();
+    const auto all = vk::PipelineStageFlagBits2::eAllCommands;
+    const auto compute = vk::PipelineStageFlagBits2::eComputeShader;
+    const auto read = vk::AccessFlagBits2::eShaderRead;
+    const auto write = vk::AccessFlagBits2::eShaderStorageWrite;
+    const auto memory = vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite;
+    for (const auto& input : {color, hudless, frame.depth, frame.motion}) {
+        if (input.image) {
+            ImageBarrier(cmdbuf, input.image, all, vk::AccessFlagBits2::eMemoryWrite,
+                         compute, read, vk::ImageLayout::eGeneral, {input.aspect, 0, 1, 0, 1});
         }
-        // A successful NGX Evaluate can skip writing, such as when it detects a cut.
-        // Prefill the unadorned inputs so all three outputs remain defined in that case.
+    }
+    // PrepareFrame copies the three status words before the next source pair can reuse them.
+    const vk::MemoryBarrier2 to_clear{
+        .srcStageMask = all, .srcAccessMask = memory,
+        .dstStageMask = vk::PipelineStageFlagBits2::eClear,
+        .dstAccessMask = vk::AccessFlagBits2::eTransferWrite,
+    };
+    cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &to_clear});
+    for (const auto& flag : cascade_skip) {
+        cmdbuf.fillBuffer(flag->Handle(), 0, 4, 1);
+    }
+    const vk::MemoryBarrier2 to_ngx{
+        .srcStageMask = vk::PipelineStageFlagBits2::eClear,
+        .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+        .dstStageMask = compute, .dstAccessMask = write,
+    };
+    cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &to_ngx});
+    // A successful NGX Evaluate can skip writing, such as when it detects a cut.
+    // Prefill the unadorned inputs so all three outputs remain defined in that case.
+    for (const auto& output : outputs) {
+        ImageBarrier(cmdbuf, output.image, all, {}, vk::PipelineStageFlagBits2::eTransfer,
+                     vk::AccessFlagBits2::eTransferWrite, vk::ImageLayout::eUndefined);
+        CopyFrame(cmdbuf, frame.backbuffer.image, output.image, desc.width, desc.height);
+        ImageBarrier(cmdbuf, output.image, vk::PipelineStageFlagBits2::eTransfer,
+                     vk::AccessFlagBits2::eTransferWrite, compute, write);
+    }
+    Dlss* dlss = Dlss::Get();
+    if (!dlss || (create && !dlss->CreateFrameGen(cmdbuf, desc))) {
+        Fail(BbSettings::FrameGenDlss, "DLSS Frame Generation could not be created");
+        std::scoped_lock lock{targets_mutex};
+        for (auto& target : targets) target.ready = false;
+        return;
+    }
+    bool ok = dlss->HasFrameGen(desc, true) || dlss->CreateFrameGen(cmdbuf, desc, true);
+    if (ok && !frame.reset) {
+        RecordCascadeGuides(cmdbuf, frame, mid, half);
+    }
+    if (ok) {
+        ok = dlss->EvaluateFrameGen(cmdbuf, frame);
+    }
+    if (ok && !frame.reset) {
+        // The primary feature interpolates the two real frames. The secondary advances
+        // from the previous real frame to that midpoint, then to the current real frame.
+        ImageBarrier(cmdbuf, outputs[1].image, compute, write, compute, read);
+        ok = dlss->EvaluateFrameGen(cmdbuf, mid, true);
+    }
+    if (ok) {
+        // The same secondary handle reads history written by the quarter-frame call.
+        const vk::MemoryBarrier2 history{
+            .srcStageMask = compute, .srcAccessMask = write,
+            .dstStageMask = compute, .dstAccessMask = read | write,
+        };
+        cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &history});
+        ok = dlss->EvaluateFrameGen(cmdbuf, half, true);
+    }
+    if (!ok) {
+        FailCascade("DLSS cascade evaluation failed (see the log)");
+        std::scoped_lock lock{targets_mutex};
+        for (auto& target : targets) target.ready = false;
+    } else if (hudless.image && !frame.reset) {
         for (const auto& output : outputs) {
-            ImageBarrier(cmdbuf, output.image, all, {}, vk::PipelineStageFlagBits2::eTransfer,
-                         vk::AccessFlagBits2::eTransferWrite, vk::ImageLayout::eUndefined);
-            CopyFrame(cmdbuf, frame.backbuffer.image, output.image, desc.width, desc.height);
-            ImageBarrier(cmdbuf, output.image, vk::PipelineStageFlagBits2::eTransfer,
-                         vk::AccessFlagBits2::eTransferWrite, compute, write);
+            ImageBarrier(cmdbuf, output.image, compute, read | write, compute, write);
         }
-        Dlss* dlss = Dlss::Get();
-        if (!dlss || (create && !dlss->CreateFrameGen(cmdbuf, desc))) {
-            Fail(BbSettings::FrameGenDlss, "DLSS Frame Generation could not be created");
-            return;
+        RecordCascadeHud(cmdbuf, color, hudless, outputs);
+    }
+    for (const auto& output : outputs) {
+        ImageBarrier(cmdbuf, output.image, compute, write, all,
+                     vk::AccessFlagBits2::eMemoryRead);
+    }
+    for (const auto& input : {color, hudless, frame.depth, frame.motion}) {
+        if (input.image) {
+            ImageBarrier(cmdbuf, input.image, compute, read, all, memory,
+                         vk::ImageLayout::eGeneral, {input.aspect, 0, 1, 0, 1});
         }
-        bool ok = dlss->HasFrameGen(desc, true) || dlss->CreateFrameGen(cmdbuf, desc, true);
-        if (ok && !frame.reset) {
-            RecordCascadeGuides(cmdbuf, frame, mid, half);
-        }
-        if (ok) {
-            ok = dlss->EvaluateFrameGen(cmdbuf, frame);
-        }
-        if (ok && !frame.reset) {
-            // The primary feature interpolates the two real frames. The secondary advances
-            // from the previous real frame to that midpoint, then to the current real frame.
-            ImageBarrier(cmdbuf, outputs[1].image, compute, write, compute, read);
-            ok = dlss->EvaluateFrameGen(cmdbuf, mid, true);
-        }
-        if (ok) {
-            ok = dlss->EvaluateFrameGen(cmdbuf, half, true);
-        }
-        if (!ok) {
-            FailCascade("DLSS cascade evaluation failed (see the log)");
-            for (const auto& output : outputs) {
-                CopyFrame(cmdbuf, color.image, output.image, desc.width, desc.height);
-            }
-        } else if (hudless.image && !frame.reset) {
-            for (const auto& output : outputs) {
-                ImageBarrier(cmdbuf, output.image, compute, read | write, compute, write);
-            }
-            RecordCascadeHud(cmdbuf, color, hudless, outputs);
-        }
-        for (const auto& output : outputs) {
-            ImageBarrier(cmdbuf, output.image, compute, write, all,
-                         vk::AccessFlagBits2::eMemoryRead);
-        }
-        for (const auto& input : {color, hudless, frame.depth, frame.motion}) {
-            if (input.image) {
-                ImageBarrier(cmdbuf, input.image, compute, read, all, memory,
-                             vk::ImageLayout::eGeneral, {input.aspect, 0, 1, 0, 1});
-            }
-        }
-    });
+    }
 }
 
 void FrameGeneration::RecordDlss(vk::Image color, bool reset, u32 count, bool cascade,
@@ -1362,7 +1416,7 @@ void FrameGeneration::RecordDlss(vk::Image color, bool reset, u32 count, bool ca
     const vk::Image hudless_image = with_hudless ? vk::Image(In().hudless) : vk::Image{};
 
     scheduler.EndRendering();
-    scheduler.Record([this, desc, create, frame, outputs, count, color, hudless_image,
+    auto record = [this, desc, create, frame, outputs, count, color, hudless_image,
                       depth = vk::Image(In().depth_copy), motion = scene.motion, w = scene.width,
                       h = scene.height](vk::CommandBuffer cmdbuf) mutable {
         const auto all = vk::PipelineStageFlagBits2::eAllCommands;
@@ -1431,7 +1485,12 @@ void FrameGeneration::RecordDlss(vk::Image color, bool reset, u32 count, bool ca
                 CopyFrame(cmdbuf, color, outputs[i].image, w, h);
             }
         }
-    });
+    };
+    if (cascade_supported) {
+        record(scheduler.CommandBuffer());
+    } else {
+        scheduler.Record(std::move(record));
+    }
 }
 
 u32 FrameGeneration::TakeOutputs(VAddr display, std::array<Output, MaxGenerated>& out) {
@@ -1488,7 +1547,8 @@ u32 FrameGeneration::TakeOutputs(VAddr display, std::array<Output, MaxGenerated>
         if (!t.ready || t.frame != targets[0].frame) {
             break;
         }
-        out[count++] = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame};
+        out[count] = {vk::Image(t.image), *t.view, t.format, t.width, t.height, t.frame};
+        out[count++].disable_interpolation = t.disable_interpolation;
         t.ready = false;
     }
     if (count == 0) {

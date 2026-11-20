@@ -39,6 +39,7 @@
 
 #include "common/types.h"
 #include "textures/image.h"
+#include "buffers/buffer.h"
 #include "upscale/vk_dlss.h"
 #include "upscale/camera_matrices.h"
 #include "vulkan/vk_common.h"
@@ -61,6 +62,8 @@ public:
 
     /// A provider is chosen in the settings and can run (its libraries, the GPU, no failure).
     bool Wanted() const;
+    bool CascadeActive() const;
+    void RetireInactiveCascade();
     /// The provider that runs now (BbSettings::FrameGen), FrameGenOff when none can.
     int Provider() const;
     /// Frames generated per game frame: FSR 3.1 one; DLSS the multiplier less one, within what
@@ -116,6 +119,7 @@ public:
         vk::ImageView lut_view{};
         vk::Sampler lut_sampler{};
         vk::ImageLayout lut_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+        vk::Buffer disable_interpolation{};
     };
     u32 TakeOutputs(VAddr display, std::array<Output, MaxGenerated>& out);
 
@@ -218,6 +222,7 @@ private:
         vk::UniqueImageView view;
     };
     std::array<CascadeImage, 3> cascade_guides;
+    std::array<std::unique_ptr<VideoCore::Buffer>, MaxGenerated> cascade_skip;
     vk::UniqueDescriptorSetLayout cascade_layout;
     vk::UniquePipelineLayout cascade_pipeline_layout;
     vk::UniquePipeline cascade_guides_pipeline, cascade_hud_pipeline;
@@ -260,6 +265,7 @@ private:
         u32 width = 0, height = 0;
         u64 frame = 0;
         bool ready = false;
+        vk::Buffer disable_interpolation{};
         /// Asynchronous: written at `compute_value`; the frame ids it was last handed to the
         /// presenter for and given back for; its last reader (`release_semaphore` at
         /// `release_value`).

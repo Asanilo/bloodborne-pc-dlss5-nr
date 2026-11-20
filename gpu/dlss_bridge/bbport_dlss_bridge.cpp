@@ -449,7 +449,7 @@ bool Flag(const char* name, bool fallback) {
 }
 
 int32_t FrameGenEvaluateInstance(FrameGenInstance& fg, VkCommandBuffer command,
-                                 const BbDlssgEvaluate* evaluate) {
+                                 const BbDlssgEvaluate* evaluate, VkBuffer skip) {
     if (!fg.feature || !fg.parameters || !evaluate)
         return 0;
     auto backbuffer = Wrap(evaluate->backbuffer, false);
@@ -461,6 +461,11 @@ int32_t FrameGenEvaluateInstance(FrameGenInstance& fg, VkCommandBuffer command,
     resources.pDepth = &depth;
     resources.pMVecs = &motion;
     resources.pOutputInterpFrame = &output;
+    NVSDK_NGX_Resource_VK disable{};
+    if (skip) {
+        disable = NVSDK_NGX_Create_Buffer_Resource_VK(skip, 4, true);
+        resources.pOutputDisableInterpolation = &disable;
+    }
     NVSDK_NGX_Resource_VK hudless{};
     if (evaluate->hudless.image != VK_NULL_HANDLE) {
         hudless = Wrap(evaluate->hudless, false);
@@ -583,15 +588,17 @@ int32_t FrameGenCreate(VkCommandBuffer command, const BbDlssgFeature* desc) {
 }
 
 int32_t FrameGenEvaluate(VkCommandBuffer command, const BbDlssgEvaluate* evaluate) {
-    return FrameGenEvaluateInstance(state.primary_fg, command, evaluate);
+    return FrameGenEvaluateInstance(state.primary_fg, command, evaluate, VK_NULL_HANDLE);
 }
 
 int32_t FrameGenCreateSecondary(VkCommandBuffer command, const BbDlssgFeature* desc) {
     return FrameGenCreateInstance(state.secondary_fg, command, desc);
 }
 
-int32_t FrameGenEvaluateSecondary(VkCommandBuffer command, const BbDlssgEvaluate* evaluate) {
-    return FrameGenEvaluateInstance(state.secondary_fg, command, evaluate);
+int32_t FrameGenEvaluateCascade(VkCommandBuffer command, const BbDlssgEvaluate* evaluate,
+                                int32_t secondary, VkBuffer skip) {
+    return FrameGenEvaluateInstance(secondary ? state.secondary_fg : state.primary_fg,
+                                    command, evaluate, skip);
 }
 
 void FrameGenRelease() {
@@ -630,7 +637,7 @@ const BbDlssApi api{BBPORT_DLSS_BRIDGE_ABI,
                     FrameGenEvaluate,
                     FrameGenRelease,
                     FrameGenCreateSecondary,
-                    FrameGenEvaluateSecondary};
+                    FrameGenEvaluateCascade};
 
 } // namespace
 

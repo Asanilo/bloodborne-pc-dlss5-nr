@@ -129,7 +129,9 @@ typedef struct BbDlssApi {
 
     // ABI 3. These use an independent feature and parameter map. FrameGenRelease releases both.
     int32_t (*FrameGenCreateSecondary)(VkCommandBuffer command, const BbDlssgFeature* feature);
-    int32_t (*FrameGenEvaluateSecondary)(VkCommandBuffer command, const BbDlssgEvaluate* evaluate);
+    // skip: four-byte buffer. NGX writes a nonzero low byte when it declines interpolation.
+    int32_t (*FrameGenEvaluateCascade)(VkCommandBuffer command, const BbDlssgEvaluate* evaluate,
+                                       int32_t secondary, VkBuffer skip);
 } BbDlssApi;
 
 typedef const BbDlssApi* (*BbDlssGetApiFn)(void);

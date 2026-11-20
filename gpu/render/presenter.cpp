@@ -76,6 +76,8 @@ u32 FramesAhead() {
     return value;
 }
 
+constexpr size_t MaxCascadeStatusBytes = 3 * sizeof(u32);
+
 void WaitFence(vk::Device device, vk::Fence fence) {
     while (true) {
         const vk::Result result = device.waitForFences(fence, true, std::numeric_limits<u64>::max());
@@ -249,6 +251,11 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     }
 
     Frame* frame = GetRenderFrame();
+    if (frame->cascade_status && !upscaler.GetFrameGeneration()->CascadeActive()) {
+        // GetRenderFrame waited for the frame's last present, so its extra encodes can be freed.
+        DestroyInterpolated(*frame);
+        frame->cascade_status.reset();
+    }
 
     // Recorded like draws, on the recording threads: CommandBuffer() would first wait for them
     // to record everything handed over before and then submit from this thread.
@@ -358,10 +365,39 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     // Frame generation: the frames generated before this one, encoded the same way.
     frame->interp_count = 0;
     frame->interp_async = {};
+    frame->check_cascade = false;
     if (upscaled && upscaler.GetFrameGeneration()) {
         std::array<FrameGeneration::Output, FrameGeneration::MaxGenerated> interp{};
         const u32 generated = upscaler.GetFrameGeneration()->TakeOutputs(cpu_address, interp);
         static_assert(FrameGeneration::MaxGenerated <= Frame::MaxInterp);
+        if (generated && interp[0].disable_interpolation) {
+            if (!frame->cascade_status) {
+                frame->cascade_status = std::make_unique<VideoCore::Buffer>(
+                    instance, 0, MaxCascadeStatusBytes, VideoCore::MemoryType::HostCached, "DLSS present status");
+            }
+            frame->check_cascade = true;
+            const std::array flags{interp[0].disable_interpolation, interp[1].disable_interpolation,
+                                   interp[2].disable_interpolation};
+            draw_scheduler.Record([dest = frame->cascade_status->Handle(), flags](vk::CommandBuffer cmd) {
+                const vk::MemoryBarrier2 copy{
+                    .srcStageMask = vk::PipelineStageFlagBits2::eAllCommands,
+                    .srcAccessMask = vk::AccessFlagBits2::eMemoryWrite,
+                    .dstStageMask = vk::PipelineStageFlagBits2::eCopy,
+                    .dstAccessMask = vk::AccessFlagBits2::eTransferRead,
+                };
+                cmd.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &copy});
+                for (u32 i = 0; i < flags.size(); ++i) {
+                    cmd.copyBuffer(flags[i], dest, vk::BufferCopy{0, sizeof(u32) * i, sizeof(u32)});
+                }
+                const vk::MemoryBarrier2 host{
+                    .srcStageMask = vk::PipelineStageFlagBits2::eCopy,
+                    .srcAccessMask = vk::AccessFlagBits2::eTransferWrite,
+                    .dstStageMask = vk::PipelineStageFlagBits2::eHost,
+                    .dstAccessMask = vk::AccessFlagBits2::eHostRead,
+                };
+                cmd.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &host});
+            });
+        }
         for (u32 i = 0; i < generated; ++i) {
             if (interp[i].wait_semaphore) {
                 // Asynchronous: encoded when shown, once the compute queue made it; one of
@@ -654,7 +690,25 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool) {
         }
     };
     const bool blank = frame == &blank_frame;
-    const u32 generated = blank ? 0 : std::min(frame->interp_count, Frame::MaxInterp);
+    u32 generated = blank ? 0 : std::min(frame->interp_count, Frame::MaxInterp);
+    if (generated && frame->check_cascade) {
+        // NGX can copy a real frame on successful Evaluate. Decide before the first Present.
+        const vk::SemaphoreWaitInfo ready{.semaphoreCount = 1, .pSemaphores = &frame->ready_semaphore,
+                                          .pValues = &frame->ready_tick};
+        Check<"wait for DLSS interpolation status">(
+            instance.GetDevice().waitSemaphores(ready, UINT64_MAX));
+        auto& status = *frame->cascade_status;
+        status.Invalidate(0, MaxCascadeStatusBytes);
+        const auto bytes = status.mapped_data;
+        if (bytes[0] || bytes[4] || bytes[8]) {
+            generated = 0;
+            static u64 skipped = 0;
+            if (++skipped == 1 || skipped % 256 == 0) {
+                std::printf("DLSS cascade: %llu source pairs declined by NGX\n",
+                            static_cast<unsigned long long>(skipped));
+            }
+        }
+    }
     if (!blank) {
         LowLatency::Get().SetGeneratedPresents(generated != 0);
     }

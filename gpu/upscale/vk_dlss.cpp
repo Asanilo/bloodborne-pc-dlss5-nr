@@ -473,7 +473,7 @@ std::string Dlss::FrameGenProblem() const {
 
 bool Dlss::SupportsSecondaryFrameGen() const {
     return FrameGenMaxCount() > 0 && impl->api->abi >= 3 && impl->api->FrameGenCreateSecondary &&
-           impl->api->FrameGenEvaluateSecondary;
+           impl->api->FrameGenEvaluateCascade;
 }
 
 bool Dlss::HasFrameGen(const FrameGenDesc& desc, bool secondary) const {
@@ -536,9 +536,11 @@ bool Dlss::EvaluateFrameGen(vk::CommandBuffer command, const FrameGenFrame& fram
                 sizeof(parameters.clip_to_prev_clip));
     std::memcpy(parameters.prev_clip_to_clip, frame.prev_clip_to_clip.data(),
                 sizeof(parameters.prev_clip_to_clip));
-    const auto evaluate =
-        secondary ? impl->api->FrameGenEvaluateSecondary : impl->api->FrameGenEvaluate;
-    return evaluate(command, &parameters) != 0;
+    if (frame.disable_interpolation) {
+        return impl->api->FrameGenEvaluateCascade(command, &parameters, secondary,
+                                                  frame.disable_interpolation) != 0;
+    }
+    return impl->api->FrameGenEvaluate(command, &parameters) != 0;
 }
 
 void Dlss::ReleaseFrameGen() {

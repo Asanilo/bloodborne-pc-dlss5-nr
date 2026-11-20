@@ -58,6 +58,9 @@ struct Frame {
     std::array<vk::Image, MaxInterp> interp_image{};
     std::array<vk::ImageView, MaxInterp> interp_view{};
     u32 interp_count = 0;
+    // Source-pair NGX status, copied with the encoded images under this frame's ready tick.
+    std::unique_ptr<VideoCore::Buffer> cascade_status;
+    bool check_cascade = false;
     /// Asynchronous frame generation (FrameGeneration::Async): the generated frames, waited for
     /// and encoded when shown (PresentImage), with this frame's encoding.
     std::array<FrameGeneration::Output, MaxInterp> interp_async{};

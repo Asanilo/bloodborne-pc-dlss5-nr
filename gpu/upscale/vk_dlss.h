@@ -98,6 +98,7 @@ public:
         std::array<float, 16> view_to_clip, clip_to_prev_clip, prev_clip_to_clip;
         bool reset;
         u32 count, index; ///< generated frames for this pair, and which one (1-based)
+        vk::Buffer disable_interpolation{};
     };
     [[nodiscard]] bool SupportsSecondaryFrameGen() const;
     [[nodiscard]] bool HasFrameGen(const FrameGenDesc& desc, bool secondary = false) const;
