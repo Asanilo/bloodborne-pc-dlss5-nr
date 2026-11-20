@@ -252,8 +252,13 @@ int32_t Initialize(VkInstance instance, VkPhysicalDevice physical, VkDevice devi
     NVSDK_NGX_Parameter_GetI(state.capabilities,
                              NVSDK_NGX_Parameter_FrameGeneration_NeedsUpdatedDriver,
                              &fg_needs_driver);
-    if (NVSDK_NGX_FAILED(NVSDK_NGX_Parameter_GetUI(
-            state.capabilities, NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax, &fg_max)))
+    const auto count_result = NVSDK_NGX_Parameter_GetUI(
+        state.capabilities, NVSDK_NGX_DLSSG_Parameter_MultiFrameCountMax, &fg_max);
+    if (NgxLogLevel() != NVSDK_NGX_LOGGING_LEVEL_OFF)
+        Log(0, "Frame Generation capability: available=%d needs_driver=%d "
+               "MultiFrameCountMax=%u query=0x%08x",
+            fg_available, fg_needs_driver, fg_max, static_cast<unsigned>(count_result));
+    if (NVSDK_NGX_FAILED(count_result))
         fg_max = 1;
     if (state.fg_device_supported && fg_available) {
         state.fg_max_count = static_cast<int32_t>(std::clamp(fg_max, 1u, 3u));
