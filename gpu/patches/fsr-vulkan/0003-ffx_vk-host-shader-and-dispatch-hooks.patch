@@ -1,0 +1,71 @@
+From: bbport contributors
+Subject: [PATCH] ffx_vk: connect shader override and dispatch profiling hooks
+
+The 0.7 host installs these hooks but its pinned FSR backend does not define
+or invoke them. Replace only module code, retaining SDK reflection and a
+packaged-shader fallback. Mark each recorded compute dispatch; indirect
+workgroups are GPU-owned and are explicitly represented as unknown (0,0,0).
+
+Based on FireBurn/FSR-Vulkan c64f093404125e960813f95f1996c14780f0dd69
+plus bbport's 0002 protected-memory fix. This is a bbport integration patch,
+not an upstream FSR commit. The latest checked FireBurn main 69fecd7 also
+lacks these hooks. No SDK upgrade or production no-op implementation.
+
+--- a/upstream/ffx-1.1.4/sdk/src/backends/vk/ffx_vk.cpp
++++ b/upstream/ffx-1.1.4/sdk/src/backends/vk/ffx_vk.cpp
+@@ -35,6 +35,14 @@
+ 
+ #include <vulkan/vulkan.h>
+ 
++// bbport optional hooks. Install before pipeline creation / job recording on the
++// renderer owner. The shader hook replaces code only, preserving SDK reflection.
++extern "C" {
++bool (*ffxVkShaderOverride)(uint32_t effect, uint32_t pass, uint32_t permutationOptions,
++                            const uint32_t** words, size_t* size) = nullptr;
++void (*ffxVkJobMark)(uint32_t x, uint32_t y, uint32_t z) = nullptr;
++}
++
+ // prototypes for functions in the interface
+ FfxVersionNumber       GetSDKVersionVK(FfxInterface* backendInterface);
+ FfxErrorCode           GetEffectGpuMemoryUsageVK(FfxInterface* backendInterface, FfxUInt32 effectContextId, FfxEffectMemoryUsage* outVramUsage);
+@@ -3739,6 +3747,21 @@
+     shaderModuleCreateInfo.pCode = (uint32_t*)shaderBlob.data;
+     shaderModuleCreateInfo.codeSize = shaderBlob.size;
+ 
++    // The application's shader keeps the packaged resource/binding ABI. A hook
++    // declining this permutation (or returning malformed code) uses the SDK blob.
++    const uint32_t* overrideWords = nullptr;
++    size_t overrideSize = 0;
++    if (ffxVkShaderOverride &&
++        ffxVkShaderOverride(uint32_t(effect), uint32_t(pass), permutationOptions,
++                            &overrideWords, &overrideSize) &&
++        overrideWords && overrideSize >= 5 * sizeof(uint32_t) &&
++        overrideSize % sizeof(uint32_t) == 0 &&
++        reinterpret_cast<uintptr_t>(overrideWords) % alignof(uint32_t) == 0 &&
++        overrideWords[0] == 0x07230203u) {
++        shaderModuleCreateInfo.pCode = overrideWords;
++        shaderModuleCreateInfo.codeSize = overrideSize;
++    }
++
+     if (backendContext->vkFunctionTable.vkCreateShaderModule(backendContext->device, &shaderModuleCreateInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+         return FFX_ERROR_BACKEND_API_ERROR;
+     }
+@@ -4092,6 +4115,18 @@
+             backendContext->vkFunctionTable.vkCmdBindDescriptorSets(vkCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineLayout->pipelineLayout, pipelineLayout->staticBufferUavSet, 1, &effectContext.bindlessBufferUavDescriptorSet, 0, nullptr);
+     }
+     
++    // Mark the actual dispatch boundary, after barriers and descriptor binding.
++    // Indirect dimensions are GPU-owned: zeros label them as unknown, never as
++    // the descriptor's potentially stale direct dimensions.
++    if (ffxVkJobMark) {
++        if (job->computeJobDescriptor.pipeline.cmdSignature)
++            ffxVkJobMark(0, 0, 0);
++        else
++            ffxVkJobMark(job->computeJobDescriptor.dimensions[0],
++                         job->computeJobDescriptor.dimensions[1],
++                         job->computeJobDescriptor.dimensions[2]);
++    }
++
+     // Dispatch (or dispatch indirect)
+     if (job->computeJobDescriptor.pipeline.cmdSignature)
+     {

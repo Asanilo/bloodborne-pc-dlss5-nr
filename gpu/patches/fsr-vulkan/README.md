@@ -9,3 +9,6 @@ patches here to its working tree when they are not applied yet:
   On RADV PHOENIX (Ryzen Z1 Extreme: ROG Ally, Legion Go) it picked one for FSR 3.1's
   device-local resources, and the scene was white or full of colored noise (#85). Also sent to
   FireBurn/FSR-Vulkan#1.
+- `0003-...` supplies the two callbacks the 0.7 host already references for FSR shader
+  selection and dispatch profiling. Without those symbols, linking `bb-probe` fails.
+  The patch comes from commit `30cf2b2` on the reference branch.
