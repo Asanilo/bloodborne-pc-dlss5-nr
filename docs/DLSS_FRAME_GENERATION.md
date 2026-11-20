@@ -87,6 +87,24 @@ the CPU immediately after `vkQueuePresentKHR`. GPU label times use the renderer'
 Vulkan timestamps. The experiment measured application pacing. Panel scanout and
 input-to-photon latency were outside the capture.
 
+With the 35 FPS cap removed, the final ABI 4 build (`0fa5f6a`) ran both modes
+in the same process at the same stationary clinic view. With the menu closed
+and the heavyweight profilers disabled, six complete five-second windows per
+mode yielded **60.05 source frames/s at 2x** (1,803 prepared in 30.025 s) and
+**47.09 at 4x** (1,414 in 30.030 s). The existing overlay render counter
+averaged 120.07 and 188.35 calls/s respectively. The display ran at 165 Hz.
+For a 35 FPS target the 4x mode kept the same source speed in this scene.
+The first unrestricted 4x window had 22% fewer source frames/s than 2x.
+After switching back to 4x, a further nine complete windows (45.029 s) gave
+39.57 source frames/s and 158.21 overlay calls/s at the same view. The cause
+of the lower second 4x rate is unresolved. Fixed-view compositor screenshots
+showed stable shelf and HUD detail; their frame type was unspecified.
+
+The in-game 4x→2x→Off→4x sequence resumed generation at each selected rate.
+Using the Hunter's Mark reloaded the clinic in the same process. The new
+camera view and HUD appeared and 4x generation resumed. The tests used a
+private save and exited normally.
+
 ## Low latency: NVIDIA Reflex through VK_NV_low_latency2 (2026-10-18)
 
 On NVIDIA's driver (550 and newer) the game's thread sleeps at the start of each of its frames
