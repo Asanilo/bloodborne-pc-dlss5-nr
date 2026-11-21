@@ -126,8 +126,9 @@ The Windows and Linux release modules at 310.9.1 share 31 byte-identical
 embedded Blackwell PTX payloads in containers that also have Ada members.
 A separate compile-only test extracted these from the Linux file, targeted
 Ada in memory, and compiled all 31 into CUDA objects on the RTX 4060 Laptop.
-This test launched zero kernels. Executing the model, producing correct
-thirds from one feature, and measuring an adapted native runtime remain open.
+This compile-only test launched zero kernels. The stage experiments below
+also execute selected GPU programs. Full-model thirds and in-game cost on an
+adapted native runtime remain open.
 
 A separate 2x test traced Vulkan calls through the two procedure resolvers
 passed to NGX at initialization. It used the upstream bridge at `0fc2921`,
@@ -142,6 +143,85 @@ argument block. The public NGX interface selects a time using the frame count
 and index. The resolver trace revealed no separate way for the application to
 select a fractional time. The CUDA NGX evaluate export in the 310.9.1 Linux
 release simply returns `NVSDK_NGX_Result_FAIL_FeatureNotSupported`.
+
+#### Which calculations run on Ada?
+
+NVIDIA describes a network that caches work for the rendered pair and then
+evaluates a smaller network for each requested time. The public NGX Vulkan
+interface takes the current rendered input, retains history in the feature,
+and selects an output by count and index. Its outputs are images and the skip flag. The
+public interface does not expose the pair cache or a standalone evaluator for
+the second network. [DLSS 4 research report, §2.2.1](https://research.nvidia.com/labs/adlr/DLSS4/#221-architectural-changes)
+· [Vulkan FG interface](https://github.com/NVIDIA/DLSS/blob/v310.9.1/include/nvsdk_ngx_helpers_dlssg_vk.h)
+
+The Linux and Windows 310.9.1 release modules also share 39 byte-identical
+Ada PTX programs in containers with no other architecture. These include
+convolutions, pooling and upsampling. The comparison hashes decompressed PTX
+including duplicate entry names. It compares GPU programs only. The weights
+and tensor layouts used by the complete models have yet to be matched.
+
+At 1280×720 the stock Linux 2x feature recorded 77 named Vulkan NVX CUDA
+launches per steady evaluation. Six instrumented frames followed the same
+order. The timing column is the median sum of the observed GPU timestamp
+intervals in each group. The intervals include intervening GPU work.
+
+| Zero-based launches | Work observed at 2x | GPU time |
+|---|---|---:|
+| 0–41 | Input color, endpoint motion, first convolution and its outputs | 0.706 ms |
+| 42–44 | Intermediate motion, confidence warp and color candidates | 0.140 ms |
+| 45–72 | Initial merge, convolution blocks and upsampling | 1.129 ms |
+| 73–76 | Output reconstruction | 0.155 ms |
+
+Alternate steady frames had either two outer timestamps or an additional
+timestamp after each launch. The median total was 2.011 ms with outer
+timestamps and 2.188 ms with the detail enabled (six samples each). Two
+detailed samples exceeded 8 ms. Reuse and timings at 3x require a full 3x run.
+
+In isolation, the **original Ada motion kernel** from the Linux release
+projected a 32×32 input correctly at three times. The two source positions
+were (10, 20) and (22, 14) pixels. The motion and depth inputs were held
+fixed. Only the requested fractional time changed. Each entry below is the
+displacement from the intermediate location back to the named source.
+
+| Time | To previous, px | To current, px |
+|---|---:|---:|
+| 1/3 | (−4, 2) | (8, −4) |
+| 1/2 | (−6, 3) | (6, −3) |
+| 2/3 | (−8, 4) | (4, −2) |
+
+Both sources covered all 64 samples of the central region with zero vector
+error. A separately tracked depth marker reached the expected grid cell at
+each time. The Blackwell PTX compiled for Ada gave the same measured values.
+
+Three **unmodified Ada kernels** from launches 42–44 were then run together
+on a 64×32 stripe moving 24 pixels horizontally. Two CUDA motion fields from
+the first kernel supplied the Vulkan stages unchanged through private fixture
+files. The second kernel projected synthetic endpoint confidence values. The
+third consumed its weight image and the real input colors to produce two
+candidate images. At 1/3, 1/2 and 2/3, the bright pixels in **both** candidates
+were centered at 23.5, 27.5 and 31.5 pixels. The source centers were 15.5 and
+39.5. All 2048 pixels in both weight channels, both color candidates, the mask
+and their packed outputs matched the fixture reference at each time. One row
+intentionally used a blending weight of 0.5. The figure shows the first color
+candidate at each third using nearest-neighbor enlargement.
+
+![GPU readback of the endpoints and color candidates](figures/dlssg-ada-thirds.png)
+
+Run `tools/dlssg_stage_probe/run.sh` in a full clone of this fork on the
+4060 to reproduce the offscreen geometry test. It uses the Linux x86-64
+310.9.1 release in `$DLSS_SDK_ROOT` (defaults to `out/deps/dlss-sdk`),
+a C++20 compiler, Vulkan, liblz4 and Python 3.10+. The script builds under
+the main checkout's `out/native-mfg`, takes the project GPU lock, then cleans
+up. Set `BB_MFG_FIXTURE_RGB` to an existing private directory to save four
+small PPM readbacks. No game or save data is required.
+
+The test supplies its own endpoint confidence instead of the first network's
+learned output and stops before the final convolution and reconstruction.
+The 310.9.1 development SDK also named 175 buffers, 30 images and 30 image
+views during feature creation using one generic resource name. Its evaluation
+label covered the entire feature. Neither gave a layout or lifetime for the
+cached pair tensors. Feeding the learned pair state into a complete phase
+evaluation and verifying its final RGB remain open.
 
 ## Low latency: NVIDIA Reflex through VK_NV_low_latency2 (2026-10-18)
 
