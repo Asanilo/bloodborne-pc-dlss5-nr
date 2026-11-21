@@ -24,6 +24,7 @@ BB_ENV(BB_DECK_DESKTOP_INPUT, SETTING, "=1: keep keyboard and mouse on a Steam D
 BB_ENV(BB_DISPLAY, SETTING, "=N: the monitor to open the window on")
 BB_ENV(BB_DLSS, SETTING, "=0: no DLSS even on NVIDIA RTX")
 BB_ENV(BB_DLSSG_CASCADE, SETTING, "=1: experimental Linux DLSS cascade at 4x; two independent 2x features and an ABI 4 bridge")
+BB_ENV(BB_DLSSG_DIRECT, SETTING, "=1: native 3x to 6x Ada DLSS-G at 1080p DLSS Quality with the 310.9.1 Linux release model")
 BB_ENV(BB_DMEM_EXTRA_MB, SETTING, "=N (0-2048, default 512): direct memory beyond the PS4's for the port's extras")
 BB_ENV(BB_DMEM_MB, SETTING, "=N: the game's direct memory size in MiB (PS4: 5056; raised for high resolutions and large heaps)")
 BB_ENV(BB_EVDEV_TOUCHPAD, SETTING, "=0: no DualSense/DualShock touchpad through evdev")

@@ -1,6 +1,61 @@
 # DLSS Frame Generation and NVIDIA Reflex on Linux (2026-10-18)
 
-## DLSS Frame Generation (2026-10-18)
+## Play the native Ada candidate
+
+On branch `native/mfg`, the Linux RTX 4060 Laptop candidate uses the original
+NVIDIA 310.9.1 frame-generation programs and learned weights. At 3x–6x it
+computes each intermediate directly from the same two game frames. The
+2x setting uses stock NGX. The earliest 4x cascade remains an optional comparison.
+
+Choose **1920×1080, DLSS Quality** (1280×720 render resolution) and launch:
+
+```sh
+BB_DLSSG_DIRECT=1 BB_FRAME_GEN=dlss BB_FRAME_GEN_MULTIPLIER=3 ./run.sh
+```
+
+Use Insert or L3+R3 to change the multiplier between 2x and 6x. The direct
+path runs on the draw queue, uses the game's camera and motion vectors, and
+restores HUD pixels from the rendered frame when the HUD-less scene is
+available. The first real frame after a reset seeds history. Other resolutions
+and presets use the stock multiplier available for the GPU. The tested FG
+library is the Linux x86-64 release `libnvidia-ngx-dlssg.so.310.9.1` (SHA-256
+`aef4c911831b0381a6afa0164b743138e8571822646b6a4226e810a035ad678e`).
+
+### RTX 4060 Laptop gameplay comparison
+
+A private Iosefka's Clinic save, driver 620.70.06, Reflex On and Immediate
+presentation were used on a 165 Hz display. At 3x, a shelf detail crossed
+the screen from x=500 to x=397 pixels in one camera turn. In between, it was
+at x=466 and x=431, or 33.0% and 67.0% of the displacement. Positions come
+from normalized cross-correlation of the same 74×78 patch in four consecutive
+presenter input images. On three consecutive source pairs, a larger patch of
+the shelves gave phase fractions of 0.336–0.343 and 0.665–0.671. The hood and
+face edges looked slightly softer on the generated frames in this sample.
+A static capture kept the health-bar detail in place.
+
+| Multiplier | Uncapped source frames/s | Uncapped presenter images/s | FG GPU ms per source pair at 35 FPS | Within-group present interval at 35 FPS |
+| --- | ---: | ---: | ---: | ---: |
+| Stock 2x | 63.20 | 126.4 | 4.040 | 14.291 ms |
+| Direct 3x | 54.77 | 164.27 | 5.943 | 9.535 ms |
+| Direct 6x | 40.4 | 242.2 | — | — |
+
+The uncapped comparison counts prepared real frames per elapsed second with
+the clinic camera stationary. Presentation rates come from the overlay; the
+6x result is a single stable sampling window. The separate 35 FPS run used
+Vulkan timestamps around FG and CPU timestamps at `vkQueuePresentKHR` return.
+All 602 complete 2x groups contained two returns and all 190 complete 3x
+groups contained three. The 3x within-group 95th percentile was 9.734 ms,
+and the median from a real frame to the next generated one was 9.541 ms.
+Median real-frame flip spacing was 28.625 ms for both settings. Physical
+scanout and input-to-photon latency were not measured.
+
+The in-game checks covered all five multipliers, a transition through FG Off,
+a Hunter’s Mark reload in the clinic, and normal exit. The same-pair core
+tests below also cover camera history. The validated game profile and SDK
+version are fixed. Rebuild the profile against the local release with the
+[CPU-only profile generator](../tools/dlssg_stage_probe/profile/README.md).
+
+## Upstream NGX frame generation (2026-10-18)
 
 NVIDIA's DLSS Frame Generation runs natively on Linux through the DLSS bridge, on a GeForce RTX 40
 or newer with NVIDIA's `libnvidia-ngx-dlssg.so.<version>` from the DLSS SDK (310.7 or newer).
@@ -28,9 +83,8 @@ Between each two of the game's frames one generated frame is shown (RTX 40), or 
 - FSR 3.1 frame generation stays hidden until its artifacts are fixed (`BB_FRAME_GEN=1` shows it);
   the presenter now paces up to three generated frames evenly before the real one.
 
-Not yet verified on hardware by the author (no NVIDIA GPU at hand): the Vulkan path follows the
-Windows port's working implementation (Supermedo/bloodborne_pc) and NVIDIA's Linux SDK; reports
-from RTX 40/50 owners are welcome.
+The original implementation follows the Windows port (Supermedo/bloodborne_pc)
+and NVIDIA's Linux SDK. The Ada results above include the stock NGX 2x control.
 
 ### Experimental 4x cascade on Linux
 

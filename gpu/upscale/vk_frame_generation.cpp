@@ -298,7 +298,15 @@ bool FrameGeneration::CascadeActive() const {
            CascadeWanted(BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed));
 }
 
-void FrameGeneration::RetireInactiveDlss() {
+void FrameGeneration::OnDisplayWrite(VAddr address) {
+    if (using_direct) {
+        std::scoped_lock lock{targets_mutex};
+        // An unpresented batch for this buffer belongs to the image being overwritten.
+        if (direct_display == address) {
+            for (auto& target : targets) target.ready = false;
+            direct_display = 0;
+        }
+    }
     const bool needs_direct = direct_enabled && Provider() == BbSettings::FrameGenDlss &&
         BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed) > 2;
     if ((using_direct && !needs_direct) || (cascade_guides[0].image && !CascadeActive())) {

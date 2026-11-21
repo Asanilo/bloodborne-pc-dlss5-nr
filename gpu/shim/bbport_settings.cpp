@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Copyright 2026 bbport contributors
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "bbport_settings.h"
-#include "shim/bb_env.h"
+#include "bb_env.h"
 #include <cmath>
 
 #include <algorithm>

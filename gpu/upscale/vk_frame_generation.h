@@ -66,7 +66,7 @@ public:
     /// A provider is chosen in the settings and can run (its libraries, the GPU, no failure).
     bool Wanted() const;
     bool CascadeActive() const;
-    void RetireInactiveDlss();
+    void OnDisplayWrite(VAddr address);
     /// The provider that runs now (BbSettings::FrameGen), FrameGenOff when none can.
     int Provider() const;
     /// Frames generated per game frame: FSR 3.1 one; DLSS the multiplier less one, within what
