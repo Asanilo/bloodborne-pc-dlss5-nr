@@ -49,7 +49,7 @@ next distinct position outside the five-pixel exclusion box by at least 0.035.
 | --- | ---: | ---: | ---: | ---: |
 | Stock 2x | 63.20 | 126.4 | 4.040 | 14.291 ms |
 | Direct 3x | 54.77 | 164.27 | 5.943 | 9.535 ms |
-| Direct 6x | 40.4 | 242.2 | — | — |
+| Direct 6x | 40.4 | 241.6 | — | — |
 
 The uncapped comparison counts prepared real frames per elapsed second with
 the clinic camera stationary. Presentation rates come from the overlay; the
