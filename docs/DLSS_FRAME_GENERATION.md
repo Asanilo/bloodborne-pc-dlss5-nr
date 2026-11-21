@@ -127,8 +127,7 @@ embedded Blackwell PTX payloads in containers that also have Ada members.
 A separate compile-only test extracted these from the Linux file, targeted
 Ada in memory, and compiled all 31 into CUDA objects on the RTX 4060 Laptop.
 This compile-only test launched zero kernels. The stage experiments below
-also execute selected GPU programs. Full-model thirds and in-game cost on an
-adapted native runtime remain open.
+also execute selected GPU programs. The independent full-model result is recorded below.
 
 A separate 2x test traced Vulkan calls through the two procedure resolvers
 passed to NGX at initialization. It used the upstream bridge at `0fc2921`,
@@ -220,8 +219,51 @@ learned output and stops before the final convolution and reconstruction.
 The 310.9.1 development SDK also named 175 buffers, 30 images and 30 image
 views during feature creation using one generic resource name. Its evaluation
 label covered the entire feature. Neither gave a layout or lifetime for the
-cached pair tensors. Feeding the learned pair state into a complete phase
-evaluation and verifying its final RGB remain open.
+cached pair tensors. The independent executor below reconstructs that connection on its own device resources.
+
+#### Independent execution of the original neural networks
+
+Two offscreen executors used the original Ada programs and parameters from
+the 310.9.1 Linux release. Neither called NGX. A stock 1280×720 evaluation
+provided the program identities, launch sizes and tensor shapes for comparison.
+All weights were read from the local SDK. No model payload is distributed here.
+
+* The pair network ran 32 operations using 17 packed coefficient buffers.
+  With a zero input and a periodic input it produced distinct, finite tensors
+  of 983,040 FP16 values. Repeating the zero input reproduced the entire first
+  output bit for bit.
+* The phase network ran the merge and 27 subsequent operations using 25 sets
+  of weights and biases. Its 640×368 input had ten FP16 channels. The original
+  merge consumed the two packed candidates and their mask. The 2x reference
+  supplied 0.5 as its final scalar. The network produced a 640×368 eight-channel
+  tensor shared with the first output reconstruction stage through the same
+  Vulkan buffer.
+* In the isolated phase-network test, three synthetic candidate displacements
+  produced three different tensors, with all 1,884,160 output values finite.
+  Repeating the first displacement reproduced its tensor bit for bit. This
+  test kept the merge scalar at 0.5. In a smaller independent check, all
+  16,384 features from the first learned convolution agreed with a CPU
+  calculation using the same weights to a maximum absolute error of 0.000733.
+
+#### Whole-frame result on Ada
+
+On the RTX 4060 Laptop the independent executor reproduced all four stock NGX
+1280×720 images exactly, including reset and successive history frames. Both
+the SHA-256 and FNV-1a digests of every RGBA image matched. For a red object
+moving from 359.5 to 383.5 pixels, the independent program placed its 1/3 and
+2/3 images at 368.0 and 376.0 pixels (expected 367.5 and 375.5). The measured
+center is the mean x of the pixels passing the original red threshold.
+
+The player core prepares each source pair once. For each output it reruns
+the phase-dependent part with the corresponding time and a separate image.
+The stock 2x workload reuses a motion texture as scratch for confidence
+weights once it has consumed motion. A second phase needs the original motion
+again. The core keeps the weights in one separate texture for the whole group.
+At both 720p and 1080p Quality, all fifteen phases across 2x–6x appeared in
+order; the next real-frame pair also reproduced its stock 2x reference after
+every multiplier. On the 1080p test the maximum centroid deviation was 0.94
+pixels. The 1080p camera-change frame, with translation, jitter and inverted
+depth, also matched the original RGBA digest.
 
 ## Low latency: NVIDIA Reflex through VK_NV_low_latency2 (2026-10-18)
 

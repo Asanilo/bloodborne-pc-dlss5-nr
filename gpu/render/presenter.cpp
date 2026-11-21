@@ -430,6 +430,7 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
                                    interp[i].width, interp[i].height, view_info.format, encode);
             }
         }
+        if (generated > 1 && frame->interp_count != generated) frame->interp_count = 0;
     }
 
     BbStats::frame_number.fetch_add(1, std::memory_order_relaxed);
@@ -701,7 +702,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool) {
         auto& status = *frame->cascade_status;
         status.Invalidate(0, MaxCascadeStatusBytes);
         const auto bytes = status.mapped_data;
-        if (generated != FrameGeneration::MaxGenerated) {
+        if (generated != FrameGeneration::CascadeGenerated) {
             generated = 0; // An encode target could not be allocated. Keep the real frame.
         } else if (bytes[0] || bytes[sizeof(u32)] || bytes[2 * sizeof(u32)]) {
             generated = 0;
@@ -776,7 +777,11 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool) {
         }
     }
     LowLatency::Get().PresentStart(blank ? 0 : frame->present_id, false);
-    PresentImage(frame, {}, true);
+    if (!PresentImage(frame, {}, true) && generated) {
+        // A minimized/out-of-date surface can skip the real frame before it submits
+        // this batch's fence. Earlier phase blits still own the encoded images.
+        present_scheduler.WaitSubmittedWork();
+    }
     LowLatency::Get().PresentEnd(blank ? 0 : frame->present_id, false);
     release();
 }

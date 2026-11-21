@@ -26,6 +26,7 @@ class Dlss {
 public:
     /// The process-wide instance, or null when the DLLs are absent or BB_DLSS=0.
     static Dlss* Get();
+    static std::string DirectModelPath();
     ~Dlss();
 
     /// Instance and device creation: adds what NGX needs (or disables DLSS when it is missing).

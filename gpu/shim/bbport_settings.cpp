@@ -96,7 +96,7 @@ void Set(Values& v, const std::string& key, const std::string& value) {
             if (value == FrameGenName(g)) v.frame_generation = g;
         }
     } else if (key == "frame_generation_multiplier") {
-        v.frame_generation_multiplier = std::clamp(i, 2, 4);
+        v.frame_generation_multiplier = std::clamp(i, 2, bb_env_on("BB_DLSSG_DIRECT") ? 6 : 4);
     } else if (key == "low_latency") {
         v.low_latency = std::clamp(i, 0, LowLatencyCount - 1);
         for (int m = 0; m < LowLatencyCount; ++m) {

@@ -9,6 +9,8 @@ layout(binding = 2) uniform writeonly image2D earlier_frame;
 layout(binding = 3) uniform writeonly image2D midpoint_frame;
 layout(binding = 4) uniform writeonly image2D later_frame;
 
+layout(push_constant) uniform OutputGroup { uint count; } outputs;
+
 void main() {
     const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if (any(greaterThanEqual(pixel, imageSize(midpoint_frame)))) {
@@ -19,7 +21,7 @@ void main() {
         // The captures only provide composited color, so translucent HUD pixels keep
         // the portion of the real background already blended into them.
         imageStore(earlier_frame, pixel, color);
-        imageStore(midpoint_frame, pixel, color);
-        imageStore(later_frame, pixel, color);
+        if (outputs.count >= 2) imageStore(midpoint_frame, pixel, color);
+        if (outputs.count >= 3) imageStore(later_frame, pixel, color);
     }
 }

@@ -34,6 +34,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <thread>
 #include <unordered_map>
 
@@ -46,6 +47,8 @@
 #include "ffx_vk_portable.h" // after vk_common: its Vulkan configuration first
 
 
+namespace player_core { class Core; }
+
 namespace Vulkan {
 
 class Instance;
@@ -54,8 +57,8 @@ class FgAmd;
 
 class FrameGeneration {
 public:
-    /// Frames generated per game frame at most (DLSS 4x).
-    static constexpr u32 MaxGenerated = 3;
+    static constexpr u32 CascadeGenerated = 3;
+    static constexpr u32 MaxGenerated = 5;
 
     FrameGeneration(const Instance& instance, Scheduler& scheduler);
     ~FrameGeneration();
@@ -63,7 +66,7 @@ public:
     /// A provider is chosen in the settings and can run (its libraries, the GPU, no failure).
     bool Wanted() const;
     bool CascadeActive() const;
-    void RetireInactiveCascade();
+    void RetireInactiveDlss();
     /// The provider that runs now (BbSettings::FrameGen), FrameGenOff when none can.
     int Provider() const;
     /// Frames generated per game frame: FSR 3.1 one; DLSS the multiplier less one, within what
@@ -153,7 +156,8 @@ private:
                    vk::ImageView view, vk::Sampler sampler, vk::ImageLayout layout);
 
     bool EnsureContext(u32 render_width, u32 render_height, u32 width, u32 height, vk::Format format);
-    bool EnsureDlss(u32 render_width, u32 render_height, u32 width, u32 height, vk::Format format);
+    bool EnsureDlss(u32 render_width, u32 render_height, u32 width, u32 height,
+                    vk::Format format, vk::Format depth_format);
     bool EnsureAmd(u32 render_width, u32 render_height, u32 width, u32 height, vk::Format format);
     void Destroy();
     /// A target for generated frame `index`, made at the scene's size and format.
@@ -175,6 +179,17 @@ private:
                     const std::array<float, 2>& midpoint_jitter,
                     const CameraMatrices::Pose& previous_pose);
     void EnsureCascadeResources();
+    void EnsureDlssOverlayPipelines(bool need_guides);
+#ifdef BB_NATIVE_DLSSG
+    void RecordDirect(const Dlss::FrameGenFrame& frame, std::span<const Dlss::Resource> outputs);
+    std::unique_ptr<player_core::Core> direct_core;
+    std::string direct_model;
+    u64 direct_upload_tick{};
+#endif
+    bool direct_enabled{}, direct_profile{};
+    bool using_direct{};
+    u64 last_direct_source{}, last_direct_present{};
+    VAddr direct_display{}; // display buffer associated with the ready direct group
     void RecordDlssCascade(const Dlss::FrameGenDesc& desc, bool create, Dlss::FrameGenFrame frame,
                            const std::array<Dlss::Resource, MaxGenerated>& outputs,
                            const CameraMatrices::Pose& midpoint,
@@ -182,9 +197,9 @@ private:
                            const CameraMatrices::Pose& previous_pose);
     void RecordCascadeGuides(vk::CommandBuffer cmdbuf, const Dlss::FrameGenFrame& frame,
                              const Dlss::FrameGenFrame& midpoint, const Dlss::FrameGenFrame& half);
-    void RecordCascadeHud(vk::CommandBuffer cmdbuf, const Dlss::Resource& color,
-                          const Dlss::Resource& hudless,
-                          const std::array<Dlss::Resource, MaxGenerated>& outputs);
+    void RecordDlssHud(vk::CommandBuffer cmdbuf, const Dlss::Resource& color,
+                       const Dlss::Resource& hudless, std::span<const Dlss::Resource> outputs);
+    u32 CountFor(int provider, int multiplier) const;
     bool CascadeWanted(int multiplier) const;
     void FailCascade(const char* reason);
     void RecordAmd(vk::Image color, u64 id, bool reset, Target& target);
@@ -222,7 +237,7 @@ private:
         vk::UniqueImageView view;
     };
     std::array<CascadeImage, 3> cascade_guides;
-    std::array<std::unique_ptr<VideoCore::Buffer>, MaxGenerated> cascade_skip;
+    std::array<std::unique_ptr<VideoCore::Buffer>, CascadeGenerated> cascade_skip;
     vk::UniqueDescriptorSetLayout cascade_layout;
     vk::UniquePipelineLayout cascade_pipeline_layout;
     vk::UniquePipeline cascade_guides_pipeline, cascade_hud_pipeline;

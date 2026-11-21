@@ -246,6 +246,17 @@ struct Dlss::Impl {
     }
 };
 
+std::string Dlss::DirectModelPath() {
+#ifdef __linux__
+    for (const auto& dir : NgxDirectories()) {
+        const auto path = dir / "libnvidia-ngx-dlssg.so.310.9.1";
+        std::error_code ec;
+        if (std::filesystem::is_regular_file(path, ec)) return path.string();
+    }
+#endif
+    return {};
+}
+
 Dlss* Dlss::Get() {
     static Dlss* const dlss = []() -> Dlss* {
         if (bb_env_off("BB_DLSS")) {

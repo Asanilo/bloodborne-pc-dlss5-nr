@@ -53,7 +53,7 @@ struct Frame {
     u8 id = 0;
     /// Frame generation: the frames generated before this one (oldest first), encoded like it
     /// and shown first. Made with the first ones generated: most sessions never need them.
-    static constexpr u32 MaxInterp = 3;
+    static constexpr u32 MaxInterp = FrameGeneration::MaxGenerated;
     std::array<VmaAllocation, MaxInterp> interp_allocation{};
     std::array<vk::Image, MaxInterp> interp_image{};
     std::array<vk::ImageView, MaxInterp> interp_view{};

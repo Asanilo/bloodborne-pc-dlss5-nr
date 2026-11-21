@@ -1,6 +1,9 @@
 // SPDX-FileCopyrightText: Copyright 2026 bbport contributors
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "upscale/vk_frame_generation.h"
+#ifdef BB_NATIVE_DLSSG
+#include "upscale/native_mfg/core.hpp"
+#endif
 #include "shim/bb_env.h"
 #include "bbport_toggles.h"
 
@@ -161,10 +164,22 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
     if (dlss_max_count < 1 && dlss_problem.empty()) {
         dlss_problem = "DLSS Frame Generation is unavailable on this system";
     }
-    settings.dlssg_max_multiplier = dlss_max_count + 1;
+#ifdef BB_NATIVE_DLSSG
+    if (bb_env_on("BB_DLSSG_DIRECT") && dlss_max_count == 1 &&
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr(instance.GetDevice(), "vkCmdCuLaunchKernelNVX") &&
+        VULKAN_HPP_DEFAULT_DISPATCHER.vkGetDeviceProcAddr(instance.GetDevice(), "vkGetImageViewHandle64NVX") &&
+        instance.GetPhysicalDevice().getFeatures().shaderStorageImageWriteWithoutFormat) {
+        direct_model = Dlss::DirectModelPath();
+        direct_enabled = !direct_model.empty();
+    }
+#endif
+    settings.dlssg_max_multiplier = direct_enabled ? int(MaxGenerated + 1) : dlss_max_count + 1;
+    if (direct_enabled) {
+        std::puts("Frame generation: independent native Ada DLSS-G enabled for 3x-6x (SDK 310.9.1)");
+    }
     settings.dlssg_problem = dlss_max_count > 0 ? nullptr : dlss_problem.c_str();
 #ifndef _WIN32
-    if (bb_env_on("BB_DLSSG_CASCADE") && dlss_max_count > 0) {
+    if (!direct_enabled && bb_env_on("BB_DLSSG_CASCADE") && dlss_max_count > 0) {
         const bool bridge = dlss && dlss->SupportsSecondaryFrameGen();
         const bool storage_writes =
             instance.GetPhysicalDevice().getFeatures().shaderStorageImageWriteWithoutFormat;
@@ -283,8 +298,10 @@ bool FrameGeneration::CascadeActive() const {
            CascadeWanted(BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed));
 }
 
-void FrameGeneration::RetireInactiveCascade() {
-    if (cascade_guides[0].image && !CascadeActive()) {
+void FrameGeneration::RetireInactiveDlss() {
+    const bool needs_direct = direct_enabled && Provider() == BbSettings::FrameGenDlss &&
+        BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed) > 2;
+    if ((using_direct && !needs_direct) || (cascade_guides[0].image && !CascadeActive())) {
         Destroy();
         scene_captured = false;
         reset_next = true;
@@ -301,11 +318,17 @@ void FrameGeneration::FailCascade(const char* reason) {
 }
 
 u32 FrameGeneration::WantedCount() const {
-    switch (Provider()) {
+    return CountFor(Provider(), BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed));
+}
+
+u32 FrameGeneration::CountFor(int provider, int multiplier) const {
+    switch (provider) {
     case BbSettings::FrameGenDlss: {
-        const int multiplier = BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed);
+        if (using_direct && multiplier > 2) {
+            return u32(std::clamp(multiplier - 1, 2, int(MaxGenerated)));
+        }
         if (CascadeWanted(multiplier)) {
-            return MaxGenerated;
+            return CascadeGenerated;
         }
         return u32(std::clamp(multiplier - 1, 1, std::max(1, dlss_max_count)));
     }
@@ -331,6 +354,13 @@ void FrameGeneration::Destroy() {
         if (Dlss* dlss = Dlss::Get()) {
             dlss->ReleaseFrameGen();
         }
+#ifdef BB_NATIVE_DLSSG
+        direct_core.reset();
+        direct_upload_tick = 0;
+#endif
+        const bool retire_targets = using_direct || bool(cascade_guides[0].image);
+        using_direct = false;
+        last_direct_source = last_direct_present = 0;
         dlss_desc.reset();
         dlss_create_pending = false;
         if (cascade_guides[0].image) {
@@ -339,6 +369,8 @@ void FrameGeneration::Destroy() {
                 guide.image.Destroy();
             }
             cascade_skip = {};
+        }
+        if (retire_targets) {
             std::scoped_lock lock{targets_mutex};
             for (auto& target : targets) {
                 target.view.reset();
@@ -487,13 +519,24 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 }
 
 bool FrameGeneration::EnsureDlss(u32 render_width, u32 render_height, u32 width, u32 height,
-                                 vk::Format format) {
+                                 vk::Format format, vk::Format depth_format) {
     const Dlss::FrameGenDesc desc{width, height, format, render_width, render_height};
-    if (dlss_desc && *dlss_desc == desc) {
+    direct_profile = direct_enabled && width == 1920 && height == 1080 &&
+        render_width == 1280 && render_height == 720 && format == vk::Format::eR8G8B8A8Unorm &&
+        depth_format == vk::Format::eD32SfloatS8Uint;
+    BbSettings::Get().dlssg_max_multiplier = direct_profile ? int(MaxGenerated + 1) : dlss_max_count + 1;
+    const int multiplier = BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed);
+    const bool direct = direct_profile && multiplier > 2;
+    if (dlss_desc && *dlss_desc == desc && using_direct == direct) {
         return true;
     }
     Destroy(); // the FSR context or the previous feature (the GPU is done with them)
+    if (direct_enabled && multiplier > 2 && !direct_profile) {
+        std::printf("DLSS-G direct: %ux%u from %ux%u is outside the 1080p Quality profile; using stock 2x.\n",
+                    width, height, render_width, render_height);
+    }
     dlss_desc = desc;
+    using_direct = direct;
     dlss_create_pending = true; // made in the next recorded generation (it needs a command buffer)
     context_render_w = render_width;
     context_render_h = render_height;
@@ -516,7 +559,7 @@ void FrameGeneration::CaptureScene(const Scene& in) {
     }
     const bool ready = provider == BbSettings::FrameGenDlss
                            ? EnsureDlss(in.render_width, in.render_height, in.width, in.height,
-                                        in.color_format)
+                                        in.color_format, in.depth_format)
                        : provider == BbSettings::FrameGenFsrAmd
                            ? EnsureAmd(in.render_width, in.render_height, in.width, in.height,
                                        in.color_format)
@@ -726,8 +769,6 @@ vk::ImageView FrameGeneration::ColorView(vk::Image image, vk::Format format) {
 
 void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     Stats();
-    (void)display; // one set of outputs for all display buffers: the interpolation, the display
-                   // pass and the presenter's encode are all in the draw stream's order
     if (!scene_captured || color != scene.color) {
         return;
     }
@@ -739,19 +780,24 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     }
     scene_captured = false;
     const int requested = BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed);
-    if (Provider() != provider) {
+    if (Provider() != provider || (provider == BbSettings::FrameGenDlss &&
+                                  using_direct != (direct_profile && requested > 2))) {
+        reset_next = true;
         return; // changed between capture and display
     }
     const bool cascade = provider == BbSettings::FrameGenDlss && CascadeWanted(requested);
-    const u32 count = cascade ? MaxGenerated
-                    : provider == BbSettings::FrameGenDlss
-                        ? u32(std::clamp(requested - 1, 1, dlss_max_count))
-                        : 1u;
+    const u32 count = CountFor(provider, requested);
     ++stat_interpolated;
     const u64 id = scene_id;
     bool reset = scene_reset;
     CameraMatrices::Pose midpoint{}, previous_pose{};
     std::array<float, 2> midpoint_jitter{};
+    if (using_direct) {
+        const u64 presented = BbStats::frame_number.load(std::memory_order_relaxed);
+        if (id != last_direct_source + 1 || presented > last_direct_present + 1) reset = true;
+        last_direct_source = id;
+        last_direct_present = presented;
+    }
     if (cascade) {
         const u64 source = BbStats::frame_number.load(std::memory_order_relaxed);
         // A missing display can leave a gap in the capture ids. When the presenter has
@@ -782,19 +828,21 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     }
     {
         std::scoped_lock lock{targets_mutex};
+        direct_display = using_direct ? display : 0;
         for (u32 i = 0; i < MaxGenerated; ++i) {
             Target& target = i < count ? EnsureTarget(i) : targets[i];
             // Ready as recorded (the presenter's encode comes later in the same stream). The
             // first frame after a reset has nothing before it to interpolate from.
             target.ready = i < count && !reset;
             target.frame = id;
-            target.disable_interpolation = cascade ? cascade_skip[i]->Handle() : vk::Buffer{};
+            target.disable_interpolation = cascade && i < CascadeGenerated ? cascade_skip[i]->Handle() : vk::Buffer{};
         }
         if (!reset) ++stat_ready;
     }
     // Its own mark: the GPU profile otherwise counted it to the game's last dispatch.
     if (auto* profiler = GpuProfiler::Get()) {
-        const char* label = cascade ? "frame generation (DLSS cascade)"
+        const char* label = using_direct ? "frame generation (DLSS-G direct)"
+                            : cascade ? "frame generation (DLSS cascade)"
                             : provider == BbSettings::FrameGenDlss ? "frame generation (DLSS)"
                             : provider == BbSettings::FrameGenFsrAmd
                                 ? "frame generation (AMD's DLL)"
@@ -1123,9 +1171,9 @@ void FrameGeneration::ReleaseOutput(u32 target, u64 frame, vk::Semaphore semapho
     job_cv.notify_all();
 }
 
-void FrameGeneration::EnsureCascadeResources() {
+void FrameGeneration::EnsureDlssOverlayPipelines(bool need_guides) {
     const auto device = instance.GetDevice();
-    if (!cascade_guides_pipeline) {
+    if (!cascade_layout) {
         std::array<vk::DescriptorSetLayoutBinding, 5> bindings{};
         for (u32 i = 0; i < bindings.size(); ++i) {
             bindings[i] = {.binding = i,
@@ -1141,19 +1189,24 @@ void FrameGeneration::EnsureCascadeResources() {
         cascade_pipeline_layout = Check(device.createPipelineLayoutUnique({
             .setLayoutCount = 1, .pSetLayouts = &*cascade_layout,
             .pushConstantRangeCount = 1, .pPushConstantRanges = &push}));
-        const auto pipeline = [&](auto& code) {
-            const auto module = CompileSPV(code, device);
-            auto result = Check(device.createComputePipelineUnique(
-                {}, vk::ComputePipelineCreateInfo{
-                        .stage = {.stage = vk::ShaderStageFlagBits::eCompute, .module = module,
-                                  .pName = "main"},
-                        .layout = *cascade_pipeline_layout}));
-            device.destroyShaderModule(module);
-            return result;
-        };
-        cascade_guides_pipeline = pipeline(FG_CASCADE_GUIDES_COMP);
-        cascade_hud_pipeline = pipeline(FG_CASCADE_HUD_COMP);
     }
+    const auto pipeline = [&](auto& code) {
+        const auto module = CompileSPV(code, device);
+        auto result = Check(device.createComputePipelineUnique(
+            {}, vk::ComputePipelineCreateInfo{
+                .stage = {.stage = vk::ShaderStageFlagBits::eCompute, .module = module,
+                          .pName = "main"},
+                .layout = *cascade_pipeline_layout}));
+        device.destroyShaderModule(module);
+        return result;
+    };
+    if (need_guides && !cascade_guides_pipeline) cascade_guides_pipeline = pipeline(FG_CASCADE_GUIDES_COMP);
+    if (!cascade_hud_pipeline) cascade_hud_pipeline = pipeline(FG_CASCADE_HUD_COMP);
+}
+
+void FrameGeneration::EnsureCascadeResources() {
+    EnsureDlssOverlayPipelines(true);
+    const auto device = instance.GetDevice();
     if (cascade_guides[0].image) {
         return; // Destroy retires the resources when the feature's dimensions change.
     }
@@ -1209,12 +1262,18 @@ void FrameGeneration::RecordCascadeGuides(vk::CommandBuffer cmdbuf,
     }
 }
 
-void FrameGeneration::RecordCascadeHud(vk::CommandBuffer cmdbuf, const Dlss::Resource& color,
-                                       const Dlss::Resource& hudless,
-                                       const std::array<Dlss::Resource, MaxGenerated>& outputs) {
-    BindCascadeImages(cmdbuf, *cascade_hud_pipeline, *cascade_pipeline_layout,
-                      {color.view, hudless.view, outputs[0].view, outputs[1].view, outputs[2].view});
-    cmdbuf.dispatch((color.width + 7) / 8, (color.height + 7) / 8, 1);
+void FrameGeneration::RecordDlssHud(vk::CommandBuffer cmdbuf, const Dlss::Resource& color,
+                                    const Dlss::Resource& hudless, std::span<const Dlss::Resource> outputs) {
+    for (size_t i = 0; i < outputs.size(); i += 3) {
+        const size_t last = outputs.size() - 1;
+        const u32 slots = u32(std::min<size_t>(3, outputs.size() - i));
+        cmdbuf.pushConstants(*cascade_pipeline_layout, vk::ShaderStageFlagBits::eCompute, 0,
+                             sizeof(slots), &slots);
+        BindCascadeImages(cmdbuf, *cascade_hud_pipeline, *cascade_pipeline_layout,
+            {color.view, hudless.view, outputs[i].view, outputs[std::min(last, i + 1)].view,
+             outputs[std::min(last, i + 2)].view});
+        cmdbuf.dispatch((color.width + 7) / 8, (color.height + 7) / 8, 1);
+    }
 }
 
 void FrameGeneration::RecordDlssCascade(
@@ -1300,7 +1359,7 @@ void FrameGeneration::RecordDlssCascade(
     cmdbuf.pipelineBarrier2({.memoryBarrierCount = 1, .pMemoryBarriers = &to_ngx});
     // A successful NGX Evaluate can skip writing, such as when it detects a cut.
     // Prefill the unadorned inputs so all three outputs remain defined in that case.
-    for (const auto& output : outputs) {
+    for (const auto& output : std::span(outputs).first(CascadeGenerated)) {
         ImageBarrier(cmdbuf, output.image, all, {}, vk::PipelineStageFlagBits2::eTransfer,
                      vk::AccessFlagBits2::eTransferWrite, vk::ImageLayout::eUndefined);
         CopyFrame(cmdbuf, frame.backbuffer.image, output.image, desc.width, desc.height);
@@ -1341,12 +1400,12 @@ void FrameGeneration::RecordDlssCascade(
         std::scoped_lock lock{targets_mutex};
         for (auto& target : targets) target.ready = false;
     } else if (hudless.image && !frame.reset) {
-        for (const auto& output : outputs) {
+        for (const auto& output : std::span(outputs).first(CascadeGenerated)) {
             ImageBarrier(cmdbuf, output.image, compute, read | write, compute, write);
         }
-        RecordCascadeHud(cmdbuf, color, hudless, outputs);
+        RecordDlssHud(cmdbuf, color, hudless, std::span(outputs).first(CascadeGenerated));
     }
-    for (const auto& output : outputs) {
+    for (const auto& output : std::span(outputs).first(CascadeGenerated)) {
         ImageBarrier(cmdbuf, output.image, compute, write, all,
                      vk::AccessFlagBits2::eMemoryRead);
     }
@@ -1357,6 +1416,85 @@ void FrameGeneration::RecordDlssCascade(
         }
     }
 }
+
+#ifdef BB_NATIVE_DLSSG
+void FrameGeneration::RecordDirect(const Dlss::FrameGenFrame& frame,
+                                   std::span<const Dlss::Resource> outputs) {
+    const auto discard = [this] {
+        std::scoped_lock lock{targets_mutex};
+        for (auto& target : targets) target.ready = false;
+    };
+    const auto& desc = *dlss_desc;
+    scheduler.EndRendering();
+    const auto cmd = scheduler.CommandBuffer();
+    std::string error;
+    auto failed = [&] {
+        std::printf("DLSS-G direct: %s. Disabling direct multipliers for this session.\n", error.c_str());
+        direct_enabled = false;
+        BbSettings::Get().dlssg_max_multiplier = dlss_max_count + 1;
+        discard();
+    };
+    if (!direct_core) {
+        direct_core = std::make_unique<player_core::Core>();
+        const auto& profile = player_core::profile_1080p_quality();
+        if (!direct_core->initialize(instance.GetPhysicalDevice(), instance.GetDevice(), profile,
+                                     direct_model, error)) {
+            failed();
+            return;
+        }
+        direct_core->record_initialize(cmd);
+        direct_upload_tick = scheduler.CurrentTick();
+        std::printf("DLSS-G direct: native %ux%u from %ux%u, one pair preparation, %zu phases\n",
+                    desc.width, desc.height, desc.render_width, desc.render_height, outputs.size());
+    } else if (direct_upload_tick && scheduler.IsFree(direct_upload_tick)) {
+        direct_core->release_upload();
+        direct_upload_tick = 0;
+    }
+
+    const auto image = [](const Dlss::Resource& r) -> player_core::Image {
+        return {r.image, r.view, {VkImageAspectFlags(r.aspect), 0, 1, 0, 1},
+                VkFormat(r.format), r.width, r.height};
+    };
+    const player_core::Frame source{
+        .color = image(frame.hudless.image ? frame.hudless : frame.backbuffer),
+        .depth = image(frame.depth), .motion = image(frame.motion),
+        .camera = {.depth_inverted = frame.depth_inverted,
+                   .has_matrices = frame.has_matrices,
+                   .clip_to_prev_clip = frame.clip_to_prev_clip,
+                   .prev_clip_to_clip = frame.prev_clip_to_clip},
+        .reset = frame.reset,
+    };
+    const auto all = vk::PipelineStageFlagBits2::eAllCommands;
+    const auto read = vk::AccessFlagBits2::eMemoryRead;
+    const auto write = vk::AccessFlagBits2::eMemoryWrite;
+    for (const auto& input : {frame.backbuffer, frame.hudless, frame.depth, frame.motion}) {
+        if (input.image) ImageBarrier(cmd, input.image, all, write, all, read,
+                                      vk::ImageLayout::eGeneral, {input.aspect, 0, 1, 0, 1});
+    }
+    if (source.reset) outputs = {};
+    std::array<player_core::Image, MaxGenerated> targets_out{};
+    for (size_t i = 0; i < outputs.size(); ++i) {
+        targets_out[i] = image(outputs[i]);
+        ImageBarrier(cmd, outputs[i].image, all, read | write, all, write, vk::ImageLayout::eUndefined);
+    }
+
+    const auto result = direct_core->record(cmd, source, std::span(targets_out).first(outputs.size()), error);
+    if (result == player_core::RecordResult::failed) {
+        failed();
+        return;
+    }
+    if (result == player_core::RecordResult::seeded) {
+        discard();
+        return;
+    }
+    if (frame.hudless.image) {
+        EnsureDlssOverlayPipelines(false);
+        for (const auto& output : outputs) ImageBarrier(cmd, output.image, all, write, all, write);
+        RecordDlssHud(cmd, frame.backbuffer, frame.hudless, outputs);
+    }
+    for (const auto& output : outputs) ImageBarrier(cmd, output.image, all, write, all, read);
+}
+#endif
 
 void FrameGeneration::RecordDlss(vk::Image color, bool reset, u32 count, bool cascade,
                                  const CameraMatrices::Pose& midpoint,
@@ -1409,6 +1547,12 @@ void FrameGeneration::RecordDlss(vk::Image color, bool reset, u32 count, bool ca
         outputs[i] = resource(vk::Image(targets[i].image), *targets[i].view, scene.color_format,
                               vk::ImageAspectFlagBits::eColor, scene.width, scene.height);
     }
+#ifdef BB_NATIVE_DLSSG
+    if (using_direct) {
+        RecordDirect(frame, std::span(outputs).first(count));
+        return;
+    }
+#endif
     if (cascade) {
         RecordDlssCascade(desc, create, frame, outputs, midpoint, midpoint_jitter, previous_pose);
         return;
@@ -1494,7 +1638,6 @@ void FrameGeneration::RecordDlss(vk::Image color, bool reset, u32 count, bool ca
 }
 
 u32 FrameGeneration::TakeOutputs(VAddr display, std::array<Output, MaxGenerated>& out) {
-    (void)display;
     if (!Wanted()) {
         return 0;
     }
@@ -1541,6 +1684,10 @@ u32 FrameGeneration::TakeOutputs(VAddr display, std::array<Output, MaxGenerated>
         return 1;
     }
     std::scoped_lock lock{targets_mutex};
+    if (direct_display && direct_display != display) {
+        for (auto& target : targets) target.ready = false;
+    }
+    direct_display = 0;
     u32 count = 0;
     for (u32 i = 0; i < MaxGenerated; ++i) {
         Target& t = targets[i];

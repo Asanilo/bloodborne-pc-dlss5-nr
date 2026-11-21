@@ -372,7 +372,7 @@ void TemporalUpscaler::CaptureFrameGenScene(vk::Image depth_image, vk::Format de
 
 void TemporalUpscaler::OnDisplayPassStart(VAddr address) {
     if (frame_generation) {
-        frame_generation->RetireInactiveCascade();
+        frame_generation->RetireInactiveDlss();
     }
     // Periodically clean up stale proxy render targets to prevent VRAM leak during level transitions.
     static u64 last_cleanup_frame = 0;
