@@ -33,6 +33,18 @@ the shelves gave phase fractions of 0.336–0.343 and 0.665–0.671. The hood an
 face edges looked slightly softer on the generated frames in this sample.
 A static capture kept the health-bar detail in place.
 
+![Shelf and hunter detail at the two endpoints and both direct 3x phases](figures/dlssg-direct-clinic.png)
+
+The benchmark and crops used commit `3b49926`. The final player build
+(`f74ac57`) also ran a continuous camera turn after the display-buffer
+retirement fix. Three consecutive real-frame pairs were checked with a
+fixed grid of fifteen 64×64 patches. For each pair, 9, 10 and 11 tracks
+respectively met the correlation and displacement criteria. Their median
+phase positions were 33.04% / 66.67%, 33.16% / 67.02% and 33.32% / 66.67%.
+Each accepted patch moved at least 12 pixels between real frames, scored
+at least 0.80 normalized correlation at all three matches and beat the
+next distinct position outside the five-pixel exclusion box by at least 0.035.
+
 | Multiplier | Uncapped source frames/s | Uncapped presenter images/s | FG GPU ms per source pair at 35 FPS | Within-group present interval at 35 FPS |
 | --- | ---: | ---: | ---: | ---: |
 | Stock 2x | 63.20 | 126.4 | 4.040 | 14.291 ms |
