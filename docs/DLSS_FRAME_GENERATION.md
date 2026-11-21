@@ -129,6 +129,20 @@ Ada in memory, and compiled all 31 into CUDA objects on the RTX 4060 Laptop.
 This test launched zero kernels. Executing the model, producing correct
 thirds from one feature, and measuring an adapted native runtime remain open.
 
+A separate 2x test traced Vulkan calls through the two procedure resolvers
+passed to NGX at initialization. It used the upstream bridge at `0fc2921`,
+the stock Linux 310.9.1 release and the same 24-pixel motion fixture. The
+centroid moved from 335.5 to 359.5 pixels and the generated image measured
+347.5. Feature creation made 64 NVX CUDA functions. Eight ordinary evaluations
+recorded 616 `vkCmdCuLaunchKernelNVX` calls, with another 10 on reset.
+Creation exposed names for intermediate motion estimation, network input and
+blending. The trace counted launches without identifying the function at each
+launch. The 31 PTX entry points checked above each accept a single packed
+argument block. The public NGX interface selects a time using the frame count
+and index. The resolver trace revealed no separate way for the application to
+select a fractional time. The CUDA NGX evaluate export in the 310.9.1 Linux
+release simply returns `NVSDK_NGX_Result_FAIL_FeatureNotSupported`.
+
 ## Low latency: NVIDIA Reflex through VK_NV_low_latency2 (2026-10-18)
 
 On NVIDIA's driver (550 and newer) the game's thread sleeps at the start of each of its frames
