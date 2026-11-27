@@ -219,14 +219,56 @@ between two known endpoints cannot deliver newer game input. A 1440p or
 16:10 option needs its own verified model profile for output and guide
 sizes; exposing a resolution selector alone will not add support.
 
-### Experimental ideas for fixed-multiplier play
+### Optional first-phase presentation at fixed 6x
 
-* **Present the first generated frame sooner.** The current executor computes
-  phases in order, but the presenter gets one ready tick for the group. At
-  fixed 6x, prototype a split after the first phase. Time the first generated
-  present and the final real present, and check source FPS and phase spacing.
-  Keep the remaining four phases in order. Protect the first output until
-  its reader finishes. Extra submissions or contention may erase the gain.
+On the RTX 4060 Laptop, build `c596b47` can submit the first generated
+image and its encode before finishing the remaining four. All five images
+still use times 1/6 through 5/6 from one prepared real pair. The game
+keeps its normal flip order, HUD restore, color mapping and display encode.
+The experiment uses a second graphics queue in the same family for all
+presentation work. The real frame always waits for the whole batch.
+
+At 1920×1080 DLSS Quality the local comparison entry is
+`./out/native-mfg/play-first-6x` from the main repository. Both it and
+`./out/native-mfg/play-direct-6x` use uncapped source frames by default.
+For a source build, additionally set `BB_DLSSG_DIRECT=1 BB_FRAME_GEN=dlss
+BB_FRAME_GEN_MULTIPLIER=6 BB_DLSSG_PRESENT_QUEUE=1 BB_DLSSG_FIRST_PHASE=1`.
+Setting only the queue option along with direct 6x gives a whole-batch
+control on the same queue configuration. Devices without a second queue
+in that graphics family continue to submit the full batch.
+
+In the clinic, a measurement build alternated whole-batch and 1+4 in
+32-source-pair blocks within one fixed 6x session. Of 656 matched
+groups, 320 used whole-batch and 336 used 1+4. GPU timestamps after the
+swapchain blits were calibrated to the host monotonic clock. Times below
+are medians measured from the start of recording that pair on the CPU.
+
+| Swapchain image ready on GPU | Whole batch, separate present queue | 1+4, same queue configuration |
+| --- | ---: | ---: |
+| First generated | 29.745 ms | 22.346 ms |
+| Fifth generated | 32.859 ms | 31.826 ms |
+| Real | 33.508 ms | 33.049 ms |
+
+The first image was ready earlier in all four comparisons with whole-batch
+blocks on both sides. Its lead increases the GPU-ready gap to the second
+image: 0.058 → 7.601 ms median and 0.079 → 12.035 ms at p95. In-game
+motion tracking on one real pair placed the five intermediate images
+at 16.7%, 33.6%, 50.8%, 67.2% and 83.6% of the observed displacement.
+A second pair had insufficient high-confidence matches. The independent
+single-queue WSI fixture also matched the whole-batch RGBA hashes for all
+five phases and the real image. Physical scanout and end-to-end input
+latency remain unmeasured.
+
+Separate launches gave 27.31 and 41.44 source FPS for the same whole-batch
+control, so those samples cannot establish a throughput gain. One
+launch straight into the diagnostic build's whole-batch 6x encountered
+device loss (Xid 31). Original and candidate builds subsequently loaded
+with 2x and switched to 6x successfully, including the split mode. The
+cause of the initial failure was not established. First-phase presentation
+is a manual experiment; the normal launcher keeps whole-batch submission.
+
+### Further camera experiment
+
 * **Update free-look closer to display time.** Test a small late camera
   rotation using mouse motion, composed before the HUD. Use deltas that the
   normal input path has sampled but the last camera update has not yet
