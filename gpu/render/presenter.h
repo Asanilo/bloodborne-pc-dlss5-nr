@@ -49,6 +49,7 @@ struct Frame {
     vk::Fence present_done{};
     vk::Semaphore ready_semaphore{};
     u64 ready_tick = 0;
+    u64 first_phase_tick = 0;
     bool is_hdr = false;
     u8 id = 0;
     /// Frame generation: the frames generated before this one (oldest first), encoded like it

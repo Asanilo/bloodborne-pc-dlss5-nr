@@ -61,7 +61,7 @@ public:
         return graphics_queue;
     }
     vk::Queue GetPresentQueue() const {
-        return graphics_queue;
+        return present_queue;
     }
     /// A queue of a compute family without graphics (null when there is none or with
     /// BB_READBACK_QUEUE=0), for reading back finished GPU writes without waiting behind frames.
@@ -428,7 +428,7 @@ private:
     vk::PhysicalDevice physical_device;
     vk::UniqueDevice device;
     VmaAllocator allocator{};
-    vk::Queue graphics_queue;
+    vk::Queue graphics_queue, present_queue;
     vk::Queue readback_queue;
     u32 graphics_family = 0;
     u32 readback_family = NoFamily;

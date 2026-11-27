@@ -227,27 +227,15 @@ sizes; exposing a resolution selector alone will not add support.
   present and the final real present, and check source FPS and phase spacing.
   Keep the remaining four phases in order. Protect the first output until
   its reader finishes. Extra submissions or contention may erase the gain.
-* **Redraw a weapon at the intermediate pose.** RT64 matches draws across
-  source frames and interpolates 3D transforms. A Bloodborne experiment
-  could start with one rigid weapon and one fixed animation. It needs scene
-  color and depth without the old weapon silhouette, matched transforms
-  and correct depth testing when the weapon crosses the hunter or scenery.
-  Validate the whole swing first; skinning, particles and translucent
-  effects are separate problems. [RT64 frame interpolation](https://github.com/rt64/rt64#frame-interpolation)
 * **Update free-look closer to display time.** Test a small late camera
-  rotation using the latest stick input, composed before the HUD. Measure
+  rotation using mouse motion, composed before the HUD. Use deltas that the
+  normal input path has sampled but the last camera update has not yet
+  incorporated, so a movement is applied exactly once. Measure
   input-to-visible-camera-motion and inspect exposed pixels at the screen
   edge. Lock-on, camera collision and animation-driven camera motion need
   authoritative game state. Simulation, hit detection and dodge timing
   remain tied to the real game update.
   [Post-render warp research](https://research.nvidia.com/publication/2020-07_post-render-warp-late-input-sampling-improves-aiming-under-high-latency)
-* **Slow-motion hunt clips.** A player-triggered capture could retain a short
-  encounter for frame-accurate slow playback or export with the HUD hidden.
-  Start with a timed clip of the existing output. Clean export needs a capture
-  before HUD recomposition or a separately stored UI layer. Offline regeneration
-  at new intermediate times would additionally require the source endpoints,
-  depth, motion, camera and preceding model history. Measure capture overhead
-  before adding instant replay to normal play.
 
 ## Upstream NGX frame generation (2026-10-18)
 

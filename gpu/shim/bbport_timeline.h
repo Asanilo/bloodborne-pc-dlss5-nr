@@ -42,6 +42,9 @@ enum Event : std::uint32_t {
     DirectFgInit,      ///< direct FG CPU initialization ended, arg: generated count, arg2: CPU ns
     DirectFgSource,    ///< direct FG re-seeded on a color source change, arg: HUD-less, arg2: scene id
     PresentSource,     ///< before present, arg: 0 blank / 1 real / 2 generated, arg2: source draw tick
+    DirectSixBegin,    ///< host enters direct FG recording, arg2: source scene id
+    DirectSixGroup,    ///< arg: source scene id, arg2: final draw tick
+    DirectSixEarly,    ///< arg: first encode draw tick, arg2: final draw tick
 };
 
 struct Entry {

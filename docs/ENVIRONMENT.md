@@ -101,7 +101,7 @@ What players and the launchers set. The menu, bbport.ini and the launcher write 
 | `BB_UPSCALE_PRESET` | the upscaler quality preset (the menu's) |
 | `BB_USER_NAME` | the PS4 user name (default Hunter) |
 
-## Tuning (230)
+## Tuning (232)
 
 Defaults to change on a machine where they misbehave, workarounds, and switches that turn a fix off for comparison.
 
@@ -143,6 +143,8 @@ Defaults to change on a machine where they misbehave, workarounds, and switches 
 | `BB_DIRECT_MEMORY_ACCESS` | =1: shadPS4's direct memory access mode of the shader translator |
 | `BB_DIRECT_SEGMENT` | =0: the presenter waits for the recording threads instead of taking its own command segment |
 | `BB_DISABLE_HTTPS` | =1: the game's HTTPS requests go out as plain HTTP (online) |
+| `BB_DLSSG_FIRST_PHASE` | =1: submit direct 6x phase 1 separately on the BB_DLSSG_PRESENT_QUEUE path |
+| `BB_DLSSG_PRESENT_QUEUE` | =1: use a second same-family graphics queue for native DLSS-G presentation when available |
 | `BB_DRAW_PIPE` | =0 / N: the draw pipeline off, or its depth |
 | `BB_FAST_WRITER_FAULTS` | =1: fast path for guest write faults (off: a device loss on a GTX 1050) |
 | `BB_FAULT_WINDOW` | =KiB: window unprotected around a guest write fault (default 256) |

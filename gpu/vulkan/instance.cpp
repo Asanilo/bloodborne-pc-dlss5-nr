@@ -397,11 +397,13 @@ void Instance::CreateDevice() {
     });
     ASSERT_MSG(graphics != families.end(), "the GPU has no graphics queue");
     graphics_family = u32(graphics - families.begin());
-    static constexpr float priority = 1.0f;
+    static constexpr std::array<float, 2> graphics_priorities{1.f, 1.f};
+    const bool split_queue = bb_env_on("BB_DLSSG_DIRECT") && bb_env_on("BB_DLSSG_PRESENT_QUEUE") &&
+                             graphics->queueCount >= 2;
     std::vector<vk::DeviceQueueCreateInfo> queues{{
         .queueFamilyIndex = graphics_family,
-        .queueCount = 1,
-        .pQueuePriorities = &priority,
+        .queueCount = split_queue ? 2u : 1u,
+        .pQueuePriorities = graphics_priorities.data(),
     }};
     // The compute family: queue 0 for readbacks (BB_READBACK_QUEUE=0: none), the next one for
     // asynchronous compute (BB_FG_ASYNC=1; none by default).
@@ -660,6 +662,8 @@ void Instance::CreateDevice() {
         dlss->Initialize(*instance, physical_device, *device);
     }
     graphics_queue = device->getQueue(graphics_family, 0);
+    present_queue = split_queue ? device->getQueue(graphics_family, 1) : graphics_queue;
+    if (split_queue) std::printf("DLSS-G: separate presentation queue in graphics family %u\n", graphics_family);
     if (readback_family != NoFamily) {
         readback_queue = device->getQueue(readback_family, 0);
         LOG_INFO(Render_Vulkan, "Readback queue: family {}", readback_family);

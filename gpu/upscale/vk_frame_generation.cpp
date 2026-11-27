@@ -103,10 +103,11 @@ void ImageBarrier(vk::CommandBuffer cmdbuf, vk::Image image, vk::PipelineStageFl
 }
 
 /// The real frame again where a generated one could not be made: shown instead of garbage.
-void CopyFrame(vk::CommandBuffer cmdbuf, vk::Image from, vk::Image to, u32 width, u32 height) {
+void CopyFrame(vk::CommandBuffer cmdbuf, vk::Image from, vk::Image to, u32 width, u32 height,
+               vk::ImageLayout dest_layout = vk::ImageLayout::eGeneral) {
     const auto all = vk::PipelineStageFlagBits2::eAllCommands;
     ImageBarrier(cmdbuf, to, all, vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
-                 vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferWrite);
+                 vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferWrite, dest_layout);
     ImageBarrier(cmdbuf, from, all, vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite,
                  vk::PipelineStageFlagBits2::eTransfer, vk::AccessFlagBits2::eTransferRead);
     cmdbuf.copyImage(from, vk::ImageLayout::eGeneral, to, vk::ImageLayout::eGeneral,
@@ -367,6 +368,9 @@ void FrameGeneration::Destroy() {
             dlss->ReleaseFrameGen();
         }
 #ifdef BB_NATIVE_DLSSG
+        direct_tail = {};
+        split_color.view.reset();
+        split_color.image.Destroy();
         direct_core.reset();
         direct_upload_tick = 0;
 #endif
@@ -562,6 +566,8 @@ bool FrameGeneration::EnsureDlss(u32 render_width, u32 render_height, u32 width,
 }
 
 void FrameGeneration::CaptureScene(const Scene& in) {
+    // A new capture may replace the HUD-less image or the pair's motion/history.
+    FinishDirectTail();
     scene_captured = false;
     const int provider = Provider();
     if (provider == BbSettings::FrameGenOff) {
@@ -1422,11 +1428,16 @@ void FrameGeneration::RecordDlssCascade(
 #ifdef BB_NATIVE_DLSSG
 void FrameGeneration::RecordDirect(const Dlss::FrameGenFrame& frame,
                                    std::span<const Dlss::Resource> outputs) {
+    if (outputs.size() == 5) BbTimeline::Note(BbTimeline::DirectSixBegin, 0, scene_id);
     const auto discard = [this] {
         std::scoped_lock lock{targets_mutex};
         for (auto& target : targets) target.ready = false;
     };
     const auto& desc = *dlss_desc;
+    static const bool split_wanted = bb_env_on("BB_DLSSG_FIRST_PHASE");
+    const bool want_first = split_wanted && outputs.size() == 5 &&
+                            instance.GetGraphicsQueue() != instance.GetPresentQueue();
+    if (want_first && frame.hudless.image) EnsureTarget(split_color);
     scheduler.EndRendering();
     const auto cmd = scheduler.CommandBuffer();
     std::string error;
@@ -1488,7 +1499,8 @@ void FrameGeneration::RecordDirect(const Dlss::FrameGenFrame& frame,
         ImageBarrier(cmd, outputs[i].image, all, read | write, all, write, vk::ImageLayout::eUndefined);
     }
 
-    const auto result = direct_core->record(cmd, source, std::span(targets_out).first(outputs.size()), error);
+    const bool split = want_first && !source.reset;
+    const auto result = direct_core->record(cmd, source, std::span(targets_out).first(outputs.size()), error, split);
     if (result == player_core::RecordResult::failed) {
         failed();
         return;
@@ -1497,14 +1509,51 @@ void FrameGeneration::RecordDirect(const Dlss::FrameGenFrame& frame,
         discard();
         return;
     }
+    if (!split) {
+        FinishDirectImages(cmd, frame.backbuffer, frame.hudless, outputs);
+        return;
+    }
+    FinishDirectImages(cmd, frame.backbuffer, frame.hudless, outputs.first(1));
+
+    auto saved_color = frame.backbuffer;
     if (frame.hudless.image) {
+        saved_color.image = vk::Image(split_color.image);
+        saved_color.view = *split_color.view;
+        CopyFrame(cmd, frame.backbuffer.image, saved_color.image, desc.width, desc.height,
+                  vk::ImageLayout::eUndefined);
+    }
+    std::array<Dlss::Resource, 4> rest;
+    std::ranges::copy(outputs.subspan(1), rest.begin());
+    direct_tail = [this, source, rest, saved_color, hudless = frame.hudless](vk::CommandBuffer tail_cmd) {
+        direct_core->finish_six(tail_cmd, source);
+        FinishDirectImages(tail_cmd, saved_color, hudless, rest);
+    };
+}
+
+void FrameGeneration::FinishDirectImages(vk::CommandBuffer cmd, const Dlss::Resource& color,
+                                         const Dlss::Resource& hudless,
+                                         std::span<const Dlss::Resource> outputs) {
+    const auto all = vk::PipelineStageFlagBits2::eAllCommands;
+    const auto write = vk::AccessFlagBits2::eMemoryWrite;
+    if (hudless.image) {
         EnsureDlssOverlayPipelines(false);
         for (const auto& output : outputs) ImageBarrier(cmd, output.image, all, write, all, write);
-        RecordDlssHud(cmd, frame.backbuffer, frame.hudless, outputs);
+        RecordDlssHud(cmd, color, hudless, outputs);
     }
-    for (const auto& output : outputs) ImageBarrier(cmd, output.image, all, write, all, read);
+    for (const auto& output : outputs)
+        ImageBarrier(cmd, output.image, all, write, all, vk::AccessFlagBits2::eMemoryRead);
 }
 #endif
+
+void FrameGeneration::FinishDirectTail() {
+#ifdef BB_NATIVE_DLSSG
+    if (direct_tail) {
+        scheduler.EndRendering();
+        direct_tail(scheduler.CommandBuffer());
+        direct_tail = {};
+    }
+#endif
+}
 
 void FrameGeneration::RecordDlss(vk::Image color, bool reset, u32 count, bool cascade,
                                  const CameraMatrices::Pose& midpoint,
@@ -1684,6 +1733,9 @@ u32 FrameGeneration::TakeOutputs(VAddr display, std::array<Output, MaxGenerated>
         out[count++].disable_interpolation = t.disable_interpolation;
         t.ready = false;
     }
+#ifdef BB_NATIVE_DLSSG
+    out[0].first_of_six = count == 5 && bool(direct_tail);
+#endif
     if (count == 0) {
         ++stat_missed;
     } else {

@@ -31,6 +31,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -123,7 +124,9 @@ public:
         vk::Sampler lut_sampler{};
         vk::ImageLayout lut_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
         vk::Buffer disable_interpolation{};
+        bool first_of_six{};
     };
+    void FinishDirectTail();
     u32 TakeOutputs(VAddr display, std::array<Output, MaxGenerated>& out);
 
     /// The game's display pass of this frame maps each byte of the finished frame through a LUT
@@ -291,6 +294,12 @@ private:
     std::mutex targets_mutex;
     VAddr ready_display{}; // the unclaimed group belongs to this display image
     std::array<Target, MaxGenerated> targets;
+#ifdef BB_NATIVE_DLSSG
+    Target split_color; // Preserve the game's UI-composited color until flip.
+    std::function<void(vk::CommandBuffer)> direct_tail;
+    void FinishDirectImages(vk::CommandBuffer cmd, const Dlss::Resource& color,
+                            const Dlss::Resource& hudless, std::span<const Dlss::Resource> outputs);
+#endif
 
     // Asynchronous generation.
     bool async = false;

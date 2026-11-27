@@ -96,7 +96,7 @@ Presenter::Presenter(Frontend::WindowSDL& window_, BbCp::CommandProcessor* cp_)
     : window{window_},
       instance{window, EmulatorSettings.GetGpuId(), EmulatorSettings.IsVkValidationEnabled(),
                EmulatorSettings.IsVkCrashDiagnosticEnabled()},
-      cp{cp_}, draw_scheduler{instance, true}, present_scheduler{instance},
+      cp{cp_}, draw_scheduler{instance, true}, present_scheduler{instance, false, instance.GetPresentQueue()},
       swapchain{instance, window}, runtime{instance, draw_scheduler},
       rasterizer{std::make_unique<Rasterizer>(instance, draw_scheduler, runtime, cp)},
       texture_cache{rasterizer->GetTextureCache()},
@@ -373,6 +373,7 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     // Frame generation: the frames generated before this one, encoded the same way.
     frame->interp_count = 0;
     frame->interp_async = {};
+    frame->first_phase_tick = 0;
     frame->check_cascade = false;
     if (upscaled && upscaler.GetFrameGeneration()) {
         std::array<FrameGeneration::Output, FrameGeneration::MaxGenerated> interp{};
@@ -436,6 +437,19 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
                 }
                 EncodeInterpolated(frame, frame->interp_count, interp[i].image, interp[i].format,
                                    interp[i].width, interp[i].height, view_info.format, encode);
+            }
+            if (i == 0 && interp[0].first_of_six) {
+                if (frame->interp_count == 1) {
+                    frame->first_phase_tick = draw_scheduler.CurrentTick();
+                    draw_scheduler.Flush();
+                }
+                upscaler.GetFrameGeneration()->FinishDirectTail();
+            }
+        }
+        if (generated == 5 && frame->interp_count == generated) {
+            BbTimeline::Note(BbTimeline::DirectSixGroup, interp[0].frame, draw_scheduler.CurrentTick());
+            if (frame->first_phase_tick) {
+                BbTimeline::Note(BbTimeline::DirectSixEarly, frame->first_phase_tick, draw_scheduler.CurrentTick());
             }
         }
         if (generated > 1 && frame->interp_count != generated) frame->interp_count = 0;
@@ -890,15 +904,17 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
 
     // The frame's submission goes out from a recording thread (BB_ASYNC_SUBMIT); the present
     // one, waiting for it on the same queue, must not get there first.
+    const u64 wait_tick = !last && index == 0 && frame->first_phase_tick
+                              ? frame->first_phase_tick : frame->ready_tick;
     if (!blank && frame->ready_semaphore == draw_scheduler.GetWorkSemaphore()->Handle()) {
         BbTimeline::Note(BbTimeline::WaitSubmitBegin);
-        draw_scheduler.WaitSubmitted(frame->ready_tick);
+        draw_scheduler.WaitSubmitted(wait_tick);
         BbTimeline::Note(BbTimeline::WaitSubmitEnd);
     }
     SubmitInfo info{};
     info.AddWait(swapchain.GetImageAcquiredSemaphore());
     if (!blank) {
-        info.AddWait(frame->ready_semaphore, frame->ready_tick);
+        info.AddWait(frame->ready_semaphore, wait_tick);
         if (last) {
             info.AddSignal(frame->present_done);
         }

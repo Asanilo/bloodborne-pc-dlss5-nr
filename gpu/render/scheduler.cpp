@@ -115,8 +115,9 @@ vk::CommandBuffer BeginCommandBuffer(CommandPool& pool) {
 
 } // namespace
 
-Scheduler::Scheduler(const Instance& instance, bool threaded_recording)
-    : instance{instance}, work_semaphore{instance}, command_pool{instance, &work_semaphore} {
+Scheduler::Scheduler(const Instance& instance, bool threaded_recording, vk::Queue queue)
+    : instance{instance}, submit_queue{queue ? queue : instance.GetGraphicsQueue()},
+      work_semaphore{instance}, command_pool{instance, &work_semaphore} {
     crumb_stream = Breadcrumbs::NewStream(
         instance, threaded_recording ? "draws: game and presenter" : "presentation");
     // BB_VK_RECORD_THREAD=0 records on the calling thread.
@@ -886,7 +887,7 @@ void Scheduler::QueueSubmit(std::span<const vk::CommandBuffer> cmdbufs, SubmitIn
     vk::Result result;
     {
         BbStats::VkMemTimer timer{BbStats::t_vk_submit, BbStats::n_vk_submit};
-        result = instance.GetGraphicsQueue().submit2(submit, info.fence);
+        result = submit_queue.submit2(submit, info.fence);
     }
     if (result == vk::Result::eErrorDeviceLost) {
         Breadcrumbs::ReportDeviceLost("submit");

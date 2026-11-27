@@ -57,7 +57,9 @@ public:
     // Destroy the core only after every command using it has retired.
     // Seed/reset writes history and returns seeded before touching any output.
     RecordResult record(VkCommandBuffer command, const Frame &frame, std::span<const Image> outputs,
-                        std::string &error);
+                        std::string &error, bool first_of_six = false);
+    // Complete the other four sixths before the next record() rebinds the shared pair.
+    void finish_six(VkCommandBuffer command, const Frame &frame);
 
 private:
     struct Impl;

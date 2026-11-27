@@ -466,7 +466,7 @@ struct Core::Impl {
         }
     }
 
-    RecordResult frame(VkCommandBuffer command, const Frame &frame, std::span<const Image> outputs) {
+    RecordResult frame(VkCommandBuffer command, const Frame &frame, std::span<const Image> outputs, bool first_of_six) {
         need(command && uploaded, "core resources have not been initialized on the caller queue");
         const bool reset = frame.reset || !seeded;
         verify_image(frame.color, ImageRole::color);
@@ -491,8 +491,10 @@ struct Core::Impl {
             variant = 0;
             return RecordResult::seeded;
         }
+        need(!first_of_six || outputs.size() == 5, "first phase requires five outputs");
         record(command, profile.pair[variant], frame, .5f, 0);
-        for (size_t i = 0; i < outputs.size(); ++i)
+        const size_t count = first_of_six ? 1 : outputs.size();
+        for (size_t i = 0; i < count; ++i)
             record(command, profile.phase[variant], frame, float(i + 1) / float(outputs.size() + 1), i);
         variant ^= 1;
         return RecordResult::generated;
@@ -530,16 +532,21 @@ void Core::release_upload() noexcept {
 }
 
 RecordResult Core::record(VkCommandBuffer command, const Frame &frame, std::span<const Image> outputs,
-                          std::string &error) {
+                          std::string &error, bool first_of_six) {
     try {
         need(bool(impl_), "initialize core before recording source frames");
-        const auto result = impl_->frame(command, frame, outputs);
+        const auto result = impl_->frame(command, frame, outputs, first_of_six);
         error.clear();
         return result;
     } catch (const std::exception &failure) {
         error = failure.what();
         return RecordResult::failed;
     }
+}
+
+void Core::finish_six(VkCommandBuffer command, const Frame &frame) {
+    for (size_t i = 1; i < 5; ++i)
+        impl_->record(command, impl_->profile.phase[impl_->variant ^ 1], frame, float(i + 1) / 6.f, i);
 }
 
 } // namespace player_core
