@@ -6,7 +6,7 @@
 #include <memory>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
+#include <vk_mem_alloc.h>
 
 namespace player_core {
 
@@ -44,8 +44,8 @@ public:
     Core(const Core &) = delete;
     Core &operator=(const Core &) = delete;
 
-    // Initialize with a live caller-owned device configured for BDA and NVX.
-    bool initialize(VkPhysicalDevice physical, VkDevice device, const Profile &profile,
+    // The caller owns the BDA-enabled allocator and NVX device for the lifetime of this core.
+    bool initialize(VmaAllocator allocator, const Profile &profile,
                     const std::filesystem::path &sdk_library, std::string &error);
     void record_initialize(VkCommandBuffer command);
     // Upload resources can be released when the caller's initialization fence signals.

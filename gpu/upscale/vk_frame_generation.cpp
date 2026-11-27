@@ -1440,7 +1440,7 @@ void FrameGeneration::RecordDirect(const Dlss::FrameGenFrame& frame,
         const auto start = std::chrono::steady_clock::now();
         direct_core = std::make_unique<player_core::Core>();
         const auto& profile = player_core::profile_1080p_quality();
-        if (!direct_core->initialize(instance.GetPhysicalDevice(), instance.GetDevice(), profile,
+        if (!direct_core->initialize(instance.GetAllocator(), profile,
                                      direct_model, error)) {
             failed();
             return;

@@ -74,13 +74,13 @@ template<class Spec> size_t slots(std::span<const Spec> specs) {
 
 struct Buffer {
     VkBuffer handle{};
-    VkDeviceMemory memory{};
+    VmaAllocation allocation{};
     VkDeviceAddress address{};
 };
 
 struct OwnedImage {
     VkImage handle{};
-    VkDeviceMemory memory{};
+    VmaAllocation allocation{};
     ImageRole role{};
     const ImageSpec *spec{};
 };
@@ -120,7 +120,7 @@ struct Prepared {
 
 struct Core::Impl {
     VkDevice device{};
-    VkPhysicalDeviceMemoryProperties memory{};
+    VmaAllocator allocator;
     const Profile &profile;
     PFN_vkDestroyCuModuleNVX destroy_module{};
     PFN_vkDestroyCuFunctionNVX destroy_function{};
@@ -137,9 +137,10 @@ struct Core::Impl {
     bool uploaded{}, seeded{};
     unsigned variant{};
 
-    Impl(VkPhysicalDevice physical, VkDevice device, const Profile &profile)
-        : device(device), profile(profile) {
-        vkGetPhysicalDeviceMemoryProperties(physical, &memory);
+    Impl(VmaAllocator allocator, const Profile &profile) : allocator(allocator), profile(profile) {
+        VmaAllocatorInfo info{};
+        vmaGetAllocatorInfo(allocator, &info);
+        device = info.device;
     }
 
     ~Impl() {
@@ -152,44 +153,26 @@ struct Core::Impl {
             if (texture.sampler) vkDestroySampler(device, texture.sampler, nullptr);
         }
         for (const auto &image : images) {
-            if (image.handle) vkDestroyImage(device, image.handle, nullptr);
-            if (image.memory) vkFreeMemory(device, image.memory, nullptr);
+            if (image.handle) vmaDestroyImage(allocator, image.handle, image.allocation);
         }
         for (auto &buffer : buffers) destroy(buffer);
         destroy(upload);
     }
 
     void destroy(Buffer &buffer) noexcept {
-        if (buffer.handle) vkDestroyBuffer(device, buffer.handle, nullptr);
-        if (buffer.memory) vkFreeMemory(device, buffer.memory, nullptr);
+        if (buffer.handle) vmaDestroyBuffer(allocator, buffer.handle, buffer.allocation);
         buffer = {};
-    }
-
-    uint32_t memory_index(uint32_t allowed, VkMemoryPropertyFlags flags) const {
-        for (uint32_t index = 0; index < memory.memoryTypeCount; ++index) {
-            if ((allowed & (1u << index)) && (memory.memoryTypes[index].propertyFlags & flags) == flags)
-                return index;
-        }
-        throw std::runtime_error("existing Vulkan device has no suitable memory type");
     }
 
     void create(Buffer &buffer, VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags memory_flags) {
         VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
         info.size = size;
         info.usage = usage;
-        check(vkCreateBuffer(device, &info, nullptr, &buffer.handle), "vkCreateBuffer");
-        VkMemoryRequirements requirements{};
-        vkGetBufferMemoryRequirements(device, buffer.handle, &requirements);
-        bool bda = usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        VkMemoryAllocateFlagsInfo flags{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO};
-        flags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
-        VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-        allocate.pNext = bda ? &flags : nullptr;
-        allocate.allocationSize = requirements.size;
-        allocate.memoryTypeIndex = memory_index(requirements.memoryTypeBits, memory_flags);
-        check(vkAllocateMemory(device, &allocate, nullptr, &buffer.memory), "vkAllocateMemory(buffer)");
-        check(vkBindBufferMemory(device, buffer.handle, buffer.memory, 0), "vkBindBufferMemory");
-        if (bda) {
+        VmaAllocationCreateInfo allocation{};
+        allocation.requiredFlags = memory_flags;
+        check(vmaCreateBuffer(allocator, &info, &allocation, &buffer.handle, &buffer.allocation, nullptr),
+              "vmaCreateBuffer");
+        if (usage & VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT) {
             VkBufferDeviceAddressInfo query{VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
             query.buffer = buffer.handle;
             buffer.address = vkGetBufferDeviceAddress(device, &query);
@@ -213,14 +196,10 @@ struct Core::Impl {
         info.samples = VK_SAMPLE_COUNT_1_BIT;
         info.tiling = VK_IMAGE_TILING_OPTIMAL;
         info.usage = spec.usage;
-        check(vkCreateImage(device, &info, nullptr, &image.handle), "vkCreateImage");
-        VkMemoryRequirements requirements{};
-        vkGetImageMemoryRequirements(device, image.handle, &requirements);
-        VkMemoryAllocateInfo allocate{VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
-        allocate.allocationSize = requirements.size;
-        allocate.memoryTypeIndex = memory_index(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        check(vkAllocateMemory(device, &allocate, nullptr, &image.memory), "vkAllocateMemory(image)");
-        check(vkBindImageMemory(device, image.handle, image.memory, 0), "vkBindImageMemory");
+        VmaAllocationCreateInfo allocation{};
+        allocation.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+        check(vmaCreateImage(allocator, &info, &allocation, &image.handle, &image.allocation, nullptr),
+              "vmaCreateImage");
     }
 
     uint64_t descriptor(const Texture &texture, VkImageView view) const {
@@ -355,11 +334,11 @@ struct Core::Impl {
             if (spec.initial_data.size)
                 sources.push_back(verified(sdk, spec.initial_data));
         void *mapped{};
-        check(vkMapMemory(device, upload.memory, 0, VK_WHOLE_SIZE, 0, &mapped), "vkMapMemory");
+        check(vmaMapMemory(allocator, upload.allocation, &mapped), "vmaMapMemory");
         for (size_t index = 0; index < sources.size(); ++index)
             std::memcpy(static_cast<char *>(mapped) + copies[index].second.srcOffset,
                         sources[index].data(), sources[index].size());
-        vkUnmapMemory(device, upload.memory);
+        vmaUnmapMemory(allocator, upload.allocation);
         images.resize(slots(profile.images));
         textures.resize(slots(profile.textures));
         for (const auto &spec : profile.images) create(spec);
@@ -525,11 +504,11 @@ const Profile &profile_1080p_quality() noexcept { return stock_1080p_quality::de
 Core::Core() = default;
 Core::~Core() = default;
 
-bool Core::initialize(VkPhysicalDevice physical, VkDevice device, const Profile &profile,
+bool Core::initialize(VmaAllocator allocator, const Profile &profile,
                       const std::filesystem::path &sdk_library, std::string &error) {
     try {
-        need(physical && device && !impl_, "invalid caller Vulkan device or already initialized");
-        auto state = std::make_unique<Impl>(physical, device, profile);
+        need(allocator && !impl_, "missing caller allocator or already initialized");
+        auto state = std::make_unique<Impl>(allocator, profile);
         state->initialize(sdk_library);
         impl_ = std::move(state);
         error.clear();
