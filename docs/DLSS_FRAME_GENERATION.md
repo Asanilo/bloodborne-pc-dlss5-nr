@@ -174,22 +174,13 @@ pair at 3x and 6x. Compare source FPS, GPU time per pair, and motion crops
 of the hunter's weapon, coat, railings and HUD. The Lite path has yet to run
 in this player. [Linux SDK release](https://github.com/NVIDIA/DLSS/releases/tag/v310.9.16)
 
-**A target output rate with a floor for real frames.** The experimental
-lsfg-vk fork tests higher multipliers, measures the effect on source cadence
-and backs off when the extra work is counterproductive. Its algorithms use
-another model, but the scheduling principle fits our direct backend.
-Choose the least expensive effective multiplier that meets the player's
-target while preserving their source FPS floor. Decide before dispatch so
-an unwanted phase costs no GPU work. Compare stable windows before changing
-again and keep 2x NGX/direct transitions infrequent because they rebuild
-history. Start with a recommendation beside the manual selector and validate
-it on a moving route before enabling automatic changes. The Windows MFG
-Unlocker and the ShyVortex Ada fork also demonstrate separate controls for
-mode, multiplier ceiling and effective status.
-[Adaptive scheduler](https://github.com/eugeniosegala/lsfg-vk-experimental/blob/7c2e1436ce99b5fde9eb1890e8a8b23cab892907/lsfg-vk-layer/src/adaptive_scheduler.cpp)
-· [Scheduler validation](https://github.com/eugeniosegala/lsfg-vk-experimental/blob/7c2e1436ce99b5fde9eb1890e8a8b23cab892907/docs/Adaptive-Validation.md)
+**Manual player controls.** The player chooses a fixed 2x–6x multiplier
+and a separate quality preset. Keep automatic multiplier selection out of
+the player roadmap. The lsfg-vk fork's measurements of real-frame cadence
+are useful for development. MFG Unlocker provides a precedent for assignable
+fixed-mode shortcuts and a status page.
+[Community scheduler validation](https://github.com/eugeniosegala/lsfg-vk-experimental/blob/7c2e1436ce99b5fde9eb1890e8a8b23cab892907/docs/Adaptive-Validation.md)
 · [MFG Unlocker controls](https://github.com/dashdogy/MFG-Unlocker/blob/main/docs/menu.md)
-· [ShyVortex's RTX 40 implementation](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/blob/main/docs/RTX40-MFG.md)
 
 **Reduce the work after interpolation.** Put GPU timestamps around the model,
 HUD restore, display LUT, encode and final blit, and time view creation on
@@ -204,16 +195,15 @@ the final output. Keep each change only if an isolated A/B shows a gain
 with the same image. [HUD shader](../gpu/upscale/shaders/fg_cascade_hud.comp)
 · [Present and encode](../gpu/render/presenter.cpp)
 
-**Player-facing tools.** Start the overlay with real FPS, application output
-rate and the effective backend/multiplier. Show a history reset or a stock
-2x fallback explicitly. An assignable A/B key and a short, on-demand motion
+**Player-facing tools.** When the FPS counter is enabled, its default view
+should show output FPS alone. A separate, opt-in detailed view can show
+real FPS, effective multiplier, backend and reset or fallback reasons.
+An assignable A/B key and a short, on-demand motion
 capture could mark each real and generated frame for comparing weapons, thin
 geometry and translucent HUD against the same input. To improve translucent
 UI, investigate capturing alpha or a premultiplied UI layer alongside the
 HUD-less scene. OptiScaler already distinguishes these inputs in its
-integration options. A later experiment could place phases at display
-deadlines (e.g. 60 source FPS on a 144 Hz screen) instead of alternating
-integer group sizes with uneven spacing. Query presentation feedback for
+integration options. Query presentation feedback for
 the active surface before making display-rate or VRR claims; retain the
 application counters when feedback is unavailable.
 [OptiScaler FG inputs and HUD](https://github.com/optiscaler/OptiScaler/wiki/Frame-Generation-Options)
@@ -228,6 +218,36 @@ long a newly rendered real frame waits before presentation. Interpolating
 between two known endpoints cannot deliver newer game input. A 1440p or
 16:10 option needs its own verified model profile for output and guide
 sizes; exposing a resolution selector alone will not add support.
+
+### Experimental ideas for fixed-multiplier play
+
+* **Present the first generated frame sooner.** The current executor computes
+  phases in order, but the presenter gets one ready tick for the group. At
+  fixed 6x, prototype a split after the first phase. Time the first generated
+  present and the final real present, and check source FPS and phase spacing.
+  Keep the remaining four phases in order. Protect the first output until
+  its reader finishes. Extra submissions or contention may erase the gain.
+* **Redraw a weapon at the intermediate pose.** RT64 matches draws across
+  source frames and interpolates 3D transforms. A Bloodborne experiment
+  could start with one rigid weapon and one fixed animation. It needs scene
+  color and depth without the old weapon silhouette, matched transforms
+  and correct depth testing when the weapon crosses the hunter or scenery.
+  Validate the whole swing first; skinning, particles and translucent
+  effects are separate problems. [RT64 frame interpolation](https://github.com/rt64/rt64#frame-interpolation)
+* **Update free-look closer to display time.** Test a small late camera
+  rotation using the latest stick input, composed before the HUD. Measure
+  input-to-visible-camera-motion and inspect exposed pixels at the screen
+  edge. Lock-on, camera collision and animation-driven camera motion need
+  authoritative game state. Simulation, hit detection and dodge timing
+  remain tied to the real game update.
+  [Post-render warp research](https://research.nvidia.com/publication/2020-07_post-render-warp-late-input-sampling-improves-aiming-under-high-latency)
+* **Slow-motion hunt clips.** A player-triggered capture could retain a short
+  encounter for frame-accurate slow playback or export with the HUD hidden.
+  Start with a timed clip of the existing output. Clean export needs a capture
+  before HUD recomposition or a separately stored UI layer. Offline regeneration
+  at new intermediate times would additionally require the source endpoints,
+  depth, motion, camera and preceding model history. Measure capture overhead
+  before adding instant replay to normal play.
 
 ## Upstream NGX frame generation (2026-10-18)
 
