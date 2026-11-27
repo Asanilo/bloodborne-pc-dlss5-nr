@@ -67,6 +67,61 @@ tests below also cover camera history. The validated game profile and SDK
 version are fixed. Rebuild the profile against the local release with the
 [CPU-only profile generator](../tools/dlssg_stage_probe/profile/README.md).
 
+### Backend changes and intermediate-frame lifetime
+
+Asynchronous FSR 3.1 (opt-in with `BB_FG_ASYNC=1`) lends images to the
+present thread from three dedicated slots. A loan lasts until the presenter
+returns its slot. The next computation waits for the previous GPU reader's
+timeline value. A resize waits for both writer and reader before replacing
+the image. If all slots are lent out, the game presents its real frame and
+restarts interpolation history on the next available slot.
+
+Direct DLSS-G seeds a new real frame whenever its color input switches between
+HUD-less scene color and the finished frame. The affected pair yields just
+the real frame. On a multiplier reduction, each present slot frees surplus
+encoded images after its previous submission completes.
+
+On player build `e9da4ae`, async FSR used compute queue family 2. A switch
+to direct DLSS-G resumed 3x in the same session. Disabling and restoring
+the HUD-less input each produced a single real-frame group and then normal
+3x groups. In a 6x→2x transition, the three present slots freed 35,389,440
+bytes each (101.25 MiB total). Turning FG off then freed another 25.3125 MiB.
+These are the actual VMA allocation sizes of the encoded present images.
+
+With the source capped at 35 FPS, two stock 2x→direct 3x transitions took
+33.303 and 33.561 ms of CPU time to initialize the executor. The longest
+intervals between successive real-frame present returns were 47.598 and
+47.782 ms, against a 28.628 ms median in the first pre-switch window.
+Both intervals included two successful generated presents. The corresponding
+longest source flip intervals were 29.172 and 29.084 ms. Present timestamps
+carry the image kind, draw tick, reuse flag and Vulkan result.
+
+In an offscreen breakdown of that version, buffer creation accounted for
+15.318 ms and image creation 5.491 ms, compared with 2.469 ms to import
+the programs (medians of three runs). Player build `07a4c01` uses the
+game's existing Vulkan Memory Allocator for those resources. It still
+destroys them on leaving direct mode. The first direct initialization
+in two game sessions took 18.892 and 19.259 ms. One of those sessions
+ended with supervisor status 143 before it produced a full timing trace.
+In the completed session, two subsequent 2x→3x transitions took 13.678
+and 14.010 ms to initialize. The longest real-present return intervals
+remained 47.743 and 47.454 ms, both with two generated presents in between.
+Across all successful presents, the longest gaps were 30.339 and 28.669 ms.
+The new allocator reproduced the old full-image hashes for all seven phases
+tested across 3x and 6x, including the following camera change.
+
+The 1080p Quality executor records 119 full memory barriers per steady 3x
+pair and 230 per 6x pair (core only). A fixed-profile experiment grouped
+adjacent work with disjoint buffer and image accesses, reducing those counts
+to 112 and 217. The RTX 4060 Laptop reproduced the reference RGBA digests
+for all tested phases and the following camera change. In two 6x runs per
+variant, each taking 32 warmed GPU timestamp samples, the mean of the run
+medians was 8.704 ms with the existing schedule and 8.672 ms with the grouped
+barriers. This difference was smaller than the spread between baseline runs.
+A second, warmed 3x test in A/B/B/A order averaged 4.187 ms for the original
+schedule and 4.717 ms for the grouped one. GPU clocks varied. The player
+keeps the original barriers.
+
 ## Upstream NGX frame generation (2026-10-18)
 
 NVIDIA's DLSS Frame Generation runs natively on Linux through the DLSS bridge, on a GeForce RTX 40
