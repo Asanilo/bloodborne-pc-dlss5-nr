@@ -264,7 +264,8 @@ control, so those samples cannot establish a throughput gain. One
 launch straight into the diagnostic build's whole-batch 6x encountered
 device loss (Xid 31). Original and candidate builds subsequently loaded
 with 2x and switched to 6x successfully, including the split mode. The
-cause of the initial failure was not established. First-phase presentation
+final experimental launcher also started directly at 6x, ran in the clinic
+and exited normally. The cause of the initial failure was not established. First-phase presentation
 is a manual experiment; the normal launcher keeps whole-batch submission.
 
 ### Further camera experiment
