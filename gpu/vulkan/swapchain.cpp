@@ -282,7 +282,7 @@ bool Swapchain::Present(u64 present_id) {
     };
     const auto present_start = BbTimeline::Now();
     const vk::Result result = instance.GetPresentQueue().presentKHR(info);
-    BbTimeline::Note(BbTimeline::Presented, 0, u64(BbTimeline::Now() - present_start));
+    BbTimeline::Note(BbTimeline::Presented, u32(result), u64(BbTimeline::Now() - present_start));
     if (result == vk::Result::eErrorOutOfDateKHR || result == vk::Result::eSuboptimalKHR) {
         needs_recreation = true;
     } else {

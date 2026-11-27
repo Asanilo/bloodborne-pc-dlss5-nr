@@ -125,23 +125,30 @@ Presenter::~Presenter() {
         if (frame.image) {
             vmaDestroyImage(instance.GetAllocator(), frame.image, frame.allocation);
         }
-        DestroyInterpolated(frame);
+        TrimInterpolated(frame, 0);
         device.destroyFence(frame.present_done);
     }
 }
 
-void Presenter::DestroyInterpolated(Frame& frame) {
+void Presenter::TrimInterpolated(Frame& frame, u32 keep) {
     const vk::Device device = instance.GetDevice();
-    for (u32 i = 0; i < Frame::MaxInterp; ++i) {
+    VkDeviceSize freed = 0;
+    for (u32 i = keep; i < Frame::MaxInterp; ++i) {
+        if (!frame.interp_image[i]) continue;
+        VmaAllocationInfo allocation;
+        vmaGetAllocationInfo(instance.GetAllocator(), frame.interp_allocation[i], &allocation);
+        freed += allocation.size;
         device.destroyImageView(frame.interp_view[i]);
-        if (frame.interp_image[i]) {
-            vmaDestroyImage(instance.GetAllocator(), frame.interp_image[i], frame.interp_allocation[i]);
-        }
+        vmaDestroyImage(instance.GetAllocator(), frame.interp_image[i], frame.interp_allocation[i]);
         frame.interp_image[i] = vk::Image{};
         frame.interp_view[i] = vk::ImageView{};
         frame.interp_allocation[i] = {};
     }
-    frame.interp_count = 0;
+    if (freed) {
+        std::printf("Frame generation: present slot %u retained up to %u phase images, freed %llu bytes\n",
+                    unsigned(frame.id), keep, static_cast<unsigned long long>(freed));
+    }
+    frame.interp_count = std::min(frame.interp_count, keep);
 }
 
 void Presenter::SetHDR(bool enable) {
@@ -199,7 +206,7 @@ void Presenter::RecreateFrame(Frame& frame, u32 width, u32 height) {
     SetObjectName(device, frame.image, "frame {}", frame.id);
     // Frame generation's frames (made with the first ones generated: most sessions never need
     // them).
-    DestroyInterpolated(frame);
+    TrimInterpolated(frame, 0);
     frame.width = width;
     frame.height = height;
     frame.is_hdr = swapchain.GetHDR();
@@ -251,9 +258,10 @@ Frame* Presenter::PrepareFrame(const BbVideoOut::BufferAttributeGroup& attribute
     }
 
     Frame* frame = GetRenderFrame();
-    if (frame->cascade_status && !upscaler.GetFrameGeneration()->CascadeActive()) {
-        // GetRenderFrame waited for the frame's last present, so its extra encodes can be freed.
-        DestroyInterpolated(*frame);
+    const auto* fg = upscaler.GetFrameGeneration();
+    // Trim on slot reuse, after its previous encode and presentation retired.
+    TrimInterpolated(*frame, fg ? fg->WantedCount() : 0);
+    if (frame->cascade_status && (!fg || !fg->CascadeActive())) {
         frame->cascade_status.reset();
     }
 
@@ -684,7 +692,7 @@ void Presenter::RecordPresent(vk::CommandBuffer cmdbuf, const Frame* frame, vk::
 }
 
 void Presenter::Present(Frame* frame, bool is_reusing_frame, bool) {
-    BbTimeline::Note(BbTimeline::PresentBegin);
+    BbTimeline::Note(BbTimeline::PresentBegin, is_reusing_frame, frame == &blank_frame);
     const auto release = [&] {
         if (!is_reusing_frame) {
             ReleaseFrame(frame);
@@ -740,7 +748,7 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool) {
         settings.frame_gen_now.store(int(generated), std::memory_order_relaxed);
     }
     if (only_interp && generated && frame->interp_image[0] && !frame->interp_async[0].wait_semaphore) {
-        PresentImage(frame, frame->interp_image[0], true);
+        if (!PresentImage(frame, frame->interp_image[0], true)) WaitRendered(frame);
         release();
         return;
     }
@@ -777,10 +785,10 @@ void Presenter::Present(Frame* frame, bool is_reusing_frame, bool) {
         }
     }
     LowLatency::Get().PresentStart(blank ? 0 : frame->present_id, false);
-    if (!PresentImage(frame, {}, true) && generated) {
-        // A minimized/out-of-date surface can skip the real frame before it submits
-        // this batch's fence. Earlier phase blits still own the encoded images.
-        present_scheduler.WaitSubmittedWork();
+    if (!PresentImage(frame, {}, true) && !blank) {
+        // A skipped present may leave the previous fence signaled while the draw encode runs.
+        WaitRendered(frame);
+        if (generated) present_scheduler.WaitSubmittedWork();
     }
     LowLatency::Get().PresentEnd(blank ? 0 : frame->present_id, false);
     release();
@@ -909,6 +917,7 @@ bool Presenter::PresentImage(Frame* frame, vk::Image source, bool last,
     {
         std::scoped_lock lock{Scheduler::submit_mutex};
         BbStats::WaitTimer timer{BbStats::present_call_ns};
+        BbTimeline::Note(BbTimeline::PresentSource, blank ? 0 : source ? 2 : 1, frame->ready_tick);
         if (!swapchain.Present(present_id)) {
             swapchain.Recreate(width, height);
             return false;

@@ -110,7 +110,7 @@ private:
     void ReleaseFrame(Frame* frame);
     void RecreateFrame(Frame& frame, u32 width, u32 height);
     /// Frees the frame's generated-frame images (RecreateFrame, the destructor).
-    void DestroyInterpolated(Frame& frame);
+    void TrimInterpolated(Frame& frame, u32 keep);
     /// The frame size: the display buffer's aspect fitted into the swapchain.
     void SetExpectedSize(u32 width, u32 height);
     /// Records the swapchain image's contents: black bars and `frame` (if any) blitted in.

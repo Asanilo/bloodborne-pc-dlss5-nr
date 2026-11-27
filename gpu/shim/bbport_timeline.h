@@ -32,13 +32,16 @@ enum Event : std::uint32_t {
     RecorderIdleBegin, ///< the draw recording thread (stage B) has no packet to run
     RecorderIdleEnd,
     FlipProcessed,     ///< Display::Flip (where the frame statistics count frames), arg: flips so far
-    Presented,         ///< vkQueuePresentKHR returned, arg2: ns it took
-    PresentBegin,      ///< the presenter thread takes a frame (Presenter::Present)
+    Presented,         ///< vkQueuePresentKHR returned, arg: VkResult, arg2: ns it took
+    PresentBegin,      ///< presenter takes a frame, arg: reused, arg2: blank
     AcquireBegin,      ///< vkAcquireNextImageKHR
     AcquireEnd,
     WaitSubmitBegin,   ///< the presenter waits for the frame's submission (BB_ASYNC_SUBMIT)
     WaitSubmitEnd,
     FlushCaller,       ///< Rasterizer::Flush, arg2: its return address minus FlushAnchor's (rasterizer.cpp)
+    DirectFgInit,      ///< direct FG CPU initialization ended, arg: generated count, arg2: CPU ns
+    DirectFgSource,    ///< direct FG re-seeded on a color source change, arg: HUD-less, arg2: scene id
+    PresentSource,     ///< before present, arg: 0 blank / 1 real / 2 generated, arg2: source draw tick
 };
 
 struct Entry {

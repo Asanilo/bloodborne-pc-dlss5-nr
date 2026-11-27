@@ -162,12 +162,12 @@ private:
     void Destroy();
     /// A target for generated frame `index`, made at the scene's size and format.
     struct Target;
-    Target& EnsureTarget(u32 index);
+    void EnsureTarget(Target& target);
     /// The scene image's view (DLSS reads it through one), kept for the image handle.
     vk::ImageView ColorView(vk::Image image, vk::Format format);
     void RecordFsr(vk::Image color, u64 id, bool reset, Target& target);
     /// Asynchronous FSR 3.1 (Interpolate): copies, submits the frame and queues a job.
-    void InterpolateAsync(vk::Image color, u64 id, bool reset);
+    void InterpolateAsync(vk::Image color, VAddr display, u64 id, bool reset);
     void WorkerLoop(std::stop_token stop);
     /// The worker is idle and the compute queue finished everything submitted (before a context
     /// or image the generation uses is destroyed).
@@ -187,9 +187,8 @@ private:
     u64 direct_upload_tick{};
 #endif
     bool direct_enabled{}, direct_profile{};
-    bool using_direct{};
+    bool using_direct{}, last_direct_hudless{};
     u64 last_direct_source{}, last_direct_present{};
-    VAddr direct_display{}; // display buffer associated with the ready direct group
     void RecordDlssCascade(const Dlss::FrameGenDesc& desc, bool create, Dlss::FrameGenFrame frame,
                            const std::array<Dlss::Resource, MaxGenerated>& outputs,
                            const CameraMatrices::Pose& midpoint,
@@ -290,6 +289,7 @@ private:
         u64 release_value = 0;
     };
     std::mutex targets_mutex;
+    VAddr ready_display{}; // the unclaimed group belongs to this display image
     std::array<Target, MaxGenerated> targets;
 
     // Asynchronous generation.
@@ -299,28 +299,29 @@ private:
     u64 compute_issued = 0;                ///< the last value handed to a job
     vk::UniqueCommandPool compute_pool;
     std::array<vk::CommandBuffer, 3> compute_cmdbufs{};
-    u32 next_target = 0;
+    // Only asynchronous FSR lends its output images to the present thread.
+    std::array<Target, 3> async_targets;
+    u32 next_target = 0, ready_async_slot = 0;
     struct Job {
         FfxVkPortableFrameGenerationPrepareInfo prepare;
         FfxVkPortableImage source;
         FfxVkPortableFrameGenerationDispatchInfo dispatch;
         u64 graphics_tick;
         u64 value;
-        u32 target;
-        u64 wait_handed; ///< the target's last hand-out before: given back first
+        vk::Semaphore reader_semaphore;
+        u64 reader_value; ///< most recent present submission that read this slot
         vk::Image color, out;
         u32 width, height;
     };
     std::mutex job_mutex;
-    std::condition_variable_any job_cv;   ///< a job queued, a target given back, the worker idle
+    std::condition_variable_any job_cv;   ///< a job queued
     std::deque<Job> jobs;
     /// FSR 3.1: the interpolation of the captured scene from `color` and `motion` into `target`.
     Job BuildFsr(vk::Image color, vk::Image motion, u64 id, bool reset, Target& target);
     /// Records `job` (graphics or compute queue).
     void RecordJob(vk::CommandBuffer cmdbuf, Job& job);
-    bool worker_busy = false;
+
     std::jthread worker;
-    std::optional<Output> async_output; ///< made by the last Interpolate, for TakeOutputs
 };
 
 } // namespace Vulkan

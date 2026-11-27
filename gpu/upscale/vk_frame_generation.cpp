@@ -6,6 +6,7 @@
 #endif
 #include "shim/bb_env.h"
 #include "bbport_toggles.h"
+#include "bbport_timeline.h"
 
 #include <algorithm>
 #include <chrono>
@@ -230,12 +231,12 @@ FrameGeneration::FrameGeneration(const Instance& instance_, Scheduler& scheduler
 }
 
 FrameGeneration::~FrameGeneration() {
+    WaitAsyncIdle();
     if (worker.joinable()) {
         worker.request_stop();
         job_cv.notify_all();
         worker.join();
     }
-    WaitAsyncIdle();
     Destroy();
 }
 
@@ -252,13 +253,7 @@ void FrameGeneration::WaitAsyncIdle() {
     if (!async) {
         return;
     }
-    u64 value = 0;
-    {
-        std::unique_lock lock{job_mutex};
-        // The worker gone (destructor): what it left queued is never submitted.
-        job_cv.wait(lock, [this] { return (jobs.empty() && !worker_busy) || !worker.joinable(); });
-        value = compute_issued - jobs.size();
-    }
+    const u64 value = compute_issued; // the draw thread enqueues; the worker drains through this tick
     if (value != 0) {
         const vk::Semaphore semaphore = *compute_semaphore;
         (void)instance.GetDevice().waitSemaphores(
@@ -299,15 +294,20 @@ bool FrameGeneration::CascadeActive() const {
 }
 
 void FrameGeneration::OnDisplayWrite(VAddr address) {
-    if (using_direct) {
+    const int provider = Provider();
+    if (last_provider != BbSettings::FrameGenOff) {
         std::scoped_lock lock{targets_mutex};
-        // An unpresented batch for this buffer belongs to the image being overwritten.
-        if (direct_display == address) {
-            for (auto& target : targets) target.ready = false;
-            direct_display = 0;
+        if (last_provider != provider) {
+            // With FG off the upscaler skips CaptureScene entirely.
+            scene_captured = false;
+            reset_next = true;
+            last_provider = BbSettings::FrameGenOff;
+            ready_display = 0;
+        } else if (ready_display == address) {
+            ready_display = 0; // the unclaimed phases belong to the image being overwritten
         }
     }
-    const bool needs_direct = direct_enabled && Provider() == BbSettings::FrameGenDlss &&
+    const bool needs_direct = direct_enabled && provider == BbSettings::FrameGenDlss &&
         BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed) > 2;
     if ((using_direct && !needs_direct) || (cascade_guides[0].image && !CascadeActive())) {
         Destroy();
@@ -349,6 +349,10 @@ u32 FrameGeneration::CountFor(int provider, int multiplier) const {
 }
 
 void FrameGeneration::Destroy() {
+    {
+        std::scoped_lock lock{targets_mutex};
+        ready_display = 0; // a new context must never claim a batch published by the old one
+    }
     cascade_history.reset();
     if (context) {
         WaitAsyncIdle();
@@ -721,12 +725,23 @@ void FrameGeneration::CaptureHudless(vk::Image color) {
     });
 }
 
-FrameGeneration::Target& FrameGeneration::EnsureTarget(u32 index) {
-    Target& target = targets[index];
+void FrameGeneration::EnsureTarget(Target& target) {
     if (!target.image || target.format != scene.color_format || target.width != scene.width ||
         target.height != scene.height) {
-        WaitAsyncIdle();
-        scheduler.Finish(); // its last encode may still read it
+        if (target.image) {
+            if (target.compute_value) {
+                const auto semaphore = *compute_semaphore;
+                Check(instance.GetDevice().waitSemaphores(
+                    {.semaphoreCount = 1, .pSemaphores = &semaphore, .pValues = &target.compute_value}, UINT64_MAX));
+                if (target.release_value) {
+                    Check(instance.GetDevice().waitSemaphores(
+                        {.semaphoreCount = 1, .pSemaphores = &target.release_semaphore,
+                         .pValues = &target.release_value}, UINT64_MAX));
+                }
+            } else {
+                scheduler.Finish(); // synchronous encode and all its views are done
+            }
+        }
         const auto device = instance.GetDevice();
         target.view.reset();
         target.image = VideoCore::HostImage(device, instance.GetAllocator());
@@ -754,7 +769,6 @@ FrameGeneration::Target& FrameGeneration::EnsureTarget(u32 index) {
         target.width = scene.width;
         target.height = scene.height;
     }
-    return target;
 }
 
 vk::ImageView FrameGeneration::ColorView(vk::Image image, vk::Format format) {
@@ -831,14 +845,15 @@ void FrameGeneration::Interpolate(vk::Image color, VAddr display) {
     }
     if (async && provider == BbSettings::FrameGenFsr3) {
         if (!reset) ++stat_ready;
-        InterpolateAsync(color, id, reset);
+        InterpolateAsync(color, display, id, reset);
         return;
     }
+    for (u32 i = 0; i < count; ++i) EnsureTarget(targets[i]);
     {
         std::scoped_lock lock{targets_mutex};
-        direct_display = using_direct ? display : 0;
+        ready_display = reset ? 0 : display;
         for (u32 i = 0; i < MaxGenerated; ++i) {
-            Target& target = i < count ? EnsureTarget(i) : targets[i];
+            Target& target = targets[i];
             // Ready as recorded (the presenter's encode comes later in the same stream). The
             // first frame after a reset has nothing before it to interpolate from.
             target.ready = i < count && !reset;
@@ -999,7 +1014,7 @@ void FrameGeneration::RecordFsr(vk::Image color, u64 id, bool reset, Target& tar
     scheduler.Record([this, job](vk::CommandBuffer cmdbuf) mutable { RecordJob(cmdbuf, job); });
 }
 
-void FrameGeneration::InterpolateAsync(vk::Image color, u64 id, bool reset) {
+void FrameGeneration::InterpolateAsync(vk::Image color, VAddr display, u64 id, bool reset) {
     Inputs& in = In();
     // Copies of the frame and its motion vectors (both reused by the next frame), in this set.
     const auto ensure = [&](VideoCore::HostImage& image, vk::Format format, u32 w, u32 h,
@@ -1030,22 +1045,27 @@ void FrameGeneration::InterpolateAsync(vk::Image color, u64 id, bool reset) {
            vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled |
                vk::ImageUsageFlagBits::eTransferDst,
            {});
-    const u32 index = next_target++ % u32(targets.size());
-    Target* target = &targets[index];
-    if (!target->image || target->format != scene.color_format || target->width != scene.width ||
-        target->height != scene.height) {
-        WaitAsyncIdle(); // before the lock: the worker takes it
-    }
+    Target* target = nullptr;
     {
         std::scoped_lock lock{targets_mutex};
-        target = &EnsureTarget(index);
+        ready_display = 0;
+        for (u32 i = 0; i < async_targets.size(); ++i) {
+            ready_async_slot = next_target++ % async_targets.size();
+            auto& candidate = async_targets[ready_async_slot];
+            if (candidate.handed == candidate.released) {
+                target = &candidate;
+                break;
+            }
+        }
     }
+    if (!target) {
+        reset_next = true; // all outputs are still lent out; the real frame can proceed
+        return;
+    }
+    EnsureTarget(*target);
     Job job = BuildFsr(vk::Image(in.color_copy), vk::Image(in.motion_copy), id, reset, *target);
-    job.target = index;
-    {
-        std::scoped_lock lock{targets_mutex};
-        job.wait_handed = target->handed;
-    }
+    job.reader_semaphore = target->release_semaphore;
+    job.reader_value = target->release_value;
     scheduler.EndRendering();
     scheduler.Record([color, motion = scene.motion, color_copy = vk::Image(in.color_copy),
                       motion_copy = vk::Image(in.motion_copy), w = scene.width, h = scene.height,
@@ -1084,7 +1104,7 @@ void FrameGeneration::InterpolateAsync(vk::Image color, u64 id, bool reset) {
         std::scoped_lock lock{targets_mutex};
         target->frame = id;
         target->compute_value = job.value;
-        target->ready = !reset;
+        ready_display = reset ? 0 : display;
     }
 }
 
@@ -1097,32 +1117,11 @@ void FrameGeneration::WorkerLoop(std::stop_token stop) {
         Job job;
         {
             std::unique_lock lock{job_mutex};
-            worker_busy = false;
-            job_cv.notify_all();
             if (!job_cv.wait(lock, stop, [this] { return !jobs.empty(); })) {
                 return;
             }
             job = jobs.front();
             jobs.pop_front();
-            worker_busy = true;
-        }
-        // Its target's last reader (the presenter's encode of a frame shown before).
-        vk::Semaphore release_semaphore{};
-        u64 release_value = 0;
-        {
-            std::unique_lock lock{targets_mutex};
-            Target& target = targets[job.target];
-            const auto given_back = [&] { return target.released >= job.wait_handed; };
-            if (!given_back() &&
-                !job_cv.wait_for(lock, stop, std::chrono::seconds(1), given_back)) {
-                if (stop.stop_requested()) {
-                    return;
-                }
-                std::printf("Frame generation: a generated frame was not given back; reused\n");
-                target.released = job.wait_handed;
-            }
-            release_semaphore = target.release_semaphore;
-            release_value = target.release_value;
         }
         // The command buffer of three jobs ago is done with.
         const vk::CommandBuffer cmdbuf = compute_cmdbufs[job.value % compute_cmdbufs.size()];
@@ -1141,7 +1140,7 @@ void FrameGeneration::WorkerLoop(std::stop_token stop) {
         std::array<vk::SemaphoreSubmitInfo, 2> waits{{
             {.semaphore = graphics, .value = job.graphics_tick,
              .stageMask = vk::PipelineStageFlagBits2::eAllCommands},
-            {.semaphore = release_semaphore, .value = release_value,
+            {.semaphore = job.reader_semaphore, .value = job.reader_value,
              .stageMask = vk::PipelineStageFlagBits2::eAllCommands},
         }};
         const vk::SemaphoreSubmitInfo signal{
@@ -1149,7 +1148,7 @@ void FrameGeneration::WorkerLoop(std::stop_token stop) {
             .stageMask = vk::PipelineStageFlagBits2::eAllCommands};
         const vk::CommandBufferSubmitInfo cmd_info{.commandBuffer = cmdbuf};
         const vk::SubmitInfo2 submit{
-            .waitSemaphoreInfoCount = release_semaphore ? 2u : 1u,
+            .waitSemaphoreInfoCount = job.reader_semaphore ? 2u : 1u,
             .pWaitSemaphoreInfos = waits.data(),
             .commandBufferInfoCount = 1,
             .pCommandBufferInfos = &cmd_info,
@@ -1164,19 +1163,14 @@ void FrameGeneration::WorkerLoop(std::stop_token stop) {
 }
 
 void FrameGeneration::ReleaseOutput(u32 target, u64 frame, vk::Semaphore semaphore, u64 value) {
-    {
-        std::scoped_lock lock{targets_mutex};
-        if (target >= targets.size()) {
-            return;
-        }
-        Target& t = targets[target];
-        t.released = std::max(t.released, frame);
-        if (value != 0) {
-            t.release_semaphore = semaphore; // later readers of one queue: the last one covers all
-            t.release_value = value;
-        }
+    std::scoped_lock lock{targets_mutex};
+    Target& slot = async_targets.at(target);
+    if (slot.handed != frame || slot.released == frame) return;
+    slot.released = frame;
+    if (value) {
+        slot.release_semaphore = semaphore;
+        slot.release_value = value;
     }
-    job_cv.notify_all();
 }
 
 void FrameGeneration::EnsureDlssOverlayPipelines(bool need_guides) {
@@ -1443,6 +1437,7 @@ void FrameGeneration::RecordDirect(const Dlss::FrameGenFrame& frame,
         discard();
     };
     if (!direct_core) {
+        const auto start = std::chrono::steady_clock::now();
         direct_core = std::make_unique<player_core::Core>();
         const auto& profile = player_core::profile_1080p_quality();
         if (!direct_core->initialize(instance.GetPhysicalDevice(), instance.GetDevice(), profile,
@@ -1452,8 +1447,11 @@ void FrameGeneration::RecordDirect(const Dlss::FrameGenFrame& frame,
         }
         direct_core->record_initialize(cmd);
         direct_upload_tick = scheduler.CurrentTick();
-        std::printf("DLSS-G direct: native %ux%u from %ux%u, one pair preparation, %zu phases\n",
-                    desc.width, desc.height, desc.render_width, desc.render_height, outputs.size());
+        const std::chrono::duration<double, std::milli> elapsed = std::chrono::steady_clock::now() - start;
+        BbTimeline::Note(BbTimeline::DirectFgInit, outputs.size(),
+                         std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
+        std::printf("DLSS-G direct: native %ux%u from %ux%u, one pair preparation, %zu phases, CPU init %.3f ms\n",
+                    desc.width, desc.height, desc.render_width, desc.render_height, outputs.size(), elapsed.count());
     } else if (direct_upload_tick && scheduler.IsFree(direct_upload_tick)) {
         direct_core->release_upload();
         direct_upload_tick = 0;
@@ -1463,15 +1461,19 @@ void FrameGeneration::RecordDirect(const Dlss::FrameGenFrame& frame,
         return {r.image, r.view, {VkImageAspectFlags(r.aspect), 0, 1, 0, 1},
                 VkFormat(r.format), r.width, r.height};
     };
+    const bool hudless = bool(frame.hudless.image);
+    const bool source_changed = hudless != last_direct_hudless;
     const player_core::Frame source{
-        .color = image(frame.hudless.image ? frame.hudless : frame.backbuffer),
+        .color = image(hudless ? frame.hudless : frame.backbuffer),
         .depth = image(frame.depth), .motion = image(frame.motion),
         .camera = {.depth_inverted = frame.depth_inverted,
                    .has_matrices = frame.has_matrices,
                    .clip_to_prev_clip = frame.clip_to_prev_clip,
                    .prev_clip_to_clip = frame.prev_clip_to_clip},
-        .reset = frame.reset,
+        .reset = frame.reset || source_changed,
     };
+    if (source_changed) BbTimeline::Note(BbTimeline::DirectFgSource, hudless, scene_id);
+    last_direct_hudless = hudless;
     const auto all = vk::PipelineStageFlagBits2::eAllCommands;
     const auto read = vk::AccessFlagBits2::eMemoryRead;
     const auto write = vk::AccessFlagBits2::eMemoryWrite;
@@ -1646,56 +1648,32 @@ void FrameGeneration::RecordDlss(vk::Image color, bool reset, u32 count, bool ca
 }
 
 u32 FrameGeneration::TakeOutputs(VAddr display, std::array<Output, MaxGenerated>& out) {
-    if (!Wanted()) {
+    const int provider = Provider();
+    if (provider == BbSettings::FrameGenOff || provider != last_provider) {
         return 0;
     }
-    if (async && last_provider == BbSettings::FrameGenFsr3) {
-        // The newest generated frame, ready once the compute queue is done with it; with the
-        // display LUT this frame noted (the presenter applies it when it encodes the frame).
-        vk::ImageView view{};
-        vk::Sampler sampler{};
-        vk::ImageLayout layout = vk::ImageLayout::eShaderReadOnlyOptimal;
-        {
-            std::scoped_lock lut_lock{lut_mutex};
-            if (lut_frame == BbStats::frame_number.load(std::memory_order_relaxed)) {
-                view = lut_view;
-                sampler = lut_sampler;
-                layout = lut_layout;
-            }
-        }
-        std::scoped_lock lock{targets_mutex};
-        Target* newest = nullptr;
-        u32 index = 0;
-        for (u32 i = 0; i < u32(targets.size()); ++i) {
-            if (targets[i].ready && (!newest || targets[i].frame > newest->frame)) {
-                newest = &targets[i];
-                index = i;
-            }
-        }
-        for (auto& t : targets) {
-            t.ready = false; // an older one not shown: never handed out, nothing to give back
-        }
-        if (!newest) {
-            ++stat_missed;
-            return 0;
-        }
-        newest->handed = newest->frame;
-        out[0] = {vk::Image(newest->image), *newest->view, newest->format, newest->width,
-                  newest->height, newest->frame};
+    std::scoped_lock lock{targets_mutex};
+    if (!ready_display || ready_display != display) {
+        ++stat_missed;
+        return 0;
+    }
+    ready_display = 0;
+    if (async && provider == BbSettings::FrameGenFsr3) {
+        auto& target = async_targets[ready_async_slot];
+        target.handed = target.frame;
+        out[0] = {vk::Image(target.image), *target.view, target.format, target.width, target.height, target.frame};
         out[0].wait_semaphore = *compute_semaphore;
-        out[0].wait_value = newest->compute_value;
-        out[0].target = index;
-        out[0].lut_view = view;
-        out[0].lut_sampler = sampler;
-        out[0].lut_layout = layout;
+        out[0].wait_value = target.compute_value;
+        out[0].target = ready_async_slot;
+        std::scoped_lock lut_lock{lut_mutex};
+        if (lut_frame == BbStats::frame_number.load(std::memory_order_relaxed)) {
+            out[0].lut_view = lut_view;
+            out[0].lut_sampler = lut_sampler;
+            out[0].lut_layout = lut_layout;
+        }
         ++stat_taken;
         return 1;
     }
-    std::scoped_lock lock{targets_mutex};
-    if (direct_display && direct_display != display) {
-        for (auto& target : targets) target.ready = false;
-    }
-    direct_display = 0;
     u32 count = 0;
     for (u32 i = 0; i < MaxGenerated; ++i) {
         Target& t = targets[i];
