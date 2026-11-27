@@ -122,6 +122,113 @@ A second, warmed 3x test in A/B/B/A order averaged 4.187 ms for the original
 schedule and 4.717 ms for the grouped one. GPU clocks varied. The player
 keeps the original barriers.
 
+### Community leads for uncapped 2x–6x
+
+The player still uses stock NGX at 2x and the original 310.9.1 Ada model at
+3x–6x. The ideas below are research candidates. Fixed multiplier and source
+frame cap should remain independent controls.
+
+On the RTX 4060 Laptop, player `07a4c01` ran every setting in one clinic
+session at a fixed camera angle, with 1080p DLSS Quality, Reflex On,
+Immediate presentation and no source cap. Each row covers three complete
+five-second windows with the menu closed. Source FPS is the number of real
+frame preparations divided by elapsed time. Output is the overlay Render
+call rate. The 3x repeat at the end checks drift.
+
+| Setting | Source FPS | Application outputs/s |
+| --- | ---: | ---: |
+| Off | 86.20 | 86.23 |
+| Stock 2x | 61.20 | 122.40 |
+| Direct 3x | 54.20 | 162.70 |
+| Direct 4x | 50.25 | 201.27 |
+| Direct 5x | 47.54 | 237.57 |
+| Direct 6x | 42.45 | 255.00 |
+| Direct 3x, repeat | 54.50 | 163.57 |
+
+For this scene, 2x approaches a 120 Hz target; 3x approaches the panel's
+165 Hz refresh rate. Going from 3x to 6x lengthens the mean source-frame
+interval from 18.45 to 23.56 ms. These application counters do not measure
+scanout or input-to-photon latency. The fixed view also leaves combat and
+particle-heavy scenes to be measured.
+
+**A lighter model per generated frame.** The sdli1995 project reports that
+its Windows RTX 3070 tests at 4x spent about 45% less GPU time per generated
+image with FG Lite, with visible trade-offs around HUD and occlusion edges.
+NVIDIA describes its FG Preset C as replacing the second model with a
+lighter algorithm. Both findings target the work repeated for each requested
+time. Our full path dispatches 42 kernels once per real pair and 35 more per
+generated image. [Community measurements](https://github.com/sdli1995/dlssg_for_sm86/blob/main/README.md)
+· [NVIDIA model description](https://www.nvidia.com/en-eu/geforce/news/dlss-4-5-crossout-remastered-modern-warfare-4-frame-gen-beta/)
+
+The official Linux 310.9.16 release (SHA-256
+`574839cae01c835de4d5845c36ca9cf75361f8160bd52397142c36a24e29e6f7`)
+contains a linked Ada `Kernel_BlendCandidatesFGLite` program. Scanning both
+releases with the profile rebuilder's ELF reader found one in 310.9.16 and
+zero in 310.9.1. A byte search also located 55 of our 57 pinned program
+blobs and all 67 initialized buffer payloads unchanged in the newer file.
+The two unmatched blobs were `Kernel_BlendCandidatesFused` and
+`Kernel_DownsampleRGBAndEstimateUIFused`. The old dispatch table cannot be
+assumed to describe the new path. First obtain a genuine Lite 2x reference,
+identify its inputs, dispatch sequence and final RGB, then check the same
+pair at 3x and 6x. Compare source FPS, GPU time per pair, and motion crops
+of the hunter's weapon, coat, railings and HUD. The Lite path has yet to run
+in this player. [Linux SDK release](https://github.com/NVIDIA/DLSS/releases/tag/v310.9.16)
+
+**A target output rate with a floor for real frames.** The experimental
+lsfg-vk fork tests higher multipliers, measures the effect on source cadence
+and backs off when the extra work is counterproductive. Its algorithms use
+another model, but the scheduling principle fits our direct backend.
+Choose the least expensive effective multiplier that meets the player's
+target while preserving their source FPS floor. Decide before dispatch so
+an unwanted phase costs no GPU work. Compare stable windows before changing
+again and keep 2x NGX/direct transitions infrequent because they rebuild
+history. Start with a recommendation beside the manual selector and validate
+it on a moving route before enabling automatic changes. The Windows MFG
+Unlocker and the ShyVortex Ada fork also demonstrate separate controls for
+mode, multiplier ceiling and effective status.
+[Adaptive scheduler](https://github.com/eugeniosegala/lsfg-vk-experimental/blob/7c2e1436ce99b5fde9eb1890e8a8b23cab892907/lsfg-vk-layer/src/adaptive_scheduler.cpp)
+· [Scheduler validation](https://github.com/eugeniosegala/lsfg-vk-experimental/blob/7c2e1436ce99b5fde9eb1890e8a8b23cab892907/docs/Adaptive-Validation.md)
+· [MFG Unlocker controls](https://github.com/dashdogy/MFG-Unlocker/blob/main/docs/menu.md)
+· [ShyVortex's RTX 40 implementation](https://github.com/ShyVortex/OptiScaler-NR-PreSR-MFG/blob/main/docs/RTX40-MFG.md)
+
+**Reduce the work after interpolation.** Put GPU timestamps around the model,
+HUD restore, display LUT, encode and final blit, and time view creation on
+the CPU separately. At 6x the HUD pass compares finished and HUD-less color
+twice, first for three outputs and then for two. A single five-output pass
+could remove one dispatch and 15.8 MiB of logical full-screen reads per
+1080p pair with HUD restore active. At 3x the current pass already handles
+both outputs together. Another candidate is reusing the encode source view
+with its owning image until the format or image changes. The more invasive
+LUT/encode fusion needs matching color, gamma, channel order and alpha on
+the final output. Keep each change only if an isolated A/B shows a gain
+with the same image. [HUD shader](../gpu/upscale/shaders/fg_cascade_hud.comp)
+· [Present and encode](../gpu/render/presenter.cpp)
+
+**Player-facing tools.** Start the overlay with real FPS, application output
+rate and the effective backend/multiplier. Show a history reset or a stock
+2x fallback explicitly. An assignable A/B key and a short, on-demand motion
+capture could mark each real and generated frame for comparing weapons, thin
+geometry and translucent HUD against the same input. To improve translucent
+UI, investigate capturing alpha or a premultiplied UI layer alongside the
+HUD-less scene. OptiScaler already distinguishes these inputs in its
+integration options. A later experiment could place phases at display
+deadlines (e.g. 60 source FPS on a 144 Hz screen) instead of alternating
+integer group sizes with uneven spacing. Query presentation feedback for
+the active surface before making display-rate or VRR claims; retain the
+application counters when feedback is unavailable.
+[OptiScaler FG inputs and HUD](https://github.com/optiscaler/OptiScaler/wiki/Frame-Generation-Options)
+· [Khronos presentation timing](https://docs.vulkan.org/refpages/latest/refpages/source/VK_EXT_present_timing.html)
+
+Use the pad recorder/replay to compare a reproducible turn, a dodge and a
+lock-on target change. Capture source-frame p95/p99 intervals and successful
+presents by image kind, alongside identical motion crops. Inputs replay at
+the same times, but the simulation may vary, so use the *same* recorded
+source pair for pixel-level A/B. A cadence experiment must also report how
+long a newly rendered real frame waits before presentation. Interpolating
+between two known endpoints cannot deliver newer game input. A 1440p or
+16:10 option needs its own verified model profile for output and guide
+sizes; exposing a resolution selector alone will not add support.
+
 ## Upstream NGX frame generation (2026-10-18)
 
 NVIDIA's DLSS Frame Generation runs natively on Linux through the DLSS bridge, on a GeForce RTX 40
