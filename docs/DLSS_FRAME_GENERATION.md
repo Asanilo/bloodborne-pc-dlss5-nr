@@ -46,6 +46,29 @@ at least 0.80 normalized correlation, with a 0.03 margin over the next match
 outside a six-pixel radius, in every image. Positions are projected onto each
 patch's endpoint displacement.
 
+The synthetic high-resolution comparison moved a textured stripe by 24 output
+pixels per source frame, with a matching velocity in render pixels. At 2560×1440
+and 3840×2160 with 1280×720 guides, the required horizontal velocities were
+−12 and −8, respectively. For both outputs, all corresponding stock 2x and
+direct midpoint readbacks matched across the full RGBA image. Across 2x–6x
+the eleven distinct fractions stayed ordered and the largest steady-state
+centroid error was 0.20 output pixels. A fixture that supplied −24 *render*
+pixels at both resolutions produced up to 6.92 pixels of error at 4K. On the final
+`be123c6` build, offscreen 4x comparisons covered all four execution layouts at
+640×360 (424×240 guides), 1920×1080 (1280×720), 2560×1440 (1280×720)
+and 5120×1440 (3416×960). All three generated phases in each case
+were distinct and ordered, with centroid error below 0.001 pixels in this fixture.
+
+At 2560×1440 Performance with fixed direct 3x on candidate `be123c6`, the
+uncapped clinic scene produced 392 real frames in 10.016 seconds (39.14/s).
+The Render overlay averaged 117.5/s during the same windows. The Linux desktop
+compositor was active. This sample measures prepared real frames and the
+presenter's render counter. With the multiplier kept at 3x, the same session
+switched live to 1080p (952×532 guides) and back to 1440p (1280×720), then
+exited normally. After the return, tracking all five consecutive endpoint pairs
+yielded 28 qualifying patch tracks and median phase positions of 33.5% and
+66.5%. The window used for those presenter readbacks was 1920×1080.
+
 ### RTX 4060 Laptop gameplay comparison
 
 A private Iosefka's Clinic save, driver 620.70.06, Reflex On and Immediate
