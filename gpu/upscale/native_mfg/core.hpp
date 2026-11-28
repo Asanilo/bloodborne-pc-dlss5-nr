@@ -10,8 +10,11 @@
 
 namespace player_core {
 
-struct Profile;
-const Profile &profile_1080p_quality() noexcept;
+struct Dimensions {
+    uint32_t width, height, render_width, render_height;
+};
+
+bool supports_dimensions(Dimensions dimensions) noexcept;
 
 struct Image {
     VkImage image{};
@@ -45,7 +48,7 @@ public:
     Core &operator=(const Core &) = delete;
 
     // The caller owns the BDA-enabled allocator and NVX device for the lifetime of this core.
-    bool initialize(VmaAllocator allocator, const Profile &profile,
+    bool initialize(VmaAllocator allocator, Dimensions dimensions,
                     const std::filesystem::path &sdk_library, std::string &error);
     void record_initialize(VkCommandBuffer command);
     // Upload resources can be released when the caller's initialization fence signals.

@@ -7,7 +7,7 @@ NVIDIA 310.9.1 frame-generation programs and learned weights. At 3x–6x it
 computes each intermediate directly from the same two game frames. The
 2x setting uses stock NGX. The earliest 4x cascade remains an optional comparison.
 
-Choose **1920×1080, DLSS Quality** (1280×720 render resolution) and launch:
+Select an output resolution and a DLSS preset in the graphics settings. To start at fixed 3x:
 
 ```sh
 BB_DLSSG_DIRECT=1 BB_FRAME_GEN=dlss BB_FRAME_GEN_MULTIPLIER=3 ./run.sh
@@ -16,10 +16,35 @@ BB_DLSSG_DIRECT=1 BB_FRAME_GEN=dlss BB_FRAME_GEN_MULTIPLIER=3 ./run.sh
 Use Insert or L3+R3 to change the multiplier between 2x and 6x. The direct
 path runs on the draw queue, uses the game's camera and motion vectors, and
 restores HUD pixels from the rendered frame when the HUD-less scene is
-available. The first real frame after a reset seeds history. Other resolutions
-and presets use the stock multiplier available for the GPU. The tested FG
+available. Changing output or internal render resolution rebuilds the generation context.
+The first real frame after the change seeds history. The log prints the actual output and
+render resolution and the selected multiplier. Outputs without a measured execution
+profile use the stock multiplier available for the GPU. The tested FG
 library is the Linux x86-64 release `libnvidia-ngx-dlssg.so.310.9.1` (SHA-256
 `aef4c911831b0381a6afa0164b743138e8571822646b6a4226e810a035ad678e`).
+
+### Resolution and preset changes
+
+The output table covers the 35 menu sizes up to 3840×2160 in pixel count, including
+1280×800, 2560×1600, 3440×1440 and 5120×1440, plus the common 1366×768 monitor size.
+The three larger menu entries (3840×2400, 5120×2160, 7680×2160) and unlisted custom
+outputs use stock NGX. The multiplier stays at the player's selection across supported outputs. The model
+uses the real depth/motion extent for Native AA, Quality, Balanced, Performance
+and Ultra Performance, including different alignments at launch and on a live change.
+For example, 1080p Balanced can supply 1128×632 at launch and 1130×636 after a
+preset switch. The game uses 1912×1072 for its hybrid 1080p Native AA launch so
+that the scene can be distinguished from the UI.
+
+In the clinic on the RTX 4060 Laptop, 720p Balanced 3x (752×424) switched to
+Performance 6x (640×360) and back in the same session. The final compositor ran
+at 1920×1080. A camera turn in Performance tracked five different intermediate
+positions at 16%, 33%, 50%, 66% and 83% of the distance between the real frames.
+After returning to Balanced the two positions were 33% and 67%. These are
+medians from 8 and 14 accepted scene patches, respectively, on a fixed 24-patch
+grid. Each 48×48 patch had to move at least 10 pixels between endpoints and score
+at least 0.80 normalized correlation, with a 0.03 margin over the next match
+outside a six-pixel radius, in every image. Positions are projected onto each
+patch's endpoint displacement.
 
 ### RTX 4060 Laptop gameplay comparison
 
@@ -52,7 +77,7 @@ next distinct position outside the five-pixel exclusion box by at least 0.035.
 | Direct 6x | 40.4 | 241.6 | — | — |
 
 The uncapped comparison counts prepared real frames per elapsed second with
-the clinic camera stationary. Presentation rates come from the overlay; the
+the clinic camera stationary at 1920×1080 DLSS Quality. Presentation rates come from the overlay; the
 6x result is a single stable sampling window. The separate 35 FPS run used
 Vulkan timestamps around FG and CPU timestamps at `vkQueuePresentKHR` return.
 All 602 complete 2x groups contained two returns and all 190 complete 3x
@@ -63,9 +88,13 @@ scanout and input-to-photon latency were not measured.
 
 The in-game checks covered all five multipliers, a transition through FG Off,
 a Hunter’s Mark reload in the clinic, and normal exit. The same-pair core
-tests below also cover camera history. The validated game profile and SDK
-version are fixed. Rebuild the profile against the local release with the
-[CPU-only profile generator](../tools/dlssg_stage_probe/profile/README.md).
+tests below also cover camera history. The model, GPU programs and numerical ABI are pinned
+to this SDK release. The output resolution selects buffer sizes, image extents, workgroup
+counts and kernel parameters. Output geometry also selects the levels of the motion
+pyramid. On the nine smallest profiled outputs the original model combines two
+motion-processing steps into its push kernel. The motion and depth calculations use the actual guide
+texture dimensions, including the game's rounding at startup and during live preset
+changes. [CPU-only profile generators](../tools/dlssg_stage_probe/profile/README.md).
 
 ### Backend changes and intermediate-frame lifetime
 

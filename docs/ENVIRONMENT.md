@@ -27,7 +27,7 @@ What players and the launchers set. The menu, bbport.ini and the launcher write 
 | `BB_DISPLAY` | =N: the monitor to open the window on |
 | `BB_DLSS` | =0: no DLSS even on NVIDIA RTX |
 | `BB_DLSSG_CASCADE` | =1: experimental Linux DLSS cascade at 4x; two independent 2x features and an ABI 4 bridge |
-| `BB_DLSSG_DIRECT` | =1: native 3x to 6x Ada DLSS-G at 1080p DLSS Quality with the 310.9.1 Linux release model |
+| `BB_DLSSG_DIRECT` | =1: native 3x to 6x Ada DLSS-G at profiled output resolutions with the 310.9.1 Linux release model |
 | `BB_DMEM_EXTRA_MB` | =N (0-2048, default 512): direct memory beyond the PS4's for the port's extras |
 | `BB_DMEM_MB` | =N: the game's direct memory size in MiB (PS4: 5056; raised for high resolutions and large heaps) |
 | `BB_EVDEV_TOUCHPAD` | =0: no DualSense/DualShock touchpad through evdev |

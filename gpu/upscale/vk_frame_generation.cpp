@@ -364,6 +364,7 @@ void FrameGeneration::Destroy() {
     if (dlss_desc) {
         WaitAsyncIdle();
         scheduler.Finish(); // the recorded generations are done: the feature is free
+        color_view.reset(); // a resized backbuffer may reuse the previous VkImage handle
         if (Dlss* dlss = Dlss::Get()) {
             dlss->ReleaseFrameGen();
         }
@@ -537,9 +538,11 @@ bool FrameGeneration::EnsureContext(u32 render_width, u32 render_height, u32 wid
 bool FrameGeneration::EnsureDlss(u32 render_width, u32 render_height, u32 width, u32 height,
                                  vk::Format format, vk::Format depth_format) {
     const Dlss::FrameGenDesc desc{width, height, format, render_width, render_height};
-    direct_profile = direct_enabled && width == 1920 && height == 1080 &&
-        render_width == 1280 && render_height == 720 && format == vk::Format::eR8G8B8A8Unorm &&
-        depth_format == vk::Format::eD32SfloatS8Uint;
+#ifdef BB_NATIVE_DLSSG
+    direct_profile = direct_enabled && format == vk::Format::eR8G8B8A8Unorm &&
+        depth_format == vk::Format::eD32SfloatS8Uint &&
+        player_core::supports_dimensions({width, height, render_width, render_height});
+#endif
     BbSettings::Get().dlssg_max_multiplier = direct_profile ? int(MaxGenerated + 1) : dlss_max_count + 1;
     const int multiplier = BbSettings::Get().frame_generation_multiplier.load(std::memory_order_relaxed);
     const bool direct = direct_profile && multiplier > 2;
@@ -548,8 +551,9 @@ bool FrameGeneration::EnsureDlss(u32 render_width, u32 render_height, u32 width,
     }
     Destroy(); // the FSR context or the previous feature (the GPU is done with them)
     if (direct_enabled && multiplier > 2 && !direct_profile) {
-        std::printf("DLSS-G direct: %ux%u from %ux%u is outside the 1080p Quality profile; using stock 2x.\n",
-                    width, height, render_width, render_height);
+        std::printf("DLSS-G direct: %ux%u from %ux%u has no direct profile (%s, depth %s); using stock %ux.\n",
+                    width, height, render_width, render_height, vk::to_string(format).c_str(),
+                    vk::to_string(depth_format).c_str(), dlss_max_count + 1);
     }
     dlss_desc = desc;
     using_direct = direct;
@@ -1450,8 +1454,8 @@ void FrameGeneration::RecordDirect(const Dlss::FrameGenFrame& frame,
     if (!direct_core) {
         const auto start = std::chrono::steady_clock::now();
         direct_core = std::make_unique<player_core::Core>();
-        const auto& profile = player_core::profile_1080p_quality();
-        if (!direct_core->initialize(instance.GetAllocator(), profile,
+        const player_core::Dimensions size{desc.width, desc.height, desc.render_width, desc.render_height};
+        if (!direct_core->initialize(instance.GetAllocator(), size,
                                      direct_model, error)) {
             failed();
             return;

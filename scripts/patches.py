@@ -9,6 +9,7 @@ image places eboot vaddr 0 at image offset 0. Only literal writes are supported
 import argparse
 import json
 import os
+import re
 import struct
 import sys
 import xml.etree.ElementTree as ET
@@ -258,13 +259,19 @@ def read_settings(path):
     return settings
 
 
+def setting_int(value):
+    # BbSettings::Set reads integer settings (including older numeric FG choices) with atoi.
+    number=re.match(r'\s*([+-]?[0-9]+)',str(value))
+    return int(number[1]) if number else 0
+
+
 def render_size(settings,override=''):
     """Render resolution for the upscaler preset, or None for native."""
     if override:
         w,h=(int(v) for v in override.lower().split('x'))
         return (w,h)
-    if settings.get('upscaler','fsr3')=='off': return None
-    preset=int(settings.get('preset','0') or 0)
+    if settings.get('upscaler','fsr3') in ('off','taa'): return None
+    preset=setting_int(settings.get('preset','0'))
     scale=PRESET_SCALES[max(0,min(preset,len(PRESET_SCALES)-1))]
     if scale==1.0: return None
     # Even sizes (the game has half-resolution buffers).
@@ -294,19 +301,21 @@ def scaled_sizes(settings,align=2):
     if settings.get('upscaler')=='taa' or (out==OUTPUT_SIZE and align!=8): return None
     scale=1.0
     if settings.get('upscaler','fsr3')!='off':
-        preset=int(settings.get('preset','0') or 0)
+        preset=setting_int(settings.get('preset','0'))
         scale=PRESET_SCALES[max(0,min(preset,len(PRESET_SCALES)-1))]
     # align 8 (live presets over the startup patch): the game rounds its targets up to 8 pixels;
     # a scene of exactly their size keeps the proxies' scale the targets' own (854x534 in 856x536
     # targets drew live presets misplaced and blocky on the Steam Deck).
-    render=tuple(max(align,round(v/scale/align)*align) for v in out)
+    # Native AA at an odd target multiple (1366x768, for example) must still fit the output.
+    render=tuple(max(align,min(round(v/scale/align),v//align)*align) for v in out)
     # A scene of exactly 1920x1080 (4K Performance) is indistinguishable from the game's UI
     # coordinate space, which the port's UI composition recognizes by that size.
     if render==OUTPUT_SIZE:
         # Frame generation runs on the scaled path only (TemporalUpscaler::RunScaled): with it on, a
         # native 1080p session is scaled too, from the size the 4K case uses (a GTX 1060 user's
         # FSR 3.1 frame generation never started at 1080p Native AA, 2026-10-21).
-        frame_generation=settings.get('frame_generation','off') not in ('off','0','')
+        fg=settings.get('frame_generation','off')
+        frame_generation=fg in ('fsr3','dlss','fsr_amd') or setting_int(fg)!=0
         if out==OUTPUT_SIZE and not frame_generation: return None
         render=(1912,1072) if align==8 else (1916,1078)
     return render,out
@@ -486,16 +495,18 @@ def main():
                    help='print "RENDER OUTPUT" (WxH) when bbport.ini selects an output other than 1080p')
     p.add_argument('--align',type=int,default=2,help='--print-scaled: the scene size\'s multiple (8: live presets)')
     a=p.parse_args()
+    if a.print_scaled or a.print_preset_size:
+        settings=read_settings(a.settings)
+        if 'BB_UPSCALER' in os.environ:
+            upscaler=os.environ['BB_UPSCALER']
+            settings['upscaler']=upscaler if upscaler in ('fsr1','fsr3','fsr4','fsr411','fsr_amd','taa','dlss') else 'off'
+        for env,key in [('BB_UPSCALE_PRESET','preset'),('BB_FRAME_GEN','frame_generation')]:
+            if env in os.environ: settings[key]=os.environ[env]
     if a.print_scaled:
-        sizes=scaled_sizes(read_settings(a.settings),a.align)
+        sizes=scaled_sizes(settings,a.align)
         if sizes: print(f'{sizes[0][0]}x{sizes[0][1]} {sizes[1][0]}x{sizes[1][1]}')
         return
     if a.print_preset_size:
-        settings=read_settings(a.settings)
-        if 'BB_UPSCALER' in os.environ:
-            settings['upscaler']='fsr3' if os.environ['BB_UPSCALER']=='fsr3' else 'off'
-        if 'BB_UPSCALE_PRESET' in os.environ:
-            settings['preset']=os.environ['BB_UPSCALE_PRESET']
         size=render_size(settings)
         if size: print(f'{size[0]}x{size[1]}')
         return

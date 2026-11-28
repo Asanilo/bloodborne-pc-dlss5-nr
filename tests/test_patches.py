@@ -1,7 +1,10 @@
 # SPDX-FileCopyrightText: Copyright 2026 bbport contributors
 # SPDX-License-Identifier: GPL-2.0-or-later
 from paths import ROOT
+import os
 import struct
+import subprocess
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -78,6 +81,18 @@ class NativeUiTests(unittest.TestCase):
         self.assertIsNone(render_size({'preset': '0'}))
         self.assertIsNone(render_size({'upscaler': 'off', 'preset': '3'}))
 
+    def test_launch_resolution_uses_runtime_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = Path(tmp) / 'bbport.ini'
+            config.write_text('output_res=1920x1080\nupscaler=off\npreset=1\nframe_generation=off\n')
+            env = dict(os.environ, BB_UPSCALER='dlss', BB_UPSCALE_PRESET='0', BB_FRAME_GEN='dlss')
+            cmd = [sys.executable, str(ROOT / 'scripts/patches.py'), '--settings', str(config)]
+            self.assertEqual(subprocess.check_output(cmd + ['--print-scaled', '--align', '8'],
+                                                     env=env, text=True).strip(), '1912x1072 1920x1080')
+            env['BB_UPSCALE_PRESET'] = '2'
+            self.assertEqual(subprocess.check_output(cmd + ['--print-preset-size'],
+                                                     env=env, text=True).strip(), '1130x636')
+
     def test_output_other_than_1080p_scales_the_scene(self):
         self.assertIsNone(scaled_sizes({'output_res': '1920x1080', 'preset': '2'}))
         # Steam Deck: below 1080p the scene is still the preset's fraction of the output.
@@ -87,6 +102,8 @@ class NativeUiTests(unittest.TestCase):
                                  (expected, (1280, 720)))
         self.assertEqual(scaled_sizes({'output_res': '3840x2160', 'preset': '3'}),
                          ((1916, 1078), (3840, 2160)))
+        self.assertEqual(scaled_sizes({'output_res': '1366x768', 'preset': '0'}, align=8),
+                         ((1360, 768), (1366, 768)))
         # TAA is native-only and uses the live host targets.
         self.assertIsNone(scaled_sizes({'output_res': '1280x720', 'upscaler': 'taa', 'preset': '3'}))
 

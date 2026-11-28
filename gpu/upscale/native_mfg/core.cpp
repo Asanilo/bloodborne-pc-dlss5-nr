@@ -1,5 +1,6 @@
 #include "profile.hpp"
 #include "profile1080.generated.hpp"
+#include "extent_geometry.generated.hpp"
 
 #include <algorithm>
 #include <bit>
@@ -82,7 +83,6 @@ struct OwnedImage {
     VkImage handle{};
     VmaAllocation allocation{};
     ImageRole role{};
-    const ImageSpec *spec{};
 };
 
 struct Texture {
@@ -112,16 +112,27 @@ Geometry geometry(std::string_view kernel) {
 struct Prepared {
     alignas(8) std::array<std::byte, max_arguments> arguments{};
     const Dispatch *dispatch{};
+    std::array<uint32_t, 3> grid{};
     std::vector<Argument> patches;
     Geometry geometry{};
 };
+
+const extent_geometry::OutputGeometry *output_geometry(Dimensions size) noexcept {
+    if (!size.render_width || !size.render_height ||
+        size.render_width > size.width || size.render_height > size.height) return nullptr;
+    for (const auto &output : extent_geometry::outputs)
+        if (output.width == size.width && output.height == size.height) return &output;
+    return nullptr;
+}
 
 } // namespace
 
 struct Core::Impl {
     VkDevice device{};
     VmaAllocator allocator;
-    const Profile &profile;
+    static constexpr const Profile &profile = stock_1080p_quality::definition;
+    Dimensions dimensions;
+    const extent_geometry::OutputGeometry &layout;
     PFN_vkDestroyCuModuleNVX destroy_module{};
     PFN_vkDestroyCuFunctionNVX destroy_function{};
     PFN_vkCmdCuLaunchKernelNVX launch{};
@@ -131,13 +142,14 @@ struct Core::Impl {
     std::vector<Texture> textures;
     std::vector<Program> programs;
     std::vector<Prepared> dispatches;
-    std::array<const ImageSpec *, 5> roles{};
+    std::array<ImageSpec, 5> roles{};
     Buffer upload;
     std::vector<std::pair<unsigned, VkBufferCopy>> copies;
     bool uploaded{}, seeded{};
     unsigned variant{};
 
-    Impl(VmaAllocator allocator, const Profile &profile) : allocator(allocator), profile(profile) {
+    Impl(VmaAllocator allocator, Dimensions dimensions, const extent_geometry::OutputGeometry &layout)
+        : allocator(allocator), dimensions(dimensions), layout(layout) {
         VmaAllocatorInfo info{};
         vmaGetAllocatorInfo(allocator, &info);
         device = info.device;
@@ -180,12 +192,16 @@ struct Core::Impl {
         }
     }
 
-    void create(const ImageSpec &spec) {
+    void create(ImageSpec spec) {
         auto &image = images.at(spec.id);
         image.role = spec.role;
-        image.spec = &spec;
+        for (const auto &extent : extent_geometry::images)
+            if (extent.id == spec.id)
+                spec.extent = {layout.values[extent.width_column], layout.values[extent.height_column], 1};
+        if (spec.role == ImageRole::depth || spec.role == ImageRole::motion)
+            spec.extent = {dimensions.render_width, dimensions.render_height, 1};
         if (spec.role != ImageRole::internal) {
-            roles[static_cast<size_t>(spec.role)] = &spec;
+            roles[static_cast<size_t>(spec.role)] = spec;
             return;
         }
         VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -288,6 +304,7 @@ struct Core::Impl {
             auto &packed = dispatches[index];
             need(spec.size <= max_arguments, "unsupported argument size");
             packed.dispatch = &spec;
+            packed.grid = spec.grid;
             packed.geometry = geometry(profile.programs[spec.module].name);
             for (const auto &arg : spec.parameters) {
                 need(arg.offset + arg.size <= spec.size, "out-of-range argument");
@@ -309,7 +326,39 @@ struct Core::Impl {
                     break;
                 }
             }
+            // Stock uses the actual guide texture dimensions, including launch-time alignment.
+            const auto write_pair = [&](size_t offset, uint32_t w, uint32_t h) {
+                write(packed, offset, w, 4);
+                write(packed, offset + 4, h, 4);
+            };
+            const auto w = dimensions.render_width, h = dimensions.render_height;
+            const auto inverse_w = std::bit_cast<uint32_t>(1.f / float(w));
+            const auto inverse_h = std::bit_cast<uint32_t>(1.f / float(h));
+            switch (packed.geometry) {
+            case Geometry::input_motion:
+                write_pair(16, w, h);
+                write_pair(24, inverse_w, inverse_h);
+                write_pair(56, w, h);
+                write_pair(64, inverse_w, inverse_h);
+                break;
+            case Geometry::prev_to_curr: write_pair(40, inverse_w, inverse_h); break;
+            case Geometry::curr_to_prev: write_pair(128, inverse_w, inverse_h); break;
+            default: break;
+            }
         }
+        // Small outputs fuse two motion-pyramid steps into the remaining push kernel.
+        for (auto index : layout.skipped) dispatches[index].dispatch = nullptr;
+        for (const auto &binding : layout.addresses)
+            write(dispatches[binding.dispatch], binding.offset, buffers[binding.buffer].address, sizeof(VkDeviceAddress));
+        for (const auto &binding : layout.textures)
+            write(dispatches[binding.dispatch], binding.offset, textures[binding.texture].internal, sizeof(uint64_t));
+        for (const auto &grid : extent_geometry::grids) {
+            auto &groups = dispatches[grid.dispatch].grid;
+            for (size_t axis = 0; axis < groups.size(); ++axis)
+                groups[axis] = layout.values[grid.columns[axis]];
+        }
+        for (const auto &arg : extent_geometry::arguments)
+            write(dispatches[arg.dispatch], arg.offset, layout.values[arg.column], sizeof(uint32_t));
     }
 
     void initialize(const std::filesystem::path &path) {
@@ -318,7 +367,10 @@ struct Core::Impl {
         size_t total = 0;
         buffers.resize(slots(profile.buffers));
         for (const auto &spec : profile.buffers) {
-            create(buffers[spec.id], spec.size, spec.usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+            VkDeviceSize bytes = spec.size;
+            for (const auto &extent : extent_geometry::buffers)
+                if (extent.id == spec.id) bytes = layout.values[extent.column];
+            create(buffers[spec.id], bytes, spec.usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
             if (spec.initial_data.size) {
                 need(spec.initial_data.size == spec.size &&
                          (spec.usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT), "unexpected weights destination");
@@ -369,11 +421,11 @@ struct Core::Impl {
     }
 
     void verify_image(const Image &image, ImageRole role) const {
-        const auto *expected = roles[static_cast<size_t>(role)];
-        need(expected && image.image && image.view && image.range.levelCount == 1 && image.range.layerCount == 1 &&
-                 image.width == expected->extent.width && image.height == expected->extent.height &&
-                 static_cast<uint32_t>(image.format) == expected->format,
-             "image does not match the fixed execution profile");
+        const auto &expected = roles[static_cast<size_t>(role)];
+        need(image.image && image.view && image.range.levelCount == 1 && image.range.layerCount == 1 &&
+                 image.width == expected.extent.width && image.height == expected.extent.height &&
+                 static_cast<uint32_t>(image.format) == expected.format,
+             "image does not match the active execution profile");
     }
 
     void bind(const Frame &frame, std::span<const Image> outputs) {
@@ -433,6 +485,7 @@ struct Core::Impl {
                 memory_barrier(command);
             }
             const auto &prepared = dispatches[sequence.dispatches[index]];
+            if (!prepared.dispatch) continue;
             const auto &step = *prepared.dispatch;
             alignas(8) std::array<std::byte, max_arguments> scratch;
             const auto *arguments = prepared.arguments.data();
@@ -452,9 +505,9 @@ struct Core::Impl {
             const void *extras[]{reinterpret_cast<void *>(1), arguments, reinterpret_cast<void *>(2), &step.size, nullptr};
             VkCuLaunchInfoNVX info{VK_STRUCTURE_TYPE_CU_LAUNCH_INFO_NVX};
             info.function = programs[step.module].function;
-            info.gridDimX = step.grid[0];
-            info.gridDimY = step.grid[1];
-            info.gridDimZ = step.grid[2];
+            info.gridDimX = prepared.grid[0];
+            info.gridDimY = prepared.grid[1];
+            info.gridDimZ = prepared.grid[2];
             info.blockDimX = step.block[0];
             info.blockDimY = step.block[1];
             info.blockDimZ = step.block[2];
@@ -501,16 +554,18 @@ struct Core::Impl {
     }
 };
 
-const Profile &profile_1080p_quality() noexcept { return stock_1080p_quality::definition; }
+bool supports_dimensions(Dimensions dimensions) noexcept { return output_geometry(dimensions) != nullptr; }
 
 Core::Core() = default;
 Core::~Core() = default;
 
-bool Core::initialize(VmaAllocator allocator, const Profile &profile,
+bool Core::initialize(VmaAllocator allocator, Dimensions dimensions,
                       const std::filesystem::path &sdk_library, std::string &error) {
     try {
         need(allocator && !impl_, "missing caller allocator or already initialized");
-        auto state = std::make_unique<Impl>(allocator, profile);
+        const auto *layout = output_geometry(dimensions);
+        need(layout != nullptr, "unsupported output or guide extent");
+        auto state = std::make_unique<Impl>(allocator, dimensions, *layout);
         state->initialize(sdk_library);
         impl_ = std::move(state);
         error.clear();
